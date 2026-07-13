@@ -1,0 +1,12 @@
+[package]
+name = "fozmo-airplay-protocol"
+version = "1.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Versioned, process-independent control protocol for Fozmo AirPlay helpers"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+

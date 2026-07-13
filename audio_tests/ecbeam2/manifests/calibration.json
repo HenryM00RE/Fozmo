@@ -1,0 +1,46 @@
+{
+  "schema_version": "ecbeam2-corpus-v1",
+  "corpus_id": "ecbeam2-calibration-v1",
+  "role": "calibration",
+  "measurement_version": "dsd-ultrasonic-bands-v3-20260704",
+  "scoring_version": "dsd-sectioned-score-v9",
+  "fixture_set_version": "dsd-fixtures-v3",
+  "source_rates": [44100, 48000],
+  "wire_rates": [2822400, 3072000],
+  "filters": ["MinimumPhase", "SplitPhase"],
+  "seeds": [49153, 49154],
+  "baseline_digest_policy": "freeze observer-on and observer-off A1 bitstream digests before selection",
+  "expected_baseline_digests": {},
+  "fixtures": [
+    {
+      "id": "cal_a1_program_multitone_seed_c001",
+      "kind": "generated",
+      "generator": "program_multitone|seed=0xc001|v1",
+      "generator_spec_sha256": "deb4d3878ac91ad4cb98c07d3bb170a224c7882bb49841e2d36918957b2043e8"
+    },
+    {
+      "id": "cal_a1_pink_noise_seed_c002",
+      "kind": "generated",
+      "generator": "pink_noise|seed=0xc002|v1",
+      "generator_spec_sha256": "a78f781316b42a52a3d40e40852fe3caa4bf4a3a0d2666b83907a082c580f5b8"
+    }
+  ],
+  "difficult_windows": [
+    {
+      "case_id": "cal-program-44100",
+      "fixture_id": "cal_a1_program_multitone_seed_c001",
+      "category": "program",
+      "source_rate": 44100,
+      "start_sample": 0,
+      "length_samples": 2048
+    },
+    {
+      "case_id": "cal-pink-48000",
+      "fixture_id": "cal_a1_pink_noise_seed_c002",
+      "category": "broadband",
+      "source_rate": 48000,
+      "start_sample": 4096,
+      "length_samples": 2048
+    }
+  ]
+}

@@ -1,0 +1,6141 @@
+{
+  "$id": "https://fozmo.local/schemas/api-contract.schema.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AgentBufferState": {
+      "properties": {
+        "buffered_bytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "buffered_next": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "prefetching": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "buffered_bytes",
+        "prefetching"
+      ],
+      "type": "object"
+    },
+    "AlbumSummary": {
+      "properties": {
+        "album_artist": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "art_id": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "canonical_art_id": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "confidence": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "id": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "image_url": {
+          "description": "Qobuz cover fallback for matched albums that have no stored local or canonical artwork.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "match_status": {
+          "type": "string"
+        },
+        "mb_barcode": {
+          "description": "Barcode (UPC/EAN) of the matched MusicBrainz release, used to cross-check Qobuz auto-linking.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "original_year": {
+          "description": "First release date of the MusicBrainz release group — the album's original year, as opposed to `year` which may be a reissue/remaster date.",
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "primary_version_id": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "qobuz_album_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "qobuz_match_confidence": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "qobuz_match_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "track_count": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "year": {
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "confidence",
+        "id",
+        "match_status",
+        "title",
+        "track_count"
+      ],
+      "type": "object"
+    },
+    "ArtistSummary": {
+      "properties": {
+        "album_count": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "listened_secs": {
+          "format": "double",
+          "type": "number"
+        },
+        "name": {
+          "type": "string"
+        },
+        "play_count": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "track_count": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "album_count",
+        "listened_secs",
+        "name",
+        "play_count",
+        "track_count"
+      ],
+      "type": "object"
+    },
+    "BrowserSessionRequest": {
+      "properties": {
+        "pairing_token": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pairing_token"
+      ],
+      "type": "object"
+    },
+    "BrowserSessionResponse": {
+      "properties": {
+        "auth_required": {
+          "type": "boolean"
+        },
+        "expires_at_unix_secs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "token_kind": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "auth_required",
+        "expires_at_unix_secs",
+        "scopes",
+        "token_kind"
+      ],
+      "type": "object"
+    },
+    "BrowserStreamSettings": {
+      "description": "Per-browser-zone stream delivery choice. Absent means the legacy automatic behavior (lossless on LAN, Opus for remote lossless sources).",
+      "properties": {
+        "format": {
+          "description": "\"flac\" (lossless, EQ baked in server-side) or \"opus\".",
+          "type": "string"
+        },
+        "opus_kbps": {
+          "default": 256,
+          "description": "Opus bitrate in kbit/s; one of 128, 256, 320.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "format"
+      ],
+      "type": "object"
+    },
+    "BrowserStreamSignal": {
+      "description": "The server-side chain for a browser-zone stream, recorded when the stream route serves (or starts transcoding) a local track for that zone. The browser itself cannot see any of this — the source spec comes from the library, and EQ/encode happen inside the derivative pipeline.",
+      "properties": {
+        "eq_active": {
+          "type": "boolean"
+        },
+        "eq_active_bands": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "opus_kbps": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "output_bits": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "output_rate": {
+          "default": 0,
+          "description": "Delivered stream rate/bits: 48000/0 for Opus, source rate/24 for the EQ'd FLAC derivative, source rate/bits for passthrough.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "source_bits": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "source_format": {
+          "default": null,
+          "description": "Uppercase source container label, e.g. \"FLAC\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_rate": {
+          "default": 0,
+          "description": "0 when the library has no technical metadata for the track.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "track_id": {
+          "description": "Local library track this signal describes.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "variant": {
+          "description": "\"original\", \"flac\" (lossless derivative), \"flac_passthrough\", \"opus\".",
+          "type": "string"
+        }
+      },
+      "required": [
+        "eq_active",
+        "track_id",
+        "variant"
+      ],
+      "type": "object"
+    },
+    "BuildCapabilities": {
+      "properties": {
+        "airplay2": {
+          "type": "boolean"
+        },
+        "apple_music_capture": {
+          "type": "boolean"
+        },
+        "asio": {
+          "type": "boolean"
+        },
+        "experimental_dsd256": {
+          "type": "boolean"
+        },
+        "hegel": {
+          "type": "boolean"
+        },
+        "local_library": {
+          "type": "boolean"
+        },
+        "pcm_output": {
+          "type": "boolean"
+        },
+        "qobuz": {
+          "type": "boolean"
+        },
+        "sonos": {
+          "type": "boolean"
+        },
+        "upnp": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "airplay2",
+        "apple_music_capture",
+        "asio",
+        "experimental_dsd256",
+        "hegel",
+        "local_library",
+        "pcm_output",
+        "qobuz",
+        "sonos",
+        "upnp"
+      ],
+      "type": "object"
+    },
+    "CapabilityDetectionSource": {
+      "enum": [
+        "advertised",
+        "probed",
+        "probing",
+        "fallback"
+      ],
+      "type": "string"
+    },
+    "CapabilityDetectionStatus": {
+      "enum": [
+        "complete",
+        "probing",
+        "deferred",
+        "failed",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "DsdBufferHealth": {
+      "properties": {
+        "callback_deadline_miss_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "callback_frames": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "callback_index": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "callback_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "every_callback_scan_enabled": {
+          "default": false,
+          "type": "boolean"
+        },
+        "hardware_buffer_frames": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "hardware_buffer_max_frames": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "hardware_buffer_min_frames": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "hardware_buffer_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "idle_to_program_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_callback_at_ms": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_callback_frames": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_callback_gap_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "last_output_kind_id": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_output_transition_at_ms": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_output_transition_id": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_payload_fingerprint": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_payload_fingerprint_at_ms": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_program_read_samples": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_ring_fill_samples": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_ring_pressure_at_ms": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_soft_callback_gap_at_ms": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_soft_callback_gap_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "last_underrun_at_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "lock_miss_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "marker_error_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "marker_scan_count": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "mixed_output_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "program_idle_splice_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "program_to_idle_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "repeated_payload_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "requested_hardware_buffer_frames": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "requested_hardware_buffer_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "ring_below_100ms_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "ring_below_250ms_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "ring_below_50ms_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "ring_below_callback_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "ring_capacity_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "ring_capacity_samples": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "ring_fill_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "ring_fill_samples": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "ring_low_watermark_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "ring_low_watermark_samples": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "ring_read_cursor_samples": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "soft_callback_gap_125_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "soft_callback_gap_150_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "soft_callback_gap_175_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "callback_frames",
+        "callback_ms",
+        "hardware_buffer_frames",
+        "hardware_buffer_ms",
+        "last_underrun_at_ms",
+        "lock_miss_events",
+        "ring_capacity_ms",
+        "ring_capacity_samples",
+        "ring_fill_ms",
+        "ring_fill_samples",
+        "ring_low_watermark_ms",
+        "ring_low_watermark_samples"
+      ],
+      "type": "object"
+    },
+    "DsdSourceRule": {
+      "properties": {
+        "filter_type": {
+          "type": "string"
+        },
+        "output_mode": {
+          "type": "string"
+        },
+        "source_rate": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "filter_type",
+        "output_mode",
+        "source_rate"
+      ],
+      "type": "object"
+    },
+    "DspProfile": {
+      "properties": {
+        "dither_mode": {
+          "type": "string"
+        },
+        "filter_type": {
+          "type": "string"
+        },
+        "target_rate": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "upsampling_enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "dither_mode",
+        "filter_type",
+        "target_rate",
+        "upsampling_enabled"
+      ],
+      "type": "object"
+    },
+    "FavoriteAlbumSummary": {
+      "properties": {
+        "album_artist": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "art_id": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "favorited_at": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "hires": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "image_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "is_qobuz": {
+          "type": "boolean"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "qobuz_album_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "qobuz_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "year": {
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "favorited_at",
+        "hires",
+        "id",
+        "is_qobuz",
+        "provider",
+        "title"
+      ],
+      "type": "object"
+    },
+    "HistoryStatsQuery": {
+      "properties": {
+        "range": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "LibraryBrowseFacets": {
+      "properties": {
+        "decades": {
+          "items": {
+            "$ref": "#/definitions/LibraryFacetOption"
+          },
+          "type": "array"
+        },
+        "genres": {
+          "items": {
+            "$ref": "#/definitions/LibraryFacetOption"
+          },
+          "type": "array"
+        },
+        "qualities": {
+          "items": {
+            "$ref": "#/definitions/LibraryFacetOption"
+          },
+          "type": "array"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/definitions/LibraryFacetOption"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "decades",
+        "genres",
+        "qualities",
+        "sources"
+      ],
+      "type": "object"
+    },
+    "LibraryBrowsePage_for_AlbumSummary": {
+      "properties": {
+        "facets": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LibraryBrowseFacets"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "has_more": {
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/definitions/AlbumSummary"
+          },
+          "type": "array"
+        },
+        "limit": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "offset": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "total": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "has_more",
+        "items",
+        "limit",
+        "offset",
+        "total"
+      ],
+      "type": "object"
+    },
+    "LibraryBrowsePage_for_ArtistSummary": {
+      "properties": {
+        "facets": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LibraryBrowseFacets"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "has_more": {
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/definitions/ArtistSummary"
+          },
+          "type": "array"
+        },
+        "limit": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "offset": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "total": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "has_more",
+        "items",
+        "limit",
+        "offset",
+        "total"
+      ],
+      "type": "object"
+    },
+    "LibraryBrowsePage_for_TrackSummary": {
+      "properties": {
+        "facets": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LibraryBrowseFacets"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "has_more": {
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/definitions/TrackSummary"
+          },
+          "type": "array"
+        },
+        "limit": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "offset": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "total": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "has_more",
+        "items",
+        "limit",
+        "offset",
+        "total"
+      ],
+      "type": "object"
+    },
+    "LibraryBrowseQueryParams": {
+      "properties": {
+        "decade": {
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "direction": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "genre": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "include_facets": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "offset": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "q": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "quality": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sort": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "LibraryFacetOption": {
+      "properties": {
+        "count": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "count",
+        "label",
+        "value"
+      ],
+      "type": "object"
+    },
+    "LibraryFoldersResponse": {
+      "properties": {
+        "folders": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "folders"
+      ],
+      "type": "object"
+    },
+    "LibraryScanProgress": {
+      "properties": {
+        "current_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_result": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LibraryScanResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "phase": {
+          "type": "string"
+        },
+        "removed": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "running": {
+          "type": "boolean"
+        },
+        "scanned": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "total": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "updated": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "message",
+        "phase",
+        "removed",
+        "running",
+        "scanned",
+        "total",
+        "updated"
+      ],
+      "type": "object"
+    },
+    "LibraryScanResult": {
+      "properties": {
+        "removed": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "scanned": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "updated": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "removed",
+        "scanned",
+        "updated"
+      ],
+      "type": "object"
+    },
+    "LibrarySearchQuery": {
+      "properties": {
+        "q": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "LibrarySearchResponse": {
+      "properties": {
+        "albums": {
+          "items": {
+            "$ref": "#/definitions/AlbumSummary"
+          },
+          "type": "array"
+        },
+        "artists": {
+          "items": {
+            "$ref": "#/definitions/ArtistSummary"
+          },
+          "type": "array"
+        },
+        "query": {
+          "type": "string"
+        },
+        "tracks": {
+          "items": {
+            "$ref": "#/definitions/TrackSummary"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "albums",
+        "artists",
+        "query",
+        "tracks"
+      ],
+      "type": "object"
+    },
+    "LibrarySummary": {
+      "properties": {
+        "albums": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "artists": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "tracks": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "unmatched_albums": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "albums",
+        "artists",
+        "tracks",
+        "unmatched_albums"
+      ],
+      "type": "object"
+    },
+    "ListeningHistoryStats": {
+      "properties": {
+        "range": {
+          "type": "string"
+        },
+        "recent_tracks": {
+          "items": {
+            "$ref": "#/definitions/PlaybackHistoryEntry"
+          },
+          "type": "array"
+        },
+        "top_albums": {
+          "items": {
+            "$ref": "#/definitions/ListeningRankItem"
+          },
+          "type": "array"
+        },
+        "top_artists": {
+          "items": {
+            "$ref": "#/definitions/ListeningRankItem"
+          },
+          "type": "array"
+        },
+        "top_genres": {
+          "items": {
+            "$ref": "#/definitions/ListeningRankItem"
+          },
+          "type": "array"
+        },
+        "top_songs": {
+          "items": {
+            "$ref": "#/definitions/ListeningRankItem"
+          },
+          "type": "array"
+        },
+        "total_listened_secs": {
+          "format": "double",
+          "type": "number"
+        },
+        "weekday_buckets": {
+          "items": {
+            "$ref": "#/definitions/ListeningTimeBucket"
+          },
+          "type": "array"
+        },
+        "weekly_buckets": {
+          "items": {
+            "$ref": "#/definitions/ListeningTimeBucket"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "range",
+        "recent_tracks",
+        "top_albums",
+        "top_artists",
+        "top_genres",
+        "top_songs",
+        "total_listened_secs",
+        "weekday_buckets",
+        "weekly_buckets"
+      ],
+      "type": "object"
+    },
+    "ListeningProfile": {
+      "properties": {
+        "color": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "image": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "recent_searches": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "color",
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "ListeningRankItem": {
+      "properties": {
+        "album": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "album_id": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "art_id": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "image_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "listened_secs": {
+          "format": "double",
+          "type": "number"
+        },
+        "name": {
+          "type": "string"
+        },
+        "play_count": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "qobuz_album_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subtitle": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "listened_secs",
+        "name",
+        "play_count"
+      ],
+      "type": "object"
+    },
+    "ListeningTimeBucket": {
+      "properties": {
+        "end_at": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "listened_secs": {
+          "format": "double",
+          "type": "number"
+        },
+        "start_at": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "listened_secs"
+      ],
+      "type": "object"
+    },
+    "NowPlayingQueueResponse": {
+      "properties": {
+        "current_source": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SourceRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "queued_sources": {
+          "items": {
+            "$ref": "#/definitions/SourceRef"
+          },
+          "type": "array"
+        },
+        "state": true,
+        "updated_at": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "queued_sources",
+        "state"
+      ],
+      "type": "object"
+    },
+    "PairingRevocationResponse": {
+      "properties": {
+        "revoked": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revoked"
+      ],
+      "type": "object"
+    },
+    "PairingStartResponse": {
+      "properties": {
+        "auth_required": {
+          "type": "boolean"
+        },
+        "expires_at_unix_secs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "token": {
+          "type": "string"
+        },
+        "token_kind": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "auth_required",
+        "expires_at_unix_secs",
+        "scopes",
+        "token",
+        "token_kind"
+      ],
+      "type": "object"
+    },
+    "PlaybackHistoryEntry": {
+      "properties": {
+        "album": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "album_id": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "art_id": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "artist": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "completed": {
+          "type": "boolean"
+        },
+        "counted": {
+          "type": "boolean"
+        },
+        "duration_secs": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "id": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "image_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "played_at": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "played_secs": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "profile_id": {
+          "type": "string"
+        },
+        "radio": {
+          "type": "boolean"
+        },
+        "source": {
+          "$ref": "#/definitions/SourceRef"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "zone_id": {
+          "type": "string"
+        },
+        "zone_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "completed",
+        "counted",
+        "id",
+        "played_at",
+        "profile_id",
+        "radio",
+        "source",
+        "zone_id",
+        "zone_name"
+      ],
+      "type": "object"
+    },
+    "PlaylistContext": {
+      "properties": {
+        "playlist_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "playlist_id"
+      ],
+      "type": "object"
+    },
+    "PlaylistSummary": {
+      "properties": {
+        "createdAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "items": {
+          "items": true,
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "createdAt",
+        "id",
+        "items",
+        "name",
+        "updatedAt"
+      ],
+      "type": "object"
+    },
+    "ProfilesResponse": {
+      "properties": {
+        "active_profile_id": {
+          "type": "string"
+        },
+        "profiles": {
+          "items": {
+            "$ref": "#/definitions/ListeningProfile"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "active_profile_id",
+        "profiles"
+      ],
+      "type": "object"
+    },
+    "QobuzAlbum": {
+      "properties": {
+        "artist": {
+          "type": "string"
+        },
+        "artist_id": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "description": {
+          "description": "Editorial review/description (Qobuz `description` field). Present on `/album/get` responses, absent on search-result list items.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "duration": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "genre": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "genre_id": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "hires": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "image_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "maximum_bit_depth": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "maximum_sampling_rate": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "release_date": {
+          "description": "Exact release date from `release_date_original` (\"YYYY-MM-DD\"), when Qobuz provides it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "release_type": {
+          "description": "`album`, `ep`, `single`, `epMini`, `live`, `compilation`, etc. Used by the frontend to group releases in the artist Discography view.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "tracks_count": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "upc": {
+          "default": null,
+          "description": "Barcode (UPC/EAN) of the release. Cross-checked against the MusicBrainz barcode when deciding whether to auto-link an album.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "description": "Qobuz edition/version label such as `Expanded Edition`, `Live`, or `Remixes`. Artist list payloads often omit `release_type`, so the frontend also uses this value for discography grouping.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "year": {
+          "description": "Release year parsed from `release_date_original`.",
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "artist",
+        "hires",
+        "id",
+        "title"
+      ],
+      "type": "object"
+    },
+    "QobuzAlbumDetail": {
+      "properties": {
+        "album": {
+          "$ref": "#/definitions/QobuzAlbum"
+        },
+        "tracks": {
+          "items": {
+            "$ref": "#/definitions/QobuzTrack"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "album",
+        "tracks"
+      ],
+      "type": "object"
+    },
+    "QobuzAlbumPageResponse": {
+      "properties": {
+        "albums": {
+          "items": {
+            "$ref": "#/definitions/QobuzAlbum"
+          },
+          "type": "array"
+        },
+        "count": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "has_more": {
+          "type": "boolean"
+        },
+        "limit": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "offset": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "total": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "albums",
+        "count",
+        "has_more",
+        "limit",
+        "offset"
+      ],
+      "type": "object"
+    },
+    "QobuzAlbumSearchResponse": {
+      "properties": {
+        "albums": {
+          "items": {
+            "$ref": "#/definitions/QobuzAlbum"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "albums"
+      ],
+      "type": "object"
+    },
+    "QobuzArtist": {
+      "properties": {
+        "albums_count": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "biography": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "genre": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "image_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "QobuzArtistDetail": {
+      "properties": {
+        "albums": {
+          "items": {
+            "$ref": "#/definitions/QobuzAlbum"
+          },
+          "type": "array"
+        },
+        "artist": {
+          "$ref": "#/definitions/QobuzArtist"
+        },
+        "similar": {
+          "items": {
+            "$ref": "#/definitions/QobuzArtist"
+          },
+          "type": "array"
+        },
+        "top_tracks": {
+          "items": {
+            "$ref": "#/definitions/QobuzTrack"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "albums",
+        "artist",
+        "similar",
+        "top_tracks"
+      ],
+      "type": "object"
+    },
+    "QobuzArtistImageResponse": {
+      "properties": {
+        "artist_id": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "image_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "local_image_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "QobuzArtistSearchResponse": {
+      "properties": {
+        "artists": {
+          "items": {
+            "$ref": "#/definitions/QobuzArtist"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "artists"
+      ],
+      "type": "object"
+    },
+    "QobuzContributorCredit": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "roles": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "roles"
+      ],
+      "type": "object"
+    },
+    "QobuzFeaturedPlaylistsResponse": {
+      "properties": {
+        "count": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "has_more": {
+          "type": "boolean"
+        },
+        "limit": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "offset": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "playlists": {
+          "items": {
+            "$ref": "#/definitions/QobuzPlaylist"
+          },
+          "type": "array"
+        },
+        "total": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "count",
+        "has_more",
+        "limit",
+        "offset",
+        "playlists"
+      ],
+      "type": "object"
+    },
+    "QobuzHomeArtist": {
+      "properties": {
+        "id": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "image_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "subtitle": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "QobuzHomeResponse": {
+      "properties": {
+        "logged_in": {
+          "type": "boolean"
+        },
+        "partial_errors": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "sections": {
+          "items": {
+            "$ref": "#/definitions/QobuzHomeSection"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "logged_in",
+        "partial_errors",
+        "sections"
+      ],
+      "type": "object"
+    },
+    "QobuzHomeSection": {
+      "properties": {
+        "albums": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/QobuzAlbum"
+          },
+          "type": "array"
+        },
+        "artists": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/QobuzHomeArtist"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "item_type": {
+          "type": "string"
+        },
+        "playlists": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/QobuzPlaylist"
+          },
+          "type": "array"
+        },
+        "subtitle": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "item_type",
+        "title"
+      ],
+      "type": "object"
+    },
+    "QobuzPlaylist": {
+      "properties": {
+        "description": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "duration": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "image_url": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owner": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "tracks_count": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "updated_at": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "type": "object"
+    },
+    "QobuzPlaylistDetail": {
+      "properties": {
+        "playlist": {
+          "$ref": "#/definitions/QobuzPlaylist"
+        },
+        "tracks": {
+          "items": {
+            "$ref": "#/definitions/QobuzTrack"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "playlist",
+        "tracks"
+      ],
+      "type": "object"
+    },
+    "QobuzPlaylistTag": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "type": "object"
+    },
+    "QobuzSearchQuery": {
+      "properties": {
+        "q": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "QobuzSearchResponse": {
+      "properties": {
+        "tracks": {
+          "items": {
+            "$ref": "#/definitions/QobuzTrack"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "tracks"
+      ],
+      "type": "object"
+    },
+    "QobuzStatus": {
+      "properties": {
+        "initialized": {
+          "type": "boolean"
+        },
+        "logged_in": {
+          "type": "boolean"
+        },
+        "user": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/QobuzUser"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "initialized",
+        "logged_in"
+      ],
+      "type": "object"
+    },
+    "QobuzStatusResponse": {
+      "properties": {
+        "authenticated": {
+          "type": "boolean"
+        },
+        "initialized": {
+          "type": "boolean"
+        },
+        "logged_in": {
+          "type": "boolean"
+        },
+        "radio_enabled": {
+          "type": "boolean"
+        },
+        "user": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/QobuzUser"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "authenticated",
+        "initialized",
+        "logged_in",
+        "radio_enabled"
+      ],
+      "type": "object"
+    },
+    "QobuzTrack": {
+      "properties": {
+        "album": {
+          "type": "string"
+        },
+        "album_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "artist": {
+          "type": "string"
+        },
+        "artist_id": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "composer": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "copyright": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "credits": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/QobuzContributorCredit"
+          },
+          "type": "array"
+        },
+        "disc_number": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "duration": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "hires": {
+          "type": "boolean"
+        },
+        "id": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "image_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "isrc": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_played_at": {
+          "default": null,
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "listened_secs": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "maximum_bit_depth": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "maximum_sampling_rate": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "performers_raw": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "play_count": {
+          "default": 0,
+          "format": "int64",
+          "type": "integer"
+        },
+        "streamable": {
+          "type": "boolean"
+        },
+        "title": {
+          "type": "string"
+        },
+        "track_number": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "work": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "album",
+        "artist",
+        "duration",
+        "hires",
+        "id",
+        "streamable",
+        "title"
+      ],
+      "type": "object"
+    },
+    "QobuzUser": {
+      "properties": {
+        "display_name": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "subscription_label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "display_name",
+        "email",
+        "subscription_label"
+      ],
+      "type": "object"
+    },
+    "RadioContext": {
+      "properties": {
+        "anchor": {
+          "$ref": "#/definitions/RadioSeedContext"
+        },
+        "hop": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_seed": {
+          "$ref": "#/definitions/RadioSeedContext"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "anchor",
+        "last_seed",
+        "provider"
+      ],
+      "type": "object"
+    },
+    "RadioSeedContext": {
+      "properties": {
+        "artist": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mbid": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RecentAlbumSummary": {
+      "properties": {
+        "album_artist": {
+          "type": "string"
+        },
+        "album_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "art_id": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "hires": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "image_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "is_qobuz": {
+          "type": "boolean"
+        },
+        "match_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "played_at": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "qobuz_album_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recent_type": {
+          "type": "string"
+        },
+        "source_track_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "year": {
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "album_artist",
+        "hires",
+        "id",
+        "is_qobuz",
+        "played_at",
+        "recent_type",
+        "title"
+      ],
+      "type": "object"
+    },
+    "RecentAlbumsQuery": {
+      "properties": {
+        "limit": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RecentHistoryQuery": {
+      "properties": {
+        "exclude_radio": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RecentPlaylistSummary": {
+      "properties": {
+        "album_artist": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "is_playlist": {
+          "type": "boolean"
+        },
+        "items": {
+          "items": true,
+          "type": "array"
+        },
+        "played_at": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "playlist_id": {
+          "type": "string"
+        },
+        "recent_type": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "album_artist",
+        "id",
+        "is_playlist",
+        "items",
+        "played_at",
+        "playlist_id",
+        "recent_type",
+        "title"
+      ],
+      "type": "object"
+    },
+    "RecentPlaylistsQuery": {
+      "properties": {
+        "limit": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RecentSearchesResponse": {
+      "properties": {
+        "searches": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "searches"
+      ],
+      "type": "object"
+    },
+    "RemoteAccessSettingsDto": {
+      "properties": {
+        "custom_cert_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "custom_key_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "external_host": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "port": {
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "enabled",
+        "port"
+      ],
+      "type": "object"
+    },
+    "RemoteAccessSettingsResponse": {
+      "properties": {
+        "settings": {
+          "$ref": "#/definitions/RemoteAccessSettingsDto"
+        },
+        "status": {
+          "$ref": "#/definitions/RemoteAccessStatus"
+        }
+      },
+      "required": [
+        "settings",
+        "status"
+      ],
+      "type": "object"
+    },
+    "RemoteAccessSettingsUpdateRequest": {
+      "properties": {
+        "custom_cert_path": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "custom_key_path": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "external_host": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "port": {
+          "default": null,
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "type": "object"
+    },
+    "RemoteAccessStatus": {
+      "description": "Controller status as reported through the LAN settings API. The listener state only ever changes through `apply()`, which is reachable from persisted settings at startup and the LAN-only settings endpoint.",
+      "properties": {
+        "active_remote_sessions": {
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "bound_port": {
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "cert_fingerprint_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "external_host": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "running": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "active_remote_sessions",
+        "bound_port",
+        "enabled",
+        "running"
+      ],
+      "type": "object"
+    },
+    "RemoteLinkCodeResponse": {
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "expires_at_unix_secs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "url_hint": {
+          "description": "Display-only convenience URL derived from `external_host`; never an input to auth decisions.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "expires_at_unix_secs"
+      ],
+      "type": "object"
+    },
+    "RemoteSessionClientMetadata": {
+      "properties": {
+        "browser": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "device_family": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ip_family": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "network_hint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "os": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RemoteSessionMetadataDto": {
+      "properties": {
+        "active": {
+          "type": "boolean"
+        },
+        "client": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RemoteSessionClientMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expires_at_unix_secs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "issued_at_unix_secs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "label": {
+          "type": "string"
+        },
+        "last_used_at_unix_secs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "active",
+        "expires_at_unix_secs",
+        "id",
+        "issued_at_unix_secs",
+        "label"
+      ],
+      "type": "object"
+    },
+    "RemoteSessionRequest": {
+      "properties": {
+        "code": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "type": "object"
+    },
+    "RemoteSessionResponse": {
+      "properties": {
+        "expires_at_unix_secs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "scopes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "token_kind": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "expires_at_unix_secs",
+        "scopes",
+        "token_kind"
+      ],
+      "type": "object"
+    },
+    "RemoteSessionRevocationResponse": {
+      "properties": {
+        "revoked": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "revoked"
+      ],
+      "type": "object"
+    },
+    "RemoteSessionsResponse": {
+      "properties": {
+        "sessions": {
+          "items": {
+            "$ref": "#/definitions/RemoteSessionMetadataDto"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "sessions"
+      ],
+      "type": "object"
+    },
+    "ResolvedPlaySource": {
+      "oneOf": [
+        {
+          "properties": {
+            "album": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "art_id": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "artist": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "duration_secs": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "file_name": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "local"
+              ],
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "track_id": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "file_name",
+            "kind",
+            "title",
+            "track_id"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "album": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "album_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "artist": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "duration_secs": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "format_id": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "image_url": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "enum": [
+                "qobuz"
+              ],
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "track_id": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "title",
+            "track_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SinkProtocol": {
+      "enum": [
+        "local_core_audio",
+        "remote_agent",
+        "air_play_core_audio",
+        "air_play_raop",
+        "air_play2",
+        "sonos_upnp",
+        "upnp_av_renderer",
+        "asio_output"
+      ],
+      "type": "string"
+    },
+    "SourceRef": {
+      "oneOf": [
+        {
+          "properties": {
+            "album": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "album_artist": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "album_id": {
+              "default": null,
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "art_id": {
+              "default": null,
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "artist": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "duration_secs": {
+              "default": null,
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "ext_hint": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "file_name": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "enum": [
+                "local_track"
+              ],
+              "type": "string"
+            },
+            "playlist_context": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/PlaylistContext"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "radio": {
+              "default": false,
+              "type": "boolean"
+            },
+            "radio_context": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/RadioContext"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "track_id": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "track_id"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "album": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "album_id": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "artist": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "duration_secs": {
+              "default": null,
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "image_url": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "enum": [
+                "qobuz_track"
+              ],
+              "type": "string"
+            },
+            "playlist_context": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/PlaylistContext"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "radio": {
+              "default": false,
+              "type": "boolean"
+            },
+            "radio_context": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/RadioContext"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "track_id": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "track_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "StatusResponse": {
+      "properties": {
+        "active_filter_type": {
+          "type": "string"
+        },
+        "active_output_mode": {
+          "type": "string"
+        },
+        "active_zone_id": {
+          "type": "string"
+        },
+        "active_zone_name": {
+          "type": "string"
+        },
+        "airplay_helper_state": {
+          "description": "Runtime state of the separately built direct-AirPlay process.",
+          "type": "string"
+        },
+        "block_duration_ns": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "browser_stream_signal": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserStreamSignal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Server-side chain for the active browser-zone stream, when known."
+        },
+        "capabilities": {
+          "$ref": "#/definitions/BuildCapabilities"
+        },
+        "configured_target_bit_depth": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "configured_target_rate": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "coreaudio_dop_drop_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "coreaudio_dop_last_lifecycle_at_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "coreaudio_dop_last_lifecycle_event_id": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "coreaudio_dop_open_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "coreaudio_dop_quiesce_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "coreaudio_dop_start_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "coreaudio_dop_stop_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "cover_version": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "cpu_percent": {
+          "format": "float",
+          "type": "number"
+        },
+        "current_source": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SourceRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decoder_decode_stall_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "decoder_decode_stall_last_at_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "decoder_decode_time_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "decoder_starved_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "device_volume": {
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "device_volume_max": {
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "device_volume_message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "device_volume_supported": {
+          "type": "boolean"
+        },
+        "dither_mode": {
+          "type": "string"
+        },
+        "dop_alignment_reset_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_callback_deadline_miss_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_callback_frames": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_callback_index": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_callback_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "dop_every_callback_scan_enabled": {
+          "type": "boolean"
+        },
+        "dop_hardware_buffer_frames": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_hardware_buffer_max_frames": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_hardware_buffer_min_frames": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_hardware_buffer_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "dop_idle_to_program_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_callback_at_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_callback_frames": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_callback_gap_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "dop_last_output_kind_id": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_output_transition_at_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_output_transition_id": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_payload_fingerprint": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_payload_fingerprint_at_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_program_read_samples": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_ring_fill_samples": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_ring_pressure_at_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_soft_callback_gap_at_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_soft_callback_gap_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "dop_last_underrun_at_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_lock_miss_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_marker_error_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_marker_scan_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_mixed_output_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_program_idle_splice_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_program_to_idle_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_repeated_payload_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_requested_hardware_buffer_frames": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_requested_hardware_buffer_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "dop_ring_below_100ms_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_ring_below_250ms_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_ring_below_50ms_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_ring_below_callback_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_ring_capacity_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "dop_ring_fill_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "dop_ring_low_watermark_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "dop_ring_read_cursor_samples": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_soft_callback_gap_125_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_soft_callback_gap_150_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_soft_callback_gap_175_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dsd_buffer_health": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DsdBufferHealth"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dsd_isi_penalty": {
+          "format": "float",
+          "type": "number"
+        },
+        "dsd_last_load": {
+          "format": "float",
+          "type": "number"
+        },
+        "dsd_limiter_active": {
+          "type": "boolean"
+        },
+        "dsd_limiter_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dsd_limiter_peak_ratio": {
+          "format": "float",
+          "type": "number"
+        },
+        "dsd_limiter_peak_ratio_max": {
+          "format": "float",
+          "type": "number"
+        },
+        "dsd_limiter_samples": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dsd_modulate_time_ns": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dsd_modulator": {
+          "type": "string"
+        },
+        "dsd_output_pending_samples": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dsd_overbudget_blocks": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dsd_recent_load_p95": {
+          "format": "float",
+          "type": "number"
+        },
+        "dsd_recent_load_p99": {
+          "format": "float",
+          "type": "number"
+        },
+        "dsd_rules": {
+          "items": {
+            "$ref": "#/definitions/DsdSourceRule"
+          },
+          "type": "array"
+        },
+        "dsd_rules_enabled": {
+          "type": "boolean"
+        },
+        "dsd_stability_resets": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dsd_upsample_time_ns": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dsp_buffer_ms": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dsp_graph_rebuild_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "duration_secs": {
+          "format": "double",
+          "type": "number"
+        },
+        "exclusive": {
+          "type": "boolean"
+        },
+        "file_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "filter_type": {
+          "type": "string"
+        },
+        "flush_reason_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "headroom_db": {
+          "format": "float",
+          "type": "number"
+        },
+        "last_flush_reason_at_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_flush_reason_id": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_reopen_reason_at_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_reopen_reason_id": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "lock_wait_max_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "max_audio_callback_gap_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "max_decoder_decode_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "max_render_block_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "max_source_read_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "meter_l": {
+          "format": "float",
+          "type": "number"
+        },
+        "meter_r": {
+          "format": "float",
+          "type": "number"
+        },
+        "modulator_reset_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "output_mode": {
+          "type": "string"
+        },
+        "output_notice": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output_notice_id": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "output_ring_fill_min_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "output_ring_fill_now_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "output_transport": {
+          "type": "string"
+        },
+        "playback_speed": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "position_secs": {
+          "format": "double",
+          "type": "number"
+        },
+        "producer_over_budget_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "remote_buffer_state": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AgentBufferState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "remote_connected": {
+          "type": "boolean"
+        },
+        "remote_signal_path": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SyncSignalPath"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reopen_reason_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "resample_time_ns": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "sample_rate_change_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "selected_device": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "signal_clip_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "signal_clip_samples": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "signal_clipping": {
+          "type": "boolean"
+        },
+        "signal_peak": {
+          "format": "float",
+          "type": "number"
+        },
+        "signal_peak_max": {
+          "format": "float",
+          "type": "number"
+        },
+        "source_bits": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "source_rate": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "source_read_stall_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "source_read_stall_last_at_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "source_read_time_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "src_capped_fallback": {
+          "type": "boolean"
+        },
+        "src_path_kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "src_phase_profile_preserved": {
+          "type": "boolean"
+        },
+        "src_ratio_den": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "src_ratio_num": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "startup_callback_gaps_ms": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "startup_first_render_block_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "startup_producer_over_budget_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "startup_ready_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "startup_ring_low_watermark_ms": {
+          "format": "double",
+          "type": "number"
+        },
+        "state": {
+          "type": "string"
+        },
+        "surface": {
+          "type": "string"
+        },
+        "target_bits": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "target_rate": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "track_album": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "track_artist": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "track_title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "transport_pending": {
+          "type": "string"
+        },
+        "transport_pending_position_secs": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "underrun_count": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "underrun_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "underrun_samples": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "upnp_active_render_signature": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "upnp_config_applied_to_current_playback": {
+          "type": "boolean"
+        },
+        "upnp_configured_render_signature": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "upnp_last_cache_hit": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "upnp_last_prepare_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "upnp_last_render_ms": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "upnp_render_status": {
+          "type": "string"
+        },
+        "upnp_restart_pending": {
+          "type": "boolean"
+        },
+        "upsampling_enabled": {
+          "type": "boolean"
+        },
+        "volume": {
+          "format": "float",
+          "type": "number"
+        },
+        "zone_protocol": {
+          "$ref": "#/definitions/SinkProtocol"
+        }
+      },
+      "required": [
+        "active_filter_type",
+        "active_output_mode",
+        "active_zone_id",
+        "active_zone_name",
+        "airplay_helper_state",
+        "block_duration_ns",
+        "capabilities",
+        "configured_target_bit_depth",
+        "configured_target_rate",
+        "coreaudio_dop_drop_count",
+        "coreaudio_dop_last_lifecycle_at_ms",
+        "coreaudio_dop_last_lifecycle_event_id",
+        "coreaudio_dop_open_count",
+        "coreaudio_dop_quiesce_count",
+        "coreaudio_dop_start_count",
+        "coreaudio_dop_stop_count",
+        "cover_version",
+        "cpu_percent",
+        "decoder_decode_stall_count",
+        "decoder_decode_stall_last_at_ms",
+        "decoder_decode_time_ms",
+        "decoder_starved_count",
+        "device_volume_supported",
+        "dither_mode",
+        "dop_alignment_reset_count",
+        "dop_callback_deadline_miss_events",
+        "dop_callback_frames",
+        "dop_callback_index",
+        "dop_callback_ms",
+        "dop_every_callback_scan_enabled",
+        "dop_hardware_buffer_frames",
+        "dop_hardware_buffer_max_frames",
+        "dop_hardware_buffer_min_frames",
+        "dop_hardware_buffer_ms",
+        "dop_idle_to_program_events",
+        "dop_last_callback_at_ms",
+        "dop_last_callback_frames",
+        "dop_last_callback_gap_ms",
+        "dop_last_output_kind_id",
+        "dop_last_output_transition_at_ms",
+        "dop_last_output_transition_id",
+        "dop_last_payload_fingerprint",
+        "dop_last_payload_fingerprint_at_ms",
+        "dop_last_program_read_samples",
+        "dop_last_ring_fill_samples",
+        "dop_last_ring_pressure_at_ms",
+        "dop_last_soft_callback_gap_at_ms",
+        "dop_last_soft_callback_gap_ms",
+        "dop_last_underrun_at_ms",
+        "dop_lock_miss_events",
+        "dop_marker_error_events",
+        "dop_marker_scan_count",
+        "dop_mixed_output_events",
+        "dop_program_idle_splice_events",
+        "dop_program_to_idle_events",
+        "dop_repeated_payload_events",
+        "dop_requested_hardware_buffer_frames",
+        "dop_requested_hardware_buffer_ms",
+        "dop_ring_below_100ms_events",
+        "dop_ring_below_250ms_events",
+        "dop_ring_below_50ms_events",
+        "dop_ring_below_callback_events",
+        "dop_ring_capacity_ms",
+        "dop_ring_fill_ms",
+        "dop_ring_low_watermark_ms",
+        "dop_ring_read_cursor_samples",
+        "dop_soft_callback_gap_125_events",
+        "dop_soft_callback_gap_150_events",
+        "dop_soft_callback_gap_175_events",
+        "dsd_isi_penalty",
+        "dsd_last_load",
+        "dsd_limiter_active",
+        "dsd_limiter_events",
+        "dsd_limiter_peak_ratio",
+        "dsd_limiter_peak_ratio_max",
+        "dsd_limiter_samples",
+        "dsd_modulate_time_ns",
+        "dsd_modulator",
+        "dsd_output_pending_samples",
+        "dsd_overbudget_blocks",
+        "dsd_recent_load_p95",
+        "dsd_recent_load_p99",
+        "dsd_rules",
+        "dsd_rules_enabled",
+        "dsd_stability_resets",
+        "dsd_upsample_time_ns",
+        "dsp_buffer_ms",
+        "dsp_graph_rebuild_count",
+        "duration_secs",
+        "exclusive",
+        "filter_type",
+        "flush_reason_count",
+        "headroom_db",
+        "last_flush_reason_at_ms",
+        "last_flush_reason_id",
+        "last_reopen_reason_at_ms",
+        "last_reopen_reason_id",
+        "lock_wait_max_ms",
+        "max_audio_callback_gap_ms",
+        "max_decoder_decode_ms",
+        "max_render_block_ms",
+        "max_source_read_ms",
+        "meter_l",
+        "meter_r",
+        "modulator_reset_count",
+        "output_mode",
+        "output_notice_id",
+        "output_ring_fill_min_ms",
+        "output_ring_fill_now_ms",
+        "output_transport",
+        "position_secs",
+        "producer_over_budget_count",
+        "remote_connected",
+        "reopen_reason_count",
+        "resample_time_ns",
+        "sample_rate_change_count",
+        "signal_clip_events",
+        "signal_clip_samples",
+        "signal_clipping",
+        "signal_peak",
+        "signal_peak_max",
+        "source_bits",
+        "source_rate",
+        "source_read_stall_count",
+        "source_read_stall_last_at_ms",
+        "source_read_time_ms",
+        "src_capped_fallback",
+        "src_phase_profile_preserved",
+        "src_ratio_den",
+        "src_ratio_num",
+        "startup_callback_gaps_ms",
+        "startup_first_render_block_ms",
+        "startup_producer_over_budget_count",
+        "startup_ready_ms",
+        "startup_ring_low_watermark_ms",
+        "state",
+        "surface",
+        "target_bits",
+        "target_rate",
+        "transport_pending",
+        "underrun_count",
+        "underrun_events",
+        "underrun_samples",
+        "upnp_config_applied_to_current_playback",
+        "upnp_render_status",
+        "upnp_restart_pending",
+        "upsampling_enabled",
+        "volume",
+        "zone_protocol"
+      ],
+      "type": "object"
+    },
+    "SyncSignalPath": {
+      "properties": {
+        "active_output_mode": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "block_duration_ns": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "coreaudio_dop_drop_count": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "coreaudio_dop_last_lifecycle_at_ms": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "coreaudio_dop_last_lifecycle_event_id": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "coreaudio_dop_open_count": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "coreaudio_dop_quiesce_count": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "coreaudio_dop_start_count": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "coreaudio_dop_stop_count": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "cpu_percent": {
+          "format": "float",
+          "type": "number"
+        },
+        "decoder_decode_stall_count": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "decoder_decode_stall_last_at_ms": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "decoder_decode_time_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "decoder_starved_count": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_alignment_reset_count": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_callback_deadline_miss_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_callback_frames": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_callback_index": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_callback_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "dop_every_callback_scan_enabled": {
+          "default": false,
+          "type": "boolean"
+        },
+        "dop_hardware_buffer_frames": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_hardware_buffer_max_frames": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_hardware_buffer_min_frames": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_hardware_buffer_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "dop_idle_to_program_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_callback_at_ms": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_callback_frames": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_callback_gap_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "dop_last_output_kind_id": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_output_transition_at_ms": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_output_transition_id": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_payload_fingerprint": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_payload_fingerprint_at_ms": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_program_read_samples": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_ring_fill_samples": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_ring_pressure_at_ms": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_soft_callback_gap_at_ms": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_last_soft_callback_gap_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "dop_last_underrun_at_ms": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_lock_miss_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_marker_error_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_marker_scan_count": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_mixed_output_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_program_idle_splice_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_program_to_idle_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_repeated_payload_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_requested_hardware_buffer_frames": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_requested_hardware_buffer_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "dop_ring_below_100ms_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_ring_below_250ms_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_ring_below_50ms_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_ring_below_callback_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_ring_capacity_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "dop_ring_fill_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "dop_ring_low_watermark_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "dop_ring_read_cursor_samples": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_soft_callback_gap_125_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_soft_callback_gap_150_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dop_soft_callback_gap_175_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dsd_buffer_health": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DsdBufferHealth"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "dsd_last_load": {
+          "default": 0.0,
+          "format": "float",
+          "type": "number"
+        },
+        "dsd_limiter_active": {
+          "default": false,
+          "type": "boolean"
+        },
+        "dsd_limiter_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dsd_limiter_peak_ratio": {
+          "default": 0.0,
+          "format": "float",
+          "type": "number"
+        },
+        "dsd_limiter_peak_ratio_max": {
+          "default": 0.0,
+          "format": "float",
+          "type": "number"
+        },
+        "dsd_limiter_samples": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dsd_modulate_time_ns": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dsd_modulator": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dsd_output_pending_samples": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dsd_overbudget_blocks": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dsd_recent_load_p95": {
+          "default": 0.0,
+          "format": "float",
+          "type": "number"
+        },
+        "dsd_recent_load_p99": {
+          "default": 0.0,
+          "format": "float",
+          "type": "number"
+        },
+        "dsd_stability_resets": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dsd_upsample_time_ns": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dsp_filter": {
+          "type": "string"
+        },
+        "dsp_graph_rebuild_count": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "dsp_target_rate": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "exclusive": {
+          "type": "boolean"
+        },
+        "flush_reason_count": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_flush_reason_at_ms": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_flush_reason_id": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_reopen_reason_at_ms": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "last_reopen_reason_id": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "lock_wait_max_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "max_audio_callback_gap_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "max_decoder_decode_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "max_render_block_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "max_source_read_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "modulator_reset_count": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "output_bit_depth": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "output_device": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output_mode": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output_rate": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "output_ring_fill_min_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "output_ring_fill_now_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "output_transport": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "producer_over_budget_count": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "reopen_reason_count": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "resample_time_ns": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "sample_rate_change_count": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "signal_clip_events": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "signal_clip_samples": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "signal_clipping": {
+          "default": false,
+          "type": "boolean"
+        },
+        "signal_peak": {
+          "default": 0.0,
+          "format": "float",
+          "type": "number"
+        },
+        "signal_peak_max": {
+          "default": 0.0,
+          "format": "float",
+          "type": "number"
+        },
+        "source_bit_depth": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "source_format": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_rate": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "source_read_stall_count": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "source_read_stall_last_at_ms": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "source_read_time_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "src_capped_fallback": {
+          "default": false,
+          "type": "boolean"
+        },
+        "src_path_kind": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "src_phase_profile_preserved": {
+          "default": true,
+          "type": "boolean"
+        },
+        "src_ratio_den": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "src_ratio_num": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "startup_callback_gaps_ms": {
+          "default": [],
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "startup_first_render_block_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "startup_producer_over_budget_count": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "startup_ready_ms": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "startup_ring_low_watermark_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "underrun_count": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "underrun_events": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "underrun_samples": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "block_duration_ns",
+        "cpu_percent",
+        "dsp_filter",
+        "dsp_target_rate",
+        "exclusive",
+        "output_bit_depth",
+        "output_rate",
+        "resample_time_ns",
+        "source_bit_depth",
+        "source_rate",
+        "underrun_events",
+        "underrun_samples"
+      ],
+      "type": "object"
+    },
+    "TrackSummary": {
+      "properties": {
+        "album": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "album_artist": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "album_id": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "art_id": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "artist": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "bit_depth": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "channels": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "composer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "disc_number": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "duration_secs": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "file_name": {
+          "type": "string"
+        },
+        "format": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "genre": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "last_played_at": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "listened_secs": {
+          "format": "double",
+          "type": "number"
+        },
+        "play_count": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "preferred_play_source": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ResolvedPlaySource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sample_rate": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "track_number": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "year": {
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "file_name",
+        "id",
+        "listened_secs",
+        "play_count",
+        "title"
+      ],
+      "type": "object"
+    },
+    "UpnpPcmContainer": {
+      "enum": [
+        "flac",
+        "wav"
+      ],
+      "type": "string"
+    },
+    "UpnpPcmContainerCapability": {
+      "properties": {
+        "container": {
+          "$ref": "#/definitions/UpnpPcmContainer"
+        },
+        "max_bit_depth": {
+          "format": "uint8",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "max_sample_rate": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "container",
+        "max_bit_depth",
+        "max_sample_rate"
+      ],
+      "type": "object"
+    },
+    "ZoneCalibrationResponse": {
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "zone": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ZoneProfile"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "type": "object"
+    },
+    "ZoneCapabilities": {
+      "properties": {
+        "capability_detection_message": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "capability_detection_source": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/CapabilityDetectionSource"
+            }
+          ],
+          "default": "fallback"
+        },
+        "capability_detection_status": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/CapabilityDetectionStatus"
+            }
+          ],
+          "default": "unknown"
+        },
+        "exclusive_supported": {
+          "type": "boolean"
+        },
+        "gapless_supported": {
+          "type": "boolean"
+        },
+        "max_bit_depth": {
+          "format": "uint8",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "max_dsd_rate": {
+          "default": null,
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_sample_rate": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "supports_dsd128": {
+          "default": false,
+          "type": "boolean"
+        },
+        "supports_dsd256": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "exclusive_supported",
+        "gapless_supported",
+        "max_bit_depth",
+        "max_sample_rate"
+      ],
+      "type": "object"
+    },
+    "ZoneHegelSettings": {
+      "properties": {
+        "default_volume": {
+          "default": 20,
+          "format": "uint8",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "host": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "input": {
+          "default": 9,
+          "format": "uint8",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "linked_airplay_zone_id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "max_volume": {
+          "default": 50,
+          "format": "uint8",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "model": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "port": {
+          "default": 50001,
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "standby_usb_visible": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "ZoneProfile": {
+      "properties": {
+        "agent_name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "airplay_default_volume": {
+          "default": null,
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "airplay_last_volume": {
+          "default": null,
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "backend": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "browser": {
+          "default": false,
+          "description": "True for a browser-private zone: playable only from the browser session that registered it.",
+          "type": "boolean"
+        },
+        "browser_stream": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserStreamSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stream delivery choice for browser zones (FLAC vs Opus + bitrate)."
+        },
+        "capabilities": {
+          "$ref": "#/definitions/ZoneCapabilities"
+        },
+        "device_name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "device_type": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dsp_profile": {
+          "$ref": "#/definitions/DspProfile"
+        },
+        "enabled": {
+          "default": false,
+          "type": "boolean"
+        },
+        "hegel": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ZoneHegelSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "icon": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "network_address": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "playing_state": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "protocol": {
+          "$ref": "#/definitions/SinkProtocol"
+        },
+        "qobuz_hires_enabled": {
+          "default": false,
+          "type": "boolean"
+        },
+        "status": {
+          "$ref": "#/definitions/ZoneStatus"
+        },
+        "status_message": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "track_title": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "upnp_calibrated_capabilities": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ZoneUpnpCapabilities"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "capabilities",
+        "dsp_profile",
+        "id",
+        "name",
+        "protocol",
+        "status"
+      ],
+      "type": "object"
+    },
+    "ZoneSettings": {
+      "properties": {
+        "airplay_default_volume": {
+          "default": null,
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "airplay_last_volume": {
+          "default": null,
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "browser_stream": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserStreamSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "device_type": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hegel": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ZoneHegelSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "icon": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "qobuz_hires_enabled": {
+          "default": false,
+          "type": "boolean"
+        },
+        "upnp_calibrated_capabilities": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ZoneUpnpCapabilities"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "upnp_capabilities": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ZoneUpnpCapabilities"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    },
+    "ZoneStatus": {
+      "enum": [
+        "available",
+        "active",
+        "offline"
+      ],
+      "type": "string"
+    },
+    "ZoneUpnpCapabilities": {
+      "properties": {
+        "max_bit_depth": {
+          "default": 24,
+          "format": "uint8",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "max_dsd_rate": {
+          "default": null,
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_sample_rate": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "pcm_containers": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/UpnpPcmContainerCapability"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "max_sample_rate"
+      ],
+      "type": "object"
+    }
+  },
+  "properties": {
+    "agent_buffer_state": {
+      "$ref": "#/definitions/AgentBufferState"
+    },
+    "browser_session": {
+      "$ref": "#/definitions/BrowserSessionResponse"
+    },
+    "browser_session_request": {
+      "$ref": "#/definitions/BrowserSessionRequest"
+    },
+    "favorite_album": {
+      "$ref": "#/definitions/FavoriteAlbumSummary"
+    },
+    "history_stats_query": {
+      "$ref": "#/definitions/HistoryStatsQuery"
+    },
+    "library_album": {
+      "$ref": "#/definitions/AlbumSummary"
+    },
+    "library_album_page": {
+      "$ref": "#/definitions/LibraryBrowsePage_for_AlbumSummary"
+    },
+    "library_artist": {
+      "$ref": "#/definitions/ArtistSummary"
+    },
+    "library_artist_page": {
+      "$ref": "#/definitions/LibraryBrowsePage_for_ArtistSummary"
+    },
+    "library_browse_query": {
+      "$ref": "#/definitions/LibraryBrowseQueryParams"
+    },
+    "library_folders": {
+      "$ref": "#/definitions/LibraryFoldersResponse"
+    },
+    "library_scan_progress": {
+      "$ref": "#/definitions/LibraryScanProgress"
+    },
+    "library_search": {
+      "$ref": "#/definitions/LibrarySearchResponse"
+    },
+    "library_search_query": {
+      "$ref": "#/definitions/LibrarySearchQuery"
+    },
+    "library_summary": {
+      "$ref": "#/definitions/LibrarySummary"
+    },
+    "library_track": {
+      "$ref": "#/definitions/TrackSummary"
+    },
+    "library_track_page": {
+      "$ref": "#/definitions/LibraryBrowsePage_for_TrackSummary"
+    },
+    "listening_history_stats": {
+      "$ref": "#/definitions/ListeningHistoryStats"
+    },
+    "now_playing_queue": {
+      "$ref": "#/definitions/NowPlayingQueueResponse"
+    },
+    "pairing_revocation": {
+      "$ref": "#/definitions/PairingRevocationResponse"
+    },
+    "pairing_start": {
+      "$ref": "#/definitions/PairingStartResponse"
+    },
+    "playback_history_entry": {
+      "$ref": "#/definitions/PlaybackHistoryEntry"
+    },
+    "playback_status": {
+      "$ref": "#/definitions/StatusResponse"
+    },
+    "playlist": {
+      "$ref": "#/definitions/PlaylistSummary"
+    },
+    "profiles": {
+      "$ref": "#/definitions/ProfilesResponse"
+    },
+    "qobuz_album": {
+      "$ref": "#/definitions/QobuzAlbum"
+    },
+    "qobuz_album_detail": {
+      "$ref": "#/definitions/QobuzAlbumDetail"
+    },
+    "qobuz_album_page": {
+      "$ref": "#/definitions/QobuzAlbumPageResponse"
+    },
+    "qobuz_album_search": {
+      "$ref": "#/definitions/QobuzAlbumSearchResponse"
+    },
+    "qobuz_artist": {
+      "$ref": "#/definitions/QobuzArtist"
+    },
+    "qobuz_artist_detail": {
+      "$ref": "#/definitions/QobuzArtistDetail"
+    },
+    "qobuz_artist_image": {
+      "$ref": "#/definitions/QobuzArtistImageResponse"
+    },
+    "qobuz_artist_search": {
+      "$ref": "#/definitions/QobuzArtistSearchResponse"
+    },
+    "qobuz_featured_playlists": {
+      "$ref": "#/definitions/QobuzFeaturedPlaylistsResponse"
+    },
+    "qobuz_home": {
+      "$ref": "#/definitions/QobuzHomeResponse"
+    },
+    "qobuz_playlist": {
+      "$ref": "#/definitions/QobuzPlaylist"
+    },
+    "qobuz_playlist_detail": {
+      "$ref": "#/definitions/QobuzPlaylistDetail"
+    },
+    "qobuz_playlist_tag": {
+      "$ref": "#/definitions/QobuzPlaylistTag"
+    },
+    "qobuz_search": {
+      "$ref": "#/definitions/QobuzSearchResponse"
+    },
+    "qobuz_search_query": {
+      "$ref": "#/definitions/QobuzSearchQuery"
+    },
+    "qobuz_status": {
+      "$ref": "#/definitions/QobuzStatus"
+    },
+    "qobuz_status_response": {
+      "$ref": "#/definitions/QobuzStatusResponse"
+    },
+    "qobuz_track": {
+      "$ref": "#/definitions/QobuzTrack"
+    },
+    "recent_album": {
+      "$ref": "#/definitions/RecentAlbumSummary"
+    },
+    "recent_albums_query": {
+      "$ref": "#/definitions/RecentAlbumsQuery"
+    },
+    "recent_history_query": {
+      "$ref": "#/definitions/RecentHistoryQuery"
+    },
+    "recent_playlist": {
+      "$ref": "#/definitions/RecentPlaylistSummary"
+    },
+    "recent_playlists_query": {
+      "$ref": "#/definitions/RecentPlaylistsQuery"
+    },
+    "recent_searches": {
+      "$ref": "#/definitions/RecentSearchesResponse"
+    },
+    "remote_access_settings": {
+      "$ref": "#/definitions/RemoteAccessSettingsDto"
+    },
+    "remote_access_settings_response": {
+      "$ref": "#/definitions/RemoteAccessSettingsResponse"
+    },
+    "remote_access_settings_update_request": {
+      "$ref": "#/definitions/RemoteAccessSettingsUpdateRequest"
+    },
+    "remote_access_status": {
+      "$ref": "#/definitions/RemoteAccessStatus"
+    },
+    "remote_link_code": {
+      "$ref": "#/definitions/RemoteLinkCodeResponse"
+    },
+    "remote_session": {
+      "$ref": "#/definitions/RemoteSessionResponse"
+    },
+    "remote_session_metadata": {
+      "$ref": "#/definitions/RemoteSessionMetadataDto"
+    },
+    "remote_session_request": {
+      "$ref": "#/definitions/RemoteSessionRequest"
+    },
+    "remote_session_revocation": {
+      "$ref": "#/definitions/RemoteSessionRevocationResponse"
+    },
+    "remote_sessions": {
+      "$ref": "#/definitions/RemoteSessionsResponse"
+    },
+    "source_ref": {
+      "$ref": "#/definitions/SourceRef"
+    },
+    "sync_signal_path": {
+      "$ref": "#/definitions/SyncSignalPath"
+    },
+    "websocket_playback_status": {
+      "$ref": "#/definitions/StatusResponse"
+    },
+    "zone_calibration": {
+      "$ref": "#/definitions/ZoneCalibrationResponse"
+    },
+    "zone_profile": {
+      "$ref": "#/definitions/ZoneProfile"
+    },
+    "zone_settings": {
+      "$ref": "#/definitions/ZoneSettings"
+    },
+    "zones": {
+      "items": {
+        "$ref": "#/definitions/ZoneProfile"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "agent_buffer_state",
+    "browser_session",
+    "browser_session_request",
+    "favorite_album",
+    "history_stats_query",
+    "library_album",
+    "library_album_page",
+    "library_artist",
+    "library_artist_page",
+    "library_browse_query",
+    "library_folders",
+    "library_scan_progress",
+    "library_search",
+    "library_search_query",
+    "library_summary",
+    "library_track",
+    "library_track_page",
+    "listening_history_stats",
+    "now_playing_queue",
+    "pairing_revocation",
+    "pairing_start",
+    "playback_history_entry",
+    "playback_status",
+    "playlist",
+    "profiles",
+    "qobuz_album",
+    "qobuz_album_detail",
+    "qobuz_album_page",
+    "qobuz_album_search",
+    "qobuz_artist",
+    "qobuz_artist_detail",
+    "qobuz_artist_image",
+    "qobuz_artist_search",
+    "qobuz_featured_playlists",
+    "qobuz_home",
+    "qobuz_playlist",
+    "qobuz_playlist_detail",
+    "qobuz_playlist_tag",
+    "qobuz_search",
+    "qobuz_search_query",
+    "qobuz_status",
+    "qobuz_status_response",
+    "qobuz_track",
+    "recent_album",
+    "recent_albums_query",
+    "recent_history_query",
+    "recent_playlist",
+    "recent_playlists_query",
+    "recent_searches",
+    "remote_access_settings",
+    "remote_access_settings_response",
+    "remote_access_settings_update_request",
+    "remote_access_status",
+    "remote_link_code",
+    "remote_session",
+    "remote_session_metadata",
+    "remote_session_request",
+    "remote_session_revocation",
+    "remote_sessions",
+    "source_ref",
+    "sync_signal_path",
+    "websocket_playback_status",
+    "zone_calibration",
+    "zone_profile",
+    "zone_settings",
+    "zones"
+  ],
+  "title": "FozmoApiContract",
+  "type": "object",
+  "x-fozmo-endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/status",
+      "response_schema": "StatusResponse",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/ws",
+      "response_schema": "StatusResponse",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/zones",
+      "response_schema": "ZoneProfile[]",
+      "success_status": 200
+    },
+    {
+      "loose_reason": "UPnP calibration requires a discovered renderer, not the generic local-core sample.",
+      "method": "POST",
+      "path": "/api/zones/:zone_id/calibrate",
+      "path_params": [
+        "zone_id"
+      ],
+      "response_schema": "ZoneCalibrationResponse",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/zones/:zone_id/status",
+      "path_params": [
+        "zone_id"
+      ],
+      "response_schema": "StatusResponse",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/zones/:zone_id/now-playing-queue",
+      "path_params": [
+        "zone_id"
+      ],
+      "response_schema": "NowPlayingQueueResponse",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/library/summary",
+      "response_schema": "LibrarySummary",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/library/albums",
+      "response_schema": "AlbumSummary[]",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/library/tracks",
+      "response_schema": "TrackSummary[]",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/library/artists",
+      "response_schema": "ArtistSummary[]",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/library/browse/albums",
+      "query_schema": "LibraryBrowseQueryParams",
+      "response_schema": "LibraryBrowsePage_for_AlbumSummary",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/library/browse/tracks",
+      "query_schema": "LibraryBrowseQueryParams",
+      "response_schema": "LibraryBrowsePage_for_TrackSummary",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/library/browse/artists",
+      "query_schema": "LibraryBrowseQueryParams",
+      "response_schema": "LibraryBrowsePage_for_ArtistSummary",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/library/folders",
+      "response_schema": "LibraryFoldersResponse",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/library/search",
+      "query_schema": "LibrarySearchQuery",
+      "response_schema": "LibrarySearchResponse",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/library/recent-albums",
+      "query_schema": "RecentAlbumsQuery",
+      "response_schema": "RecentAlbumSummary[]",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/history/recent",
+      "query_schema": "RecentHistoryQuery",
+      "response_schema": "PlaybackHistoryEntry[]",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/history/stats",
+      "query_schema": "HistoryStatsQuery",
+      "response_schema": "ListeningHistoryStats",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/playlists",
+      "response_schema": "PlaylistSummary[]",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/playlists/recent",
+      "query_schema": "RecentPlaylistsQuery",
+      "response_schema": "RecentPlaylistSummary[]",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/profiles",
+      "response_schema": "ProfilesResponse",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/qobuz/status",
+      "response_schema": "QobuzStatusResponse",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/qobuz/search",
+      "query_schema": "QobuzSearchQuery",
+      "response_schema": "QobuzSearchResponse",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/qobuz/home",
+      "response_schema": "QobuzHomeResponse",
+      "success_status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/pairing/start",
+      "response_schema": "PairingStartResponse",
+      "success_status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions/browser",
+      "request_schema": "BrowserSessionRequest",
+      "response_schema": "BrowserSessionResponse",
+      "success_status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/agents/token",
+      "response_schema": "PairingStartResponse",
+      "success_status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/pairing/revoke-current",
+      "response_schema": "PairingRevocationResponse",
+      "success_status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/pairing/revoke-all",
+      "response_schema": "PairingRevocationResponse",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/remote/settings",
+      "response_schema": "RemoteAccessSettingsResponse",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/remote/status",
+      "response_schema": "RemoteAccessStatus",
+      "success_status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/remote/settings",
+      "request_schema": "RemoteAccessSettingsUpdateRequest",
+      "response_schema": "RemoteAccessSettingsResponse",
+      "success_status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/remote/link-code",
+      "response_schema": "RemoteLinkCodeResponse",
+      "success_status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/remote/sessions",
+      "response_schema": "RemoteSessionsResponse",
+      "success_status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/remote/sessions/:id/revoke",
+      "path_params": [
+        "id"
+      ],
+      "response_schema": "RemoteSessionRevocationResponse",
+      "success_status": 200
+    },
+    {
+      "loose_reason": "Remote session exchange is registered only on the TLS remote router.",
+      "method": "POST",
+      "path": "/api/remote/session",
+      "request_schema": "RemoteSessionRequest",
+      "response_schema": "RemoteSessionResponse",
+      "success_status": 200
+    },
+    {
+      "loose_reason": "Qobuz proxy/debug endpoints intentionally preserve third-party-shaped payloads.",
+      "method": "GET",
+      "path": "/api/qobuz/raw-proxy/*",
+      "response_schema": "JsonRecord",
+      "success_status": 200
+    }
+  ]
+}

@@ -1,0 +1,175 @@
+{
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "name": "Fozmo component license manifest",
+  "documentNamespace": "https://fozmo.local/spdx/fozmo-0.0.1",
+  "creationInfo": {
+    "created": "2026-07-12T00:00:00Z",
+    "creators": [
+      "Organization: Fozmo contributors"
+    ]
+  },
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Package-Fozmo-Core",
+      "name": "Fozmo core, web client, DSP, and macOS launcher",
+      "versionInfo": "0.0.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-Anton",
+      "name": "Anton Regular display font",
+      "versionInfo": "2.116",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "OFL-1.1",
+      "licenseDeclared": "OFL-1.1",
+      "copyrightText": "Copyright 2020 The Anton Project Authors (https://github.com/googlefonts/AntonFont.git)",
+      "sourceInfo": "The bundled font's embedded metadata identifies the family, version, copyright holder, and upstream project."
+    },
+    {
+      "SPDXID": "SPDXRef-Package-QBZ-Adapted",
+      "name": "QBZ-informed Qobuz client portions",
+      "downloadLocation": "https://github.com/vicrodh/qbz",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "Copyright (c) 2024 blitzkriegfc",
+      "sourceInfo": "Fozmo adapts portions of QBZ's MIT-licensed web-player token extraction and request-signing work; LICENSES/QBZ-MIT.txt preserves the upstream notice."
+    },
+    {
+      "SPDXID": "SPDXRef-Package-EQ-Presets",
+      "name": "Fozmo bundled EQ presets",
+      "versionInfo": "0.0.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "NOASSERTION",
+      "sourceInfo": "Project-maintained experimental tuning data. Original measurement source and method were not recorded; device names are identifiers, not manufacturer endorsement or calibration claims."
+    },
+    {
+      "SPDXID": "SPDXRef-Package-AirPlay-Protocol",
+      "name": "fozmo-airplay-protocol",
+      "versionInfo": "1.0.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-AirPlay-Helper",
+      "name": "fozmo-airplay-helper",
+      "versionInfo": "0.0.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "GPL-2.0-only",
+      "licenseDeclared": "GPL-2.0-only",
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-Sparkle",
+      "name": "Sparkle",
+      "versionInfo": "2.9.4",
+      "downloadLocation": "https://github.com/sparkle-project/Sparkle/tree/2.9.4",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:github/sparkle-project/Sparkle@2.9.4"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-FFmpeg",
+      "name": "FFmpeg",
+      "versionInfo": "8.1.2",
+      "downloadLocation": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+      "filesAnalyzed": false,
+      "licenseConcluded": "LGPL-2.1-or-later",
+      "licenseDeclared": "LGPL-2.1-or-later",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:generic/ffmpeg@8.1.2"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-libopus",
+      "name": "libopus",
+      "versionInfo": "1.6.1",
+      "downloadLocation": "https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz",
+      "filesAnalyzed": false,
+      "licenseConcluded": "BSD-3-Clause",
+      "licenseDeclared": "BSD-3-Clause",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:generic/opus@1.6.1"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-Fozmo-Core"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-Fozmo-Core",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-AirPlay-Protocol"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-Fozmo-Core",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-Anton"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-Fozmo-Core",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-QBZ-Adapted"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-Fozmo-Core",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-EQ-Presets"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-Fozmo-Core",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-Package-Sparkle"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-AirPlay-Helper",
+      "relationshipType": "OPTIONAL_DEPENDENCY_OF",
+      "relatedSpdxElement": "SPDXRef-Package-Fozmo-Core"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-Fozmo-Core",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-Package-FFmpeg"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-FFmpeg",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-Package-libopus"
+    }
+  ]
+}

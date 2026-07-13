@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>Fozmo</string>
+    <key>CFBundleExecutable</key>
+    <string>Fozmo</string>
+    <key>CFBundleIconFile</key>
+    <string>Fozmo</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.fozmo.app</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Fozmo</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>0</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>LSMultipleInstancesProhibited</key>
+    <true/>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_fozmo._tcp</string>
+        <string>_http._tcp</string>
+        <string>_airplay._tcp</string>
+        <string>_raop._tcp</string>
+    </array>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © Fozmo contributors. MIT core; see bundled notices.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Fozmo finds and streams to audio devices on your local network and lets paired browsers control this Mac's music server.</string>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>FozmoUpdatesEnabled</key>
+    <false/>
+    <key>SUAllowsAutomaticUpdates</key>
+    <false/>
+    <key>SUAutomaticallyUpdate</key>
+    <false/>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUFeedURL</key>
+    <string>https://updates.invalid/fozmo/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>NOT_CONFIGURED</string>
+    <key>SURequireSignedFeed</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
+    <key>SUVerifyUpdateBeforeExtraction</key>
+    <true/>
+</dict>
+</plist>

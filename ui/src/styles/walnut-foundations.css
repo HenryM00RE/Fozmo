@@ -1,0 +1,448 @@
+/* =========================================================
+   Walnut Design System — Foundations
+   Tactile Archival Industrial. Pressed & Molded UI.
+   Light + Dark themes.
+   ========================================================= */
+
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+:root {
+  font-family: var(--font-ui);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  color-scheme: light;
+  color: var(--ink);
+  background: var(--canvas);
+
+  /* ----- Canvas — warm fibrous paper ----- */
+  --canvas: rgb(240, 237, 227);
+  --canvas-tint: rgb(235, 232, 221);
+  --canvas-raised: rgb(244, 241, 232);
+
+  /* ----- Ink — walnut charcoal ----- */
+  --ink: rgb(45, 45, 42);
+  --ink-strong: rgb(28, 28, 26);
+  --ink-muted: rgba(45, 45, 42, 0.62);
+  --ink-faint: rgba(45, 45, 42, 0.4);
+  --ink-whisper: rgba(45, 45, 42, 0.22);
+
+  /* ----- Line — whisper-thin structural rules ----- */
+  --line-08: rgba(45, 45, 42, 0.08);
+  --line-12: rgba(45, 45, 42, 0.12);
+  --line-15: rgba(45, 45, 42, 0.15);
+  --line-20: rgba(45, 45, 42, 0.2);
+  --modal-line: rgb(220, 217, 207);
+  --modal-line-soft: rgba(220, 217, 207, 0.72);
+
+  --specular: rgba(255, 255, 255, 0.6);
+  --specular-soft: rgba(255, 255, 255, 0.35);
+
+  /* ----- Status tones ----- */
+  --ochre: rgb(176, 134, 56);
+  --ochre-ink: rgb(120, 88, 30);
+  --ochre-wash: rgba(176, 134, 56, 0.1);
+  --sage: rgb(122, 140, 98);
+  --sage-ink: rgb(80, 96, 60);
+  --sage-wash: rgba(122, 140, 98, 0.12);
+  --terracotta: rgb(178, 95, 71);
+  --terracotta-ink: rgb(132, 62, 42);
+  --terracotta-wash: rgba(178, 95, 71, 0.1);
+  --low-stock-ink: rgb(150, 66, 58);
+  --low-stock-wash: rgba(184, 76, 68, 0.1);
+  --cobalt: rgb(58, 82, 122);
+  --cobalt-wash: rgba(58, 82, 122, 0.1);
+
+  /* ----- Typography ----- */
+  --font-display: "DM Sans", Inter, system-ui, sans-serif;
+  --font-ui: "DM Sans", Inter, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+
+  --tracking-display: 0.005em;
+  --tracking-ui: -0.011em; /* DM Sans benefits from a gentler tighten than Instrument */
+  --tracking-label: 0.08em;
+  --tracking-data: -0.01em;
+
+  /* Type scale */
+  --t-display-xl: 96px;
+  --t-display-lg: 64px;
+  --t-display-md: 44px;
+  --t-display-sm: 28px;
+  --t-body-lg: 18px;
+  --t-body: 15px;
+  --t-body-sm: 13px;
+  --t-label: 11px;
+  --t-data-lg: 32px;
+  --t-data: 22px;
+
+  /* ----- Shape ----- */
+  --r-pill: 999px;
+  --r-panel: 18px;
+  --r-panel-sm: 8px;
+  --r-input: 8px;
+
+  /* ----- Shadow / depth ----- */
+  --molded-pill:
+    inset 0 1px 0 var(--specular), inset 0 -1px 0 rgba(45, 45, 42, 0.05), 0 0 0 1px var(--line-15);
+  --molded-pill-hover:
+    inset 0 1px 0 var(--specular), inset 0 -1px 0 rgba(45, 45, 42, 0.04), 0 0 0 1px var(--line-20),
+    0 1px 2px rgba(45, 45, 42, 0.06);
+  --molded-pill-press: inset 0 1px 2px rgba(45, 45, 42, 0.1), inset 0 0 0 1px var(--line-15);
+  --deboss-input: inset 0 1px 1px rgba(45, 45, 42, 0.06), inset 0 0 0 1px var(--line-08);
+  --deboss-well: inset 0 1px 2px rgba(45, 45, 42, 0.04), inset 0 0 0 1px var(--line-08);
+  --panel-rest: 0 0 0 1px var(--line-08);
+  --panel-raised: 0 0 0 1px var(--line-12), 0 1px 2px rgba(45, 45, 42, 0.04);
+  --panel-floating:
+    0 0 0 1px var(--line-12), 0 6px 24px rgba(45, 45, 42, 0.08), 0 1px 2px rgba(45, 45, 42, 0.04);
+  --modal-floating:
+    0 0 0 1px var(--modal-line),
+    0 1px 0 rgba(255, 255, 255, 0.42) inset,
+    0 26px 58px rgba(45, 45, 42, 0.22),
+    0 10px 22px rgba(45, 45, 42, 0.14),
+    0 2px 5px rgba(45, 45, 42, 0.1);
+
+  --glass-blur: blur(8px);
+  --glass-fill: rgba(255, 255, 255, 0.2);
+  --glass-fill-strong: rgba(255, 255, 255, 0.22);
+  --glass-fill-soft: rgba(255, 255, 255, 0.14);
+  --segmented-active-fill: var(--canvas-raised);
+  --segmented-active-line: var(--line-15);
+
+  --focus-ring: rgba(45, 45, 42, 0.12);
+  --focus-outline: rgba(45, 45, 42, 0.18);
+  --scrollbar-thumb: rgba(45, 45, 42, 0.28);
+  --menu-hover: rgba(45, 45, 42, 0.06);
+  --row-hover: rgba(45, 45, 42, 0.025);
+  --row-selected: rgba(45, 45, 42, 0.04);
+  --row-selected-hover: rgba(45, 45, 42, 0.055);
+  --stamp-ink-fill: rgba(45, 45, 42, 0.04);
+  --select-menu-shade: rgba(45, 45, 42, 0.42);
+  --select-menu-fade: linear-gradient(rgba(244, 241, 232, 0), rgba(244, 241, 232, 0.92));
+  --modal-backdrop-bg: rgba(45, 45, 42, 0.16);
+  --modal-backdrop-open-filter: contrast(0.86) brightness(0.94);
+  --modal-backdrop-rest-filter: contrast(1) brightness(1);
+
+  /* ----- Motion ----- */
+  --ease-paper: cubic-bezier(0.32, 0.72, 0.24, 1);
+  --ease-press: cubic-bezier(0.5, 0, 0.2, 1);
+  --ease-modal: cubic-bezier(0.2, 0.72, 0.18, 1);
+  --dur-fast: 120ms;
+  --dur: 220ms;
+
+  /* ----- Spacing ----- */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-7: 32px;
+  --s-8: 40px;
+  --s-9: 56px;
+  --s-10: 80px;
+
+  /* ----- Sizing rhythm ----- */
+  --control-height: 36px;
+  --round-button-size: 40px;
+  --window-topbar-height: 46px;
+  --row-padding: 13px 18px;
+  --summary-min-height: 84px;
+}
+
+/* =========================================================
+   NEUTRAL THEME — off-white. The brightest canvas we can
+   run while keeping the molded specular glint legible.
+   Glass fills invert to a faint ink tint instead of white
+   so liquid-glass surfaces still register against the
+   near-white background.
+   ========================================================= */
+:root[data-theme="neutral"] {
+  color-scheme: light;
+
+  --canvas: rgb(244, 244, 243);
+  --canvas-tint: rgb(238, 238, 237);
+  --canvas-raised: rgb(250, 250, 249);
+
+  /* Ink stays walnut charcoal — keeps brand DNA consistent */
+  --ink: rgb(45, 45, 42);
+  --ink-strong: rgb(28, 28, 26);
+  --ink-muted: rgba(45, 45, 42, 0.62);
+  --ink-faint: rgba(45, 45, 42, 0.4);
+  --ink-whisper: rgba(45, 45, 42, 0.22);
+
+  --line-08: rgba(45, 45, 42, 0.08);
+  --line-12: rgba(45, 45, 42, 0.12);
+  --line-15: rgba(45, 45, 42, 0.15);
+  --line-20: rgba(45, 45, 42, 0.2);
+  --modal-line: rgb(224, 224, 222);
+  --modal-line-soft: rgba(224, 224, 222, 0.72);
+
+  /* Specular gets a touch brighter to fight the near-white canvas */
+  --specular: rgba(255, 255, 255, 0.72);
+  --specular-soft: rgba(255, 255, 255, 0.4);
+
+  /* Status tones unchanged — same pigments work on either light canvas */
+  --ochre: rgb(176, 134, 56);
+  --ochre-ink: rgb(120, 88, 30);
+  --ochre-wash: rgba(176, 134, 56, 0.1);
+  --sage: rgb(122, 140, 98);
+  --sage-ink: rgb(80, 96, 60);
+  --sage-wash: rgba(122, 140, 98, 0.12);
+  --terracotta: rgb(178, 95, 71);
+  --terracotta-ink: rgb(132, 62, 42);
+  --terracotta-wash: rgba(178, 95, 71, 0.1);
+  --low-stock-ink: rgb(150, 66, 58);
+  --low-stock-wash: rgba(184, 76, 68, 0.1);
+  --cobalt: rgb(58, 82, 122);
+  --cobalt-wash: rgba(58, 82, 122, 0.1);
+
+  --molded-pill:
+    inset 0 1px 0 var(--specular), inset 0 -1px 0 rgba(45, 45, 42, 0.06), 0 0 0 1px var(--line-15);
+  --molded-pill-hover:
+    inset 0 1px 0 var(--specular), inset 0 -1px 0 rgba(45, 45, 42, 0.05), 0 0 0 1px var(--line-20),
+    0 1px 2px rgba(45, 45, 42, 0.06);
+  --molded-pill-press: inset 0 1px 2px rgba(45, 45, 42, 0.1), inset 0 0 0 1px var(--line-15);
+  --deboss-input: inset 0 1px 2px rgba(45, 45, 42, 0.08), inset 0 0 0 1px var(--line-08);
+  --deboss-well: inset 0 1px 2px rgba(45, 45, 42, 0.05), inset 0 0 0 1px var(--line-08);
+  --panel-rest: 0 0 0 1px var(--line-08);
+  --panel-raised: 0 0 0 1px var(--line-12), 0 1px 2px rgba(45, 45, 42, 0.04);
+  --panel-floating:
+    0 0 0 1px var(--line-12), 0 6px 24px rgba(45, 45, 42, 0.08), 0 1px 2px rgba(45, 45, 42, 0.04);
+  --modal-floating:
+    0 0 0 1px var(--modal-line),
+    0 1px 0 rgba(255, 255, 255, 0.65) inset,
+    0 26px 58px rgba(45, 45, 42, 0.18),
+    0 10px 22px rgba(45, 45, 42, 0.12),
+    0 2px 5px rgba(45, 45, 42, 0.08);
+
+  /* On near-white canvas, glass tints toward ink so pills register.
+     The result is a darker frosted-glass surface (like Vision Pro)
+     instead of the cream wash the warm canvas uses. */
+  --glass-fill: rgba(45, 45, 42, 0.025);
+  --glass-fill-strong: rgba(45, 45, 42, 0.045);
+  --glass-fill-soft: rgba(45, 45, 42, 0.018);
+  --segmented-active-fill: rgb(254, 254, 253);
+  --segmented-active-line: var(--line-15);
+
+  --focus-ring: rgba(45, 45, 42, 0.12);
+  --focus-outline: rgba(45, 45, 42, 0.18);
+  --scrollbar-thumb: rgba(45, 45, 42, 0.28);
+  --menu-hover: rgba(45, 45, 42, 0.05);
+  --row-hover: rgba(45, 45, 42, 0.022);
+  --row-selected: rgba(45, 45, 42, 0.04);
+  --row-selected-hover: rgba(45, 45, 42, 0.055);
+  --stamp-ink-fill: rgba(45, 45, 42, 0.04);
+  --select-menu-shade: rgba(45, 45, 42, 0.42);
+  --select-menu-fade: linear-gradient(rgba(250, 250, 249, 0), rgba(250, 250, 249, 0.92));
+  --modal-backdrop-bg: rgba(45, 45, 42, 0.14);
+  --modal-backdrop-open-filter: contrast(0.92) brightness(0.96);
+  --modal-backdrop-rest-filter: contrast(1) brightness(1);
+}
+
+/* =========================================================
+   DARK THEME — same warmth, low contrast preserved.
+   Inverted ink-on-paper to ink-on-walnut. Specular and
+   shadow stacks adjusted so the molded metaphor still
+   reads against a dark surface.
+   ========================================================= */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --canvas: rgb(25, 25, 25);
+  --canvas-tint: rgb(30, 30, 30);
+  --canvas-raised: rgb(30, 30, 30);
+
+  --ink: rgb(230, 228, 222);
+  --ink-strong: rgb(248, 246, 240);
+  --ink-muted: rgba(230, 228, 222, 0.72);
+  --ink-faint: rgba(230, 228, 222, 0.48);
+  --ink-whisper: rgba(230, 228, 222, 0.28);
+
+  --line-08: rgba(255, 255, 255, 0.07);
+  --line-12: rgba(255, 255, 255, 0.1);
+  --line-15: rgba(255, 255, 255, 0.13);
+  --line-20: rgba(255, 255, 255, 0.17);
+  --modal-line: rgb(51, 51, 48);
+  --modal-line-soft: rgba(51, 51, 48, 0.72);
+
+  --specular: rgba(255, 255, 255, 0.14);
+  --specular-soft: rgba(255, 255, 255, 0.08);
+
+  --ochre: rgb(176, 134, 56);
+  --ochre-ink: rgb(202, 158, 84);
+  --ochre-wash: rgba(176, 134, 56, 0.13);
+  --sage: rgb(122, 140, 98);
+  --sage-ink: rgb(154, 170, 132);
+  --sage-wash: rgba(122, 140, 98, 0.13);
+  --terracotta: rgb(178, 95, 71);
+  --terracotta-ink: rgb(205, 130, 108);
+  --terracotta-wash: rgba(178, 95, 71, 0.13);
+  --low-stock-ink: rgb(214, 126, 118);
+  --low-stock-wash: rgba(184, 76, 68, 0.14);
+  --cobalt: rgb(82, 106, 146);
+  --cobalt-wash: rgba(82, 106, 146, 0.12);
+
+  --molded-pill:
+    inset 0 1px 0 var(--specular), inset 0 -1px 0 rgba(0, 0, 0, 0.34), 0 0 0 1px var(--line-15),
+    0 1px 1px rgba(0, 0, 0, 0.16);
+  --molded-pill-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18), inset 0 -1px 0 rgba(0, 0, 0, 0.28),
+    0 0 0 1px var(--line-20), 0 1px 2px rgba(0, 0, 0, 0.2);
+  --molded-pill-press: inset 0 1px 2px rgba(0, 0, 0, 0.42), inset 0 0 0 1px var(--line-15);
+  --deboss-input:
+    inset 0 1px 2px rgba(0, 0, 0, 0.34), inset 0 -1px 0 rgba(255, 255, 255, 0.035),
+    inset 0 0 0 1px var(--line-08);
+  --deboss-well:
+    inset 0 1px 2px rgba(0, 0, 0, 0.28), inset 0 -1px 0 rgba(255, 255, 255, 0.035),
+    inset 0 0 0 1px var(--line-08);
+  --panel-rest: 0 0 0 1px var(--line-08);
+  --panel-raised: 0 0 0 1px var(--line-12), 0 1px 2px rgba(0, 0, 0, 0.16);
+  --panel-floating:
+    0 0 0 1px var(--line-12), 0 8px 28px rgba(0, 0, 0, 0.28), 0 1px 2px rgba(0, 0, 0, 0.18);
+  --modal-floating:
+    0 0 0 1px var(--modal-line),
+    0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 26px 58px rgba(0, 0, 0, 0.34),
+    0 10px 22px rgba(0, 0, 0, 0.24),
+    0 2px 5px rgba(0, 0, 0, 0.18);
+
+  --glass-fill: rgba(255, 255, 255, 0.035);
+  --glass-fill-strong: rgba(255, 255, 255, 0.044);
+  --glass-fill-soft: rgba(255, 255, 255, 0.031);
+  --segmented-active-fill: rgb(33, 33, 33);
+  --segmented-active-line: rgba(255, 255, 255, 0.075);
+
+  --focus-ring: rgba(255, 255, 255, 0.1);
+  --focus-outline: rgba(255, 255, 255, 0.16);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.22);
+  --menu-hover: rgba(255, 255, 255, 0.055);
+  --row-hover: rgba(255, 255, 255, 0.026);
+  --row-selected: rgba(255, 255, 255, 0.045);
+  --row-selected-hover: rgba(255, 255, 255, 0.06);
+  --stamp-ink-fill: rgba(255, 255, 255, 0.04);
+  --select-menu-shade: rgba(0, 0, 0, 0.45);
+  --select-menu-fade: linear-gradient(rgba(34, 34, 33, 0), rgba(34, 34, 33, 0.92));
+  --modal-backdrop-bg: rgba(0, 0, 0, 0.22);
+  --modal-backdrop-open-filter: contrast(0.9) brightness(0.82);
+  --modal-backdrop-rest-filter: contrast(1) brightness(1);
+}
+
+/* =========================================================
+   ELEMENT BASE — opts every page into the language.
+   ========================================================= */
+
+html,
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--t-body);
+  line-height: 1.5;
+  letter-spacing: var(--tracking-ui);
+}
+
+h1,
+h2,
+h3,
+.display {
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: var(--tracking-display);
+  color: var(--ink);
+  line-height: 0.95;
+  margin: 0;
+}
+h1 {
+  font-size: var(--t-display-lg);
+}
+h2 {
+  font-size: var(--t-display-md);
+}
+h3 {
+  font-size: var(--t-display-sm);
+}
+
+h4,
+h5,
+h6 {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  letter-spacing: var(--tracking-ui);
+  color: var(--ink);
+  margin: 0;
+}
+h4 {
+  font-size: 18px;
+}
+h5 {
+  font-size: 15px;
+}
+h6 {
+  font-size: 13px;
+}
+
+p {
+  margin: 0 0 var(--s-3) 0;
+  text-wrap: pretty;
+  max-width: 64ch;
+}
+
+a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--line-20);
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--dur) var(--ease-paper);
+}
+a:hover {
+  text-decoration-color: var(--ink);
+}
+
+small,
+.caption,
+.label {
+  font-size: var(--t-label);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  letter-spacing: 0;
+}
+
+.data-value {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-feature-settings: "tnum", "ss01";
+  letter-spacing: var(--tracking-data);
+}
+
+hr {
+  border: 0;
+  height: 1px;
+  background: var(--line-12);
+  margin: var(--s-5) 0;
+}
+
+::selection {
+  background: rgba(45, 45, 42, 0.18);
+  color: var(--ink-strong);
+}
+:root[data-theme="dark"] ::selection {
+  background: rgba(255, 255, 255, 0.18);
+  color: var(--ink-strong);
+}
+
+/* Dropdown menu surface tracks each theme's canvas */
+:root[data-theme="neutral"] .dropdown-menu,
+:root[data-theme="neutral"] .menu {
+  background: rgba(248, 248, 247, 0.68);
+}

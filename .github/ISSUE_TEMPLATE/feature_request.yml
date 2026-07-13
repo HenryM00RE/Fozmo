@@ -1,0 +1,45 @@
+name: Feature request
+description: Propose a focused addition or compatibility improvement
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Fozmo is pre-alpha. Explain the user problem before proposing an implementation. For a new service, codec, asset or dependency, include known licensing constraints.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What cannot be done today, and who is affected?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest useful outcome, including fallback behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Platform and compatibility scope
+      description: Identify relevant OS, hardware class, driver, receiver or service without posting private identifiers.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: licensing
+    attributes:
+      label: Licensing or protocol considerations
+      description: Note any SDK, proprietary protocol, third-party code, font, logo, artwork or dataset the request may require.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched existing issues and the documented roadmap/limitations.
+          required: true
+        - label: I have not included credentials, account data or private device/network information.
+          required: true

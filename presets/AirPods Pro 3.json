@@ -1,0 +1,77 @@
+{
+  "name": "AirPods Pro 3",
+  "enabled": true,
+  "preamp_db": -5.6,
+  "bands": [
+    {
+      "enabled": true,
+      "type": "low_shelf",
+      "freq_hz": 105.0,
+      "gain_db": 1.0,
+      "q": 0.7
+    },
+    {
+      "enabled": true,
+      "type": "peaking",
+      "freq_hz": 29.0,
+      "gain_db": -0.7,
+      "q": 1.9
+    },
+    {
+      "enabled": true,
+      "type": "peaking",
+      "freq_hz": 130.0,
+      "gain_db": 1.4,
+      "q": 1.2
+    },
+    {
+      "enabled": true,
+      "type": "peaking",
+      "freq_hz": 218.0,
+      "gain_db": -1.6,
+      "q": 2.5
+    },
+    {
+      "enabled": true,
+      "type": "peaking",
+      "freq_hz": 357.0,
+      "gain_db": -2.5,
+      "q": 1.0
+    },
+    {
+      "enabled": true,
+      "type": "peaking",
+      "freq_hz": 1505.0,
+      "gain_db": 1.4,
+      "q": 3.2
+    },
+    {
+      "enabled": true,
+      "type": "peaking",
+      "freq_hz": 3568.0,
+      "gain_db": 4.9,
+      "q": 1.8
+    },
+    {
+      "enabled": true,
+      "type": "peaking",
+      "freq_hz": 5898.0,
+      "gain_db": -3.6,
+      "q": 4.2
+    },
+    {
+      "enabled": true,
+      "type": "peaking",
+      "freq_hz": 9797.0,
+      "gain_db": -4.0,
+      "q": 2.8
+    },
+    {
+      "enabled": true,
+      "type": "high_shelf",
+      "freq_hz": 10000.0,
+      "gain_db": 4.7,
+      "q": 0.7
+    }
+  ]
+}

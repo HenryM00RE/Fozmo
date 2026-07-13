@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>English</string>
+  <key>CFBundleExecutable</key>
+  <string>FozmoCapture</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.fozmo.audio.capture.driver</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>Fozmo Capture</string>
+  <key>CFBundlePackageType</key>
+  <string>BNDL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.2.0</string>
+  <key>CFBundleSignature</key>
+  <string>????</string>
+  <key>CFBundleSupportedPlatforms</key>
+  <array>
+    <string>MacOSX</string>
+  </array>
+  <key>CFBundleVersion</key>
+  <string>2</string>
+  <key>CFPlugInDynamicRegistration</key>
+  <false/>
+  <key>CFPlugInFactories</key>
+  <dict>
+    <key>7B245020-9854-4E5C-B1EA-306D3887E2D8</key>
+    <string>FozmoCaptureFactory</string>
+  </dict>
+  <key>CFPlugInTypes</key>
+  <dict>
+    <key>443ABAB8-E7B3-491A-B985-BEB9187030DB</key>
+    <array>
+      <string>7B245020-9854-4E5C-B1EA-306D3887E2D8</string>
+    </array>
+  </dict>
+</dict>
+</plist>

@@ -1,0 +1,42 @@
+[package]
+name = "fozmo-airplay-helper"
+version = "0.0.1"
+edition = "2024"
+license = "GPL-2.0-only"
+publish = false
+description = "Standalone AirPlay network output helper for Fozmo"
+
+[[bin]]
+name = "fozmo-airplay-helper"
+path = "src/main.rs"
+
+[dependencies]
+fozmo-airplay-protocol = { path = "../crates/fozmo-airplay-protocol" }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+sha2 = "0.10"
+mdns-sd = "0.20"
+ringbuf = "0.3"
+signal-hook = "0.3"
+hound = "3.5"
+
+# Legacy RAOP transport (ALAC only).
+alac-encoder = "0.3"
+aes = "0.8"
+cbc = "0.1"
+rand = "0.8"
+rsa = "0.9"
+sha1 = { version = "0.10", features = ["oid"] }
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+
+# Pinned GPL AirPlay 2 implementation. The local airplay-audio override is a
+# source-preserved patch of this exact revision with FDK AAC feature-gated off.
+ap2rs-core = { package = "airplay-core", git = "https://github.com/Pabldi08/airplay2-rs", rev = "1baeaae336ca3a9828e732500082f5fd1767d2fd" }
+ap2rs-client = { package = "airplay-client", git = "https://github.com/Pabldi08/airplay2-rs", rev = "1baeaae336ca3a9828e732500082f5fd1767d2fd" }
+ap2rs-audio = { package = "airplay-audio", git = "https://github.com/Pabldi08/airplay2-rs", rev = "1baeaae336ca3a9828e732500082f5fd1767d2fd", default-features = false }
+tokio = { version = "1.37", features = ["full"] }
+
+[patch."https://github.com/Pabldi08/airplay2-rs"]
+airplay-audio = { path = "vendor/airplay-audio" }

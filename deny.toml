@@ -1,0 +1,74 @@
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+unused-ignored-advisory = "deny"
+ignore = [
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained (no vulnerability); it only parses user-supplied display fonts for appearance metadata. Revisit with the suggested skrifa/fontations migration." },
+    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile is unmaintained (no vulnerability) and is only pulled in transitively; its PEM parsing moved into rustls-pki-types, which we already use directly. Drop when the transitive dependents update." },
+]
+
+[licenses]
+version = 2
+confidence-threshold = 0.8
+allow = [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+]
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "deny"
+wildcards = "allow"
+workspace-default-features = "allow"
+external-default-features = "allow"
+skip = [
+    { name = "bitflags" },
+    { name = "core-foundation" },
+    { name = "getrandom" },
+    { name = "hashbrown" },
+    { name = "jni" },
+    { name = "jni-sys" },
+    { name = "r-efi" },
+    { name = "rand" },
+    { name = "rand_chacha" },
+    { name = "rand_core" },
+    { name = "reqwest" },
+    { name = "thiserror" },
+    { name = "thiserror-impl" },
+    { name = "tokio-tungstenite" },
+    { name = "tower-http" },
+    { name = "tungstenite" },
+    { name = "wasm-streams" },
+    { name = "webpki-roots" },
+    { name = "windows" },
+    { name = "windows-core" },
+    { name = "windows-result" },
+    { name = "windows-sys" },
+    { name = "windows-targets" },
+    { name = "windows_aarch64_gnullvm" },
+    { name = "windows_aarch64_msvc" },
+    { name = "windows_i686_gnu" },
+    { name = "windows_i686_gnullvm" },
+    { name = "windows_i686_msvc" },
+    { name = "windows_x86_64_gnu" },
+    { name = "windows_x86_64_gnullvm" },
+    { name = "windows_x86_64_msvc" },
+    { name = "wit-bindgen" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

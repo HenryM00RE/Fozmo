@@ -1,0 +1,93 @@
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+unused-ignored-advisory = "deny"
+ignore = [
+    { id = "RUSTSEC-2023-0071", reason = "The helper and its pinned airplay2-rs graph use rsa only for RsaPublicKey OAEP encryption of ephemeral AES keys; they contain no RSA private key and perform no RSA decrypt/sign operation. The Marvin advisory concerns timing leakage from private-key operations. Re-audit when rsa or airplay2-rs changes." },
+]
+
+[licenses]
+version = 2
+confidence-threshold = 0.8
+allow = [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "GPL-2.0-only",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[licenses.private]
+ignore = true
+
+[[licenses.clarify]]
+name = "airplay-client"
+version = "0.1.0"
+expression = "GPL-2.0-only"
+license-files = [{ path = "../../LICENSE", hash = 0xd9e5e96a }]
+
+[[licenses.clarify]]
+name = "airplay-core"
+version = "0.1.0"
+expression = "GPL-2.0-only"
+license-files = [{ path = "../../LICENSE", hash = 0xd9e5e96a }]
+
+[[licenses.clarify]]
+name = "airplay-crypto"
+version = "0.1.0"
+expression = "GPL-2.0-only"
+license-files = [{ path = "../../LICENSE", hash = 0xd9e5e96a }]
+
+[[licenses.clarify]]
+name = "airplay-discovery"
+version = "0.1.0"
+expression = "GPL-2.0-only"
+license-files = [{ path = "../../LICENSE", hash = 0xd9e5e96a }]
+
+[[licenses.clarify]]
+name = "airplay-pairing"
+version = "0.1.0"
+expression = "GPL-2.0-only"
+license-files = [{ path = "../../LICENSE", hash = 0xd9e5e96a }]
+
+[[licenses.clarify]]
+name = "airplay-resampler"
+version = "0.1.0"
+expression = "GPL-2.0-only"
+license-files = [{ path = "../../LICENSE", hash = 0xd9e5e96a }]
+
+[[licenses.clarify]]
+name = "airplay-rtsp"
+version = "0.1.0"
+expression = "GPL-2.0-only"
+license-files = [{ path = "../../LICENSE", hash = 0xd9e5e96a }]
+
+[[licenses.clarify]]
+name = "airplay-timing"
+version = "0.1.0"
+expression = "GPL-2.0-only"
+license-files = [{ path = "../../LICENSE", hash = 0xd9e5e96a }]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+workspace-default-features = "allow"
+external-default-features = "allow"
+deny = [
+    { name = "fdk-aac", reason = "The non-free FDK AAC implementation is excluded from distributed GPL helper builds; Fozmo uses ALAC." },
+    { name = "fdk-aac-sys", reason = "The non-free FDK AAC implementation is excluded from distributed GPL helper builds; Fozmo uses ALAC." },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+required-git-spec = "rev"
+unused-allowed-source = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = ["https://github.com/Pabldi08/airplay2-rs"]

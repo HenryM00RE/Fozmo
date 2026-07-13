@@ -1,0 +1,81 @@
+name: Bug report
+description: Report reproducible incorrect behavior in the current pre-alpha
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping test Fozmo. Do not include credentials, account data, private paths, network addresses, device identifiers, commercial audio or unsanitized logs/screenshots. Report security issues privately through SECURITY.md.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - macOS launcher or installation
+        - Local playback, DSP or DSD
+        - Library, queue, playlists or settings
+        - Browser interface
+        - Qobuz
+        - AirPlay, Sonos, Hegel or UPnP
+        - LAN, remote access or remote agents
+        - CLI
+        - Build, packaging or documentation
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: For a source build, use the commit hash.
+      placeholder: 0.0.1 or abc1234
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS version and architecture. For playback, include the device class, connection and output mode without a serial number or stable identifier. For browser control, include the browser/device class.
+      placeholder: macOS 15.x on Apple silicon; USB DAC over CoreAudio using PCM 192 kHz; Safari on iPhone
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Use the smallest reliable sequence and non-private sample data where possible.
+      placeholder: |
+        1. Start Fozmo...
+        2. Select...
+        3. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Paste only the minimum relevant, redacted log excerpt or attach a synthetic test case. Do not upload an entire data/log directory.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I searched open issues for the same problem.
+          required: true
+        - label: I removed secrets, account details, personal paths, network addresses and stable device identifiers.
+          required: true
+        - label: This is not a private security report.
+          required: true

@@ -1,0 +1,137 @@
+[package]
+name = "fozmo"
+version = "0.0.1"
+edition = "2024"
+default-run = "fozmo"
+publish = false
+license = "MIT"
+
+[features]
+default = [
+    "local_library",
+    "qobuz",
+    "pcm_output",
+    "airplay_helper",
+    "sonos",
+    "hegel",
+    "upnp",
+    "experimental_dsd256",
+]
+local_library = []
+qobuz = []
+pcm_output = []
+airplay_helper = []
+# Requires Steinberg ASIO SDK + LLVM/libclang at build time.
+# Set CPAL_ASIO_DIR to the SDK path and ensure libclang.dll is on PATH or LIBCLANG_PATH is set.
+# See README for setup details.
+asio = ["dep:ndsd-asio-sys"]
+apple_music_capture = []
+sonos = []
+hegel = []
+upnp = []
+experimental_dsd256 = []
+dev-secrets-file = []
+ecbeam2_observer = []
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"
+split-debuginfo = "packed"
+strip = false
+
+# The transpiled libopus is far too slow at opt-level 0 for tests that encode
+# real audio; optimize just that crate in dev/test builds.
+[profile.dev.package.unsafe-libopus]
+opt-level = 2
+
+[dependencies]
+tokio = { version = "1.38", features = ["full"] }
+axum = { version = "0.7", features = ["ws", "multipart"] }
+bytes = "1"
+clap = { version = "4", features = ["derive"] }
+tower-http = { version = "0.5", features = ["fs", "cors"] }
+cpal = "0.15"
+symphonia = { version = "0.5", features = ["all"] }
+symphonia-metadata = "0.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+schemars = { version = "0.8", features = ["derive"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "cookies", "stream"] }
+sha2 = "0.10"
+ringbuf = "0.3"
+futures-util = "0.3"
+flume = { version = "0.11", default-features = false }
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+realfft = "3"
+base64 = "0.22"
+md-5 = "0.10"
+regex = "1"
+urlencoding = "2"
+stream-download = { version = "0.24", features = ["reqwest", "reqwest-rustls"] }
+imagesize = "0.13"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+mdns-sd = "0.20"
+if-addrs = "0.15"
+quick-xml = "0.41"
+flacenc = { version = "0.5", default-features = false }
+# Pure-Rust Opus encoder (c2rust port of libopus 1.3.1) and Ogg muxer for the
+# local-track browser playback derivative; keeps the build free of a C
+# toolchain/cmake requirement. Both are BSD-3-Clause like upstream libopus.
+unsafe-libopus = "0.2"
+ogg = "0.9"
+rand = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+ttf-parser = "0.25"
+keyring = "4.1.2"
+# Remote access TLS listener. Pinned to the ring provider so the dependency
+# graph stays on the rustls/ring stack reqwest already uses.
+axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
+rustls-pki-types = "1.10"
+rcgen = "0.13"
+time = "0.3"
+fozmo-airplay-protocol = { path = "crates/fozmo-airplay-protocol" }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+jsonschema = "0.17"
+proptest = "1"
+
+[[bin]]
+name = "ecbeam2_quality"
+path = "audio_tests/ecbeam2_quality.rs"
+
+[[bin]]
+name = "dsd_modulator_bench"
+path = "src/bin/dsd_modulator_bench.rs"
+
+[[test]]
+name = "audio_smoke"
+path = "audio_tests/audio_smoke.rs"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.9"
+libc = "0.2"
+coreaudio-sys = "0.2"
+coreaudio = { package = "coreaudio-rs", version = "0.11" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+wasapi = "0.23"
+ndsd-asio-sys = { version = "0.2.5", optional = true }
+# Must match the windows version used by wasapi (0.62) so HRESULT types align.
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_System_Threading",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Kernel",
+] }

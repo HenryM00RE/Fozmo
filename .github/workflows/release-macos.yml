@@ -1,0 +1,191 @@
+name: Release macOS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-macos-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Signed arm64 DMG
+    runs-on: macos-26
+    timeout-minutes: 180
+    env:
+      DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+      SPARKLE_FEED_URL: ${{ vars.SPARKLE_FEED_URL }}
+      SPARKLE_PUBLIC_ED_KEY: ${{ vars.SPARKLE_PUBLIC_ED_KEY }}
+      SPARKLE_DOWNLOAD_URL_PREFIX: ${{ vars.SPARKLE_DOWNLOAD_URL_PREFIX }}
+      SOURCE_ARCHIVE_AUDITED: ${{ vars.SOURCE_ARCHIVE_AUDITED }}
+      EXPECTED_SOURCE_SHA256: ${{ vars.SOURCE_ARCHIVE_SHA256 }}
+      APP_ICON_ICNS: ${{ github.workspace }}/macos/assets/Fozmo.icns
+
+    steps:
+      - name: Checkout exact tag
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Fail closed on release inputs
+        env:
+          CERTIFICATE_P12_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.RELEASE_KEYCHAIN_PASSWORD }}
+          APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          SPARKLE_PRIVATE_KEY_BASE64: ${{ secrets.SPARKLE_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_TYPE" == "tag" ]] || { echo "Release must run from a tag" >&2; exit 1; }
+          [[ "$(uname -m)" == "arm64" ]] || { echo "arm64 runner required" >&2; exit 1; }
+          [[ "$(xcodebuild -version | head -1)" == "Xcode 26.6" ]] || { xcodebuild -version >&2; exit 1; }
+          source ./macos/scripts/common.sh
+          verify_gpl_aggregation_policy public "${GITHUB_REF_NAME#v}"
+          for name in \
+            DEVELOPER_ID_APPLICATION CERTIFICATE_P12_BASE64 CERTIFICATE_PASSWORD \
+            KEYCHAIN_PASSWORD APPLE_NOTARY_KEY_BASE64 APPLE_NOTARY_KEY_ID \
+            APPLE_NOTARY_ISSUER_ID SPARKLE_FEED_URL SPARKLE_PUBLIC_ED_KEY \
+            SPARKLE_PRIVATE_KEY_BASE64 SPARKLE_DOWNLOAD_URL_PREFIX \
+            EXPECTED_SOURCE_SHA256; do
+            [[ -n "${!name:-}" ]] || { echo "Missing release input: $name" >&2; exit 1; }
+          done
+          [[ "$SOURCE_ARCHIVE_AUDITED" == "1" ]] || { echo "source archive audit is not recorded" >&2; exit 1; }
+          [[ "$SPARKLE_FEED_URL" == https://* && "$SPARKLE_DOWNLOAD_URL_PREFIX" == https://* ]] \
+            || { echo "Sparkle URLs must use HTTPS" >&2; exit 1; }
+          EXPECTED_FEED_URL="https://github.com/$GITHUB_REPOSITORY/releases/latest/download/appcast.xml"
+          EXPECTED_DOWNLOAD_PREFIX="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/"
+          [[ "$SPARKLE_FEED_URL" == "$EXPECTED_FEED_URL" ]] \
+            || { echo "SPARKLE_FEED_URL must match the current repository's stable latest-release URL" >&2; exit 1; }
+          [[ "$SPARKLE_DOWNLOAD_URL_PREFIX" == "$EXPECTED_DOWNLOAD_PREFIX" ]] \
+            || { echo "SPARKLE_DOWNLOAD_URL_PREFIX must target the current version tag" >&2; exit 1; }
+          [[ -f "$APP_ICON_ICNS" ]] || { echo "Release icon is missing: $APP_ICON_ICNS" >&2; exit 1; }
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Set up Rust 1.96
+        uses: dtolnay/rust-toolchain@c0e9df88980754dd93e5833b8dcb1b304c1fe173 # 1.96.0
+        with:
+          components: rustfmt, clippy
+          targets: aarch64-apple-darwin
+
+      - name: Install verification tools and frontend dependencies
+        run: |
+          brew install cargo-deny gitleaks
+          npm --prefix ui ci
+
+      - name: Import Developer ID identity
+        env:
+          CERTIFICATE_P12_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.RELEASE_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/fozmo-release.keychain-db"
+          CERTIFICATE="$RUNNER_TEMP/developer-id.p12"
+          printf '%s' "$CERTIFICATE_P12_BASE64" | openssl base64 -d -A -out "$CERTIFICATE"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$CERTIFICATE" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          security default-keychain -d user -s "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security find-identity -v -p codesigning "$KEYCHAIN" | grep -F "$DEVELOPER_ID_APPLICATION"
+
+      - name: Materialize signing-only credentials
+        env:
+          APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+          SPARKLE_PRIVATE_KEY_BASE64: ${{ secrets.SPARKLE_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$APPLE_NOTARY_KEY_BASE64" | openssl base64 -d -A -out "$RUNNER_TEMP/AuthKey.p8"
+          printf '%s' "$SPARKLE_PRIVATE_KEY_BASE64" | openssl base64 -d -A -out "$RUNNER_TEMP/sparkle-private-key"
+          chmod 600 "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/sparkle-private-key"
+
+      - name: Generate release notes for GitHub and Sparkle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$GITHUB_REF_NAME" \
+            -f target_commitish="$GITHUB_SHA" \
+            --jq .body >"$RUNNER_TEMP/release-notes.md"
+          [[ -s "$RUNNER_TEMP/release-notes.md" ]] || { echo "Generated release notes are empty" >&2; exit 1; }
+
+      - name: Run complete verification for the release tag
+        run: |
+          ./tools/verify.sh
+          ./tools/public-readiness.sh
+          ./tools/lan-pairing-smoke.sh
+          ./tools/remote-access-smoke.sh
+
+      - name: Create exact corresponding source
+        run: |
+          mkdir -p "$RUNNER_TEMP/source"
+          SOURCE_ARCHIVE_OUTPUT="$RUNNER_TEMP/source/Fozmo-source.tar.zst" \
+            ./macos/scripts/make-source-archive.sh
+          ACTUAL_SOURCE_SHA256="$(shasum -a 256 "$RUNNER_TEMP/source/Fozmo-source.tar.zst" | awk '{print $1}')"
+          [[ "$ACTUAL_SOURCE_SHA256" == "$EXPECTED_SOURCE_SHA256" ]] \
+            || { echo "Corresponding-source checksum was not the audited release input" >&2; exit 1; }
+
+      - name: Build, sign, notarize, and verify
+        env:
+          APPLE_NOTARY_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          SPARKLE_PRIVATE_KEY_FILE: ${{ runner.temp }}/sparkle-private-key
+          SOURCE_ARCHIVE: ${{ runner.temp }}/source/Fozmo-source.tar.zst
+          RELEASE_NOTES_FILE: ${{ runner.temp }}/release-notes.md
+        run: ./macos/scripts/release.sh
+
+      - name: Upload immutable release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          DIR="target/macos/release-$VERSION"
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "Fozmo $VERSION" \
+            --notes-file "$DIR/Fozmo-$VERSION-macos-arm64.md"
+          gh release upload "$GITHUB_REF_NAME" \
+            "$DIR/Fozmo-$VERSION-macos-arm64.dmg" \
+            "$DIR/Fozmo-$VERSION-macos-arm64.dmg.sha256" \
+            "$DIR/Fozmo-$VERSION-source.tar.zst" \
+            "$DIR/Fozmo-$VERSION-source.tar.zst.sha256" \
+            "$DIR/build-manifest.json"
+          if [[ -f "$DIR/Fozmo-$VERSION-macos-arm64.md" ]]; then
+            gh release upload "$GITHUB_REF_NAME" "$DIR/Fozmo-$VERSION-macos-arm64.md"
+          fi
+
+      - name: Publish Sparkle appcast last
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          DIR="target/macos/release-$VERSION"
+          gh release upload "$GITHUB_REF_NAME" "$DIR/appcast.xml"
+          gh release edit "$GITHUB_REF_NAME" --draft=false
+
+      - name: Preserve diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: macos-release-diagnostics-${{ github.run_id }}
+          path: |
+            target/macos/release-*/notarization.json
+            target/macos/dSYMs
+          if-no-files-found: ignore
+          retention-days: 7

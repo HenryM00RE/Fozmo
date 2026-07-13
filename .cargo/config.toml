@@ -1,0 +1,8 @@
+# macOS dev builds are ad-hoc signed, so their code signature changes on
+# every rebuild and Keychain "Always Allow" grants never stick. The runner
+# re-signs binaries with a stable local identity before running them; see
+# docs/macos-dev-signing.md. Without that identity the script is a
+# transparent pass-through. The script path is resolved from the invocation
+# directory, so run cargo from the repository root.
+[target.'cfg(target_os = "macos")']
+runner = "scripts/macos-sign-and-run.sh"

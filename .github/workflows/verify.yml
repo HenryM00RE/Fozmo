@@ -1,0 +1,394 @@
+name: Verify
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+  schedule:
+    - cron: '0 9 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-fast:
+    name: Frontend fast
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm --prefix ui ci
+
+      - name: Check architecture boundaries
+        run: python3 tools/check_architecture_boundaries.py
+
+      - name: Check frontend lint and formatting
+        run: npm --prefix ui run check
+
+      - name: Run frontend tests with coverage
+        run: npm --prefix ui run test:coverage
+
+      - name: Build frontend
+        run: npm --prefix ui run build
+
+      - name: Audit frontend dependencies
+        run: npm --prefix ui run audit
+
+      - name: Check frontend production dependency licenses
+        run: npm --prefix ui run license:check
+
+  e2e-smoke:
+    name: E2E smoke
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm --prefix ui ci
+
+      - name: Install Playwright browsers
+        run: npm --prefix ui exec playwright install chromium webkit
+
+      - name: Run Playwright smoke tests
+        run: npm --prefix ui run test:e2e:smoke
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-smoke-report
+          path: ui/playwright-report
+          if-no-files-found: ignore
+
+      - name: Upload Playwright test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-smoke-test-results
+          path: ui/test-results
+          if-no-files-found: ignore
+
+  e2e-real-server:
+    name: E2E real Rust server
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.96.0
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install frontend dependencies and Chromium
+        run: |
+          npm --prefix ui ci
+          npm --prefix ui exec playwright install chromium
+
+      - name: Run browser-to-Rust integration suite
+        run: npm --prefix ui run test:e2e:real
+
+      - name: Upload real-server Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-real-server-report
+          path: ui/playwright-report
+          if-no-files-found: ignore
+
+  security-hygiene:
+    name: Security hygiene
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm --prefix ui ci
+
+      - name: Install Gitleaks
+        run: brew install gitleaks
+
+      - name: Run secret scanner
+        run: ./tools/secret-scan.sh
+
+      - name: Run public-readiness checks
+        run: ./tools/public-readiness.sh
+
+      - name: Test force-added public-readiness fixtures
+        run: ./tools/test-public-readiness.sh
+
+  swift-launcher:
+    name: Swift launcher
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build and test Swift launcher
+        run: swift test --package-path macos/FozmoLauncher --disable-automatic-resolution
+
+  lan-smoke:
+    name: LAN pairing smoke
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.96.0
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run LAN pairing smoke test
+        run: ./tools/lan-pairing-smoke.sh
+
+  remote-smoke:
+    name: Remote access smoke
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.96.0
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run remote access smoke test
+        run: ./tools/remote-access-smoke.sh
+
+  rust-quality:
+    name: Rust quality
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check Rust formatting
+        run: cargo fmt -- --check
+
+      - name: Check AirPlay helper formatting
+        run: cargo fmt --manifest-path airplay-helper/Cargo.toml -- --check
+
+      - name: Run Rust clippy
+        run: ./tools/clippy.sh --all-targets
+
+      - name: Run Rust clippy without default features
+        run: ./tools/clippy.sh --all-targets --no-default-features
+
+      - name: Run Rust clippy with Qobuz/local playback features
+        run: ./tools/clippy.sh --all-targets --no-default-features --features qobuz,pcm_output,local_library
+
+      - name: Run Rust clippy with network/control integration features
+        run: ./tools/clippy.sh --all-targets --no-default-features --features hegel,sonos,upnp
+
+      - name: Check Rust targets
+        run: cargo check --all-targets
+
+      - name: Check Rust targets without default features
+        run: cargo check --all-targets --no-default-features
+
+      - name: Check Rust targets with the AirPlay helper client
+        run: cargo check --all-targets --no-default-features --features airplay_helper
+
+      - name: Check standalone AirPlay helper
+        run: cargo check --manifest-path airplay-helper/Cargo.toml --all-targets --locked
+
+      - name: Test standalone AirPlay helper
+        run: cargo test --manifest-path airplay-helper/Cargo.toml --locked
+
+      - name: Check MIT/GPL process boundary
+        run: ./tools/check-release-boundaries.sh
+
+      - name: Check Rust dependency policy
+        uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2
+
+      - name: Check AirPlay helper dependency policy
+        uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2
+        with:
+          manifest-path: ./airplay-helper/Cargo.toml
+          arguments: --config airplay-helper/deny.toml
+
+  rust-cross-platform:
+    name: Rust cross-platform check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - ubuntu-latest
+          - windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.96.0
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check Rust targets without default features
+        run: cargo check --all-targets --no-default-features
+
+  rust-release-tests:
+    name: Rust release tests
+    runs-on: macos-latest
+    env:
+      RUSTFLAGS: '-C target-cpu=native'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.96.0
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run Rust release tests
+        run: cargo test --release
+
+      - name: Run Rust release tests without default features
+        run: cargo test --release --no-default-features
+
+  e2e-full:
+    name: Full E2E
+    runs-on: macos-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm --prefix ui ci
+
+      - name: Install Playwright browsers
+        run: npm --prefix ui exec playwright install chromium webkit
+
+      - name: Run full Playwright E2E
+        run: npm --prefix ui run test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-full-report
+          path: ui/playwright-report
+          if-no-files-found: ignore
+
+      - name: Upload Playwright test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-full-test-results
+          path: ui/test-results
+          if-no-files-found: ignore
+
+  rust-release-tests-full:
+    name: Full Rust release tests (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-latest
+            os: macos-latest
+            command: cargo test --release
+          - name: ubuntu-latest
+            os: ubuntu-latest
+            command: cargo test --release
+          - name: windows-latest no-default-features
+            os: windows-latest
+            command: cargo test --release --no-default-features
+    env:
+      RUSTFLAGS: '-C target-cpu=native'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@1.96.0
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run Rust release tests
+        run: ${{ matrix.command }}

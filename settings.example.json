@@ -1,0 +1,40 @@
+{
+  "filter_type": "Split128k",
+  "target_rate": 0,
+  "upsampling_enabled": false,
+  "exclusive": true,
+  "dither_mode": "Auto",
+  "output_mode": "Pcm",
+  "dsd_modulator": "EcDepth2",
+  "dsd_rules_enabled": false,
+  "dsd_rules": [],
+  "headroom_db": -4.0,
+  "dsp_buffer_ms": 0,
+  "device_name": null,
+  "active_zone_id": null,
+  "volume": 1.0,
+  "eq": null,
+  "music_dirs": [
+    "music"
+  ],
+  "profiles": [
+    {
+      "id": "default",
+      "name": "Default",
+      "color": "#7c8f6a"
+    }
+  ],
+  "active_profile_id": "default",
+  "qobuz_radio_enabled": true,
+  "lastfm_radio_enabled": false,
+  "hegel": {
+    "enabled": false,
+    "zone_id": null,
+    "host": null,
+    "port": 50001,
+    "input": 9,
+    "default_volume": 20,
+    "max_volume": 50
+  },
+  "zone_settings": {}
+}

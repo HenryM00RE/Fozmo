@@ -1,0 +1,36 @@
+# Modified by the Fozmo project on 2026-07-13.
+# Changes make the FDK AAC dependency optional and disabled for distributed
+# builds, use the pinned upstream revision, and preserve an ALAC-only build.
+
+[package]
+name = "airplay-audio"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-2.0-only"
+publish = false
+description = "Pinned ALAC-only patch of airplay2-rs airplay-audio"
+
+[features]
+default = []
+# Kept only so the source delta is explicit. Fozmo release builds must never
+# enable this feature; CI verifies fdk-aac is absent from the resolved graph.
+aac = ["dep:fdk-aac"]
+
+[dependencies]
+airplay-core = { git = "https://github.com/Pabldi08/airplay2-rs", rev = "1baeaae336ca3a9828e732500082f5fd1767d2fd" }
+airplay-crypto = { git = "https://github.com/Pabldi08/airplay2-rs", rev = "1baeaae336ca3a9828e732500082f5fd1767d2fd" }
+airplay-timing = { git = "https://github.com/Pabldi08/airplay2-rs", rev = "1baeaae336ca3a9828e732500082f5fd1767d2fd" }
+airplay-resampler = { git = "https://github.com/Pabldi08/airplay2-rs", rev = "1baeaae336ca3a9828e732500082f5fd1767d2fd" }
+tokio = { version = "1.37", features = ["full"] }
+futures = "0.3"
+async-trait = "0.1"
+symphonia = { version = "0.5", features = ["all"] }
+tracing = "0.1"
+socket2 = "0.5"
+rand = "0.8"
+crossbeam-channel = "0.5"
+libc = "0.2"
+spin_sleep = "1.2"
+alac-encoder = "0.3"
+fdk-aac = { version = "0.6", optional = true }
+biquad = "0.4"

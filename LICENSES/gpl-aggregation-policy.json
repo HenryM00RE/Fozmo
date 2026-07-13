@@ -1,0 +1,11 @@
+{
+  "assessment": "docs/gpl-aggregation-assessment.md",
+  "assessment_date": "2026-07-13",
+  "decision": "approved",
+  "release_modes": [
+    "public",
+    "unsigned-public"
+  ],
+  "schema_version": 1,
+  "version": "0.0.1"
+}
