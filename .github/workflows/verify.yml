@@ -279,10 +279,10 @@ jobs:
         run: ./tools/check-release-boundaries.sh
 
       - name: Check Rust dependency policy
-        uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2
+        uses: EmbarkStudios/cargo-deny-action@6f99e342a8f0f8f8d1bdc9dc43e9a6f2dd611259 # v2
 
       - name: Check AirPlay helper dependency policy
-        uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2
+        uses: EmbarkStudios/cargo-deny-action@6f99e342a8f0f8f8d1bdc9dc43e9a6f2dd611259 # v2
         with:
           manifest-path: ./airplay-helper/Cargo.toml
           arguments: --config airplay-helper/deny.toml
