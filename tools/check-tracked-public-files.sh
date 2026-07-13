@@ -54,10 +54,15 @@ while IFS= read -r -d '' path; do
     drivers/fozmo-capture/build|drivers/fozmo-capture/build/*|\
     macos/build|macos/build/*|\
     macos/FozmoLauncher/.build|macos/FozmoLauncher/.build/*|\
+    macos/FozmoLauncher/.swiftpm|macos/FozmoLauncher/.swiftpm/*|\
     target|target/*|*/target|*/target/*|\
     dist|dist/*|ui/dist|ui/dist/*|\
     ui/node_modules|ui/node_modules/*|ui/.vite|ui/.vite/*|\
-    audio_tests/out|audio_tests/out/*)
+    ui/coverage|ui/coverage/*|\
+    ui/playwright-report|ui/playwright-report/*|\
+    ui/test-results|ui/test-results/*|\
+    audio_tests/out|audio_tests/out/*|\
+    tools/.venv|tools/.venv/*)
       reject "generated build output" "$path"
       ;;
     .fozmo.lock|*/.fozmo.lock|\
@@ -69,8 +74,15 @@ while IFS= read -r -d '' path; do
     logs|logs/*|*/logs|*/logs/*|\
     music|music/*|library|library/*|cache|cache/*|\
     ui/music|ui/music/*|ui/library|ui/library/*|ui/cache|ui/cache/*|\
-    static/user-fonts|static/user-fonts/*)
+    ui/presets|ui/presets/*|ui/static|ui/static/*|\
+    static/user-fonts|static/user-fonts/*|\
+    scratch|scratch/*)
       reject "runtime-owned directory" "$path"
+      ;;
+    docs/manual-smoke-evidence.local.md|\
+    docs/screenshots/local|docs/screenshots/local/*|\
+    docs/screenshots/private|docs/screenshots/private/*)
+      reject "local smoke evidence or private screenshot" "$path"
       ;;
   esac
 done < <(git -C "$ROOT_DIR" ls-files -z)

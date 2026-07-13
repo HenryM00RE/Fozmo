@@ -2,19 +2,3 @@ title = "Fozmo secret scanning"
 
 [extend]
 useDefault = true
-
-[allowlist]
-description = "Exclude generated build output and local runtime state."
-paths = [
-  '''^\.git/''',
-  '''^target/''',
-  '''^ui/node_modules/''',
-  '''^ui/dist/''',
-  '''^library/''',
-  '''^ui/library/''',
-  '''^music/''',
-  '''^audio_tests/out/''',
-  '''^docs/manual-smoke-evidence\.local\.md$''',
-  '''^docs/screenshots/local/''',
-  '''^docs/screenshots/private/''',
-]

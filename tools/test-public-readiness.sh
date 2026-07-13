@@ -35,28 +35,67 @@ expect_rejected() {
     || { echo "error: checker failed without identifying $path" >&2; exit 1; }
 }
 
+expect_ignored() {
+  local path="$1"
+  git -C "$ROOT_DIR" check-ignore --quiet --no-index -- "$path" \
+    || { echo "error: worktree-allowlisted fixture is not ignored by Git: $path" >&2; exit 1; }
+}
+
 new_fixture
 track_fixture settings.example.json
 track_fixture static/react-app/index.html
 "$CHECKER" "$WORK/repo" >/dev/null
 
 for path in \
+  .DS_Store \
   .fozmo.lock \
   install.json \
+  target/debug/fozmo \
+  airplay-helper/target/debug/fozmo-airplay-helper \
+  macos/FozmoLauncher/.build/workspace-state.json \
+  macos/FozmoLauncher/.swiftpm/configuration.json \
+  macos/build/Fozmo.pkg \
+  dist/Fozmo.dmg \
+  drivers/fozmo-capture/build/FozmoCapture.driver/Contents/Info.plist \
+  music/local.flac \
+  library/runtime.json \
   backups/backup-1/manifest.json \
   logs/fozmo.log \
   secrets.dev.json \
+  settings.json \
   settings.json.bak \
   settings.json.recovery-required \
   settings.json.corrupt-123 \
   settings.local.json \
+  static/user-fonts/private.ttf \
+  runtime/fozmo.log \
+  runtime/library.sqlite \
+  runtime/library.db \
+  scratch/note.txt \
+  docs/manual-smoke-evidence.local.md \
+  docs/screenshots/local/capture.png \
+  docs/screenshots/private/capture.png \
+  ui/node_modules/example/index.js \
+  ui/.vite/deps/example.js \
+  ui/coverage/index.html \
+  ui/playwright-report/index.html \
+  ui/test-results/results.json \
+  ui/library/runtime.json \
+  ui/music/local.flac \
+  ui/presets/local.json \
+  ui/static/runtime.json \
+  audio_tests/out/result.wav \
+  tools/.venv/bin/python; do
+  expect_ignored "$path"
+  expect_rejected "$path"
+done
+
+for path in \
   secrets/release.pem \
   release/Fozmo.dmg \
   release/Fozmo.app/Contents/Info.plist \
-  drivers/fozmo-capture/build/FozmoCapture.driver/Contents/Info.plist \
   library/runtime.sqlite3 \
-  static/user-fonts/private.ttf \
-  macos/build/Fozmo.pkg; do
+  runtime/library.sqlite3; do
   expect_rejected "$path"
 done
 

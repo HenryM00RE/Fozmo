@@ -211,17 +211,22 @@ set explicit.
 ## Secret Scanning
 
 Public-readiness checks include a general Gitleaks scan in addition to the
-project-specific local-data checks:
+project-specific local-data checks. Run it from a full, non-shallow clone with
+all refs fetched:
 
 ```sh
 ./tools/secret-scan.sh
 ```
 
-The scanner runs against git history and a snapshot containing only files
-tracked in the working tree. Ignored local settings therefore do not create
-false failures, while a force-added `settings.local.json` is scanned. Keep
-`.gitleaks.toml` exclusions narrow so committed source, hidden configuration,
-docs, presets, and generated frontend assets remain covered.
+The history pass scans every fetched ref with the strict `.gitleaks.toml`, which
+extends the Gitleaks defaults without any path allowlist. The worktree pass
+scans the real checkout, including untracked files, with
+`.gitleaks-worktree.toml`. Its exclusions mirror reviewed local-only
+`.gitignore` entries such as build output, runtime databases, local settings,
+smoke evidence, and private screenshots. `check-tracked-public-files.sh`
+rejects those paths if they are force-added, so the worktree exclusions can
+never hide committed content. A shallow clone fails closed; fetch full history
+with `git fetch --unshallow --tags` before scanning.
 
 ## Release Checklist
 

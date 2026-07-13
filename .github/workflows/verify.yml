@@ -13,17 +13,22 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   frontend-fast:
     name: Frontend fast
     runs-on: macos-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -53,13 +58,14 @@ jobs:
   e2e-smoke:
     name: E2E smoke
     runs-on: macos-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -76,7 +82,7 @@ jobs:
 
       - name: Upload Playwright report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-smoke-report
           path: ui/playwright-report
@@ -84,7 +90,7 @@ jobs:
 
       - name: Upload Playwright test results
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-smoke-test-results
           path: ui/test-results
@@ -93,23 +99,24 @@ jobs:
   e2e-real-server:
     name: E2E real Rust server
     runs-on: macos-latest
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@1.96.0
+        uses: dtolnay/rust-toolchain@c0e9df88980754dd93e5833b8dcb1b304c1fe173 # 1.96.0
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Install frontend dependencies and Chromium
         run: |
@@ -121,7 +128,7 @@ jobs:
 
       - name: Upload real-server Playwright report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-real-server-report
           path: ui/playwright-report
@@ -130,13 +137,16 @@ jobs:
   security-hygiene:
     name: Security hygiene
     runs-on: macos-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -148,11 +158,11 @@ jobs:
       - name: Install Gitleaks
         run: brew install gitleaks
 
-      - name: Run secret scanner
-        run: ./tools/secret-scan.sh
-
       - name: Run public-readiness checks
         run: ./tools/public-readiness.sh
+
+      - name: Test secret-scanner fixtures
+        run: ./tools/test-secret-scan.sh
 
       - name: Test force-added public-readiness fixtures
         run: ./tools/test-public-readiness.sh
@@ -160,10 +170,11 @@ jobs:
   swift-launcher:
     name: Swift launcher
     runs-on: macos-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Build and test Swift launcher
         run: swift test --package-path macos/FozmoLauncher --disable-automatic-resolution
@@ -171,21 +182,22 @@ jobs:
   lan-smoke:
     name: LAN pairing smoke
     runs-on: macos-latest
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@1.96.0
+        uses: dtolnay/rust-toolchain@c0e9df88980754dd93e5833b8dcb1b304c1fe173 # 1.96.0
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Run LAN pairing smoke test
         run: ./tools/lan-pairing-smoke.sh
@@ -193,21 +205,22 @@ jobs:
   remote-smoke:
     name: Remote access smoke
     runs-on: macos-latest
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@1.96.0
+        uses: dtolnay/rust-toolchain@c0e9df88980754dd93e5833b8dcb1b304c1fe173 # 1.96.0
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Run remote access smoke test
         run: ./tools/remote-access-smoke.sh
@@ -215,18 +228,19 @@ jobs:
   rust-quality:
     name: Rust quality
     runs-on: macos-latest
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@1.96.0
+        uses: dtolnay/rust-toolchain@c0e9df88980754dd93e5833b8dcb1b304c1fe173 # 1.96.0
         with:
           components: rustfmt, clippy
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Check Rust formatting
         run: cargo fmt -- --check
@@ -276,6 +290,7 @@ jobs:
   rust-cross-platform:
     name: Rust cross-platform check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -286,13 +301,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@1.96.0
+        uses: dtolnay/rust-toolchain@c0e9df88980754dd93e5833b8dcb1b304c1fe173 # 1.96.0
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Check Rust targets without default features
         run: cargo check --all-targets --no-default-features
@@ -300,18 +315,19 @@ jobs:
   rust-release-tests:
     name: Rust release tests
     runs-on: macos-latest
+    timeout-minutes: 120
     env:
       RUSTFLAGS: '-C target-cpu=native'
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@1.96.0
+        uses: dtolnay/rust-toolchain@c0e9df88980754dd93e5833b8dcb1b304c1fe173 # 1.96.0
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Run Rust release tests
         run: cargo test --release
@@ -322,14 +338,15 @@ jobs:
   e2e-full:
     name: Full E2E
     runs-on: macos-latest
+    timeout-minutes: 60
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -346,7 +363,7 @@ jobs:
 
       - name: Upload Playwright report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-full-report
           path: ui/playwright-report
@@ -354,7 +371,7 @@ jobs:
 
       - name: Upload Playwright test results
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-full-test-results
           path: ui/test-results
@@ -363,6 +380,7 @@ jobs:
   rust-release-tests-full:
     name: Full Rust release tests (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
@@ -382,13 +400,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@1.96.0
+        uses: dtolnay/rust-toolchain@c0e9df88980754dd93e5833b8dcb1b304c1fe173 # 1.96.0
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Run Rust release tests
         run: ${{ matrix.command }}

@@ -46,6 +46,19 @@ after choosing the public repository's default branch. GitHub stores the
 ruleset as repository settings, so the workflow defines the checks and this
 document records the required policy.
 
+## Public Pull Request Security
+
+- Pin every third-party GitHub Action to a reviewed, full-length commit SHA.
+  Keep the corresponding release version in a comment, and use the weekly
+  `github-actions` Dependabot updates to review newer pins.
+- Require trusted-maintainer approval before workflows from untrusted forks
+  run. Fork pull requests must not receive repository secrets or write-scoped
+  workflow tokens.
+- Run public pull request workflows only on GitHub-hosted runners. Do not attach
+  persistent self-hosted runners to this repository. Any future self-hosted
+  capacity must be ephemeral, isolated, and unavailable to untrusted pull
+  request workflows.
+
 ## macOS
 
 Expected areas:

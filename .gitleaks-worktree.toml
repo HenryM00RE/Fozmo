@@ -1,0 +1,49 @@
+title = "Fozmo worktree secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Exclude only reviewed local paths that Git ignores and the Git database."
+paths = [
+  '''^\.git(/|$)''',
+  '''(^|/)\.DS_Store$''',
+  '''^target(/|$)''',
+  '''^airplay-helper/target(/|$)''',
+  '''^macos/FozmoLauncher/\.build(/|$)''',
+  '''^macos/FozmoLauncher/\.swiftpm(/|$)''',
+  '''^macos/build(/|$)''',
+  '''^dist(/|$)''',
+  '''^drivers/fozmo-capture/build(/|$)''',
+  '''^music(/|$)''',
+  '''^library(/|$)''',
+  '''^\.fozmo\.lock$''',
+  '''^install\.json$''',
+  '''^backups(/|$)''',
+  '''^logs(/|$)''',
+  '''^secrets\.dev\.json$''',
+  '''^settings\.json$''',
+  '''^settings\.json\.bak$''',
+  '''^settings\.json\.recovery-required$''',
+  '''^settings\.json\.corrupt-.*$''',
+  '''^settings\.local\.json$''',
+  '''^static/user-fonts(/|$)''',
+  '''(^|/).*\.log$''',
+  '''(^|/).*\.sqlite$''',
+  '''(^|/).*\.db$''',
+  '''^scratch(/|$)''',
+  '''^docs/manual-smoke-evidence\.local\.md$''',
+  '''^docs/screenshots/local(/|$)''',
+  '''^docs/screenshots/private(/|$)''',
+  '''^ui/node_modules(/|$)''',
+  '''^ui/\.vite(/|$)''',
+  '''^ui/coverage(/|$)''',
+  '''^ui/playwright-report(/|$)''',
+  '''^ui/test-results(/|$)''',
+  '''^ui/library(/|$)''',
+  '''^ui/music(/|$)''',
+  '''^ui/presets(/|$)''',
+  '''^ui/static(/|$)''',
+  '''^audio_tests/out(/|$)''',
+  '''^tools/\.venv(/|$)''',
+]
