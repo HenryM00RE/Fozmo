@@ -101,12 +101,13 @@ export function SettingsView({
     scanStatus,
     setFolderInput
   } = useMediaSettings(onRefresh, libraryManagementAvailable);
-  const { applyState, playbackConfig, playbackConfigError, updatePlaybackConfig } = useDspSettings(
-    status,
-    onRefresh,
-    effectiveSettingsTargetZoneId,
-    settingsTargetZone
-  );
+  const {
+    applyState,
+    ecBeam2Selectable,
+    playbackConfig,
+    playbackConfigError,
+    updatePlaybackConfig
+  } = useDspSettings(status, onRefresh, effectiveSettingsTargetZoneId, settingsTargetZone);
   const {
     deleteEqPreset,
     dragEqBand,
@@ -274,6 +275,7 @@ export function SettingsView({
       {activeTab === 'dsp' ? (
         <DspSettingsPage
           applyState={applyState}
+          ecBeam2Selectable={ecBeam2Selectable}
           playbackConfig={playbackConfig}
           playbackConfigError={playbackConfigError}
           selectedDeviceName={settingsTargetZoneName}
