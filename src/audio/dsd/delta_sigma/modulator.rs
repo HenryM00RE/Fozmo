@@ -311,9 +311,8 @@ impl DsdModulator {
             "ecbeam" | "ec beam" | "ec_beam" | "ec-beam" | "ecb" | "7th order ecb" => {
                 Some(Self::EcBeam)
             }
-            "ecbeam2" | "ec beam 2" | "ec_beam_2" | "ec-beam-2" | "ecb2" | "7th order ecb2" => {
-                Some(Self::EcBeam2)
-            }
+            "ecbeam2" | "ec beam 2" | "ec_beam_2" | "ec-beam-2" | "ecb2" | "7th order beam"
+            | "7th order ecb2" => Some(Self::EcBeam2),
             "ecdepth3" | "ec depth 3" | "ec_depth_3" | "ec-3" | "ec3" => Some(Self::EcDepth2),
             "ecdepth4" | "ec depth 4" | "ec_depth_4" | "ec-4" | "ec4" => Some(Self::EcDepth2),
             "ecdepth8" | "ec depth 8" | "ec_depth_8" | "ec-8" | "ec8" => Some(Self::EcDepth2),

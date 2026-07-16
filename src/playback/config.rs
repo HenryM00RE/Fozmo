@@ -1,6 +1,7 @@
 use crate::app::state::AppState;
 use crate::audio::dither::DitherPreference;
 use crate::audio::dsd::delta_sigma::DsdModulator;
+use crate::audio::dsd::dsd_render::ecbeam2_filter_supported;
 use crate::audio::player::{DEFAULT_HEADROOM_DB, MAX_DSP_BUFFER_MS, OutputMode, Player};
 use crate::audio::resampler::FilterType;
 use crate::audio::upnp::UpnpRendererTarget;
@@ -143,40 +144,50 @@ fn validate_ecbeam2_playback_config(
             "EcBeam2 requires -2 dB headroom",
         ));
     }
-    if !matches!(filter_type, FilterType::Minimum16k | FilterType::Split128k) {
+    if !ecbeam2_filter_supported(filter_type) {
         return Err(PlaybackError::bad_request(
-            "EcBeam2 supports only the Minimum16k and Split128k filters",
+            "EcBeam2 supports only the Minimum16k, Split128k, and SmoothPhase128k filters",
         ));
     }
 
-    let effective_output_mode =
-        effective_output_mode_for_upsampling(upsampling_enabled, output_mode);
-    if effective_output_mode.is_dsd() && effective_output_mode != OutputMode::Dsd64 {
-        return Err(PlaybackError::bad_request(
-            "EcBeam2 supports DSD64 output only",
-        ));
-    }
-    if effective_output_mode == OutputMode::Dsd64
-        && dsd_rules_enabled
-        && dsd_rules
-            .iter()
-            .any(|rule| OutputMode::from_name(&rule.output_mode) != Some(OutputMode::Dsd64))
+    // Validate EcBeam2 against the requested mode before generic feature
+    // fallback can normalize an unavailable DSD256 selection to DSD128.
+    let effective_output_mode = if upsampling_enabled {
+        output_mode
+    } else {
+        OutputMode::Pcm
+    };
+    if effective_output_mode.is_dsd()
+        && !matches!(
+            effective_output_mode,
+            OutputMode::Dsd64 | OutputMode::Dsd128
+        )
     {
         return Err(PlaybackError::bad_request(
-            "EcBeam2 requires every enabled DSD rule to use DSD64",
+            "EcBeam2 supports only DSD64 and DSD128 output",
         ));
     }
-    if effective_output_mode == OutputMode::Dsd64
+    if effective_output_mode.is_dsd()
         && dsd_rules_enabled
         && dsd_rules.iter().any(|rule| {
             !matches!(
-                FilterType::from_name(&rule.filter_type),
-                Some(FilterType::Minimum16k | FilterType::Split128k)
+                OutputMode::from_name(&rule.output_mode),
+                Some(OutputMode::Dsd64 | OutputMode::Dsd128)
             )
         })
     {
         return Err(PlaybackError::bad_request(
-            "EcBeam2 requires every enabled DSD rule to use the Minimum16k or Split128k filter",
+            "EcBeam2 requires every enabled DSD rule to use DSD64 or DSD128",
+        ));
+    }
+    if effective_output_mode.is_dsd()
+        && dsd_rules_enabled
+        && dsd_rules.iter().any(|rule| {
+            !FilterType::from_name(&rule.filter_type).is_some_and(ecbeam2_filter_supported)
+        })
+    {
+        return Err(PlaybackError::bad_request(
+            "EcBeam2 requires every enabled DSD rule to use the Minimum16k, Split128k, or SmoothPhase128k filter",
         ));
     }
     Ok(())
@@ -625,6 +636,65 @@ mod tests {
     }
 
     #[test]
+    fn playback_config_persists_production_ecbeam2_at_dsd128() {
+        let state = crate::playback::test_support::app_state("selectable-ecbeam2-dsd128");
+        let update = PlaybackConfigUpdate {
+            filter_type: "Minimum16k".to_string(),
+            target_rate: 0,
+            target_bit_depth: 24,
+            upsampling_enabled: true,
+            exclusive: true,
+            output_mode: Some("Dsd128".to_string()),
+            dsd_modulator: Some("EcBeam2".to_string()),
+            dsd_isi_penalty: 0.0,
+            dsd_rules_enabled: false,
+            dsd_rules: Vec::new(),
+            headroom_db: -2.0,
+            dsp_buffer_ms: 0,
+        };
+
+        update_active_playback_config(&state, update)
+            .expect("production EcBeam2 DSD128 config should update");
+
+        let zone_id = state.zones().active_zone_id();
+        let settings = state.settings().playback_for_zone(&zone_id);
+        assert_eq!(settings.output_mode.as_deref(), Some("Dsd128"));
+        assert_eq!(settings.dsd_modulator.as_deref(), Some("EcBeam2"));
+        assert_eq!(settings.dsd_isi_penalty, Some(0.0));
+        assert_eq!(settings.headroom_db, Some(-2.0));
+    }
+
+    #[test]
+    fn playback_config_persists_smooth_phase_ecbeam2_at_dsd128() {
+        let state = crate::playback::test_support::app_state("ecbeam2-smooth-phase-dsd128");
+        let update = PlaybackConfigUpdate {
+            filter_type: "SmoothPhase128k".to_string(),
+            target_rate: 0,
+            target_bit_depth: 24,
+            upsampling_enabled: true,
+            exclusive: true,
+            output_mode: Some("Dsd128".to_string()),
+            dsd_modulator: Some("EcBeam2".to_string()),
+            dsd_isi_penalty: 0.0,
+            dsd_rules_enabled: false,
+            dsd_rules: Vec::new(),
+            headroom_db: -2.0,
+            dsp_buffer_ms: 0,
+        };
+
+        update_active_playback_config(&state, update)
+            .expect("Smooth Phase EcBeam2 DSD128 config should update");
+
+        let zone_id = state.zones().active_zone_id();
+        let settings = state.settings().playback_for_zone(&zone_id);
+        assert_eq!(settings.filter_type.as_deref(), Some("SmoothPhase128k"));
+        assert_eq!(settings.output_mode.as_deref(), Some("Dsd128"));
+        assert_eq!(settings.dsd_modulator.as_deref(), Some("EcBeam2"));
+        assert_eq!(settings.dsd_isi_penalty, Some(0.0));
+        assert_eq!(settings.headroom_db, Some(-2.0));
+    }
+
+    #[test]
     fn playback_config_rejects_ecbeam2_with_sinc_extreme_filter() {
         let state = crate::playback::test_support::app_state("ecbeam2-sinc-rejected");
         let update = PlaybackConfigUpdate {
@@ -646,18 +716,31 @@ mod tests {
             update_active_playback_config(&state, update)
                 .expect_err("SincExtreme32k must not be persisted for EcBeam2")
                 .message(),
-            "EcBeam2 supports only the Minimum16k and Split128k filters"
+            "EcBeam2 supports only the Minimum16k, Split128k, and SmoothPhase128k filters"
         );
     }
 
     #[test]
-    fn ecbeam2_validation_rejects_non_dsd64_outputs_and_nonzero_isi() {
+    fn ecbeam2_validation_accepts_dsd64_and_dsd128_but_rejects_dsd256() {
         assert!(
             validate_ecbeam2_playback_config(
                 DsdModulator::EcBeam2,
                 FilterType::Split128k,
                 true,
                 OutputMode::Dsd64,
+                false,
+                &[],
+                0.0,
+                -2.0,
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_ecbeam2_playback_config(
+                DsdModulator::EcBeam2,
+                FilterType::SmoothPhase128k,
+                true,
+                OutputMode::Dsd128,
                 false,
                 &[],
                 0.0,
@@ -691,9 +774,9 @@ mod tests {
             )
             .expect_err("SincExtreme32k must be rejected")
             .message(),
-            "EcBeam2 supports only the Minimum16k and Split128k filters"
+            "EcBeam2 supports only the Minimum16k, Split128k, and SmoothPhase128k filters"
         );
-        assert_eq!(
+        assert!(
             validate_ecbeam2_playback_config(
                 DsdModulator::EcBeam2,
                 FilterType::Split128k,
@@ -704,9 +787,22 @@ mod tests {
                 0.0,
                 -2.0,
             )
-            .expect_err("DSD128 must be rejected")
+            .is_ok()
+        );
+        assert_eq!(
+            validate_ecbeam2_playback_config(
+                DsdModulator::EcBeam2,
+                FilterType::Split128k,
+                true,
+                OutputMode::Dsd256,
+                false,
+                &[],
+                0.0,
+                -2.0,
+            )
+            .expect_err("DSD256 must be rejected")
             .message(),
-            "EcBeam2 supports DSD64 output only"
+            "EcBeam2 supports only DSD64 and DSD128 output"
         );
         assert_eq!(
             validate_ecbeam2_playback_config(
@@ -747,6 +843,16 @@ mod tests {
             filter_type: "Split128k".to_string(),
             output_mode: "Dsd128".to_string(),
         };
+        let dsd256_rule = DsdSourceRule {
+            source_rate: 96_000,
+            filter_type: "Minimum16k".to_string(),
+            output_mode: "Dsd256".to_string(),
+        };
+        let smooth_dsd128_rule = DsdSourceRule {
+            source_rate: 48_000,
+            filter_type: "SmoothPhase128k".to_string(),
+            output_mode: "Dsd128".to_string(),
+        };
         let sinc_dsd64_rule = DsdSourceRule {
             source_rate: 48_000,
             filter_type: "SincExtreme32k".to_string(),
@@ -766,7 +872,7 @@ mod tests {
             )
             .is_ok()
         );
-        assert_eq!(
+        assert!(
             validate_ecbeam2_playback_config(
                 DsdModulator::EcBeam2,
                 FilterType::Split128k,
@@ -777,9 +883,37 @@ mod tests {
                 0.0,
                 -2.0,
             )
-            .expect_err("enabled DSD128 rule must be rejected")
+            .is_ok(),
+            "mixed DSD64/DSD128 rules are qualified"
+        );
+        assert!(
+            validate_ecbeam2_playback_config(
+                DsdModulator::EcBeam2,
+                FilterType::SmoothPhase128k,
+                true,
+                OutputMode::Dsd128,
+                true,
+                &[dsd128_rule.clone(), smooth_dsd128_rule],
+                0.0,
+                -2.0,
+            )
+            .is_ok(),
+            "Smooth Phase rules are qualified"
+        );
+        assert_eq!(
+            validate_ecbeam2_playback_config(
+                DsdModulator::EcBeam2,
+                FilterType::Split128k,
+                true,
+                OutputMode::Dsd64,
+                true,
+                &[dsd256_rule],
+                0.0,
+                -2.0,
+            )
+            .expect_err("enabled DSD256 rule must be rejected")
             .message(),
-            "EcBeam2 requires every enabled DSD rule to use DSD64"
+            "EcBeam2 requires every enabled DSD rule to use DSD64 or DSD128"
         );
         assert_eq!(
             validate_ecbeam2_playback_config(
@@ -794,7 +928,7 @@ mod tests {
             )
             .expect_err("enabled SincExtreme32k rule must be rejected")
             .message(),
-            "EcBeam2 requires every enabled DSD rule to use the Minimum16k or Split128k filter"
+            "EcBeam2 requires every enabled DSD rule to use the Minimum16k, Split128k, or SmoothPhase128k filter"
         );
         assert!(
             validate_ecbeam2_playback_config(

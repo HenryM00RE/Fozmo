@@ -1389,6 +1389,11 @@ impl CrfbModulator {
             return;
         }
 
+        beam.diagnostics.transition_evaluations = beam
+            .diagnostics
+            .transition_evaluations
+            .wrapping_add((2 * beam.parents_len) as u64);
+
         let parent_bank = beam.parents_bank;
         let materialize_bank = parent_bank ^ 1;
         debug_assert!(parent_bank < 2);
@@ -1626,6 +1631,11 @@ impl CrfbModulator {
             beam.reseed_after_recovery(self.committed_beam_seed());
             return;
         }
+
+        beam.diagnostics.transition_evaluations = beam
+            .diagnostics
+            .transition_evaluations
+            .wrapping_add((2 * beam.parents_len) as u64);
 
         let mut children = 0usize;
         let parent_bank = beam.parents_bank;
@@ -1931,6 +1941,11 @@ impl CrfbModulator {
             beam.reseed_after_recovery(self.committed_beam_seed());
             return;
         }
+
+        beam.diagnostics.transition_evaluations = beam
+            .diagnostics
+            .transition_evaluations
+            .wrapping_add((2 * beam.parents_len) as u64);
 
         let dither = if DITHER { self.next_dither() } else { 0.0 };
         let filtered_error_active =

@@ -362,10 +362,13 @@ impl Ec2DecisionTrace {
 /// construction. Phase 0 keeps these as plain fields; the windowed
 /// `BeamDecisionTrace` CSV surface is Phase 1.
 #[doc(hidden)]
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct BeamDiagnostics {
     /// Delayed bits committed (excludes flush-tail bits).
     pub emit_count: u64,
+    /// Candidate transitions evaluated by the active beam search. This is a
+    /// work counter only and does not participate in ranking or output.
+    pub transition_evaluations: u64,
     /// Samples where the best survivor did not descend from the previous best.
     pub path_switches: u64,
     /// Emits whose bit differs from the instantaneous best child's bit when

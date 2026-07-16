@@ -324,6 +324,10 @@ fn dsd_modulator_names_map_to_mode_and_depth() {
         DsdModulator::from_name("7th Order ECB2"),
         Some(DsdModulator::EcBeam2)
     );
+    assert_eq!(
+        DsdModulator::from_name("7th Order Beam"),
+        Some(DsdModulator::EcBeam2)
+    );
     assert_eq!(DsdModulator::EcBeam2.as_name(), "EcBeam2");
     assert_eq!(DsdModulator::EcBeam2.as_id(), 7);
     assert_eq!(DsdModulator::from_id(7), DsdModulator::EcBeam2);
