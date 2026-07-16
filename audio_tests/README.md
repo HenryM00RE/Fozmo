@@ -1,11 +1,38 @@
 # Audio development checks
 
-The retained audio checks have two purposes: EcBeam2 research and performance
-measurement. Historical production-modulator tuning and subjective quality
-harnesses were retired after tuning and QA were completed.
+The retained audio checks cover the public production-quality bench, narrow
+EcBeam2 research, functional smoke coverage, and performance measurement.
 
 All EcBeam2 corpus inputs are generated from committed manifests. No commercial
 music fixtures are stored in this repository.
+
+## Public PCM-to-DSD quality
+
+The fixed synthetic 26-cell v4 matrix runs without network access or external
+media. It scores the production-default Split Phase path and writes JSON plus
+Markdown:
+
+```sh
+RUSTFLAGS="-C target-cpu=native" \
+cargo run --locked --release --bin dsd_public_quality -- \
+  --out target/dsd-public-quality \
+  --check
+```
+
+`Split128k` is the hard-coded canonical filter. A narrower modulator selection
+records `matrix_complete: false` and cannot pass `--check`. Add
+`--include-linear-reference` to run the legacy modulators' 21-cell
+`SincExtreme32k` diagnostic; EcBeam2 does not support that filter. The
+diagnostic never affects canonical completeness, structural checking, or the
+production-path scores.
+
+The executable binds the result to its release/native build configuration and
+source snapshot; setting `RUSTFLAGS` only when launching an old binary does not
+satisfy that contract. The versioned 100-point presentation is explicitly a
+`Split128k` production-path comparison, not a `--check` quality gate or a
+listening score. The checked-in baseline is the canonical 26-cell v4 result.
+The full methodology is documented in
+[docs/dsd-public-quality.md](../docs/dsd-public-quality.md).
 
 ## EcBeam2
 
@@ -51,8 +78,10 @@ Generated output belongs under `audio_tests/out/`, which is ignored by Git.
 
 ## Functional smoke coverage
 
-The lightweight integration test checks that retained production modulators
-render native DSD without resets:
+The lightweight integration test checks that all four production modulators
+complete the real native-DSD EOF path with exact output length and clean health
+counters. EcBeam2 additionally covers all three supported filters at DSD64 and
+DSD128:
 
 ```sh
 RUSTFLAGS="-C target-cpu=native" cargo test --release --test audio_smoke

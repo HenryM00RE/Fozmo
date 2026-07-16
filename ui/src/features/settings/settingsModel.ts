@@ -130,7 +130,8 @@ export const filterOptions = [
 export const dsdModulatorOptions = [
   ['Standard', '7th Order'],
   ['EcDepth2', '7th Order EC'],
-  ['EcBeam', '7th Order Search']
+  ['EcBeam', '7th Order Search'],
+  ['EcBeam2', '7th Order Beam']
 ] as const;
 
 export const legacyFilterIds = [
@@ -164,7 +165,8 @@ export function visibleDsdModulator(name: unknown) {
   const key = stringValue(name, 'EcDepth2');
   if (knownDsdModulatorIds.has(key)) return key;
   if (key === 'EC depth 2') return 'EcDepth2';
-  if (/^(EC ?Beam ?2|ECB2|7th Order ECB2(?: \(Experimental\))?)$/i.test(key)) return 'EcBeam2';
+  if (/^(EC ?Beam ?2|ECB2|7th Order Beam|7th Order ECB2(?: \(Experimental\))?)$/i.test(key))
+    return 'EcBeam2';
   if (/^(EC ?Beam|ECB|7th Order ECB|7th Order Search)$/i.test(key)) return 'EcBeam';
   // Collapse stale persisted EC aliases without exposing them as selectable modes.
   if (/^EcDepth/i.test(key) || /^EC depth/i.test(key)) return 'EcDepth2';
@@ -184,7 +186,9 @@ export function isiPenaltyAfterDsdModulatorChange(currentIsiPenalty: number, mod
 }
 
 export function ecBeam2FilterSupported(filterType: unknown) {
-  return filterType === 'Minimum16k' || filterType === 'Split128k';
+  return (
+    filterType === 'Minimum16k' || filterType === 'Split128k' || filterType === 'SmoothPhase128k'
+  );
 }
 
 export function ecBeam2SelectableForDsdConfig(
@@ -193,11 +197,12 @@ export function ecBeam2SelectableForDsdConfig(
   dsdRulesEnabled: unknown,
   dsdRules: unknown
 ) {
-  if (outputMode !== 'Dsd64' || !ecBeam2FilterSupported(filterType)) return false;
+  if ((outputMode !== 'Dsd64' && outputMode !== 'Dsd128') || !ecBeam2FilterSupported(filterType))
+    return false;
   if (!boolValue(dsdRulesEnabled, false)) return true;
   return safeArray<JsonRecord>(dsdRules).every(
     (rule) =>
-      stringValue(rule.output_mode) === 'Dsd64' &&
+      ['Dsd64', 'Dsd128'].includes(stringValue(rule.output_mode)) &&
       ecBeam2FilterSupported(stringValue(rule.filter_type))
   );
 }

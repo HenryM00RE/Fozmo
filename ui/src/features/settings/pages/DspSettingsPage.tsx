@@ -30,6 +30,7 @@ type PlaybackConfig = ReturnType<typeof configFromStatus>;
 
 export function DspSettingsPage({
   applyState,
+  ecBeam2Selectable,
   selectedDeviceName,
   selectedZoneId,
   settingsZones,
@@ -40,6 +41,7 @@ export function DspSettingsPage({
   updatePlaybackConfig
 }: {
   applyState: DspApplyState;
+  ecBeam2Selectable: boolean;
   selectedDeviceName: string;
   selectedZoneId: string;
   settingsZones: ZoneProfile[];
@@ -80,7 +82,7 @@ export function DspSettingsPage({
         label: option.label,
         disabled:
           !zoneSupportsDsdOutputMode(selectedZone, option.value, experimentalDsd256) ||
-          (playbackConfig.dsdModulator === 'EcBeam2' && option.value !== 'Dsd64')
+          (playbackConfig.dsdModulator === 'EcBeam2' && option.value === 'Dsd256')
       }))
     : sampleRateOptions.map(([value, label]) => ({ value: String(value), label }));
 
@@ -157,8 +159,10 @@ export function DspSettingsPage({
                       'outputMode',
                       value === 'Pcm'
                         ? 'Pcm'
-                        : playbackConfig.dsdModulator === 'EcBeam2'
-                          ? 'Dsd64'
+                        : playbackConfig.dsdModulator === 'EcBeam2' && preferredDsdRate === 'Dsd256'
+                          ? zoneSupportsDsdOutputMode(selectedZone, 'Dsd128', experimentalDsd256)
+                            ? 'Dsd128'
+                            : 'Dsd64'
                           : preferredDsdRate
                     )
                   }
@@ -279,6 +283,7 @@ export function DspSettingsPage({
                   options={dsdModulatorOptions.map(([value, label]) => ({
                     value,
                     label,
+                    disabled: value === 'EcBeam2' && !ecBeam2Selectable,
                     after: value === 'EcDepth2' ? <FavoriteStarIcon /> : undefined
                   }))}
                 />

@@ -28,8 +28,25 @@ use core::fmt;
 pub(crate) const MAX_BEAM_ERROR_PROFILE_STATES: usize = 6;
 pub(crate) const DSD64_44K_FAMILY_WIRE_RATE: u32 = 2_822_400;
 pub(crate) const DSD64_48K_FAMILY_WIRE_RATE: u32 = 3_072_000;
+pub(crate) const DSD128_44K_FAMILY_WIRE_RATE: u32 = 5_644_800;
+pub(crate) const DSD128_48K_FAMILY_WIRE_RATE: u32 = 6_144_000;
 
 pub(crate) type BeamErrorProfileState = [f64; MAX_BEAM_ERROR_PROFILE_STATES];
+
+/// Immutable coefficient view used by offline implementation-equivalence
+/// attribution.  The runtime profile remains the authority; this value merely
+/// copies its exact compiled coefficients so a second implementation can
+/// replay them without calling the runtime transition methods.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct BeamErrorProfileCoefficients {
+    pub(crate) a: [[f64; MAX_BEAM_ERROR_PROFILE_STATES]; MAX_BEAM_ERROR_PROFILE_STATES],
+    pub(crate) b: BeamErrorProfileState,
+    pub(crate) c: BeamErrorProfileState,
+    pub(crate) d: f64,
+    pub(crate) p: [[f64; MAX_BEAM_ERROR_PROFILE_STATES]; MAX_BEAM_ERROR_PROFILE_STATES],
+    pub(crate) h: BeamErrorProfileState,
+    pub(crate) q: f64,
+}
 
 /// Deterministic constant-memory P² quantile estimator used by experiment
 /// diagnostics at the DSD wire rate.  It performs no allocation after
@@ -157,6 +174,18 @@ pub(crate) struct BeamErrorProfile {
 }
 
 impl BeamErrorProfile {
+    pub(crate) fn coefficients(&self) -> BeamErrorProfileCoefficients {
+        BeamErrorProfileCoefficients {
+            a: self.a,
+            b: self.b,
+            c: self.c,
+            d: self.d,
+            p: self.p,
+            h: self.h,
+            q: self.q,
+        }
+    }
+
     /// Causal filtered output for the supplied pre-advance state.
     #[inline]
     pub(crate) fn output(&self, state: &BeamErrorProfileState, error: f64) -> f64 {
@@ -220,6 +249,210 @@ impl BeamErrorProfile {
         (2.0 * error).mul_add(dot(&self.h, state), self.q * error * error)
     }
 
+    /// Four independent profile-state dot products evaluated across AArch64
+    /// lanes. The serial FMA order within each lane is identical to `dot`.
+    #[cfg(target_arch = "aarch64")]
+    #[inline(always)]
+    fn state_dot4(
+        coefficients: &BeamErrorProfileState,
+        states: &[[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
+    ) -> [f64; 4] {
+        use core::arch::aarch64::*;
+        let mut result = [0.0; 4];
+        // SAFETY: NEON is baseline on AArch64 and both offsets address
+        // two-lane regions inside each four-element stage array.
+        unsafe {
+            for offset in [0usize, 2] {
+                let mut dot = vdupq_n_f64(0.0);
+                for stage in 0..MAX_BEAM_ERROR_PROFILE_STATES {
+                    dot = vfmaq_n_f64(
+                        dot,
+                        vld1q_f64(states[stage].as_ptr().add(offset)),
+                        coefficients[stage],
+                    );
+                }
+                vst1q_f64(result.as_mut_ptr().add(offset), dot);
+            }
+        }
+        result
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[inline(always)]
+    pub(crate) fn tail_adjusted_energy_increment_pair4(
+        &self,
+        states: &[[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
+        input: f64,
+    ) -> [[f64; 4]; 2] {
+        let linear = Self::state_dot4(&self.h, states);
+        let errors = [1.0 - input, -1.0 - input];
+        core::array::from_fn(|sign| {
+            core::array::from_fn(|lane| {
+                let error = errors[sign];
+                (2.0 * error).mul_add(linear[lane], self.q * error * error)
+            })
+        })
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[inline(always)]
+    pub(crate) fn output_pair4(
+        &self,
+        states: &[[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
+        input: f64,
+    ) -> [[f64; 4]; 2] {
+        let linear = Self::state_dot4(&self.c, states);
+        let errors = [1.0 - input, -1.0 - input];
+        core::array::from_fn(|sign| {
+            core::array::from_fn(|lane| self.d.mul_add(errors[sign], linear[lane]))
+        })
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[allow(clippy::needless_range_loop)]
+    #[inline(always)]
+    pub(crate) fn next_state4(
+        &self,
+        states: &[[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
+        errors: [f64; 4],
+    ) -> [[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES] {
+        use core::arch::aarch64::*;
+        let mut next = [[0.0; 4]; MAX_BEAM_ERROR_PROFILE_STATES];
+        // SAFETY: NEON is baseline on AArch64 and every pointer addresses a
+        // complete two-lane region of a four-element stage array.
+        unsafe {
+            for offset in [0usize, 2] {
+                let error = vld1q_f64(errors.as_ptr().add(offset));
+                for row in 0..MAX_BEAM_ERROR_PROFILE_STATES {
+                    let mut dot = vdupq_n_f64(0.0);
+                    for stage in 0..MAX_BEAM_ERROR_PROFILE_STATES {
+                        dot = vfmaq_n_f64(
+                            dot,
+                            vld1q_f64(states[stage].as_ptr().add(offset)),
+                            self.a[row][stage],
+                        );
+                    }
+                    let value = vfmaq_n_f64(dot, error, self.b[row]);
+                    vst1q_f64(next[row].as_mut_ptr().add(offset), value);
+                }
+            }
+        }
+        next
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[allow(clippy::needless_range_loop)]
+    #[inline(always)]
+    pub(crate) fn next_state4_selected(
+        &self,
+        states: &[[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
+        parent_indices: [usize; 4],
+        errors: [f64; 4],
+        next: &mut [[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
+    ) {
+        use core::arch::aarch64::*;
+        // SAFETY: NEON is baseline on AArch64. Parent indices originate from
+        // the fixed M4 selector and every destination store is two lanes wide.
+        unsafe {
+            for offset in [0usize, 2] {
+                let p0 = parent_indices[offset];
+                let p1 = parent_indices[offset + 1];
+                let state_vectors: [float64x2_t; MAX_BEAM_ERROR_PROFILE_STATES] =
+                    core::array::from_fn(|stage| {
+                        let value = vdupq_n_f64(states[stage][p0]);
+                        vsetq_lane_f64::<1>(states[stage][p1], value)
+                    });
+                let error = vld1q_f64(errors.as_ptr().add(offset));
+                for row in 0..MAX_BEAM_ERROR_PROFILE_STATES {
+                    let mut dot = vdupq_n_f64(0.0);
+                    for (stage, state) in state_vectors.iter().copied().enumerate() {
+                        dot = vfmaq_n_f64(dot, state, self.a[row][stage]);
+                    }
+                    let value = vfmaq_n_f64(dot, error, self.b[row]);
+                    vst1q_f64(next[row].as_mut_ptr().add(offset), value);
+                }
+            }
+        }
+    }
+
+    /// Advance one profile by pairing independent output rows in NEON lanes.
+    /// Each lane accumulates stages in the same order as `next_state`, so this
+    /// is an exact scheduling change rather than an algebraic rewrite.
+    #[cfg(target_arch = "aarch64")]
+    #[allow(clippy::needless_range_loop)]
+    #[inline(always)]
+    pub(crate) fn next_state_row_pairs(
+        &self,
+        state: &BeamErrorProfileState,
+        error: f64,
+    ) -> BeamErrorProfileState {
+        use core::arch::aarch64::*;
+        let mut next = [0.0; MAX_BEAM_ERROR_PROFILE_STATES];
+        // SAFETY: the fixed profile order is six, so each iteration writes one
+        // complete two-row pair inside `next`.
+        unsafe {
+            for row in (0..MAX_BEAM_ERROR_PROFILE_STATES).step_by(2) {
+                let mut dot = vdupq_n_f64(0.0);
+                for stage in 0..MAX_BEAM_ERROR_PROFILE_STATES {
+                    let coefficient = vsetq_lane_f64::<1>(
+                        self.a[row + 1][stage],
+                        vdupq_n_f64(self.a[row][stage]),
+                    );
+                    dot = vfmaq_f64(dot, vdupq_n_f64(state[stage]), coefficient);
+                }
+                let b = vsetq_lane_f64::<1>(self.b[row + 1], vdupq_n_f64(self.b[row]));
+                let value = vfmaq_n_f64(dot, b, error);
+                next[row] = vgetq_lane_f64::<0>(value);
+                next[row + 1] = vgetq_lane_f64::<1>(value);
+            }
+        }
+        next
+    }
+
+    /// Advance the committed reconstruction and ultrasonic filters together,
+    /// using one NEON lane per profile while preserving each scalar dot/FMA
+    /// chain. Lean playback needs only the ultrasonic pre-advance output.
+    #[cfg(target_arch = "aarch64")]
+    #[inline(always)]
+    pub(crate) fn advance_profile_pair(
+        reconstruction: &Self,
+        reconstruction_state: &mut BeamErrorProfileState,
+        ultrasonic: &Self,
+        ultrasonic_state: &mut BeamErrorProfileState,
+        error: f64,
+    ) -> f64 {
+        use core::arch::aarch64::*;
+        let ultrasonic_output = ultrasonic.output(ultrasonic_state, error);
+        let mut next_reconstruction = [0.0; MAX_BEAM_ERROR_PROFILE_STATES];
+        let mut next_ultrasonic = [0.0; MAX_BEAM_ERROR_PROFILE_STATES];
+        // SAFETY: NEON is baseline on AArch64. Each vector lane represents one
+        // independent scalar profile and is extracted without horizontal math.
+        unsafe {
+            let states: [float64x2_t; MAX_BEAM_ERROR_PROFILE_STATES] =
+                core::array::from_fn(|stage| {
+                    let value = vdupq_n_f64(reconstruction_state[stage]);
+                    vsetq_lane_f64::<1>(ultrasonic_state[stage], value)
+                });
+            for row in 0..MAX_BEAM_ERROR_PROFILE_STATES {
+                let mut dot = vdupq_n_f64(0.0);
+                for (stage, state) in states.iter().copied().enumerate() {
+                    let coefficient = vsetq_lane_f64::<1>(
+                        ultrasonic.a[row][stage],
+                        vdupq_n_f64(reconstruction.a[row][stage]),
+                    );
+                    dot = vfmaq_f64(dot, state, coefficient);
+                }
+                let b = vsetq_lane_f64::<1>(ultrasonic.b[row], vdupq_n_f64(reconstruction.b[row]));
+                let next = vfmaq_n_f64(dot, b, error);
+                next_reconstruction[row] = vgetq_lane_f64::<0>(next);
+                next_ultrasonic[row] = vgetq_lane_f64::<1>(next);
+            }
+        }
+        *reconstruction_state = next_reconstruction;
+        *ultrasonic_state = next_ultrasonic;
+        ultrasonic_output
+    }
+
     /// Definition-form increment used by diagnostics and exact-oracle checks.
     #[inline]
     pub(crate) fn tail_adjusted_energy_increment_from_definition(
@@ -263,7 +496,7 @@ impl fmt::Display for UnsupportedBeamErrorWireRate {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "EcBeam2 supports only DSD64 wire rates 2822400 and 3072000 Hz (got {})",
+            "EcBeam2 supports DSD64/DSD128 wire rates 2822400, 3072000, 5644800, and 6144000 Hz (got {})",
             self.wire_rate
         )
     }
@@ -283,6 +516,14 @@ pub(crate) fn profiles_for_wire_rate(
         DSD64_48K_FAMILY_WIRE_RATE => Ok(BeamErrorProfiles {
             reconstruction: RECONSTRUCTION_3072000,
             ultrasonic: ULTRASONIC_3072000,
+        }),
+        DSD128_44K_FAMILY_WIRE_RATE => Ok(BeamErrorProfiles {
+            reconstruction: RECONSTRUCTION_5644800,
+            ultrasonic: ULTRASONIC_5644800,
+        }),
+        DSD128_48K_FAMILY_WIRE_RATE => Ok(BeamErrorProfiles {
+            reconstruction: RECONSTRUCTION_6144000,
+            ultrasonic: ULTRASONIC_6144000,
         }),
         _ => Err(UnsupportedBeamErrorWireRate { wire_rate }),
     }
@@ -618,16 +859,339 @@ const ULTRASONIC_3072000: BeamErrorProfile = BeamErrorProfile {
     q: 9.82392456119101309e-01,
 };
 
+// wire_rate=5644800; sixth-order strict-minimum-phase linear-power fit
+const RECONSTRUCTION_5644800: BeamErrorProfile = BeamErrorProfile {
+    a: [
+        [
+            9.99841707054525575e-01,
+            1.77921565385119607e-02,
+            -8.28226376370366779e-14,
+            -6.75015598972095177e-14,
+            1.42108547152020037e-14,
+            4.61852778244065121e-14,
+        ],
+        [
+            -1.77591304378102825e-02,
+            9.97985784032301870e-01,
+            7.29230266950242623e-03,
+            -1.51928727952821419e-02,
+            -3.80279963479657201e-03,
+            5.10545909420301314e-03,
+        ],
+        [
+            2.97890521105779549e-04,
+            -1.67401498796693679e-02,
+            9.86463301937086978e-01,
+            1.83651519977345856e-03,
+            -1.05990641287689868e-02,
+            1.42298026567289071e-02,
+        ],
+        [
+            3.41298437790361550e-05,
+            -1.91794857422766612e-03,
+            -4.93023646552112685e-02,
+            9.56600058561882793e-01,
+            -1.86617930255366105e-02,
+            2.50544414638405044e-02,
+        ],
+        [
+            1.07766527168238422e-04,
+            -6.05600946989236395e-03,
+            -1.61687475995272861e-02,
+            -3.01176940775323213e-02,
+            9.85548405414172435e-01,
+            4.98360992385435964e-02,
+        ],
+        [
+            3.48659083723974690e-05,
+            -1.95931219858283935e-03,
+            -5.23110549365172432e-03,
+            -9.74403453175974252e-03,
+            -4.14422993880834908e-02,
+            9.97363390217310464e-01,
+        ],
+    ],
+    b: [
+        9.77848351342528732e-02,
+        1.84967374969236941e-04,
+        1.66838003461478469e-03,
+        1.91149250852828793e-04,
+        6.03562415010162716e-04,
+        1.95271689751312443e-04,
+    ],
+    c: [
+        1.03507850890481004e-03,
+        -5.81669041095078526e-02,
+        -1.55297972347664515e-01,
+        -2.89275145971403413e-01,
+        -1.62793772737930692e-01,
+        4.38902383908452154e-02,
+    ],
+    d: 5.79711067040856922e-03,
+    p: IDENTITY_PROFILE_GRAMIAN,
+    h: [
+        9.77726474602488432e-02,
+        1.55486459987884428e-03,
+        7.26660538089721393e-04,
+        -1.51393347360814453e-03,
+        -3.78939897761658103e-04,
+        5.08746799953805804e-04,
+    ],
+    q: 9.59873713588541878e-03,
+};
+const ULTRASONIC_5644800: BeamErrorProfile = BeamErrorProfile {
+    a: [
+        [
+            9.98879282307999938e-01,
+            4.73305332301912074e-02,
+            2.22044604925031308e-16,
+            0.00000000000000000e+00,
+            -1.77635683940025046e-15,
+            -7.10542735760100186e-15,
+        ],
+        [
+            -4.52706837263784634e-02,
+            9.55407534714937445e-01,
+            3.43772027979256656e-02,
+            -9.37036619821896011e-03,
+            -1.85239992456140978e-02,
+            4.27703517321020854e-03,
+        ],
+        [
+            -1.55102277567442009e-03,
+            3.27332994427553328e-02,
+            9.73904962659679629e-01,
+            2.69455134499949622e-02,
+            1.42603629819143540e-02,
+            -3.29259752426125374e-03,
+        ],
+        [
+            6.62155573040476499e-04,
+            -1.39743509830786237e-02,
+            -8.90372059352120132e-03,
+            9.96696315023695378e-01,
+            -5.08535045154528964e-03,
+            1.17416452371088553e-03,
+        ],
+        [
+            -7.81726444731011406e-04,
+            1.64978143448436879e-02,
+            -1.27835220319241494e-02,
+            4.33662769132358433e-03,
+            9.99398259773107367e-01,
+            2.51782730480201167e-02,
+        ],
+        [
+            4.45617085230747196e-04,
+            -9.40445086715333521e-03,
+            7.28714739695065367e-03,
+            -2.47206091665930217e-03,
+            -2.50694024129900321e-02,
+            9.99516299403107267e-01,
+        ],
+    ],
+    b: [
+        -1.53990593685301325e-01,
+        1.45035804835366711e-01,
+        -1.09208874973523495e-01,
+        4.66229550740928089e-02,
+        -5.50420450976540909e-02,
+        3.13762900908143016e-02,
+    ],
+    c: [
+        1.36781131127502592e-02,
+        -2.88667438901307805e-01,
+        2.23677299790158962e-01,
+        -7.58793366779598744e-02,
+        -1.51199712919999375e-03,
+        -1.73985317168770803e-02,
+    ],
+    d: 9.63087949597785209e-01,
+    p: IDENTITY_PROFILE_GRAMIAN,
+    h: [
+        -1.46953391105049902e-01,
+        -1.52161730579631671e-01,
+        1.14564929080689271e-01,
+        -3.12275360301723232e-02,
+        -6.17327905453851425e-02,
+        1.42535806126203000e-02,
+    ],
+    q: 9.90401262909478941e-01,
+};
+// wire_rate=6144000; sixth-order strict-minimum-phase linear-power fit
+const RECONSTRUCTION_6144000: BeamErrorProfile = BeamErrorProfile {
+    a: [
+        [
+            9.99866390697300877e-01,
+            1.63462764553088391e-02,
+            -2.15716333684667916e-13,
+            -1.42108547152020037e-13,
+            4.11892742135933076e-14,
+            1.70530256582424045e-13,
+        ],
+        [
+            -1.63184429559781810e-02,
+            9.98163875714041859e-01,
+            6.64891698192482394e-03,
+            -1.39995159683792281e-02,
+            -3.48839989793087168e-03,
+            4.71445270395065563e-03,
+        ],
+        [
+            2.51676747926723966e-04,
+            -1.53945225543478392e-02,
+            9.87481428935147010e-01,
+            1.62540370479291596e-03,
+            -9.73745063318687265e-03,
+            1.31598302401840783e-02,
+        ],
+        [
+            2.89650571195038235e-05,
+            -1.77172992255923657e-03,
+            -4.54581205006889394e-02,
+            9.60123542657502438e-01,
+            -1.71116310058827548e-02,
+            2.31257818431487294e-02,
+        ],
+        [
+            9.12072606525532074e-05,
+            -5.57895094720794842e-03,
+            -1.49720816647313116e-02,
+            -2.77044969756036763e-02,
+            9.86778684285691265e-01,
+            4.58701850337064343e-02,
+        ],
+        [
+            2.95229018470187011e-05,
+            -1.80585207850052394e-03,
+            -4.84631699571866532e-03,
+            -8.96767580870084374e-03,
+            -3.80932823025290773e-02,
+            9.97655529699855159e-01,
+        ],
+    ],
+    b: [
+        9.37282481501884451e-02,
+        1.76684932833604067e-04,
+        1.59762669057544968e-03,
+        1.83868190960748308e-04,
+        5.78977419221853896e-04,
+        1.87409350933620252e-04,
+    ],
+    c: [
+        9.14222577748252684e-04,
+        -5.59210185636106888e-02,
+        -1.50073744084154137e-01,
+        -2.77698030387518724e-01,
+        -1.56259192649566586e-01,
+        4.30018743180340390e-02,
+    ],
+    d: 5.80342206170908828e-03,
+    p: IDENTITY_PROFILE_GRAMIAN,
+    h: [
+        9.37186133318440862e-02,
+        1.35544611534241591e-03,
+        6.89925128737111336e-04,
+        -1.45266031682945193e-03,
+        -3.61973950672709092e-04,
+        4.89195367221092288e-04,
+    ],
+    q: 8.82165198216599937e-03,
+};
+const ULTRASONIC_6144000: BeamErrorProfile = BeamErrorProfile {
+    a: [
+        [
+            9.99053952608827234e-01,
+            4.34879267921459700e-02,
+            9.65894031423886190e-15,
+            0.00000000000000000e+00,
+            -1.55431223447521916e-15,
+            7.10542735760100186e-15,
+        ],
+        [
+            -4.17443902620973084e-02,
+            9.58999454950206331e-01,
+            3.16545142037129024e-02,
+            -8.68070412870025621e-03,
+            -1.70622534722622010e-02,
+            3.97488251952893279e-03,
+        ],
+        [
+            -1.31276847132934683e-03,
+            3.01584054905634606e-02,
+            9.75988279611448628e-01,
+            2.48103779159691840e-02,
+            1.31336840121185627e-02,
+            -3.05966917451172549e-03,
+        ],
+        [
+            5.60488017687028862e-04,
+            -1.28761661170081494e-02,
+            -8.15819544719897233e-03,
+            9.96956357936406357e-01,
+            -4.68587516942742255e-03,
+            1.09163794226674327e-03,
+        ],
+        [
+            -6.61883247190030968e-04,
+            1.52055322717755195e-02,
+            -1.17738652678543443e-02,
+            4.01272634262135955e-03,
+            9.99489884580088472e-01,
+            2.31291563682987089e-02,
+        ],
+        [
+            3.77302756374554393e-04,
+            -8.66782663353313221e-03,
+            6.71162450115414186e-03,
+            -2.28743168236306832e-03,
+            -2.30443005407238097e-02,
+            9.99581524582326741e-01,
+        ],
+    ],
+    b: [
+        -1.47606780269074478e-01,
+        1.39400892244835872e-01,
+        -1.04959719620475234e-01,
+        4.48126737287313226e-02,
+        -5.29195220359182095e-02,
+        3.01664706199091213e-02,
+    ],
+    c: [
+        1.20825371361294315e-02,
+        -2.77573739973501155e-01,
+        2.14929392666424995e-01,
+        -7.32514612776222207e-02,
+        -1.83282830663999106e-03,
+        -1.65971352821243645e-02,
+    ],
+    d: 9.66034558118043729e-01,
+    p: IDENTITY_PROFILE_GRAMIAN,
+    h: [
+        -1.41404880870246191e-01,
+        -1.45688138865641442e-01,
+        1.10062375008800242e-01,
+        -3.01827065481862292e-02,
+        -5.93252554145803079e-02,
+        1.38206199485344933e-02,
+    ],
+    q: 9.91178348050081537e-01,
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn all_profiles() -> [BeamErrorProfile; 4] {
+    fn all_profiles() -> [BeamErrorProfile; 8] {
         [
             RECONSTRUCTION_2822400,
             ULTRASONIC_2822400,
             RECONSTRUCTION_3072000,
             ULTRASONIC_3072000,
+            RECONSTRUCTION_5644800,
+            ULTRASONIC_5644800,
+            RECONSTRUCTION_6144000,
+            ULTRASONIC_6144000,
         ]
     }
 
@@ -637,10 +1201,12 @@ mod tests {
     }
 
     #[test]
-    fn beam_error_profile_selects_only_dsd64_wire_families() {
+    fn beam_error_profile_selects_only_supported_wire_families() {
         assert!(profiles_for_wire_rate(DSD64_44K_FAMILY_WIRE_RATE).is_ok());
         assert!(profiles_for_wire_rate(DSD64_48K_FAMILY_WIRE_RATE).is_ok());
-        for unsupported in [0, 44_100, 5_644_800, 6_144_000, 11_289_600, 12_288_000] {
+        assert!(profiles_for_wire_rate(DSD128_44K_FAMILY_WIRE_RATE).is_ok());
+        assert!(profiles_for_wire_rate(DSD128_48K_FAMILY_WIRE_RATE).is_ok());
+        for unsupported in [0, 44_100, 11_289_600, 12_288_000] {
             let error = profiles_for_wire_rate(unsupported).unwrap_err();
             assert_eq!(error.wire_rate, unsupported);
         }
@@ -726,7 +1292,12 @@ mod tests {
 
     #[test]
     fn beam_error_profile_power_pair_is_complementary() {
-        for wire_rate in [DSD64_44K_FAMILY_WIRE_RATE, DSD64_48K_FAMILY_WIRE_RATE] {
+        for wire_rate in [
+            DSD64_44K_FAMILY_WIRE_RATE,
+            DSD64_48K_FAMILY_WIRE_RATE,
+            DSD128_44K_FAMILY_WIRE_RATE,
+            DSD128_48K_FAMILY_WIRE_RATE,
+        ] {
             let profiles = profiles_for_wire_rate(wire_rate).unwrap();
             assert!(
                 (profiles.reconstruction.impulse_energy() + profiles.ultrasonic.impulse_energy()

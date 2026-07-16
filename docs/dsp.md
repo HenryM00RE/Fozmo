@@ -38,15 +38,16 @@ The tap count is for the first and main reconstruction stage. In my testing I di
 
 ### DSD modulators
 
-The three selectable modulators all use a seventh-order cascaded-resonator-feedback delta-sigma loop. The main difference is how they choose the next 1-bit output.
+The four selectable modulators use seventh-order cascaded-resonator-feedback delta-sigma loops. The main difference is how they choose the next 1-bit output.
 
 | Modulator | Architecture | Tuned headroom |
 | --- | --- | ---: |
 | 7th Order | Makes each decision directly from the current loop output. This is the simplest and lightest option. | −4 dB |
 | 7th Order EC | Adds a short error-compensated lookahead to the same seventh-order loop. It checks possible decisions against the predicted future state before choosing the next bit. | −4 dB |
 | 7th Order Search | Uses a delayed-commitment M-algorithm search. It keeps the best four paths over an eight-sample window and commits decisions as it moves forward. | −2 dB |
+| 7th Order Beam | Uses the production EcBeam2 fixed M4/N8 beam with a raw quantizer-error path objective. It supports DSD64 and DSD128. | −2 dB |
 
-The headroom here is important. I tuned 7th Order and 7th Order EC at **−4 dB**, while 7th Order Search was tuned at **−2 dB**. I would use those values with their matching modulator rather than treating them as interchangeable defaults. The EQ page has its own separate headroom control, which works well for EQ boosts, so I suggest adjusting that before changing the tuned headroom on the DSP page.
+The headroom here is important. I tuned 7th Order and 7th Order EC at **−4 dB**, while 7th Order Search and 7th Order Beam use **−2 dB**. 7th Order Beam fixes that headroom and its DSD ISI compensation at zero. It is available only with Min Phase, Split Phase, and Smooth Phase at DSD64 or DSD128. The EQ page has its own separate headroom control, which works well for EQ boosts.
 
 ### What I am currently using
 
@@ -55,7 +56,7 @@ My current setup is:
 ```text
 Output:     DSD128
 Filter:     Smooth Phase
-Modulator:  7th Order Search
+Modulator:  7th Order Beam
 Headroom:   -2 dB
 ```
 
@@ -94,4 +95,16 @@ If playback cannot keep up, try a lower DSD rate or a lighter modulator. PCM is 
 
 ## Testing so far
 
-The DSP has not yet been verified with external measurement hardware. So far I have relied on software measurements and tuning by ear. Feedback from people trying it with different systems and measurement setups is welcome.
+The reproducible [public PCM-to-DSD measurement bench](dsd-public-quality.md)
+tests the production renderer with generated signals and reports digital
+linearity, noise, spurs, stability, recovery, and hi-res reconstruction. Its
+canonical matrix and versioned score use only the default Split128k product
+path, including distinct rated-input and level-matched stress cells. A
+separately identified Linear Phase matrix remains available as an optional,
+non-scoring diagnostic. The bench embeds and verifies the native-CPU release
+build contract rather than trusting launch-time environment metadata.
+
+The DSP has not yet been verified with external measurement hardware. Software
+measurements describe the generated digital stream, not the analog behavior of
+a particular DAC. Feedback from people trying it with different systems and
+measurement setups is welcome.

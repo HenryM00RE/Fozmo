@@ -104,6 +104,9 @@ tower = { version = "0.5", features = ["util"] }
 jsonschema = "0.17"
 proptest = "1"
 
+[build-dependencies]
+sha2 = "0.10"
+
 [[bin]]
 name = "ecbeam2_quality"
 path = "audio_tests/ecbeam2_quality.rs"
@@ -111,6 +114,10 @@ path = "audio_tests/ecbeam2_quality.rs"
 [[bin]]
 name = "dsd_modulator_bench"
 path = "src/bin/dsd_modulator_bench.rs"
+
+[[bin]]
+name = "dsd_public_quality"
+path = "audio_tests/dsd_public_quality.rs"
 
 [[test]]
 name = "audio_smoke"

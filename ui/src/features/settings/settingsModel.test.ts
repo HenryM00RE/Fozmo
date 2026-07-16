@@ -74,16 +74,18 @@ describe('DSP output support', () => {
 });
 
 describe('DSD modulator choices', () => {
-  it('exposes Standard, EC, and Search while retaining saved-value compatibility', () => {
+  it('exposes Standard, EC, Search, and Beam while retaining saved-value compatibility', () => {
     expect(dsdModulatorOptions).toEqual([
       ['Standard', '7th Order'],
       ['EcDepth2', '7th Order EC'],
-      ['EcBeam', '7th Order Search']
+      ['EcBeam', '7th Order Search'],
+      ['EcBeam2', '7th Order Beam']
     ]);
     expect(visibleDsdModulator('EcBeam')).toBe('EcBeam');
     expect(visibleDsdModulator('7th Order Search')).toBe('EcBeam');
     expect(visibleDsdModulator('7th Order ECB')).toBe('EcBeam');
     expect(visibleDsdModulator('EcBeam2')).toBe('EcBeam2');
+    expect(visibleDsdModulator('7th Order Beam')).toBe('EcBeam2');
     expect(visibleDsdModulator('7th Order ECB2')).toBe('EcBeam2');
     expect(visibleDsdModulator('7th Order ECB2 (Experimental)')).toBe('EcBeam2');
     expect(visibleDsdModulator('EC depth 4')).toBe('EcDepth2');
@@ -96,7 +98,7 @@ describe('DSD modulator choices', () => {
     expect(isiPenaltyAfterDsdModulatorChange(0.01, 'EcBeam')).toBe(0.01);
   });
 
-  it('makes ECB2 selectable only when every effective DSD output is DSD64', () => {
+  it('makes ECB2 selectable only for qualified DSD64/128 rates and filters', () => {
     expect(ecBeam2SelectableForDsdConfig('Dsd64', 'Minimum16k', false, [])).toBe(true);
     expect(ecBeam2SelectableForDsdConfig('Dsd64', 'Split128k', false, [])).toBe(true);
     expect(ecBeam2SelectableForDsdConfig('Dsd64', 'SincExtreme32k', false, [])).toBe(false);
@@ -109,16 +111,20 @@ describe('DSD modulator choices', () => {
       ecBeam2SelectableForDsdConfig('Dsd64', 'Split128k', true, [
         { source_rate: 44100, filter_type: 'Split128k', output_mode: 'Dsd128' }
       ])
-    ).toBe(false);
+    ).toBe(true);
     expect(
       ecBeam2SelectableForDsdConfig('Dsd64', 'Split128k', true, [
         { source_rate: 44100, filter_type: 'SincExtreme32k', output_mode: 'Dsd64' }
       ])
     ).toBe(false);
-    expect(ecBeam2SelectableForDsdConfig('Dsd128', 'Split128k', false, [])).toBe(false);
+    expect(ecBeam2SelectableForDsdConfig('Dsd128', 'Split128k', false, [])).toBe(true);
+    expect(ecBeam2SelectableForDsdConfig('Dsd128', 'Minimum16k', false, [])).toBe(true);
+    expect(ecBeam2SelectableForDsdConfig('Dsd128', 'SmoothPhase128k', false, [])).toBe(true);
+    expect(ecBeam2SelectableForDsdConfig('Dsd256', 'Split128k', false, [])).toBe(false);
     expect(ecBeam2SelectableForDsdConfig('Pcm', 'Split128k', false, [])).toBe(false);
     expect(ecBeam2FilterSupported('Minimum16k')).toBe(true);
     expect(ecBeam2FilterSupported('Split128k')).toBe(true);
+    expect(ecBeam2FilterSupported('SmoothPhase128k')).toBe(true);
     expect(ecBeam2FilterSupported('SincExtreme32k')).toBe(false);
   });
 });

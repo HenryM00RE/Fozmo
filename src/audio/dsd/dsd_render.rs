@@ -33,7 +33,7 @@ use crate::audio::dsd::delta_sigma::{
     BeamReconstructionDiagnostics, CrfbModulator, DitherPrng, DitherShape, DsdModulator,
     Ec2DecisionTraceSnapshot, Ec2LongFilterPolicy, Ec2PolicyWeights, EcBeam2Diagnostics,
     EcBeam2ExperimentConfig, EcBeam2Modulator, EcBeam2RunMode, EcFutureScorer, ModulatorMode,
-    dc_bias_decay_for_corner_hz,
+    dc_bias_decay_for_corner_hz, ecbeam2_production_config,
 };
 use crate::audio::dsd::dop::DopPacker;
 use crate::audio::dsd::dsd_coeffs::{
@@ -46,6 +46,11 @@ use crate::audio::dsp::resampler::{FilterType, SincResampler};
 const DSD_LIMITER_KNEE_RATIO: f64 = 0.95;
 const DEFAULT_DSD_ISI_PENALTY: f64 = 0.0;
 const DEFAULT_EC_BEAM_DC_BIAS_CORNER_HZ: f64 = 20.0;
+/// Version identifier for the effective production-policy defaults applied by
+/// [`DsdExperimentTweaks::with_production_policy_defaults`]. Measurement tools
+/// record this separately from their own schema so policy-only changes cannot
+/// masquerade as an equivalent renderer configuration.
+pub const DSD_PRODUCTION_POLICY_VERSION: &str = "dsd-production-policy-v3";
 pub const DSD64_EC_BEAM_A1_DEFAULT_EXPECTED_GAIN_DB: f64 = -14.8;
 pub const DSD64_EC_BEAM_A1_DEFAULT_INPUT_GAIN_DB: f64 = -2.0;
 pub const DSD64_ECBEAM2_REQUIRED_HEADROOM_DB: f64 = -2.0;
@@ -56,6 +61,13 @@ pub const DSD64_EC_BEAM_A1_PRESSURE_STAGE_WEIGHTS: [f64; 7] =
 /// power-matched at equal scale); effective dither is unchanged from the
 /// pre-normalization 0.30.
 pub const DSD128_EC4A_DITHER_SCALE_MULTIPLIER: f64 = 0.30 * core::f64::consts::SQRT_2;
+
+pub(crate) fn ecbeam2_filter_supported(filter_type: FilterType) -> bool {
+    matches!(
+        filter_type,
+        FilterType::Minimum16k | FilterType::Split128k | FilterType::SmoothPhase128k
+    )
+}
 
 /// Map a source-PCM window onto the wire-rate sample domain emitted by the DSD
 /// resampler. The FIR engines pre-pad their kernels to compensate group delay,
@@ -160,6 +172,65 @@ pub enum DsdRate {
     Dsd256,
 }
 
+#[derive(Clone, Copy)]
+struct NamedModulatorCoeffs {
+    coeffs: &'static ModulatorCoeffs,
+    name: &'static str,
+}
+
+#[derive(Clone, Copy)]
+struct EcBeam2ProductionPolicy {
+    config: EcBeam2ExperimentConfig,
+    coefficients: NamedModulatorCoeffs,
+}
+
+fn ecbeam2_production_policy(dsd_rate: DsdRate) -> Option<EcBeam2ProductionPolicy> {
+    let coefficients = match dsd_rate {
+        DsdRate::Dsd64 => NamedModulatorCoeffs {
+            coeffs: &crate::audio::dsd::dsd_coeffs::CRFB_OSR64_OBG164,
+            name: "CRFB_OSR64_OBG164",
+        },
+        DsdRate::Dsd128 => NamedModulatorCoeffs {
+            coeffs: crate::audio::dsd::delta_sigma::ecbeam2_dsd128_production_coefficients(),
+            name: "ECBEAM2_OSR128_OBG164_INPUT468_V1",
+        },
+        DsdRate::Dsd256 => return None,
+    };
+    Some(EcBeam2ProductionPolicy {
+        config: ecbeam2_production_config(),
+        coefficients,
+    })
+}
+
+fn default_coeffs_for_mode(rate: DsdRate, mode: ModulatorMode) -> NamedModulatorCoeffs {
+    match (rate, mode) {
+        (DsdRate::Dsd64, ModulatorMode::Standard) => NamedModulatorCoeffs {
+            coeffs: &CRFB7_STANDARD_OSR64,
+            name: "CRFB7_STANDARD_OSR64",
+        },
+        (DsdRate::Dsd128, ModulatorMode::Standard) => NamedModulatorCoeffs {
+            coeffs: &CRFB7_STANDARD_OSR128,
+            name: "CRFB7_STANDARD_OSR128",
+        },
+        (DsdRate::Dsd256, ModulatorMode::Standard) => NamedModulatorCoeffs {
+            coeffs: &CRFB7_STANDARD_OSR256,
+            name: "CRFB7_STANDARD_OSR256",
+        },
+        (DsdRate::Dsd64, ModulatorMode::Ec) => NamedModulatorCoeffs {
+            coeffs: &CRFB7_EC_OSR64,
+            name: "CRFB7_EC_OSR64",
+        },
+        (DsdRate::Dsd128, ModulatorMode::Ec) => NamedModulatorCoeffs {
+            coeffs: &CRFB7_EC_OSR128,
+            name: "CRFB7_EC_OSR128",
+        },
+        (DsdRate::Dsd256, ModulatorMode::Ec) => NamedModulatorCoeffs {
+            coeffs: &CRFB7_EC_OSR256,
+            name: "CRFB7_EC_OSR256",
+        },
+    }
+}
+
 impl DsdRate {
     pub fn wire_rate_44k_family(self) -> u32 {
         match self {
@@ -178,14 +249,7 @@ impl DsdRate {
     }
 
     pub fn coeffs_for_mode(self, mode: ModulatorMode) -> &'static ModulatorCoeffs {
-        match (self, mode) {
-            (DsdRate::Dsd64, ModulatorMode::Standard) => &CRFB7_STANDARD_OSR64,
-            (DsdRate::Dsd128, ModulatorMode::Standard) => &CRFB7_STANDARD_OSR128,
-            (DsdRate::Dsd256, ModulatorMode::Standard) => &CRFB7_STANDARD_OSR256,
-            (DsdRate::Dsd64, ModulatorMode::Ec) => &CRFB7_EC_OSR64,
-            (DsdRate::Dsd128, ModulatorMode::Ec) => &CRFB7_EC_OSR128,
-            (DsdRate::Dsd256, ModulatorMode::Ec) => &CRFB7_EC_OSR256,
-        }
+        default_coeffs_for_mode(self, mode).coeffs
     }
 
     /// DSD wire rate for a given PCM source rate. DSD rates are *fixed* per family:
@@ -272,6 +336,8 @@ pub struct DsdRenderer {
     source_rate: u32,
     dsd_rate: DsdRate,
     coeffs: &'static ModulatorCoeffs,
+    coefficient_table_name: &'static str,
+    modulator_seeds: [u64; 2],
     modulator_mode: ModulatorMode,
     dsd_modulator: DsdModulator,
     isi_penalty: f64,
@@ -342,6 +408,11 @@ pub struct DsdExperimentTweaks {
     /// Isolated EcBeam2 controls. `None` selects its versioned active defaults
     /// and never affects production EcBeam.
     pub ecbeam2_config: Option<EcBeam2ExperimentConfig>,
+    /// `Some(true)` retains qualification telemetry, while `Some(false)` uses
+    /// the bit-identical lean playback path. `None` resolves to full telemetry
+    /// for explicit research configurations and lean telemetry for ordinary
+    /// playback.
+    pub ecbeam2_full_diagnostics: Option<bool>,
     pub ec_dither_scale_multiplier: Option<f64>,
     pub ec_dither_shape: Option<DitherShape>,
     pub ec_dither_prng: Option<DitherPrng>,
@@ -473,6 +544,18 @@ impl DsdExperimentTweaks {
                 self.ec_beam_search = Some((4, 8));
             }
             return self.with_ec_beam_a1_defaults();
+        }
+
+        if dsd_modulator == DsdModulator::EcBeam2 {
+            let explicit_research_config = self.ecbeam2_config.is_some();
+            if self.ecbeam2_full_diagnostics.is_none() {
+                self.ecbeam2_full_diagnostics = Some(explicit_research_config);
+            }
+            if self.ecbeam2_config.is_none() {
+                self.ecbeam2_config =
+                    ecbeam2_production_policy(dsd_rate).map(|policy| policy.config);
+            }
+            return self;
         }
 
         if filter_type.uses_long_filter_dsd_defaults()
@@ -614,10 +697,13 @@ fn production_ec_coeffs_for(
     dsd_rate: DsdRate,
     dsd_modulator: DsdModulator,
     tweaks: DsdExperimentTweaks,
-) -> Option<&'static ModulatorCoeffs> {
-    if matches!(dsd_modulator, DsdModulator::EcBeam | DsdModulator::EcBeam2) {
+) -> Option<NamedModulatorCoeffs> {
+    if dsd_modulator == DsdModulator::EcBeam {
         return (filter_type.uses_long_filter_dsd_defaults() && dsd_rate == DsdRate::Dsd64)
-            .then_some(&CRFB_OSR64_OBG165);
+            .then_some(NamedModulatorCoeffs {
+                coeffs: &CRFB_OSR64_OBG165,
+                name: "CRFB_OSR64_OBG165",
+            });
     }
     if !(filter_type.uses_long_filter_dsd_defaults()
         && dsd_rate == DsdRate::Dsd64
@@ -626,10 +712,53 @@ fn production_ec_coeffs_for(
         return None;
     }
     if tweaks.ec_beam_search.is_some() {
-        Some(&CRFB_OSR64_OBG165)
+        Some(NamedModulatorCoeffs {
+            coeffs: &CRFB_OSR64_OBG165,
+            name: "CRFB_OSR64_OBG165",
+        })
     } else {
-        Some(&CRFB7_EC_OSR64_OBG144)
+        Some(NamedModulatorCoeffs {
+            coeffs: &CRFB7_EC_OSR64_OBG144,
+            name: "CRFB7_EC_OSR64_OBG144",
+        })
     }
+}
+
+fn select_modulator_coeffs(
+    filter_type: FilterType,
+    dsd_rate: DsdRate,
+    dsd_modulator: DsdModulator,
+    coeffs_override: Option<&'static ModulatorCoeffs>,
+    experiment_tweaks: DsdExperimentTweaks,
+) -> Result<NamedModulatorCoeffs, &'static str> {
+    let modulator_mode = dsd_modulator.mode();
+    if let Some(coeffs) = coeffs_override {
+        if dsd_modulator == DsdModulator::EcBeam2 {
+            return Err("EcBeam2 coefficient overrides are not supported");
+        }
+        if modulator_mode != ModulatorMode::Ec {
+            return Err("DSD coefficient override is only supported for EC modulators");
+        }
+        if coeffs.osr != dsd_rate.oversample() {
+            return Err("DSD coefficient override OSR does not match the selected DSD rate");
+        }
+        return Ok(NamedModulatorCoeffs {
+            coeffs,
+            name: "custom_override",
+        });
+    }
+    if dsd_modulator == DsdModulator::EcBeam2 {
+        if !ecbeam2_filter_supported(filter_type) {
+            return Err("EcBeam2 supports only Minimum16k, Split128k, and SmoothPhase128k filters");
+        }
+        return ecbeam2_production_policy(dsd_rate)
+            .map(|policy| policy.coefficients)
+            .ok_or("EcBeam2 supports DSD64 and DSD128 only");
+    }
+    Ok(
+        production_ec_coeffs_for(filter_type, dsd_rate, dsd_modulator, experiment_tweaks)
+            .unwrap_or_else(|| default_coeffs_for_mode(dsd_rate, modulator_mode)),
+    )
 }
 
 enum ModJob {
@@ -977,11 +1106,12 @@ impl ModulatorWorker {
             if isi_penalty != 0.0 {
                 return Err("EcBeam2 requires zero ISI compensation");
             }
-            WorkerModulator::EcBeam2(Box::new(EcBeam2Modulator::new(
+            WorkerModulator::EcBeam2(Box::new(EcBeam2Modulator::new_with_diagnostics(
                 coeffs,
                 seed,
                 wire_rate,
                 tweaks.ecbeam2_config.unwrap_or_default(),
+                tweaks.ecbeam2_full_diagnostics.unwrap_or(false),
             )?))
         } else {
             WorkerModulator::Crfb(Box::new(modulator))
@@ -1481,13 +1611,15 @@ impl DsdRenderer {
         experiment_tweaks: DsdExperimentTweaks,
     ) -> Result<Self, &'static str> {
         if dsd_modulator == DsdModulator::EcBeam2 {
-            if dsd_rate != DsdRate::Dsd64 {
-                return Err("EcBeam2 supports DSD64 only");
+            if dsd_rate == DsdRate::Dsd256 {
+                return Err("EcBeam2 supports DSD64 and DSD128 only");
             }
-            if !matches!(filter_type, FilterType::Minimum16k | FilterType::Split128k) {
-                return Err("EcBeam2 supports only Minimum16k and Split128k filters");
+            if !ecbeam2_filter_supported(filter_type) {
+                return Err(
+                    "EcBeam2 supports only Minimum16k, Split128k, and SmoothPhase128k filters",
+                );
             }
-            // EcBeam2's experiment contract is stricter than the legacy
+            // EcBeam2's production contract is stricter than the legacy
             // renderer sanitizer: reject negative and non-finite values too,
             // rather than silently normalizing either one to zero.
             if isi_penalty != 0.0 {
@@ -1500,21 +1632,14 @@ impl DsdRenderer {
         let isi_penalty = sanitize_isi_penalty(isi_penalty);
         let experiment_tweaks =
             experiment_tweaks.with_production_policy_defaults(filter_type, dsd_rate, dsd_modulator);
-        let coeffs = if let Some(coeffs) = coeffs_override {
-            if modulator_mode != ModulatorMode::Ec {
-                return Err("DSD coefficient override is only supported for EC modulators");
-            }
-            if coeffs.osr != dsd_rate.oversample() {
-                return Err("DSD coefficient override OSR does not match the selected DSD rate");
-            }
-            coeffs
-        } else if let Some(coeffs) =
-            production_ec_coeffs_for(filter_type, dsd_rate, dsd_modulator, experiment_tweaks)
-        {
-            coeffs
-        } else {
-            dsd_rate.coeffs_for_mode(modulator_mode)
-        };
+        let coefficient_table = select_modulator_coeffs(
+            filter_type,
+            dsd_rate,
+            dsd_modulator,
+            coeffs_override,
+            experiment_tweaks,
+        )?;
+        let coeffs = coefficient_table.coeffs;
         if crate::audio::debug::audio_debug_enabled() {
             eprintln!(
                 "AudioWorker DEBUG: DSD renderer init: source={}Hz wire={}Hz dop_frame={}Hz rate={:?} filter={} upsampler={} modulator={} mode={:?} lookahead={} isi_penalty={:.5} coeff_osr={} coeff_obg={:.2} input_peak={:.6}",
@@ -1534,11 +1659,13 @@ impl DsdRenderer {
             );
         }
         // Use two distinct seeds so L and R dither streams are independent.
-        let seed_left = experiment_tweaks.seed_left.unwrap_or(DSD_MOD_SEED_LEFT);
-        let seed_right = experiment_tweaks.seed_right.unwrap_or(DSD_MOD_SEED_RIGHT);
+        let modulator_seeds = [
+            experiment_tweaks.seed_left.unwrap_or(DSD_MOD_SEED_LEFT),
+            experiment_tweaks.seed_right.unwrap_or(DSD_MOD_SEED_RIGHT),
+        ];
         let worker_l = ModulatorWorker::spawn(
             coeffs,
-            seed_left,
+            modulator_seeds[0],
             dsd_modulator,
             modulator_mode,
             lookahead_depth,
@@ -1550,7 +1677,7 @@ impl DsdRenderer {
         )?;
         let worker_r = ModulatorWorker::spawn(
             coeffs,
-            seed_right,
+            modulator_seeds[1],
             dsd_modulator,
             modulator_mode,
             lookahead_depth,
@@ -1588,6 +1715,8 @@ impl DsdRenderer {
             source_rate,
             dsd_rate,
             coeffs,
+            coefficient_table_name: coefficient_table.name,
+            modulator_seeds,
             modulator_mode,
             dsd_modulator,
             isi_penalty,
@@ -1597,6 +1726,43 @@ impl DsdRenderer {
 
     pub fn source_rate(&self) -> u32 {
         self.source_rate
+    }
+
+    /// Full-scale PCM is mapped to this coefficient-table input before the
+    /// one-bit loop. Measurement decoders divide their reconstructed output by
+    /// the same declared gain to return to the post-headroom PCM domain.
+    pub fn modulator_input_peak(&self) -> f64 {
+        self.coeffs.input_peak
+    }
+
+    /// Stable identity of the effective coefficient table. Explicit coefficient
+    /// overrides report `"custom_override"` instead of impersonating a built-in
+    /// table with the same numeric contents.
+    pub fn coefficient_table_name(&self) -> &'static str {
+        self.coefficient_table_name
+    }
+
+    /// Nominal oversampling ratio for which the effective coefficient table was
+    /// designed. This is not necessarily the wire/source-rate ratio for hi-res PCM.
+    pub fn coefficient_osr(&self) -> u32 {
+        self.coeffs.osr
+    }
+
+    /// Out-of-band gain of the effective coefficient table.
+    pub fn coefficient_obg(&self) -> f64 {
+        self.coeffs.obg
+    }
+
+    /// Effective policy values after production defaults have been applied.
+    /// This is an inspection boundary for deterministic measurement reports.
+    pub fn effective_experiment_tweaks(&self) -> DsdExperimentTweaks {
+        self.experiment_tweaks
+    }
+
+    /// Initial per-channel seeds actually passed to the modulator workers after
+    /// filling any omitted seed with the production default.
+    pub fn effective_modulator_seeds(&self) -> [u64; 2] {
+        self.modulator_seeds
     }
 
     /// Output sample rate as seen on the wire by a DoP-capable DAC.
@@ -1830,20 +1996,13 @@ impl DsdRenderer {
         block_gain: f64,
         block_limited_samples: u64,
     ) {
-        let peak_ratio = if self.coeffs.input_peak > 0.0 {
-            (block_peak / self.coeffs.input_peak).min(f32::MAX as f64) as f32
-        } else {
-            0.0
-        };
-        self.limiter_telemetry.current_block_peak_ratio = peak_ratio;
-        self.limiter_telemetry.peak_ratio_max =
-            self.limiter_telemetry.peak_ratio_max.max(peak_ratio);
-        self.limiter_telemetry.current_block_gain = block_gain.min(f32::MAX as f64) as f32;
-        self.limiter_telemetry.current_block_limited_samples = block_limited_samples;
-        if block_limited_samples > 0 {
-            self.limiter_telemetry.limited_events += 1;
-            self.limiter_telemetry.limited_samples += block_limited_samples;
-        }
+        record_limiter_telemetry(
+            &mut self.limiter_telemetry,
+            self.coeffs.input_peak,
+            block_peak,
+            block_gain,
+            block_limited_samples,
+        );
     }
 
     pub fn modulate_and_pack(&mut self, input_gain: f64, out: &mut Vec<i32>) {
@@ -2071,8 +2230,28 @@ fn prepare_modulator_input_planes(
     pcm_l: &mut Vec<f64>,
     pcm_r: &mut Vec<f64>,
 ) -> PreparedModulatorInput {
+    prepare_modulator_input_planes_for_peak(
+        pcm_scratch,
+        coeffs.input_peak,
+        dsd_modulator,
+        experiment_tweaks,
+        input_gain,
+        pcm_l,
+        pcm_r,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_modulator_input_planes_for_peak(
+    pcm_scratch: &[f64],
+    input_peak: f64,
+    dsd_modulator: DsdModulator,
+    experiment_tweaks: DsdExperimentTweaks,
+    input_gain: f64,
+    pcm_l: &mut Vec<f64>,
+    pcm_r: &mut Vec<f64>,
+) -> PreparedModulatorInput {
     let frames = pcm_scratch.len() / 2;
-    let input_peak = coeffs.input_peak;
     let effective_input_gain =
         effective_modulator_input_gain(dsd_modulator, input_gain, experiment_tweaks.input_gain_db);
     let gain = input_peak * effective_input_gain;
@@ -2117,6 +2296,28 @@ fn prepare_modulator_input_planes(
         block_peak,
         headroom_gain,
         block_limited_samples,
+    }
+}
+
+fn record_limiter_telemetry(
+    telemetry: &mut DsdLimiterTelemetry,
+    input_peak: f64,
+    block_peak: f64,
+    block_gain: f64,
+    block_limited_samples: u64,
+) {
+    let peak_ratio = if input_peak > 0.0 {
+        (block_peak / input_peak).min(f32::MAX as f64) as f32
+    } else {
+        0.0
+    };
+    telemetry.current_block_peak_ratio = peak_ratio;
+    telemetry.peak_ratio_max = telemetry.peak_ratio_max.max(peak_ratio);
+    telemetry.current_block_gain = block_gain.min(f32::MAX as f64) as f32;
+    telemetry.current_block_limited_samples = block_limited_samples;
+    if block_limited_samples > 0 {
+        telemetry.limited_events += 1;
+        telemetry.limited_samples += block_limited_samples;
     }
 }
 
@@ -2231,7 +2432,19 @@ mod tests {
     fn renderer_construction_matches_calibration_flag() {
         let result = DsdRenderer::new(FilterType::SincExtreme32k, 44_100, DsdRate::Dsd128);
         if CALIBRATED {
-            assert!(result.is_ok(), "calibrated coefficients should construct");
+            let renderer = result.expect("calibrated coefficients should construct");
+            assert_eq!(renderer.coefficient_table_name(), "CRFB7_EC_OSR128");
+            assert_eq!(renderer.coefficient_osr(), CRFB7_EC_OSR128.osr);
+            assert_eq!(renderer.coefficient_obg(), CRFB7_EC_OSR128.obg);
+            assert_eq!(renderer.modulator_input_peak(), CRFB7_EC_OSR128.input_peak);
+            assert_eq!(
+                renderer.effective_modulator_seeds(),
+                [DSD_MOD_SEED_LEFT, DSD_MOD_SEED_RIGHT]
+            );
+            assert_eq!(
+                renderer.effective_experiment_tweaks(),
+                DsdExperimentTweaks::default()
+            );
         } else {
             assert!(result.is_err(), "placeholder coefficients must refuse");
         }
@@ -2547,7 +2760,7 @@ mod tests {
             let coeffs =
                 production_ec_coeffs_for(filter, DsdRate::Dsd64, DsdModulator::EcDepth2, default)
                     .expect("DSD64 EcBeam production coeffs");
-            assert!((coeffs.obg - DSD64_EC_BEAM_A1_DEFAULT_OBG).abs() < 1e-12);
+            assert!((coeffs.coeffs.obg - DSD64_EC_BEAM_A1_DEFAULT_OBG).abs() < 1e-12);
         }
 
         let plain = DsdExperimentTweaks::default().with_production_policy_defaults(
@@ -2562,7 +2775,7 @@ mod tests {
             plain,
         )
         .expect("plain DSD64 EcDepth2 production coeffs");
-        assert!((coeffs.obg - 1.44).abs() < 1e-12);
+        assert!((coeffs.coeffs.obg - 1.44).abs() < 1e-12);
     }
 
     #[test]
@@ -2614,7 +2827,40 @@ mod tests {
             selectable,
         )
         .expect("selectable ECB coefficient table");
-        assert!((coeffs.obg - DSD64_EC_BEAM_A1_DEFAULT_OBG).abs() < 1e-12);
+        assert!((coeffs.coeffs.obg - DSD64_EC_BEAM_A1_DEFAULT_OBG).abs() < 1e-12);
+    }
+
+    #[test]
+    fn ecbeam2_policy_defaults_separate_playback_and_research_telemetry() {
+        let dsd64_playback = DsdExperimentTweaks::default().with_production_policy_defaults(
+            FilterType::Minimum16k,
+            DsdRate::Dsd64,
+            DsdModulator::EcBeam2,
+        );
+        let expected_dsd64 = ecbeam2_production_config();
+        assert_eq!(dsd64_playback.ecbeam2_config, Some(expected_dsd64));
+        assert_eq!(expected_dsd64.quantizer_regularizer, 0.03);
+        assert_eq!(dsd64_playback.ecbeam2_full_diagnostics, Some(false));
+
+        let dsd128_playback = DsdExperimentTweaks::default().with_production_policy_defaults(
+            FilterType::Split128k,
+            DsdRate::Dsd128,
+            DsdModulator::EcBeam2,
+        );
+        let expected = ecbeam2_production_config();
+        assert_eq!(dsd128_playback.ecbeam2_config, Some(expected));
+        assert_eq!(dsd128_playback.ecbeam2_full_diagnostics, Some(false));
+
+        let research = DsdExperimentTweaks {
+            ecbeam2_config: Some(EcBeam2ExperimentConfig::default()),
+            ..DsdExperimentTweaks::default()
+        }
+        .with_production_policy_defaults(
+            FilterType::Minimum16k,
+            DsdRate::Dsd64,
+            DsdModulator::EcBeam2,
+        );
+        assert_eq!(research.ecbeam2_full_diagnostics, Some(true));
     }
 
     #[test]
@@ -2808,6 +3054,167 @@ mod tests {
         for mode in [ModulatorMode::Standard, ModulatorMode::Ec] {
             assert_eq!(DsdRate::Dsd64.coeffs_for_mode(mode).osr, 64);
         }
+    }
+
+    #[test]
+    fn default_coefficient_table_names_match_their_tables() {
+        for (rate, mode, expected_name, expected_coeffs) in [
+            (
+                DsdRate::Dsd64,
+                ModulatorMode::Standard,
+                "CRFB7_STANDARD_OSR64",
+                &CRFB7_STANDARD_OSR64,
+            ),
+            (
+                DsdRate::Dsd128,
+                ModulatorMode::Standard,
+                "CRFB7_STANDARD_OSR128",
+                &CRFB7_STANDARD_OSR128,
+            ),
+            (
+                DsdRate::Dsd256,
+                ModulatorMode::Standard,
+                "CRFB7_STANDARD_OSR256",
+                &CRFB7_STANDARD_OSR256,
+            ),
+            (
+                DsdRate::Dsd64,
+                ModulatorMode::Ec,
+                "CRFB7_EC_OSR64",
+                &CRFB7_EC_OSR64,
+            ),
+            (
+                DsdRate::Dsd128,
+                ModulatorMode::Ec,
+                "CRFB7_EC_OSR128",
+                &CRFB7_EC_OSR128,
+            ),
+            (
+                DsdRate::Dsd256,
+                ModulatorMode::Ec,
+                "CRFB7_EC_OSR256",
+                &CRFB7_EC_OSR256,
+            ),
+        ] {
+            let selected = default_coeffs_for_mode(rate, mode);
+            assert_eq!(selected.name, expected_name);
+            assert_eq!(selected.coeffs.osr, expected_coeffs.osr);
+            assert_eq!(selected.coeffs.obg, expected_coeffs.obg);
+            assert_eq!(selected.coeffs.input_peak, expected_coeffs.input_peak);
+        }
+    }
+
+    #[test]
+    fn coefficient_selection_reports_production_policy_and_custom_overrides() {
+        let ec2_tweaks = DsdExperimentTweaks::default().with_production_policy_defaults(
+            FilterType::Split128k,
+            DsdRate::Dsd64,
+            DsdModulator::EcDepth2,
+        );
+        let ec2 = select_modulator_coeffs(
+            FilterType::Split128k,
+            DsdRate::Dsd64,
+            DsdModulator::EcDepth2,
+            None,
+            ec2_tweaks,
+        )
+        .expect("production EC-2 table");
+        assert_eq!(ec2.name, "CRFB7_EC_OSR64_OBG144");
+        assert_eq!(ec2.coeffs.obg, CRFB7_EC_OSR64_OBG144.obg);
+
+        let ecbeam_tweaks = DsdExperimentTweaks::default().with_production_policy_defaults(
+            FilterType::Split128k,
+            DsdRate::Dsd64,
+            DsdModulator::EcBeam,
+        );
+        let ecbeam = select_modulator_coeffs(
+            FilterType::Split128k,
+            DsdRate::Dsd64,
+            DsdModulator::EcBeam,
+            None,
+            ecbeam_tweaks,
+        )
+        .expect("production EcBeam table");
+        assert_eq!(ecbeam.name, "CRFB_OSR64_OBG165");
+        assert_eq!(ecbeam.coeffs.obg, CRFB_OSR64_OBG165.obg);
+
+        let ecbeam2_default = select_modulator_coeffs(
+            FilterType::Split128k,
+            DsdRate::Dsd64,
+            DsdModulator::EcBeam2,
+            None,
+            DsdExperimentTweaks::default(),
+        )
+        .expect("default EcBeam2 table");
+        assert_eq!(ecbeam2_default.name, "CRFB_OSR64_OBG164");
+        assert_eq!(ecbeam2_default.coeffs.obg, 1.64);
+
+        let ecbeam2_dsd128_config = ecbeam2_production_config();
+        let ecbeam2_dsd128 = select_modulator_coeffs(
+            FilterType::Split128k,
+            DsdRate::Dsd128,
+            DsdModulator::EcBeam2,
+            None,
+            DsdExperimentTweaks {
+                ecbeam2_config: Some(ecbeam2_dsd128_config),
+                ..DsdExperimentTweaks::default()
+            },
+        )
+        .expect("production DSD128 EcBeam2 table");
+        assert_eq!(ecbeam2_dsd128.name, "ECBEAM2_OSR128_OBG164_INPUT468_V1");
+        assert_eq!(ecbeam2_dsd128.coeffs.osr, 128);
+        assert_eq!(ecbeam2_dsd128.coeffs.obg, 1.64);
+
+        let ecbeam2_override_error = select_modulator_coeffs(
+            FilterType::Split128k,
+            DsdRate::Dsd64,
+            DsdModulator::EcBeam2,
+            Some(&CRFB_OSR64_OBG165),
+            DsdExperimentTweaks::default(),
+        )
+        .err();
+        assert_eq!(
+            ecbeam2_override_error,
+            Some("EcBeam2 coefficient overrides are not supported")
+        );
+
+        let custom_seeds = [0x0123_4567_89ab_cdef, 0xfedc_ba98_7654_3210];
+        let custom_tweaks = DsdExperimentTweaks {
+            seed_left: Some(custom_seeds[0]),
+            seed_right: Some(custom_seeds[1]),
+            ..DsdExperimentTweaks::default()
+        }
+        .with_production_policy_defaults(
+            FilterType::Split128k,
+            DsdRate::Dsd64,
+            DsdModulator::EcDepth2,
+        );
+        let custom = select_modulator_coeffs(
+            FilterType::Split128k,
+            DsdRate::Dsd64,
+            DsdModulator::EcDepth2,
+            Some(&CRFB7_EC_OSR64),
+            custom_tweaks,
+        )
+        .expect("custom-coefficient table");
+        assert_eq!(custom.name, "custom_override");
+        assert_eq!(custom.coeffs.osr, CRFB7_EC_OSR64.osr);
+        assert_eq!(custom.coeffs.obg, CRFB7_EC_OSR64.obg);
+        assert_eq!(custom_tweaks.seed_left, Some(custom_seeds[0]));
+        assert_eq!(custom_tweaks.seed_right, Some(custom_seeds[1]));
+
+        let standard_override_error = select_modulator_coeffs(
+            FilterType::Split128k,
+            DsdRate::Dsd64,
+            DsdModulator::Standard,
+            Some(&CRFB7_EC_OSR64),
+            DsdExperimentTweaks::default(),
+        )
+        .err();
+        assert_eq!(
+            standard_override_error,
+            Some("DSD coefficient override is only supported for EC modulators")
+        );
     }
 
     #[test]
@@ -3712,20 +4119,226 @@ mod tests {
     }
 
     #[test]
-    fn ecbeam2_rejects_higher_dsd_rates_and_nonzero_isi_without_fallback() {
+    fn ecbeam2_smooth_phase_dsd64_matches_full_scalar_on_both_wire_families() {
         if !CALIBRATED {
             return;
         }
-        for rate in [DsdRate::Dsd128, DsdRate::Dsd256] {
-            let error = DsdRenderer::new_with_dsd_modulator(
-                FilterType::Minimum16k,
-                44_100,
-                rate,
+        const SOURCE_FRAMES: usize = 17;
+        let config = ecbeam2_production_config();
+        for source_rate in [44_100, 48_000] {
+            let input = ecbeam2_test_input(source_rate, SOURCE_FRAMES);
+            let mut optimized = DsdRenderer::new_with_dsd_modulator(
+                FilterType::SmoothPhase128k,
+                source_rate,
+                DsdRate::Dsd64,
                 DsdModulator::EcBeam2,
             )
-            .err();
-            assert_eq!(error, Some("EcBeam2 supports DSD64 only"));
+            .expect("optimized Smooth Phase EcBeam2 DSD64 renderer");
+            optimized.set_native_order(NativeDsdOrder::MsbFirst);
+            let (optimized_left, optimized_right) =
+                render_ecbeam2_native_pass(&mut optimized, &input, 5);
+
+            let mut reference = DsdRenderer::new_with_dsd_modulator_and_experiment_tweaks(
+                FilterType::SmoothPhase128k,
+                source_rate,
+                DsdRate::Dsd64,
+                DsdModulator::EcBeam2,
+                None,
+                DsdExperimentTweaks {
+                    ecbeam2_config: Some(config),
+                    ecbeam2_full_diagnostics: Some(true),
+                    ..DsdExperimentTweaks::default()
+                },
+            )
+            .expect("full scalar Smooth Phase EcBeam2 DSD64 reference renderer");
+            reference.set_native_order(NativeDsdOrder::MsbFirst);
+            let (reference_left, reference_right) =
+                render_ecbeam2_native_pass(&mut reference, &input, 5);
+
+            assert_eq!(optimized_left, reference_left, "{source_rate} Hz left");
+            assert_eq!(optimized_right, reference_right, "{source_rate} Hz right");
+            assert_eq!(optimized.stability_resets(), 0);
+            assert_eq!(optimized.state_clamps(), 0);
+            for diagnostics in optimized.ecbeam2_diagnostics() {
+                let diagnostics = diagnostics.expect("per-channel EcBeam2 diagnostics");
+                assert_eq!(diagnostics.output_length_events, 0);
+                assert_eq!(diagnostics.all_nonfinite_resets, 0);
+                assert_eq!(diagnostics.constraint_escape, 0);
+            }
         }
+    }
+
+    #[test]
+    fn production_ecbeam2_renders_both_dsd128_wire_families() {
+        if !CALIBRATED {
+            return;
+        }
+        const SOURCE_FRAMES: usize = 17;
+        let config = ecbeam2_production_config();
+        let assert_channel = |reference: &[u8],
+                              candidate: &[u8],
+                              filter_type: FilterType,
+                              source_rate: u32,
+                              channel: &str| {
+            if let Some(index) = reference
+                .iter()
+                .zip(candidate)
+                .position(|(left, right)| left != right)
+            {
+                panic!(
+                    "{} {source_rate} Hz {channel}: first differing packed byte {index}: reference={:#04x} candidate={:#04x}",
+                    filter_type.as_name(),
+                    reference[index],
+                    candidate[index]
+                );
+            }
+            assert_eq!(
+                reference.len(),
+                candidate.len(),
+                "{} {source_rate} Hz {channel}: packed length",
+                filter_type.as_name()
+            );
+        };
+        for filter_type in [
+            FilterType::Minimum16k,
+            FilterType::Split128k,
+            FilterType::SmoothPhase128k,
+        ] {
+            for source_rate in [44_100, 48_000] {
+                let input = ecbeam2_test_input(source_rate, SOURCE_FRAMES);
+                let mut renderer = DsdRenderer::new_with_dsd_modulator(
+                    filter_type,
+                    source_rate,
+                    DsdRate::Dsd128,
+                    DsdModulator::EcBeam2,
+                )
+                .expect("production EcBeam2 DSD128 renderer");
+                assert_eq!(
+                    renderer.coefficient_table_name(),
+                    "ECBEAM2_OSR128_OBG164_INPUT468_V1"
+                );
+                assert_eq!(
+                    renderer
+                        .effective_experiment_tweaks()
+                        .ecbeam2_full_diagnostics,
+                    Some(false)
+                );
+                renderer.set_native_order(NativeDsdOrder::MsbFirst);
+                let (left, right) = render_ecbeam2_native_pass(&mut renderer, &input, 5);
+                let expected_bits = (SOURCE_FRAMES * 128) as u64;
+                let expected_bytes = expected_bits.div_ceil(8) as usize;
+                assert_eq!(left.len(), expected_bytes, "{source_rate} Hz left output");
+                assert_eq!(right.len(), expected_bytes, "{source_rate} Hz right output");
+
+                let mut reference = DsdRenderer::new_with_dsd_modulator_and_experiment_tweaks(
+                    filter_type,
+                    source_rate,
+                    DsdRate::Dsd128,
+                    DsdModulator::EcBeam2,
+                    None,
+                    DsdExperimentTweaks {
+                        ecbeam2_config: Some(config),
+                        ecbeam2_full_diagnostics: Some(true),
+                        ..DsdExperimentTweaks::default()
+                    },
+                )
+                .expect("full scalar EcBeam2 DSD128 reference renderer");
+                reference.set_native_order(NativeDsdOrder::MsbFirst);
+                let (reference_left, reference_right) =
+                    render_ecbeam2_native_pass(&mut reference, &input, 5);
+                assert_channel(&reference_left, &left, filter_type, source_rate, "left");
+                assert_channel(&reference_right, &right, filter_type, source_rate, "right");
+
+                for diagnostics in renderer.ecbeam2_diagnostics() {
+                    let diagnostics = diagnostics.expect("per-channel EcBeam2 diagnostics");
+                    assert_eq!(diagnostics.committed_samples, expected_bits);
+                    assert_eq!(diagnostics.committed_sequence, expected_bits);
+                    assert_eq!(diagnostics.all_nonfinite_resets, 0);
+                    assert_eq!(diagnostics.constraint_escape, 0);
+                    assert_eq!(diagnostics.output_length_events, 0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn ecbeam2_selects_internal_rate_policy_without_fallback() {
+        if !CALIBRATED {
+            return;
+        }
+        let config = ecbeam2_production_config();
+        let renderer = DsdRenderer::new_with_dsd_modulator_and_experiment_tweaks(
+            FilterType::Minimum16k,
+            44_100,
+            DsdRate::Dsd128,
+            DsdModulator::EcBeam2,
+            None,
+            DsdExperimentTweaks {
+                ecbeam2_config: Some(config),
+                ..DsdExperimentTweaks::default()
+            },
+        )
+        .expect("production EcBeam2 DSD128 renderer");
+        assert_eq!(
+            renderer.coefficient_table_name(),
+            "ECBEAM2_OSR128_OBG164_INPUT468_V1"
+        );
+        assert_eq!(renderer.coefficient_osr(), 128);
+        assert_eq!(renderer.coefficient_obg(), 1.64);
+        assert_eq!(renderer.modulator_input_peak(), 0.467_858_988_519_470_7);
+
+        let production = DsdRenderer::new_with_dsd_modulator(
+            FilterType::Minimum16k,
+            44_100,
+            DsdRate::Dsd128,
+            DsdModulator::EcBeam2,
+        )
+        .expect("normal EcBeam2 DSD128 renderer");
+        assert_eq!(
+            production.coefficient_table_name(),
+            "ECBEAM2_OSR128_OBG164_INPUT468_V1"
+        );
+        assert_eq!(production.coefficient_osr(), 128);
+        assert_eq!(production.modulator_input_peak(), 0.467_858_988_519_470_7);
+        assert_eq!(
+            production.effective_experiment_tweaks().ecbeam2_config,
+            Some(config)
+        );
+        assert_eq!(
+            production
+                .effective_experiment_tweaks()
+                .ecbeam2_full_diagnostics,
+            Some(false)
+        );
+
+        let dsd64 = DsdRenderer::new_with_dsd_modulator_and_experiment_tweaks(
+            FilterType::Minimum16k,
+            44_100,
+            DsdRate::Dsd64,
+            DsdModulator::EcBeam2,
+            None,
+            DsdExperimentTweaks {
+                ecbeam2_config: Some(config),
+                ..DsdExperimentTweaks::default()
+            },
+        )
+        .expect("DSD64 EcBeam2 renderer must select its internal rate policy");
+        assert_eq!(dsd64.coefficient_table_name(), "CRFB_OSR64_OBG164");
+        assert_eq!(dsd64.coefficient_osr(), 64);
+
+        let error = DsdRenderer::new_with_dsd_modulator_and_experiment_tweaks(
+            FilterType::Minimum16k,
+            44_100,
+            DsdRate::Dsd256,
+            DsdModulator::EcBeam2,
+            None,
+            DsdExperimentTweaks {
+                ecbeam2_config: Some(config),
+                ..DsdExperimentTweaks::default()
+            },
+        )
+        .err();
+        assert_eq!(error, Some("EcBeam2 supports DSD64 and DSD128 only"));
 
         let error = DsdRenderer::new_with_dsd_modulator(
             FilterType::SincExtreme32k,
@@ -3736,7 +4349,7 @@ mod tests {
         .err();
         assert_eq!(
             error,
-            Some("EcBeam2 supports only Minimum16k and Split128k filters")
+            Some("EcBeam2 supports only Minimum16k, Split128k, and SmoothPhase128k filters")
         );
 
         let error = DsdRenderer::new_with_dsd_modulator_and_experiment_tweaks(
@@ -3757,6 +4370,28 @@ mod tests {
         assert_eq!(
             error,
             Some("EcBeam2 quantizer regularizer must be finite and non-negative")
+        );
+
+        let error = DsdRenderer::new_with_dsd_modulator_and_experiment_tweaks(
+            FilterType::Minimum16k,
+            44_100,
+            DsdRate::Dsd64,
+            DsdModulator::EcBeam2,
+            None,
+            DsdExperimentTweaks {
+                ecbeam2_config: Some(EcBeam2ExperimentConfig {
+                    quantizer_regularizer: f64::from_bits(
+                        EcBeam2ExperimentConfig::MAX_QUANTIZER_REGULARIZER.to_bits() + 1,
+                    ),
+                    ..EcBeam2ExperimentConfig::default()
+                }),
+                ..DsdExperimentTweaks::default()
+            },
+        )
+        .err();
+        assert_eq!(
+            error,
+            Some("EcBeam2 quantizer regularizer must be finite and between 0 and 4")
         );
 
         let error = DsdRenderer::new_with_dsd_modulator_and_isi_penalty(
