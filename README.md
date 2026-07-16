@@ -54,7 +54,7 @@ The setup I currently use is:
 
 ```text
 Filter:          Smooth Phase
-DSD modulator:   7th Order Search
+DSD modulator:   7th Order Beam
 Headroom:        -2.0 dB
 DSD target:      DSD128
 ```
@@ -74,7 +74,6 @@ These are the main features I am currently exploring:
 - A native iOS app with on-device DSP and offline listening for files from your local Fozmo library. Offline Qobuz and Apple Music playback would not be supported.
 - Apple Music support that reroutes hi-res lossless streams from Apple Music on the Mac server to audio devices connected to Fozmo.
 - Native SACD support if there is enough interest in the project.
-- More experimental DSD modulator work, including [EcBeam2](docs/dev/ecbeam2-experiment.md).
 
 Ideas, bug reports, hardware notes, and feedback are welcome, especially from people testing different DACs, operating systems, libraries, or listening setups.
 
