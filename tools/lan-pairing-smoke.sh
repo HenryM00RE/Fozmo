@@ -12,6 +12,18 @@ fail() {
   exit 1
 }
 
+release_native_rustflags() {
+  if [[ -n "${CI:-}" ]]; then
+    printf "%s" "${RUSTFLAGS:-}"
+    return
+  fi
+  if [[ "${RUSTFLAGS:-}" == *"target-cpu="* ]]; then
+    printf "%s" "$RUSTFLAGS"
+  else
+    printf "%s" "${RUSTFLAGS:+$RUSTFLAGS }-C target-cpu=native"
+  fi
+}
+
 PORT="${FOZMO_SMOKE_PORT:-}"
 if [[ -z "$PORT" ]]; then
   PORT="$(node -e 'const net=require("net"); const s=net.createServer(); s.listen(0,"127.0.0.1",()=>{console.log(s.address().port); s.close();});')"
@@ -27,6 +39,7 @@ AGENT_JSON="$TMP_ROOT/agent-token.json"
 STATUS_JSON="$TMP_ROOT/status.json"
 SERVER_PID=""
 WAIT_ATTEMPTS="${FOZMO_SMOKE_WAIT_ATTEMPTS:-600}"
+RUSTFLAGS_SMOKE="$(release_native_rustflags)"
 
 cleanup() {
   if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
@@ -41,15 +54,15 @@ echo "==> Building release LAN core"
 FOZMO_WORKSPACE_DIR="$WORKSPACE_DIR" \
 FOZMO_SCAN_ON_STARTUP=0 \
 FOZMO_DEV_SECRETS_FILE=1 \
-RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C target-cpu=native" \
+RUSTFLAGS="$RUSTFLAGS_SMOKE" \
   cargo build --release --features dev-secrets-file
 
 echo "==> Starting release LAN core with pairing required"
 FOZMO_WORKSPACE_DIR="$WORKSPACE_DIR" \
 FOZMO_SCAN_ON_STARTUP=0 \
 FOZMO_DEV_SECRETS_FILE=1 \
-RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C target-cpu=native" \
-  cargo run --release --features dev-secrets-file -- --lan --require-pairing --port="$PORT" >"$LOG_FILE" 2>&1 &
+RUSTFLAGS="$RUSTFLAGS_SMOKE" \
+  ./target/release/fozmo --lan --require-pairing --port="$PORT" >"$LOG_FILE" 2>&1 &
 SERVER_PID="$!"
 
 echo "==> Waiting for pairing route on 127.0.0.1:$PORT"

@@ -8,7 +8,7 @@ music fixtures are stored in this repository.
 
 ## Public PCM-to-DSD quality
 
-The fixed synthetic 26-cell v4 matrix runs without network access or external
+The fixed synthetic 28-cell v5 matrix runs without network access or external
 media. It scores the production-default Split Phase path and writes JSON plus
 Markdown:
 
@@ -26,11 +26,16 @@ records `matrix_complete: false` and cannot pass `--check`. Add
 diagnostic never affects canonical completeness, structural checking, or the
 production-path scores.
 
+Add `--include-rate-comparison` for non-scoring DSD128 hi-res cells. This runs
+the same 176.4 kHz four-carrier fixture used at DSD256, allowing a direct raw
+DSD128/DSD256 comparison without changing the canonical matrix or scores.
+
 The executable binds the result to its release/native build configuration and
 source snapshot; setting `RUSTFLAGS` only when launching an old binary does not
 satisfy that contract. The versioned 100-point presentation is explicitly a
 `Split128k` production-path comparison, not a `--check` quality gate or a
-listening score. The checked-in baseline is the canonical 26-cell v4 result.
+listening score. The checked-in baseline remains the historical 26-cell v4
+result from before EcBeam2 gained DSD256 qualification.
 The full methodology is documented in
 [docs/dsd-public-quality.md](../docs/dsd-public-quality.md).
 

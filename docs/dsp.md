@@ -44,9 +44,9 @@ The two selectable modulators use seventh-order cascaded-resonator-feedback delt
 | Modulator | Architecture | Tuned headroom |
 | --- | --- | ---: |
 | 7th Order | Makes each decision directly from the current loop output. This is the simplest and lightest option. | −4 dB |
-| 7th Order Search | Uses the production fixed M4/N8 beam search with a raw quantizer-error path objective. It supports DSD64 and DSD128. | −2 dB |
+| 7th Order Search | Uses the production fixed M4/N8 beam search with a raw quantizer-error path objective. It supports DSD64, DSD128, and DSD256. | −2 dB |
 
-The headroom here is important. I tuned 7th Order at **−4 dB**, while 7th Order Search uses **−2 dB**. 7th Order Search fixes that headroom and its DSD ISI compensation at zero. Both modulators work with all four selectable filters; 7th Order Search remains limited to DSD64 or DSD128. The EQ page has its own separate headroom control, which works well for EQ boosts.
+The headroom here is important. I tuned 7th Order at **−4 dB**, while 7th Order Search uses **−2 dB**. 7th Order Search fixes that headroom and its DSD ISI compensation at zero. Its DSD64, DSD128, and DSD256 plants use one matched production input calibration while retaining their own rate-specific noise-transfer functions. Both modulators work with all four selectable filters and DSD64, DSD128, or DSD256. The EQ page has its own separate headroom control, which works well for EQ boosts.
 
 ### What I am currently using
 

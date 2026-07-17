@@ -171,11 +171,11 @@ fn validate_ecbeam2_playback_config(
     if effective_output_mode.is_dsd()
         && !matches!(
             effective_output_mode,
-            OutputMode::Dsd64 | OutputMode::Dsd128
+            OutputMode::Dsd64 | OutputMode::Dsd128 | OutputMode::Dsd256
         )
     {
         return Err(PlaybackError::bad_request(
-            "EcBeam2 supports only DSD64 and DSD128 output",
+            "EcBeam2 supports only DSD64, DSD128, and DSD256 output",
         ));
     }
     if effective_output_mode.is_dsd()
@@ -183,12 +183,12 @@ fn validate_ecbeam2_playback_config(
         && dsd_rules.iter().any(|rule| {
             !matches!(
                 OutputMode::from_name(&rule.output_mode),
-                Some(OutputMode::Dsd64 | OutputMode::Dsd128)
+                Some(OutputMode::Dsd64 | OutputMode::Dsd128 | OutputMode::Dsd256)
             )
         })
     {
         return Err(PlaybackError::bad_request(
-            "EcBeam2 requires every enabled DSD rule to use DSD64 or DSD128",
+            "EcBeam2 requires every enabled DSD rule to use DSD64, DSD128, or DSD256",
         ));
     }
     if effective_output_mode.is_dsd()
@@ -800,7 +800,7 @@ mod tests {
     }
 
     #[test]
-    fn ecbeam2_validation_accepts_dsd64_and_dsd128_but_rejects_dsd256() {
+    fn ecbeam2_validation_accepts_dsd64_dsd128_and_dsd256() {
         assert!(
             validate_ecbeam2_playback_config(
                 DsdModulator::EcBeam2,
@@ -881,7 +881,7 @@ mod tests {
             )
             .is_ok()
         );
-        assert_eq!(
+        assert!(
             validate_ecbeam2_playback_config(
                 DsdModulator::EcBeam2,
                 FilterType::Split128k,
@@ -892,9 +892,7 @@ mod tests {
                 0.0,
                 -2.0,
             )
-            .expect_err("DSD256 must be rejected")
-            .message(),
-            "EcBeam2 supports only DSD64 and DSD128 output"
+            .is_ok()
         );
         assert_eq!(
             validate_ecbeam2_playback_config(
@@ -1038,7 +1036,7 @@ mod tests {
             .is_ok(),
             "Smooth Phase rules are qualified"
         );
-        assert_eq!(
+        assert!(
             validate_ecbeam2_playback_config(
                 DsdModulator::EcBeam2,
                 FilterType::Split128k,
@@ -1049,9 +1047,8 @@ mod tests {
                 0.0,
                 -2.0,
             )
-            .expect_err("enabled DSD256 rule must be rejected")
-            .message(),
-            "EcBeam2 requires every enabled DSD rule to use DSD64 or DSD128"
+            .is_ok(),
+            "DSD256 rules are qualified"
         );
         assert_eq!(
             validate_ecbeam2_playback_config(

@@ -4,6 +4,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 release_native_rustflags() {
+  if [[ -n "${CI:-}" ]]; then
+    printf "%s" "${RUSTFLAGS:-}"
+    return
+  fi
   if [[ "${RUSTFLAGS:-}" == *"target-cpu="* ]]; then
     printf "%s" "$RUSTFLAGS"
   else
@@ -68,13 +72,13 @@ cargo deny check
 cargo deny --manifest-path airplay-helper/Cargo.toml check \
   --config airplay-helper/deny.toml
 
-echo "==> Running release/native Rust library and binary tests"
+echo "==> Running release Rust library and binary tests"
 RUSTFLAGS="$AUDIO_RUSTFLAGS" cargo test --release --lib --bins
 
-echo "==> Running release/native Rust library and binary tests without default features"
+echo "==> Running release Rust library and binary tests without default features"
 RUSTFLAGS="$AUDIO_RUSTFLAGS" cargo test --release --lib --bins --no-default-features
 
-echo "==> Running release/native audio smoke checks"
+echo "==> Running release audio smoke checks"
 RUSTFLAGS="$AUDIO_RUSTFLAGS" cargo test --release --test audio_smoke
 
 echo "==> Running EcBeam2 campaign unit tests"

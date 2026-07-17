@@ -30,6 +30,30 @@ pub(crate) const DSD64_44K_FAMILY_WIRE_RATE: u32 = 2_822_400;
 pub(crate) const DSD64_48K_FAMILY_WIRE_RATE: u32 = 3_072_000;
 pub(crate) const DSD128_44K_FAMILY_WIRE_RATE: u32 = 5_644_800;
 pub(crate) const DSD128_48K_FAMILY_WIRE_RATE: u32 = 6_144_000;
+pub(crate) const DSD256_44K_FAMILY_WIRE_RATE: u32 = 11_289_600;
+pub(crate) const DSD256_48K_FAMILY_WIRE_RATE: u32 = 12_288_000;
+
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+pub(crate) fn selected_pair_byte_indices(
+    parent_indices: [usize; 4],
+) -> [core::arch::aarch64::uint8x16_t; 2] {
+    use core::arch::aarch64::*;
+    debug_assert!(parent_indices.into_iter().all(|parent| parent < 4));
+    // Each source table contains four packed f64 lanes. Reuse these byte
+    // indices for every reconstruction-profile and CRFB stage.
+    unsafe {
+        let lane_offsets = vreinterpretq_u8_u64(vdupq_n_u64(0x0706_0504_0302_0100));
+        core::array::from_fn(|pair| {
+            let offset = pair * 2;
+            let parent_offsets = vcombine_u8(
+                vdup_n_u8((parent_indices[offset] * 8) as u8),
+                vdup_n_u8((parent_indices[offset + 1] * 8) as u8),
+            );
+            vaddq_u8(lane_offsets, parent_offsets)
+        })
+    }
+}
 
 pub(crate) type BeamErrorProfileState = [f64; MAX_BEAM_ERROR_PROFILE_STATES];
 
@@ -349,8 +373,9 @@ impl BeamErrorProfile {
         parent_indices: [usize; 4],
         errors: [f64; 4],
         next: &mut [[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
-    ) {
+    ) -> [bool; 4] {
         use core::arch::aarch64::*;
+        let mut finite = [true; 4];
         // SAFETY: NEON is baseline on AArch64. Parent indices originate from
         // the fixed M4 selector and every destination store is two lanes wide.
         unsafe {
@@ -370,9 +395,51 @@ impl BeamErrorProfile {
                     }
                     let value = vfmaq_n_f64(dot, error, self.b[row]);
                     vst1q_f64(next[row].as_mut_ptr().add(offset), value);
+                    let row_finite = vcleq_f64(vabsq_f64(value), vdupq_n_f64(f64::MAX));
+                    finite[offset] &= vgetq_lane_u64::<0>(row_finite) != 0;
+                    finite[offset + 1] &= vgetq_lane_u64::<1>(row_finite) != 0;
                 }
             }
         }
+        finite
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[allow(clippy::needless_range_loop)]
+    #[inline(always)]
+    pub(crate) fn next_state4_selected_gathered(
+        &self,
+        states: &[[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
+        parent_byte_indices: [core::arch::aarch64::uint8x16_t; 2],
+        errors: [f64; 4],
+        next: &mut [[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
+    ) -> [bool; 4] {
+        use core::arch::aarch64::*;
+        let mut finite = [true; 4];
+        // SAFETY: NEON is baseline on AArch64. Parent indices originate from
+        // the fixed M4 selector and every destination store is two lanes wide.
+        unsafe {
+            for offset in [0usize, 2] {
+                let state_vectors: [float64x2_t; MAX_BEAM_ERROR_PROFILE_STATES] =
+                    core::array::from_fn(|stage| {
+                        let table = vld1q_u8_x2(states[stage].as_ptr().cast());
+                        vreinterpretq_f64_u8(vqtbl2q_u8(table, parent_byte_indices[offset >> 1]))
+                    });
+                let error = vld1q_f64(errors.as_ptr().add(offset));
+                for row in 0..MAX_BEAM_ERROR_PROFILE_STATES {
+                    let mut dot = vdupq_n_f64(0.0);
+                    for (stage, state) in state_vectors.iter().copied().enumerate() {
+                        dot = vfmaq_n_f64(dot, state, self.a[row][stage]);
+                    }
+                    let value = vfmaq_n_f64(dot, error, self.b[row]);
+                    vst1q_f64(next[row].as_mut_ptr().add(offset), value);
+                    let row_finite = vcleq_f64(vabsq_f64(value), vdupq_n_f64(f64::MAX));
+                    finite[offset] &= vgetq_lane_u64::<0>(row_finite) != 0;
+                    finite[offset + 1] &= vgetq_lane_u64::<1>(row_finite) != 0;
+                }
+            }
+        }
+        finite
     }
 
     /// Advance one profile by pairing independent output rows in NEON lanes.
@@ -496,7 +563,7 @@ impl fmt::Display for UnsupportedBeamErrorWireRate {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "EcBeam2 supports DSD64/DSD128 wire rates 2822400, 3072000, 5644800, and 6144000 Hz (got {})",
+            "EcBeam2 supports DSD64/DSD128/DSD256 wire rates 2822400, 3072000, 5644800, 6144000, 11289600, and 12288000 Hz (got {})",
             self.wire_rate
         )
     }
@@ -524,6 +591,14 @@ pub(crate) fn profiles_for_wire_rate(
         DSD128_48K_FAMILY_WIRE_RATE => Ok(BeamErrorProfiles {
             reconstruction: RECONSTRUCTION_6144000,
             ultrasonic: ULTRASONIC_6144000,
+        }),
+        DSD256_44K_FAMILY_WIRE_RATE => Ok(BeamErrorProfiles {
+            reconstruction: RECONSTRUCTION_11289600,
+            ultrasonic: ULTRASONIC_11289600,
+        }),
+        DSD256_48K_FAMILY_WIRE_RATE => Ok(BeamErrorProfiles {
+            reconstruction: RECONSTRUCTION_12288000,
+            ultrasonic: ULTRASONIC_12288000,
         }),
         _ => Err(UnsupportedBeamErrorWireRate { wire_rate }),
     }
@@ -1178,11 +1253,332 @@ const ULTRASONIC_6144000: BeamErrorProfile = BeamErrorProfile {
     q: 9.91178348050081537e-01,
 };
 
+// Generated by tools/gen_beam_error_profiles.py --rust --wire-rate 11289600; do not hand edit.
+// wire_rate=11289600; sixth-order strict-minimum-phase linear-power fit
+const RECONSTRUCTION_11289600: BeamErrorProfile = BeamErrorProfile {
+    a: [
+        [
+            9.99960417517322120e-01,
+            8.89738155770203321e-03,
+            -1.60982338570647698e-13,
+            -9.94759830064140260e-14,
+            2.49800180540660222e-14,
+            1.56319401867222041e-13,
+        ],
+        [
+            -8.88923178677370959e-03,
+            9.99044479684358722e-01,
+            3.49106117270769900e-03,
+            -7.72353429331928965e-03,
+            -1.88660592693157270e-03,
+            2.62656906456726347e-03,
+        ],
+        [
+            7.49006482076774663e-05,
+            -8.41794666981218222e-03,
+            9.92976885349012628e-01,
+            7.24050454230962259e-04,
+            -5.30787538077803767e-03,
+            7.38972621386579931e-03,
+        ],
+        [
+            8.77667975076904302e-06,
+            -9.86394962499420038e-04,
+            -2.51712897361863058e-02,
+            9.78283772950739650e-01,
+            -9.25380244670415131e-03,
+            1.28833218197854649e-02,
+        ],
+        [
+            2.73709448272641125e-05,
+            -3.07617035862532999e-03,
+            -8.47462324644987323e-03,
+            -1.51912526800095198e-02,
+            9.92933538596211362e-01,
+            2.52177030053957196e-02,
+        ],
+        [
+            8.87320130630474498e-06,
+            -9.97242843344642999e-04,
+            -2.74733073832141928e-03,
+            -4.92474936379527859e-03,
+            -2.07936250504136347e-02,
+            9.98945334432029597e-01,
+        ],
+    ],
+    b: [
+        6.91545592903786283e-02,
+        1.27516673946703827e-04,
+        1.17194542904796965e-03,
+        1.37325777042365121e-04,
+        4.28264033044284571e-04,
+        1.38836017588375021e-04,
+    ],
+    c: [
+        3.72077661096032418e-04,
+        -4.18171268618447237e-02,
+        -1.15203111040154418e-01,
+        -2.06508244489300302e-01,
+        -1.16332486430477056e-01,
+        3.52817145314580638e-02,
+    ],
+    d: 5.82177490591451099e-03,
+    p: IDENTITY_PROFILE_GRAMIAN,
+    h: [
+        6.91529565470002522e-02,
+        4.87782731908253486e-04,
+        4.86005837785424442e-04,
+        -1.07522686786373648e-03,
+        -2.62642632165842945e-04,
+        3.65656126910976096e-04,
+    ],
+    q: 4.81785739418324945e-03,
+};
+const ULTRASONIC_11289600: BeamErrorProfile = BeamErrorProfile {
+    a: [
+        [
+            9.99719598387938224e-01,
+            2.36796241325620827e-02,
+            1.74305014866149577e-14,
+            4.97379915032070130e-14,
+            -2.52575738102223113e-14,
+            -2.13162820728030056e-14,
+        ],
+        [
+            -2.31555670328951781e-02,
+            9.77594663030238786e-01,
+            1.74322845972159080e-02,
+            -4.92656359654120024e-03,
+            -9.41247479826301525e-03,
+            2.28912598625186092e-03,
+        ],
+        [
+            -3.94466934127332019e-04,
+            1.66538253629008523e-02,
+            9.86822892829727905e-01,
+            1.36572776644783289e-02,
+            7.24175111137626004e-03,
+            -1.76120319139272397e-03,
+        ],
+        [
+            1.68525123260627254e-04,
+            -7.11488778711645651e-03,
+            -4.37632513242334608e-03,
+            9.98319088303413871e-01,
+            -2.58989455869679253e-03,
+            6.29865702435949970e-04,
+        ],
+        [
+            -1.99271200845447746e-04,
+            8.41294286446932042e-03,
+            -6.49227266187470640e-03,
+            2.26534672940059342e-03,
+            9.99842995554876213e-01,
+            1.25793584208366838e-02,
+        ],
+        [
+            1.13606485573374352e-04,
+            -4.79630206526047813e-03,
+            3.70130895669050150e-03,
+            -1.29149661087555288e-03,
+            -1.25772829748189742e-02,
+            9.99845193780074859e-01,
+        ],
+    ],
+    b: [
+        -1.08918675312011271e-01,
+        1.04311953546416092e-01,
+        -7.85174315219037133e-02,
+        3.35444081127572735e-02,
+        -3.96643204106403857e-02,
+        2.26130219791071917e-02,
+    ],
+    c: [
+        4.93028337122186720e-03,
+        -2.08149457281098627e-01,
+        1.60629051315381882e-01,
+        -5.60482461230351614e-02,
+        -2.83742760993660947e-03,
+        -1.19419239541690425e-02,
+    ],
+    d: 9.81357760289684800e-01,
+    p: IDENTITY_PROFILE_GRAMIAN,
+    h: [
+        -1.06418066377056544e-01,
+        -1.06861862255572496e-01,
+        8.21645709129925350e-02,
+        -2.32206502752527189e-02,
+        -4.43643487275841991e-02,
+        1.07894667211732957e-02,
+    ],
+    q: 9.95182136610277102e-01,
+};
+// Generated by tools/gen_beam_error_profiles.py --rust --wire-rate 12288000; do not hand edit.
+// wire_rate=12288000; sixth-order strict-minimum-phase linear-power fit
+const RECONSTRUCTION_12288000: BeamErrorProfile = BeamErrorProfile {
+    a: [
+        [
+            9.99966591087050549e-01,
+            8.17414886965650567e-03,
+            -1.78412840057262656e-13,
+            -1.42108547152020037e-13,
+            5.00710584105945600e-14,
+            1.63424829224823043e-13,
+        ],
+        [
+            -8.16727108938349218e-03,
+            9.99125212899398263e-01,
+            3.19173891441781876e-03,
+            -7.10760095762452693e-03,
+            -1.73147128501277558e-03,
+            2.42012679856173918e-03,
+        ],
+        [
+            6.32524605827682106e-05,
+            -7.73785116895630426e-03,
+            9.93522173317997637e-01,
+            6.47558724253372020e-04,
+            -4.87505123868769985e-03,
+            6.81399815849204060e-03,
+        ],
+        [
+            7.43283886144607767e-06,
+            -9.09280055555228544e-04,
+            -2.31706605964259460e-02,
+            9.80050345734316708e-01,
+            -8.48789301502250737e-03,
+            1.18637701300201570e-02,
+        ],
+        [
+            2.31378118704125142e-05,
+            -2.83051351645500051e-03,
+            -7.81736370728994615e-03,
+            -1.39624085741620815e-02,
+            9.93525798336580279e-01,
+            2.31875011948972087e-02,
+        ],
+        [
+            7.50359593942004980e-06,
+            -9.17935967648899525e-04,
+            -2.53517224962831458e-03,
+            -4.52801124273909464e-03,
+            -1.91067091290453434e-02,
+            9.99050663731551936e-01,
+        ],
+    ],
+    b: [
+        6.62841641366326562e-02,
+        1.22206551358699286e-04,
+        1.12389017221222430e-03,
+        1.32069084286831270e-04,
+        4.11120122885993977e-04,
+        1.33326318926900179e-04,
+    ],
+    c: [
+        3.28245203356344092e-04,
+        -4.01551577139298219e-02,
+        -1.10901244861930121e-01,
+        -1.98078092580172616e-01,
+        -1.11546462415855405e-01,
+        3.41624713956275861e-02,
+    ],
+    d: 5.83236691077620387e-03,
+    p: IDENTITY_PROFILE_GRAMIAN,
+    h: [
+        6.62829485905058469e-02,
+        4.19614010094398636e-04,
+        4.63571098324994167e-04,
+        -1.03231450192275477e-03,
+        -2.51480482866228824e-04,
+        3.51501441697464460e-04,
+    ],
+    q: 4.42908922054015015e-03,
+};
+const ULTRASONIC_12288000: BeamErrorProfile = BeamErrorProfile {
+    a: [
+        [
+            9.99763329842978776e-01,
+            2.17550982824477046e-02,
+            -3.10862446895043831e-14,
+            -8.52651282912120223e-14,
+            3.78586051397178380e-14,
+            4.97379915032070130e-14,
+        ],
+        [
+            -2.13121750334406210e-02,
+            9.79408633370860704e-01,
+            1.60329444104898577e-02,
+            -4.54530585551538024e-03,
+            -8.65801868827653642e-03,
+            2.11560080615669222e-03,
+        ],
+        [
+            -3.33393846123028654e-04,
+            1.53212335528053311e-02,
+            9.87884492003567205e-01,
+            1.25616426254282487e-02,
+            6.66101033895660777e-03,
+            -1.62762860084342265e-03,
+        ],
+        [
+            1.42431481014047108e-04,
+            -6.54548970013949048e-03,
+            -4.01510958150254598e-03,
+            9.98453315569717836e-01,
+            -2.38290687219383512e-03,
+            5.82267117671619872e-04,
+        ],
+        [
+            -1.68446756574913063e-04,
+            7.74103100194723209e-03,
+            -5.97194021189175785e-03,
+            2.08862631654505373e-03,
+            9.99866610301413439e-01,
+            1.15558139836196005e-02,
+        ],
+        [
+            9.60311495172159530e-05,
+            -4.41314585499184928e-03,
+            3.40459083366841586e-03,
+            -1.19072156790686005e-03,
+            -1.15579008301928444e-02,
+            9.99864405159459402e-01,
+        ],
+    ],
+    b: [
+        -1.04398742124284238e-01,
+        1.00118528306362031e-01,
+        -7.53604650856189995e-02,
+        3.21952632806139505e-02,
+        -3.80757655405736806e-02,
+        2.17069156329307011e-02,
+    ],
+    c: [
+        4.34815617791348141e-03,
+        -1.99821073785813347e-01,
+        1.54155112597387095e-01,
+        -5.39142077096734229e-02,
+        -2.85796149558410588e-03,
+        -1.14092287993599051e-02,
+    ],
+    d: 9.82858788916803450e-01,
+    p: IDENTITY_PROFILE_GRAMIAN,
+    h: [
+        -1.02195945528302051e-01,
+        -1.02366043009665508e-01,
+        7.88424891545856932e-02,
+        -2.23516790287563161e-02,
+        -4.25760688185507358e-02,
+        1.04035309537727199e-02,
+    ],
+    q: 9.95570904801794998e-01,
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn all_profiles() -> [BeamErrorProfile; 8] {
+    fn all_profiles() -> [BeamErrorProfile; 12] {
         [
             RECONSTRUCTION_2822400,
             ULTRASONIC_2822400,
@@ -1192,6 +1588,10 @@ mod tests {
             ULTRASONIC_5644800,
             RECONSTRUCTION_6144000,
             ULTRASONIC_6144000,
+            RECONSTRUCTION_11289600,
+            ULTRASONIC_11289600,
+            RECONSTRUCTION_12288000,
+            ULTRASONIC_12288000,
         ]
     }
 
@@ -1206,7 +1606,9 @@ mod tests {
         assert!(profiles_for_wire_rate(DSD64_48K_FAMILY_WIRE_RATE).is_ok());
         assert!(profiles_for_wire_rate(DSD128_44K_FAMILY_WIRE_RATE).is_ok());
         assert!(profiles_for_wire_rate(DSD128_48K_FAMILY_WIRE_RATE).is_ok());
-        for unsupported in [0, 44_100, 11_289_600, 12_288_000] {
+        assert!(profiles_for_wire_rate(DSD256_44K_FAMILY_WIRE_RATE).is_ok());
+        assert!(profiles_for_wire_rate(DSD256_48K_FAMILY_WIRE_RATE).is_ok());
+        for unsupported in [0, 44_100, 22_579_200, 24_576_000] {
             let error = profiles_for_wire_rate(unsupported).unwrap_err();
             assert_eq!(error.wire_rate, unsupported);
         }
@@ -1297,6 +1699,8 @@ mod tests {
             DSD64_48K_FAMILY_WIRE_RATE,
             DSD128_44K_FAMILY_WIRE_RATE,
             DSD128_48K_FAMILY_WIRE_RATE,
+            DSD256_44K_FAMILY_WIRE_RATE,
+            DSD256_48K_FAMILY_WIRE_RATE,
         ] {
             let profiles = profiles_for_wire_rate(wire_rate).unwrap();
             assert!(

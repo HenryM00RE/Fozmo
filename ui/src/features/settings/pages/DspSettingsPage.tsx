@@ -80,9 +80,7 @@ export function DspSettingsPage({
     ? dsdRateOptions.map((option) => ({
         value: option.value,
         label: option.label,
-        disabled:
-          !zoneSupportsDsdOutputMode(selectedZone, option.value, experimentalDsd256) ||
-          (playbackConfig.dsdModulator === 'EcBeam2' && option.value === 'Dsd256')
+        disabled: !zoneSupportsDsdOutputMode(selectedZone, option.value, experimentalDsd256)
       }))
     : sampleRateOptions.map(([value, label]) => ({ value: String(value), label }));
 
@@ -155,16 +153,7 @@ export function DspSettingsPage({
                   value={outputFormat}
                   disabled={!playbackConfig.upsamplingEnabled}
                   onChange={(value) =>
-                    updatePlaybackConfig(
-                      'outputMode',
-                      value === 'Pcm'
-                        ? 'Pcm'
-                        : playbackConfig.dsdModulator === 'EcBeam2' && preferredDsdRate === 'Dsd256'
-                          ? zoneSupportsDsdOutputMode(selectedZone, 'Dsd128', experimentalDsd256)
-                            ? 'Dsd128'
-                            : 'Dsd64'
-                          : preferredDsdRate
-                    )
+                    updatePlaybackConfig('outputMode', value === 'Pcm' ? 'Pcm' : preferredDsdRate)
                   }
                   options={[
                     { value: 'Pcm', label: 'PCM' },

@@ -28,6 +28,7 @@ import sys
 import math
 import os
 import tempfile
+import json
 import fractions
 import collections
 import collections.abc
@@ -36,6 +37,14 @@ os.environ.setdefault(
     "MPLCONFIGDIR",
     os.path.join(tempfile.gettempdir(), "fozmo-crfb-matplotlib"),
 )
+for _thread_env in (
+    "OPENBLAS_NUM_THREADS",
+    "OMP_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+):
+    os.environ[_thread_env] = "1"
 
 # deltasigma 0.2.2 predates several stdlib/NumPy cleanups. Stub the missing
 # aliases before importing so the toolbox loads on modern Python + NumPy.
@@ -89,6 +98,71 @@ if not hasattr(_fractions, "gcd"):
     _fractions.gcd = _math.gcd
 
 from deltasigma import synthesizeNTF, realizeNTF
+
+
+def deterministic_complex_lstsq(matrix, rhs, rcond=None):
+    """Solve the small CRFB complex least-squares system deterministically."""
+    del rcond
+    a = np.asarray(matrix, dtype=complex)
+    b = np.asarray(rhs, dtype=complex)
+    if a.ndim != 2 or b.ndim not in (1, 2) or a.shape[0] != b.shape[0]:
+        raise ValueError("deterministic CRFB least-squares shape mismatch")
+    vector_rhs = b.ndim == 1
+    if vector_rhs:
+        b = b[:, None]
+    rows, columns = a.shape
+    rhs_columns = b.shape[1]
+    q = [[0j for _ in range(rows)] for _ in range(columns)]
+    r = [[0j for _ in range(columns)] for _ in range(columns)]
+    for column in range(columns):
+        work = [complex(a[row, column]) for row in range(rows)]
+        for previous in range(column):
+            projection = 0j
+            for row in range(rows):
+                projection += q[previous][row].conjugate() * work[row]
+            r[previous][column] = projection
+            for row in range(rows):
+                work[row] -= projection * q[previous][row]
+        norm_squared = 0.0
+        for value in work:
+            norm_squared += value.real * value.real + value.imag * value.imag
+        norm = math.sqrt(norm_squared)
+        if not math.isfinite(norm) or norm <= 1e-15:
+            raise RuntimeError("deterministic CRFB least-squares matrix is rank deficient")
+        r[column][column] = complex(norm, 0.0)
+        for row in range(rows):
+            q[column][row] = work[row] / norm
+
+    projected = [[0j for _ in range(rhs_columns)] for _ in range(columns)]
+    for column in range(columns):
+        for rhs_column in range(rhs_columns):
+            value = 0j
+            for row in range(rows):
+                value += q[column][row].conjugate() * complex(b[row, rhs_column])
+            projected[column][rhs_column] = value
+
+    solution = [[0j for _ in range(rhs_columns)] for _ in range(columns)]
+    for rhs_column in range(rhs_columns):
+        for row in range(columns - 1, -1, -1):
+            value = projected[row][rhs_column]
+            for column in range(row + 1, columns):
+                value -= r[row][column] * solution[column][rhs_column]
+            solution[row][rhs_column] = value / r[row][row]
+    result = np.asarray(solution, dtype=complex)
+    if vector_rhs:
+        result = result[:, 0]
+    residual = a @ result - np.asarray(rhs, dtype=complex)
+    residuals = np.asarray([float(np.vdot(residual, residual).real)])
+    return result, residuals, columns, np.asarray([], dtype=float)
+
+
+def realize_ntf_crfb_deterministic(ntf):
+    original = np.linalg.lstsq
+    np.linalg.lstsq = deterministic_complex_lstsq
+    try:
+        return realizeNTF(ntf, form="CRFB")
+    finally:
+        np.linalg.lstsq = original
 
 
 def stuff_abcd_crfb(a, g, b, c):
@@ -410,7 +484,7 @@ def measure_state_maxima(mode, A, b_u, b_v, C, d1, osr, peak_amp, rng,
 
 def design_variant(mode, osr, obg, rng):
     ntf = synthesizeNTF(order=ORDER, osr=osr, opt=1, H_inf=obg)
-    a, g, b, c = realizeNTF(ntf, form="CRFB")
+    a, g, b, c = realize_ntf_crfb_deterministic(ntf)
     ABCD = stuff_abcd_crfb(a, g, b, c)
     A, b_u, b_v, C, d1 = split_abcd(ABCD)
 
@@ -529,6 +603,34 @@ def choose_default(generated, mode, osr, preferences):
     raise RuntimeError(f"No generated default for {mode} OSR={osr}; tried {tried}")
 
 
+def emit_variant(coeffs):
+    mode = coeffs["mode"]
+    name = variant_name(mode, coeffs["osr"], coeffs["obg"])
+    mode_label = "CRFB7 EC" if mode == "ec" else "CRFB"
+    out = [
+        f"/// 7th-order {mode_label}, OSR={coeffs['osr']}, out-of-band gain {coeffs['obg']:.2f}, "
+        f"input peak {coeffs['input_peak']:.3f}.",
+        f"pub const {name}: ModulatorCoeffs = ModulatorCoeffs {{",
+        "    a: [",
+    ]
+    for row in coeffs["a"]:
+        out.append(f"        [{fmt_row(row)}],")
+    out.extend(["    ],", "    b: ["])
+    for row in coeffs["b"]:
+        out.append(f"        [{fmt_row(row)}],")
+    out.append("    ],")
+    out.extend([
+        f"    c: [{fmt_row(coeffs['c'])}],",
+        f"    d1: {coeffs['d1']:.17e},",
+        f"    state_limit: [{fmt_row(coeffs['state_limit'])}],",
+        f"    input_peak: {coeffs['input_peak']:.17e},",
+        f"    osr: {coeffs['osr']},",
+        f"    obg: {coeffs['obg']:.17e},",
+        "};",
+    ])
+    return out
+
+
 def emit_rust(variants):
     out = []
     out.append("// Generated by tools/gen_crfb.py -- DO NOT EDIT BY HAND.")
@@ -578,26 +680,7 @@ def emit_rust(variants):
         name = variant_name(mode, coeffs["osr"], coeffs["obg"])
         names.append((name, mode, coeffs["osr"], coeffs["obg"]))
         generated[(mode, coeffs["osr"], coeffs["obg"])] = name
-        mode_label = "CRFB7 EC" if mode == "ec" else "CRFB"
-        out.append(
-            f"/// 7th-order {mode_label}, OSR={coeffs['osr']}, out-of-band gain {coeffs['obg']:.2f}, "
-            f"input peak {coeffs['input_peak']:.3f}.")
-        out.append(f"pub const {name}: ModulatorCoeffs = ModulatorCoeffs {{")
-        out.append("    a: [")
-        for row in coeffs["a"]:
-            out.append(f"        [{fmt_row(row)}],")
-        out.append("    ],")
-        out.append("    b: [")
-        for row in coeffs["b"]:
-            out.append(f"        [{fmt_row(row)}],")
-        out.append("    ],")
-        out.append(f"    c: [{fmt_row(coeffs['c'])}],")
-        out.append(f"    d1: {coeffs['d1']:.17e},")
-        out.append(f"    state_limit: [{fmt_row(coeffs['state_limit'])}],")
-        out.append(f"    input_peak: {coeffs['input_peak']:.17e},")
-        out.append(f"    osr: {coeffs['osr']},")
-        out.append(f"    obg: {coeffs['obg']:.17e},")
-        out.append("};")
+        out.extend(emit_variant(coeffs))
         out.append("")
     for osr in TARGET_OSRS:
         standard_default = choose_default(
@@ -631,7 +714,59 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default=None,
                         help="write the generated Rust here (default: stdout)")
+    parser.add_argument(
+        "--single", nargs=3, metavar=("MODE", "OSR", "OBG"),
+        help="generate one isolated variant without perturbing the historical bulk job",
+    )
+    parser.add_argument(
+        "--seed", type=lambda value: int(value, 0), default=0xD5D,
+        help="deterministic RNG seed for --single (default: 0xD5D)",
+    )
+    parser.add_argument(
+        "--report", default=None,
+        help="write a JSON synthesis/calibration report for --single",
+    )
     args = parser.parse_args()
+
+    if args.single:
+        mode, osr_text, obg_text = args.single
+        if mode not in ("standard", "ec"):
+            parser.error("--single MODE must be standard or ec")
+        osr = int(osr_text)
+        obg = float(obg_text)
+        rng = np.random.default_rng(args.seed)
+        coeffs, report = design_variant(mode, osr, obg, rng)
+        code = "\n".join([
+            "// Isolated variant generated by tools/gen_crfb.py --single; do not hand edit.",
+            f"// generator_seed=0x{args.seed:x}",
+            *emit_variant(coeffs),
+            "",
+        ])
+        if args.out:
+            with open(args.out, "w") as fh:
+                fh.write(code)
+            print(f"wrote {args.out}", file=sys.stderr)
+        else:
+            print(code)
+        if args.report:
+            serializable_report = {
+                "schema": "fozmo-crfb-single-generation-v1",
+                "generator_seed": args.seed,
+                "mode": mode,
+                "osr": osr,
+                "obg": obg,
+                "report": {
+                    key: value.tolist() if isinstance(value, np.ndarray) else value
+                    for key, value in report.items()
+                },
+            }
+            with open(args.report, "w") as fh:
+                json.dump(serializable_report, fh, indent=2, sort_keys=True)
+                fh.write("\n")
+            print(f"wrote {args.report}", file=sys.stderr)
+        return
+    if args.report:
+        parser.error("--report requires --single")
 
     rng = np.random.default_rng(0xD5D)
     variants = []

@@ -60,6 +60,7 @@ old_identity_matches="$(rg -n --max-columns 240 \
   --glob '!src/audio/**' \
   --glob '!audio_tests/**' \
   --glob '!docs/audio-pipeline.md' \
+  --glob '!docs/dsd-public-quality.md' \
   --glob '!docs/dsp.md' \
   --glob '!tools/public-readiness.sh' \
   --glob '!.git/**' \

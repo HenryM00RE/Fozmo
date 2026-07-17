@@ -155,8 +155,8 @@ jobs:
       - name: Install frontend dependencies
         run: npm --prefix ui ci
 
-      - name: Install Gitleaks
-        run: brew install gitleaks
+      - name: Install security tools
+        run: brew install gitleaks ripgrep
 
       - name: Run public-readiness checks
         run: ./tools/public-readiness.sh
@@ -278,14 +278,15 @@ jobs:
       - name: Check MIT/GPL process boundary
         run: ./tools/check-release-boundaries.sh
 
+      - name: Install cargo-deny
+        run: brew install cargo-deny
+
       - name: Check Rust dependency policy
-        uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2
+        run: cargo deny --all-features check
 
       - name: Check AirPlay helper dependency policy
-        uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2
-        with:
-          manifest-path: ./airplay-helper/Cargo.toml
-          arguments: --config airplay-helper/deny.toml
+        working-directory: airplay-helper
+        run: cargo deny check
 
   rust-cross-platform:
     name: Rust cross-platform check (${{ matrix.os }})
@@ -306,6 +307,10 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@c0e9df88980754dd93e5833b8dcb1b304c1fe173 # 1.96.0
 
+      - name: Install Linux audio development libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
+
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
@@ -316,8 +321,6 @@ jobs:
     name: Rust release tests
     runs-on: macos-latest
     timeout-minutes: 120
-    env:
-      RUSTFLAGS: '-C target-cpu=native'
 
     steps:
       - name: Checkout
@@ -325,6 +328,9 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@c0e9df88980754dd93e5833b8dcb1b304c1fe173 # 1.96.0
+
+      - name: Install media test dependencies
+        run: brew install ffmpeg
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
@@ -395,15 +401,20 @@ jobs:
           - name: windows-latest no-default-features
             os: windows-latest
             command: cargo test --release --no-default-features
-    env:
-      RUSTFLAGS: '-C target-cpu=native'
-
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@c0e9df88980754dd93e5833b8dcb1b304c1fe173 # 1.96.0
+
+      - name: Install Linux audio development libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes ffmpeg libasound2-dev
+
+      - name: Install macOS media test dependencies
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2

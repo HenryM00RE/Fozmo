@@ -51,13 +51,16 @@ pub use diagnostics::{
     Ec2DecisionTraceSummary, Ec2DecisionWindow,
 };
 pub use ec_beam2::{
-    EcBeam2DiagnosticWindow, EcBeam2Diagnostics, EcBeam2ExactOracleReport, EcBeam2ExperimentConfig,
-    EcBeam2ObjectiveComponents, EcBeam2OracleComparison, EcBeam2OracleSeed, EcBeam2ProfileId,
-    EcBeam2RunMode, EcBeam2ScaleDistribution, prepare_ecbeam2_oracle_seed,
-    run_ecbeam2_exact_oracle, run_ecbeam2_exact_oracle_from_seed,
+    EcBeam2BenchmarkModulator, EcBeam2DiagnosticWindow, EcBeam2Diagnostics,
+    EcBeam2ExactOracleReport, EcBeam2ExperimentConfig, EcBeam2ObjectiveComponents,
+    EcBeam2OracleComparison, EcBeam2OracleSeed, EcBeam2ProfileId, EcBeam2RunMode,
+    EcBeam2ScaleDistribution, prepare_ecbeam2_oracle_seed, run_ecbeam2_exact_oracle,
+    run_ecbeam2_exact_oracle_from_seed,
 };
 pub(crate) use ec_beam2::{
-    EcBeam2Modulator, ecbeam2_dsd128_production_coefficients, ecbeam2_production_config,
+    EcBeam2Modulator, ecbeam2_dsd64_production_coefficients,
+    ecbeam2_dsd128_production_coefficients, ecbeam2_dsd256_production_coefficients,
+    ecbeam2_production_config,
 };
 #[cfg(feature = "ecbeam2_observer")]
 pub use ecbeam2_observer::{

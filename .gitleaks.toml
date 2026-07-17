@@ -2,3 +2,7 @@ title = "Fozmo secret scanning"
 
 [extend]
 useDefault = true
+
+[allowlist]
+description = "Known non-secret DSP filter identifiers"
+regexes = ['''^SincExtreme32k$''']
