@@ -285,7 +285,8 @@ jobs:
         run: cargo deny --all-features check
 
       - name: Check AirPlay helper dependency policy
-        run: cargo deny --manifest-path ./airplay-helper/Cargo.toml --config airplay-helper/deny.toml check
+        working-directory: airplay-helper
+        run: cargo deny check
 
   rust-cross-platform:
     name: Rust cross-platform check (${{ matrix.os }})
