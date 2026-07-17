@@ -131,6 +131,17 @@ fn validate_ecbeam2_playback_config(
     isi_penalty: f32,
     headroom_db: f32,
 ) -> Result<(), PlaybackError> {
+    if !upsampling_enabled {
+        return Ok(());
+    }
+    if modulator == DsdModulator::Standard {
+        if (headroom_db - DEFAULT_HEADROOM_DB).abs() > 1.0e-6 {
+            return Err(PlaybackError::bad_request(
+                "Standard requires -4 dB headroom",
+            ));
+        }
+        return Ok(());
+    }
     if modulator != DsdModulator::EcBeam2 {
         return Ok(());
     }
@@ -243,6 +254,14 @@ pub(crate) fn playback_config_for_zone(
                 .is_some_and(|mode| upnp_output_mode_allowed(mode, upnp_target.as_ref()))
         });
     }
+    let configured_dsd_modulator = settings
+        .dsd_modulator
+        .as_deref()
+        .unwrap_or(&fallback.dsd_modulator);
+    let dsd_modulator = DsdModulator::from_name(configured_dsd_modulator).unwrap_or_default();
+    let configured_headroom_db = settings
+        .headroom_db
+        .unwrap_or(fallback.headroom_db.min(DEFAULT_HEADROOM_DB));
     PlaybackConfig {
         filter_type: settings
             .filter_type
@@ -258,10 +277,7 @@ pub(crate) fn playback_config_for_zone(
         exclusive: !dsp_unavailable && settings.exclusive.unwrap_or(fallback.exclusive),
         dither_mode: DitherPreference::Auto.as_name().to_string(),
         output_mode: output_mode.as_name().to_string(),
-        dsd_modulator: settings
-            .dsd_modulator
-            .clone()
-            .unwrap_or_else(|| fallback.dsd_modulator.clone()),
+        dsd_modulator: dsd_modulator.as_name().to_string(),
         dsd_isi_penalty: if dsp_unavailable {
             0.0
         } else {
@@ -271,9 +287,11 @@ pub(crate) fn playback_config_for_zone(
         headroom_db: if dsp_unavailable {
             0.0
         } else {
-            settings
-                .headroom_db
-                .unwrap_or(fallback.headroom_db.min(DEFAULT_HEADROOM_DB))
+            match dsd_modulator {
+                DsdModulator::Standard => DEFAULT_HEADROOM_DB,
+                DsdModulator::EcBeam2 => -2.0,
+                _ => configured_headroom_db,
+            }
         },
         dsp_buffer_ms: if dsp_unavailable {
             0
@@ -348,6 +366,10 @@ pub(crate) fn update_playback_config_for_zone(
         update.dsd_rules_enabled,
         &update.dsd_rules,
     )?;
+    let legacy_ecbeam = update
+        .dsd_modulator
+        .as_deref()
+        .is_some_and(DsdModulator::is_legacy_ecbeam_name);
     let dsd_modulator = match update.dsd_modulator.as_deref() {
         Some(name) => DsdModulator::from_name(name)
             .ok_or_else(|| PlaybackError::bad_request("Invalid DSD modulator"))?,
@@ -357,7 +379,12 @@ pub(crate) fn update_playback_config_for_zone(
     if !update.headroom_db.is_finite() {
         return Err(PlaybackError::bad_request("Invalid headroom attenuation"));
     }
-    let headroom_db = update.headroom_db.clamp(-24.0, 0.0);
+    let headroom_db =
+        if !dsp_unavailable && (dsd_modulator == DsdModulator::Standard || legacy_ecbeam) {
+            DEFAULT_HEADROOM_DB
+        } else {
+            update.headroom_db.clamp(-24.0, 0.0)
+        };
     if !update.dsd_isi_penalty.is_finite() {
         return Err(PlaybackError::bad_request("Invalid DSD ISI penalty"));
     }
@@ -369,7 +396,7 @@ pub(crate) fn update_playback_config_for_zone(
         update.dsd_rules_enabled,
         &update.dsd_rules,
         update.dsd_isi_penalty,
-        update.headroom_db,
+        headroom_db,
     )?;
     let dsd_isi_penalty = update.dsd_isi_penalty.clamp(0.0, 0.05);
     if update.dsp_buffer_ms > MAX_DSP_BUFFER_MS {
@@ -583,8 +610,8 @@ mod tests {
     }
 
     #[test]
-    fn playback_config_persists_selectable_ecbeam() {
-        let state = crate::playback::test_support::app_state("selectable-ecbeam");
+    fn playback_config_normalizes_retired_ecbeam_to_standard_with_safe_headroom() {
+        let state = crate::playback::test_support::app_state("retired-ecbeam");
         let update = PlaybackConfigUpdate {
             filter_type: "Split128k".to_string(),
             target_rate: 0,
@@ -600,12 +627,33 @@ mod tests {
             dsp_buffer_ms: 0,
         };
 
-        update_active_playback_config(&state, update).expect("ECB config should update");
+        update_active_playback_config(&state, update).expect("legacy ECB config should update");
 
         let zone_id = state.zones().active_zone_id();
         let settings = state.settings().playback_for_zone(&zone_id);
-        assert_eq!(settings.dsd_modulator.as_deref(), Some("EcBeam"));
-        assert_eq!(settings.headroom_db, Some(-2.0));
+        assert_eq!(settings.dsd_modulator.as_deref(), Some("Standard"));
+        assert_eq!(settings.headroom_db, Some(DEFAULT_HEADROOM_DB));
+        let config = playback_config_for_zone(&state, &zone_id, &state.zones().active_player());
+        assert_eq!(config.dsd_modulator, "Standard");
+        assert_eq!(config.headroom_db, DEFAULT_HEADROOM_DB);
+    }
+
+    #[test]
+    fn playback_config_reads_saved_ecbeam_as_standard_with_safe_headroom() {
+        let state = crate::playback::test_support::app_state("saved-retired-ecbeam");
+        let zone_id = state.zones().active_zone_id();
+        state
+            .settings()
+            .update_playback_for_zone(&zone_id, |settings| {
+                settings.dsd_modulator = Some("EcBeam".to_string());
+                settings.headroom_db = Some(-2.0);
+            })
+            .expect("legacy settings should be writable");
+
+        let config = playback_config_for_zone(&state, &zone_id, &state.zones().active_player());
+
+        assert_eq!(config.dsd_modulator, "Standard");
+        assert_eq!(config.headroom_db, DEFAULT_HEADROOM_DB);
     }
 
     #[test]
@@ -837,6 +885,52 @@ mod tests {
     }
 
     #[test]
+    fn standard_validation_locks_headroom_to_minus_four_when_enabled() {
+        assert!(
+            validate_ecbeam2_playback_config(
+                DsdModulator::Standard,
+                FilterType::SincExtreme32k,
+                true,
+                OutputMode::Dsd256,
+                false,
+                &[],
+                0.01,
+                -4.0,
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            validate_ecbeam2_playback_config(
+                DsdModulator::Standard,
+                FilterType::SincExtreme32k,
+                true,
+                OutputMode::Dsd128,
+                false,
+                &[],
+                0.0,
+                -2.0,
+            )
+            .expect_err("Standard must reject unlocked headroom")
+            .message(),
+            "Standard requires -4 dB headroom"
+        );
+        assert!(
+            validate_ecbeam2_playback_config(
+                DsdModulator::Standard,
+                FilterType::SincExtreme32k,
+                false,
+                OutputMode::Pcm,
+                false,
+                &[],
+                0.0,
+                0.0,
+            )
+            .is_ok(),
+            "inactive DSP settings remain editable"
+        );
+    }
+
+    #[test]
     fn ecbeam2_validation_checks_only_enabled_effective_rules() {
         let dsd128_rule = DsdSourceRule {
             source_rate: 44_100,
@@ -974,12 +1068,12 @@ mod tests {
         let settings = state.settings().playback_for_zone(&zone_id);
         assert_eq!(settings.upsampling_enabled, Some(false));
         assert_eq!(settings.output_mode.as_deref(), Some("Dsd128"));
-        assert_eq!(settings.dsd_modulator.as_deref(), Some("EcDepth2"));
+        assert_eq!(settings.dsd_modulator.as_deref(), Some("Standard"));
         assert_eq!(settings.dsd_isi_penalty, Some(0.012));
         assert_eq!(settings.dither_mode.as_deref(), Some("Auto"));
         assert!(settings.dsd_rules_enabled);
         assert_eq!(settings.dsd_rules.len(), 1);
-        assert_eq!(settings.headroom_db, Some(-6.0));
+        assert_eq!(settings.headroom_db, Some(DEFAULT_HEADROOM_DB));
         assert_eq!(state.zones().active_player().output_mode(), OutputMode::Pcm);
     }
 

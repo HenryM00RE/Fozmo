@@ -2433,10 +2433,13 @@ mod tests {
         let result = DsdRenderer::new(FilterType::SincExtreme32k, 44_100, DsdRate::Dsd128);
         if CALIBRATED {
             let renderer = result.expect("calibrated coefficients should construct");
-            assert_eq!(renderer.coefficient_table_name(), "CRFB7_EC_OSR128");
-            assert_eq!(renderer.coefficient_osr(), CRFB7_EC_OSR128.osr);
-            assert_eq!(renderer.coefficient_obg(), CRFB7_EC_OSR128.obg);
-            assert_eq!(renderer.modulator_input_peak(), CRFB7_EC_OSR128.input_peak);
+            assert_eq!(renderer.coefficient_table_name(), "CRFB7_STANDARD_OSR128");
+            assert_eq!(renderer.coefficient_osr(), CRFB7_STANDARD_OSR128.osr);
+            assert_eq!(renderer.coefficient_obg(), CRFB7_STANDARD_OSR128.obg);
+            assert_eq!(
+                renderer.modulator_input_peak(),
+                CRFB7_STANDARD_OSR128.input_peak
+            );
             assert_eq!(
                 renderer.effective_modulator_seeds(),
                 [DSD_MOD_SEED_LEFT, DSD_MOD_SEED_RIGHT]

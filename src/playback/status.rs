@@ -1274,7 +1274,7 @@ mod tests {
         let status = build_status_response(&state);
 
         assert_eq!(status.zone_protocol, SinkProtocol::RemoteAgent);
-        assert_eq!(status.dsd_modulator, "EcDepth2");
+        assert_eq!(status.dsd_modulator, "Standard");
     }
 
     #[test]
@@ -1311,11 +1311,11 @@ mod tests {
         assert_eq!(status.dither_mode, "Auto");
         assert_eq!(status.output_mode, "Dsd256");
         assert_eq!(status.active_output_mode, "Pcm");
-        assert_eq!(status.dsd_modulator, "EcDepth2");
+        assert_eq!(status.dsd_modulator, "Standard");
         assert_eq!(status.dsd_isi_penalty, 0.012);
         assert!(status.dsd_rules_enabled);
         assert_eq!(status.dsd_rules.len(), 1);
-        assert_eq!(status.headroom_db, -6.0);
+        assert_eq!(status.headroom_db, -4.0);
         assert_eq!(status.dsp_buffer_ms, 250);
         assert!(status.exclusive);
     }
@@ -1363,7 +1363,7 @@ mod tests {
         assert_eq!(status.filter_type, "Minimum16k");
         assert_eq!(status.output_mode, "Dsd256");
         assert_eq!(status.active_output_mode, "Pcm");
-        assert_eq!(status.dsd_modulator, "EcDepth2");
+        assert_eq!(status.dsd_modulator, "Standard");
     }
 
     #[test]
@@ -1601,21 +1601,26 @@ fn build_status_response_for_player(
         .map(|mode| mode.as_name().to_string())
         .unwrap_or_else(|| signal.output_mode.as_name().to_string());
     let active_output_mode_name = signal.active_output_mode.as_name().to_string();
-    let dsd_modulator = zone_playback_settings
+    let selected_dsd_modulator = zone_playback_settings
         .dsd_modulator
         .as_deref()
         .and_then(DsdModulator::from_name)
-        .map(|modulator| modulator.as_name().to_string())
-        .unwrap_or_else(|| config.dsd_modulator.as_name().to_string());
+        .unwrap_or(config.dsd_modulator);
+    let dsd_modulator = selected_dsd_modulator.as_name().to_string();
     let dsp_buffer_ms = zone_playback_settings
         .dsp_buffer_ms
         .unwrap_or(config.dsp_buffer_ms);
     let dsd_isi_penalty = zone_playback_settings
         .dsd_isi_penalty
         .unwrap_or(config.dsd_isi_penalty);
-    let headroom_db = zone_playback_settings
+    let configured_headroom_db = zone_playback_settings
         .headroom_db
         .unwrap_or(config.headroom_db);
+    let headroom_db = match selected_dsd_modulator {
+        DsdModulator::Standard => -4.0,
+        DsdModulator::EcBeam2 => -2.0,
+        _ => configured_headroom_db,
+    };
     let exclusive = zone_playback_settings.exclusive.unwrap_or(config.exclusive);
     let output_transport = signal.output_transport.as_name().to_string();
     let output_notice_id = signal.output_notice_id;

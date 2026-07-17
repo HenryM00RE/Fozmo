@@ -12,9 +12,9 @@ Underneath, the EQ is a cascade of trapezoidal-integrated state-variable filters
 
 ## Upsampling
 
-I am currently developing and testing the upsampling path on an Apple M4 Mac mini. The heavier options may not run as well on other hardware, especially at the higher DSD rates, so you will need to see what your own machine can handle. For example, combinations such as 7th Order Search at DSD256 may be too intensive for an M3 Pro to run in real time.
+I am currently developing and testing the upsampling path on an Apple M4 Mac mini. The heavier options may not run as well on other hardware, so you will need to see what your own machine can handle.
 
-This processing mainly depends on single-core speed rather than the total number of CPU cores. Because of that, an M4 Mac mini may outperform M3 Pro or M3 Max configurations in this particular workload even though those chips have more cores. **7th Order Search is only supported on Apple M-series chips** because I have optimized its main processing path specifically for those chips.
+This processing mainly depends on single-core speed rather than the total number of CPU cores. Because of that, an M4 Mac mini may outperform M3 Pro or M3 Max configurations in this particular workload even though those chips have more cores.
 
 Fozmo can upsample to higher-rate PCM or convert the signal to 1-bit DSD. Upsampling does not add back information that was not in the source. The selected filter removes the images created while raising the sample rate, and for DSD the modulator then turns that filtered PCM into the final 1-bit stream.
 
@@ -38,16 +38,14 @@ The tap count is for the first and main reconstruction stage. In my testing I di
 
 ### DSD modulators
 
-The four selectable modulators use seventh-order cascaded-resonator-feedback delta-sigma loops. The main difference is how they choose the next 1-bit output.
+The two selectable modulators use seventh-order cascaded-resonator-feedback delta-sigma loops. The main difference is how they choose the next 1-bit output.
 
 | Modulator | Architecture | Tuned headroom |
 | --- | --- | ---: |
 | 7th Order | Makes each decision directly from the current loop output. This is the simplest and lightest option. | −4 dB |
-| 7th Order EC | Adds a short error-compensated lookahead to the same seventh-order loop. It checks possible decisions against the predicted future state before choosing the next bit. | −4 dB |
-| 7th Order Search | Uses a delayed-commitment M-algorithm search. It keeps the best four paths over an eight-sample window and commits decisions as it moves forward. | −2 dB |
-| 7th Order Beam | Uses the production EcBeam2 fixed M4/N8 beam with a raw quantizer-error path objective. It supports DSD64 and DSD128. | −2 dB |
+| 7th Order Search | Uses the production fixed M4/N8 beam search with a raw quantizer-error path objective. It supports DSD64 and DSD128. | −2 dB |
 
-The headroom here is important. I tuned 7th Order and 7th Order EC at **−4 dB**, while 7th Order Search and 7th Order Beam use **−2 dB**. 7th Order Beam fixes that headroom and its DSD ISI compensation at zero. It is available only with Min Phase, Split Phase, and Smooth Phase at DSD64 or DSD128. The EQ page has its own separate headroom control, which works well for EQ boosts.
+The headroom here is important. I tuned 7th Order at **−4 dB**, while 7th Order Search uses **−2 dB**. 7th Order Search fixes that headroom and its DSD ISI compensation at zero. It is available only with Min Phase, Split Phase, and Smooth Phase at DSD64 or DSD128. The EQ page has its own separate headroom control, which works well for EQ boosts.
 
 ### What I am currently using
 
@@ -56,7 +54,7 @@ My current setup is:
 ```text
 Output:     DSD128
 Filter:     Smooth Phase
-Modulator:  7th Order Beam
+Modulator:  7th Order Search
 Headroom:   -2 dB
 ```
 
@@ -64,27 +62,7 @@ This is the combination I am using at the moment. Give the other filters and mod
 
 ## Performance
 
-I ran the end-to-end renderer benchmark on an Apple M4 Mac mini using a release build with `-C target-cpu=native`. Each row renders 8,192 frames of stereo 44.1 kHz audio, or about 185.8 ms, through Smooth Phase. The times below are the average of five runs after two warm-up passes.
-
-### DSD128
-
-| Modulator | Average render time | One-core real-time load | Real-time margin | Resets / clamps |
-| --- | ---: | ---: | ---: | ---: |
-| 7th Order | 38.7 ms | 20.8% | 4.81× | 0 / 0 |
-| 7th Order EC | 63.8 ms | 34.3% | 2.91× | 0 / 0 |
-| 7th Order Search | 94.2 ms | 50.7% | 1.97× | 0 / 0 |
-
-### DSD256
-
-| Modulator | Average render time | One-core real-time load | Real-time margin | Resets / clamps |
-| --- | ---: | ---: | ---: | ---: |
-| 7th Order | 67.4 ms | 36.3% | 2.75× | 0 / 0 |
-| 7th Order EC | 115.9 ms | 62.4% | 1.60× | 0 / 0 |
-| 7th Order Search | 177.7 ms | 95.7% | 1.05× | 0 / 0 |
-
-DSD256 with 7th Order Search is very close to the real-time limit on the M4 Mac mini. Its 1.05× margin does not leave much room for background load or changes in the source material.
-
-These numbers are only showing performance on my test machine, not audio quality. The load can move around depending on the song and its source sample rate, along with the processor, background load, DSD rate, and filter. If you want to use one of the heavier combinations, it is worth running the benchmark on the machine that will actually be playing the music:
+Performance depends on the song and its source sample rate, along with the processor, background load, DSD rate, filter, and modulator. If you want to measure a combination, run the benchmarks on the machine that will actually be playing the music:
 
 ```sh
 RUSTFLAGS="-C target-cpu=native" cargo run --release --bin dsd_renderer_bench

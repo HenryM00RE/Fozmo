@@ -74,28 +74,28 @@ describe('DSP output support', () => {
 });
 
 describe('DSD modulator choices', () => {
-  it('exposes Standard, EC, Search, and Beam while retaining saved-value compatibility', () => {
+  it('exposes 7th Order and 7th Order Search while normalizing retired values', () => {
     expect(dsdModulatorOptions).toEqual([
       ['Standard', '7th Order'],
-      ['EcDepth2', '7th Order EC'],
-      ['EcBeam', '7th Order Search'],
-      ['EcBeam2', '7th Order Beam']
+      ['EcBeam2', '7th Order Search']
     ]);
-    expect(visibleDsdModulator('EcBeam')).toBe('EcBeam');
-    expect(visibleDsdModulator('7th Order Search')).toBe('EcBeam');
-    expect(visibleDsdModulator('7th Order ECB')).toBe('EcBeam');
+    expect(visibleDsdModulator('Standard')).toBe('Standard');
+    expect(visibleDsdModulator('EcBeam')).toBe('Standard');
+    expect(visibleDsdModulator('7th Order ECB')).toBe('Standard');
+    expect(visibleDsdModulator('EcDepth2')).toBe('Standard');
+    expect(visibleDsdModulator('EC depth 4')).toBe('Standard');
     expect(visibleDsdModulator('EcBeam2')).toBe('EcBeam2');
+    expect(visibleDsdModulator('7th Order Search')).toBe('EcBeam2');
     expect(visibleDsdModulator('7th Order Beam')).toBe('EcBeam2');
     expect(visibleDsdModulator('7th Order ECB2')).toBe('EcBeam2');
     expect(visibleDsdModulator('7th Order ECB2 (Experimental)')).toBe('EcBeam2');
-    expect(visibleDsdModulator('EC depth 4')).toBe('EcDepth2');
-    expect(headroomAfterDsdModulatorChange(-4, 'EcBeam')).toBe(-2);
+    expect(headroomAfterDsdModulatorChange(-2, 'Standard')).toBe(-4);
     expect(headroomAfterDsdModulatorChange(-4, 'EcBeam2')).toBe(-2);
-    expect(headroomAfterDsdModulatorChange(-6, 'EcDepth2')).toBe(-6);
+    expect(headroomAfterDsdModulatorChange(-6, 'Standard')).toBe(-4);
     expect(headroomLockedForDsdModulator('EcBeam2')).toBe(true);
-    expect(headroomLockedForDsdModulator('EcBeam')).toBe(false);
+    expect(headroomLockedForDsdModulator('Standard')).toBe(true);
     expect(isiPenaltyAfterDsdModulatorChange(0.01, 'EcBeam2')).toBe(0);
-    expect(isiPenaltyAfterDsdModulatorChange(0.01, 'EcBeam')).toBe(0.01);
+    expect(isiPenaltyAfterDsdModulatorChange(0.01, 'Standard')).toBe(0.01);
   });
 
   it('makes ECB2 selectable only for qualified DSD64/128 rates and filters', () => {

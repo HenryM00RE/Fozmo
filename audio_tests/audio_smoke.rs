@@ -56,7 +56,7 @@ fn ecbeam2_renders_every_supported_filter_and_rate() {
 }
 
 #[test]
-fn stale_persisted_modulator_aliases_normalize_to_ec2() {
+fn stale_persisted_modulator_aliases_normalize_to_standard() {
     for name in [
         "EcDepth1",
         "ec-1",
@@ -69,7 +69,7 @@ fn stale_persisted_modulator_aliases_normalize_to_ec2() {
         "EcDepth4Adaptive",
         "ec-4a",
     ] {
-        assert_eq!(DsdModulator::from_name(name), Some(DsdModulator::EcDepth2));
+        assert_eq!(DsdModulator::from_name(name), Some(DsdModulator::Standard));
     }
 }
 

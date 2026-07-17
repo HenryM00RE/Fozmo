@@ -250,9 +250,9 @@ impl EcFutureScorer {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DsdModulator {
+    #[default]
     Standard,
     EcDepth1,
-    #[default]
     EcDepth2,
     EcBeam,
     EcBeam2,
@@ -280,10 +280,8 @@ impl DsdModulator {
     pub fn from_id(id: u32) -> Self {
         match id {
             0 => Self::Standard,
-            1 => Self::EcDepth2,
-            2 => Self::EcBeam,
-            // Non-current persisted modulator IDs normalize to the production EC mode.
-            3..=6 => Self::EcDepth2,
+            // Retired public modulator IDs normalize to the selectable baseline.
+            1..=6 => Self::Standard,
             7 => Self::EcBeam2,
             _ => Self::default(),
         }
@@ -306,23 +304,37 @@ impl DsdModulator {
     pub fn from_name(name: &str) -> Option<Self> {
         match name.trim().to_ascii_lowercase().as_str() {
             "standard" => Some(Self::Standard),
-            "ecdepth1" | "ec depth 1" | "ec_depth_1" | "ec-1" | "ec1" => Some(Self::EcDepth2),
-            "ecdepth2" | "ec depth 2" | "ec_depth_2" | "ec-2" | "ec2" => Some(Self::EcDepth2),
+            "ecdepth1" | "ec depth 1" | "ec_depth_1" | "ec-1" | "ec1" => Some(Self::Standard),
+            "ecdepth2" | "ec depth 2" | "ec_depth_2" | "ec-2" | "ec2" => Some(Self::Standard),
             "ecbeam" | "ec beam" | "ec_beam" | "ec-beam" | "ecb" | "7th order ecb" => {
-                Some(Self::EcBeam)
+                Some(Self::Standard)
             }
-            "ecbeam2" | "ec beam 2" | "ec_beam_2" | "ec-beam-2" | "ecb2" | "7th order beam"
-            | "7th order ecb2" => Some(Self::EcBeam2),
-            "ecdepth3" | "ec depth 3" | "ec_depth_3" | "ec-3" | "ec3" => Some(Self::EcDepth2),
-            "ecdepth4" | "ec depth 4" | "ec_depth_4" | "ec-4" | "ec4" => Some(Self::EcDepth2),
-            "ecdepth8" | "ec depth 8" | "ec_depth_8" | "ec-8" | "ec8" => Some(Self::EcDepth2),
+            "ecbeam2"
+            | "ec beam 2"
+            | "ec_beam_2"
+            | "ec-beam-2"
+            | "ecb2"
+            | "7th order beam"
+            | "7th order ecb2"
+            | "7th order ecb2 (experimental)"
+            | "7th order search" => Some(Self::EcBeam2),
+            "ecdepth3" | "ec depth 3" | "ec_depth_3" | "ec-3" | "ec3" => Some(Self::Standard),
+            "ecdepth4" | "ec depth 4" | "ec_depth_4" | "ec-4" | "ec4" => Some(Self::Standard),
+            "ecdepth8" | "ec depth 8" | "ec_depth_8" | "ec-8" | "ec8" => Some(Self::Standard),
             "ecdepth4adaptive"
             | "ec depth 4 adaptive"
             | "ec_depth_4_adaptive"
             | "ec-4a"
-            | "ec4a" => Some(Self::EcDepth2),
+            | "ec4a" => Some(Self::Standard),
             _ => None,
         }
+    }
+
+    pub fn is_legacy_ecbeam_name(name: &str) -> bool {
+        matches!(
+            name.trim().to_ascii_lowercase().as_str(),
+            "ecbeam" | "ec beam" | "ec_beam" | "ec-beam" | "ecb" | "7th order ecb"
+        )
     }
 
     pub fn mode(self) -> ModulatorMode {

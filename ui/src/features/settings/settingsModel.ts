@@ -129,9 +129,7 @@ export const filterOptions = [
 
 export const dsdModulatorOptions = [
   ['Standard', '7th Order'],
-  ['EcDepth2', '7th Order EC'],
-  ['EcBeam', '7th Order Search'],
-  ['EcBeam2', '7th Order Beam']
+  ['EcBeam2', '7th Order Search']
 ] as const;
 
 export const legacyFilterIds = [
@@ -162,23 +160,26 @@ const knownDsdModulatorIds = new Set<string>(dsdModulatorOptions.map(([value]) =
 const defaultHeadroomDb = -4;
 
 export function visibleDsdModulator(name: unknown) {
-  const key = stringValue(name, 'EcDepth2');
+  const key = stringValue(name, 'Standard');
   if (knownDsdModulatorIds.has(key)) return key;
-  if (key === 'EC depth 2') return 'EcDepth2';
-  if (/^(EC ?Beam ?2|ECB2|7th Order Beam|7th Order ECB2(?: \(Experimental\))?)$/i.test(key))
+  if (
+    /^(EC ?Beam ?2|ECB2|7th Order Search|7th Order Beam|7th Order ECB2(?: \(Experimental\))?)$/i.test(
+      key
+    )
+  )
     return 'EcBeam2';
-  if (/^(EC ?Beam|ECB|7th Order ECB|7th Order Search)$/i.test(key)) return 'EcBeam';
-  // Collapse stale persisted EC aliases without exposing them as selectable modes.
-  if (/^EcDepth/i.test(key) || /^EC depth/i.test(key)) return 'EcDepth2';
-  return 'EcDepth2';
+  // Collapse retired EC and EcBeam values to the selectable baseline.
+  return 'Standard';
 }
 
 export function headroomAfterDsdModulatorChange(currentHeadroomDb: number, modulator: string) {
-  return modulator === 'EcBeam' || modulator === 'EcBeam2' ? -2 : currentHeadroomDb;
+  if (modulator === 'Standard') return -4;
+  if (modulator === 'EcBeam2') return -2;
+  return currentHeadroomDb;
 }
 
 export function headroomLockedForDsdModulator(modulator: string) {
-  return modulator === 'EcBeam2';
+  return modulator === 'Standard' || modulator === 'EcBeam2';
 }
 
 export function isiPenaltyAfterDsdModulatorChange(currentIsiPenalty: number, modulator: string) {

@@ -306,20 +306,21 @@ fn bit_power_spectrum(bits: &[u8], n: usize) -> Vec<f64> {
 
 #[test]
 fn dsd_modulator_names_map_to_mode_and_depth() {
+    assert_eq!(DsdModulator::default(), DsdModulator::Standard);
     assert_eq!(
         DsdModulator::from_name("Standard"),
         Some(DsdModulator::Standard)
     );
     assert_eq!(
         DsdModulator::from_name("EC depth 2"),
-        Some(DsdModulator::EcDepth2)
+        Some(DsdModulator::Standard)
     );
     assert_eq!(
         DsdModulator::from_name("7th Order ECB"),
-        Some(DsdModulator::EcBeam)
+        Some(DsdModulator::Standard)
     );
     assert_eq!(DsdModulator::EcBeam.as_id(), 2);
-    assert_eq!(DsdModulator::from_id(2), DsdModulator::EcBeam);
+    assert_eq!(DsdModulator::from_id(2), DsdModulator::Standard);
     assert_eq!(
         DsdModulator::from_name("7th Order ECB2"),
         Some(DsdModulator::EcBeam2)
@@ -328,16 +329,20 @@ fn dsd_modulator_names_map_to_mode_and_depth() {
         DsdModulator::from_name("7th Order Beam"),
         Some(DsdModulator::EcBeam2)
     );
+    assert_eq!(
+        DsdModulator::from_name("7th Order Search"),
+        Some(DsdModulator::EcBeam2)
+    );
     assert_eq!(DsdModulator::EcBeam2.as_name(), "EcBeam2");
     assert_eq!(DsdModulator::EcBeam2.as_id(), 7);
     assert_eq!(DsdModulator::from_id(7), DsdModulator::EcBeam2);
-    for stale_id in 3..=6 {
-        assert_eq!(DsdModulator::from_id(stale_id), DsdModulator::EcDepth2);
+    for stale_id in 1..=6 {
+        assert_eq!(DsdModulator::from_id(stale_id), DsdModulator::Standard);
     }
     for stale_alias in ["EC depth 1", "ec-3", "EcDepth4", "EC depth 8", "ec-4a"] {
         assert_eq!(
             DsdModulator::from_name(stale_alias),
-            Some(DsdModulator::EcDepth2)
+            Some(DsdModulator::Standard)
         );
     }
     assert_eq!(DsdModulator::Standard.mode(), ModulatorMode::Standard);

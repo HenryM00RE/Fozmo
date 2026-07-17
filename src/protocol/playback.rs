@@ -39,7 +39,7 @@ fn default_target_bit_depth() -> u32 {
 }
 
 fn default_dsd_modulator() -> String {
-    "EcDepth2".to_string()
+    "Standard".to_string()
 }
 
 #[cfg(test)]
@@ -60,7 +60,7 @@ mod tests {
 
         assert_eq!(config.output_mode, "Pcm");
         assert_eq!(config.target_bit_depth, 24);
-        assert_eq!(config.dsd_modulator, "EcDepth2");
+        assert_eq!(config.dsd_modulator, "Standard");
         assert_eq!(config.dsp_buffer_ms, 0);
     }
 }
