@@ -325,6 +325,10 @@ fn main() {
             name: "EcBeam2 playback DSD128",
             dsd_rate: DsdRate::Dsd128,
         },
+        EcBeam2BenchCase {
+            name: "EcBeam2 playback DSD256",
+            dsd_rate: DsdRate::Dsd256,
+        },
     ];
     for case in ecbeam2_cases {
         if case_filter

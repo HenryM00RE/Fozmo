@@ -215,12 +215,15 @@ export function ecBeam2SelectableForDsdConfig(
   dsdRulesEnabled: unknown,
   dsdRules: unknown
 ) {
-  if ((outputMode !== 'Dsd64' && outputMode !== 'Dsd128') || !ecBeam2FilterSupported(filterType))
+  if (
+    !['Dsd64', 'Dsd128', 'Dsd256'].includes(stringValue(outputMode)) ||
+    !ecBeam2FilterSupported(filterType)
+  )
     return false;
   if (!boolValue(dsdRulesEnabled, false)) return true;
   return safeArray<JsonRecord>(dsdRules).every(
     (rule) =>
-      ['Dsd64', 'Dsd128'].includes(stringValue(rule.output_mode)) &&
+      ['Dsd64', 'Dsd128', 'Dsd256'].includes(stringValue(rule.output_mode)) &&
       ecBeam2FilterSupported(stringValue(rule.filter_type))
   );
 }

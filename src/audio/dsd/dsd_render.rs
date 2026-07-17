@@ -50,7 +50,7 @@ const DEFAULT_EC_BEAM_DC_BIAS_CORNER_HZ: f64 = 20.0;
 /// [`DsdExperimentTweaks::with_production_policy_defaults`]. Measurement tools
 /// record this separately from their own schema so policy-only changes cannot
 /// masquerade as an equivalent renderer configuration.
-pub const DSD_PRODUCTION_POLICY_VERSION: &str = "dsd-production-policy-v3";
+pub const DSD_PRODUCTION_POLICY_VERSION: &str = "dsd-production-policy-v4";
 pub const DSD64_EC_BEAM_A1_DEFAULT_EXPECTED_GAIN_DB: f64 = -14.8;
 pub const DSD64_EC_BEAM_A1_DEFAULT_INPUT_GAIN_DB: f64 = -2.0;
 pub const DSD64_ECBEAM2_REQUIRED_HEADROOM_DB: f64 = -2.0;
@@ -192,14 +192,17 @@ struct EcBeam2ProductionPolicy {
 fn ecbeam2_production_policy(dsd_rate: DsdRate) -> Option<EcBeam2ProductionPolicy> {
     let coefficients = match dsd_rate {
         DsdRate::Dsd64 => NamedModulatorCoeffs {
-            coeffs: &crate::audio::dsd::dsd_coeffs::CRFB_OSR64_OBG164,
-            name: "CRFB_OSR64_OBG164",
+            coeffs: crate::audio::dsd::delta_sigma::ecbeam2_dsd64_production_coefficients(),
+            name: "ECBEAM2_OSR64_OBG164_INPUT468_V1",
         },
         DsdRate::Dsd128 => NamedModulatorCoeffs {
             coeffs: crate::audio::dsd::delta_sigma::ecbeam2_dsd128_production_coefficients(),
             name: "ECBEAM2_OSR128_OBG164_INPUT468_V1",
         },
-        DsdRate::Dsd256 => return None,
+        DsdRate::Dsd256 => NamedModulatorCoeffs {
+            coeffs: crate::audio::dsd::delta_sigma::ecbeam2_dsd256_production_coefficients(),
+            name: "ECBEAM2_OSR256_OBG164_INPUT468_V1",
+        },
     };
     Some(EcBeam2ProductionPolicy {
         config: ecbeam2_production_config(),
@@ -758,7 +761,7 @@ fn select_modulator_coeffs(
         }
         return ecbeam2_production_policy(dsd_rate)
             .map(|policy| policy.coefficients)
-            .ok_or("EcBeam2 supports DSD64 and DSD128 only");
+            .ok_or("EcBeam2 has no production policy for the selected DSD rate");
     }
     Ok(
         production_ec_coeffs_for(filter_type, dsd_rate, dsd_modulator, experiment_tweaks)
@@ -1616,9 +1619,6 @@ impl DsdRenderer {
         experiment_tweaks: DsdExperimentTweaks,
     ) -> Result<Self, &'static str> {
         if dsd_modulator == DsdModulator::EcBeam2 {
-            if dsd_rate == DsdRate::Dsd256 {
-                return Err("EcBeam2 supports DSD64 and DSD128 only");
-            }
             if !ecbeam2_filter_supported(filter_type) {
                 return Err("7th Order Search supports only the four selectable 128k filters");
             }
@@ -3152,8 +3152,9 @@ mod tests {
             DsdExperimentTweaks::default(),
         )
         .expect("default EcBeam2 table");
-        assert_eq!(ecbeam2_default.name, "CRFB_OSR64_OBG164");
+        assert_eq!(ecbeam2_default.name, "ECBEAM2_OSR64_OBG164_INPUT468_V1");
         assert_eq!(ecbeam2_default.coeffs.obg, 1.64);
+        assert_eq!(ecbeam2_default.coeffs.input_peak, 0.467_858_988_519_470_7);
 
         let ecbeam2_dsd128_config = ecbeam2_production_config();
         let ecbeam2_dsd128 = select_modulator_coeffs(
@@ -4329,10 +4330,14 @@ mod tests {
             },
         )
         .expect("DSD64 EcBeam2 renderer must select its internal rate policy");
-        assert_eq!(dsd64.coefficient_table_name(), "CRFB_OSR64_OBG164");
+        assert_eq!(
+            dsd64.coefficient_table_name(),
+            "ECBEAM2_OSR64_OBG164_INPUT468_V1"
+        );
         assert_eq!(dsd64.coefficient_osr(), 64);
+        assert_eq!(dsd64.modulator_input_peak(), 0.467_858_988_519_470_7);
 
-        let error = DsdRenderer::new_with_dsd_modulator_and_experiment_tweaks(
+        let dsd256 = DsdRenderer::new_with_dsd_modulator_and_experiment_tweaks(
             FilterType::Minimum16k,
             44_100,
             DsdRate::Dsd256,
@@ -4343,8 +4348,14 @@ mod tests {
                 ..DsdExperimentTweaks::default()
             },
         )
-        .err();
-        assert_eq!(error, Some("EcBeam2 supports DSD64 and DSD128 only"));
+        .expect("DSD256 EcBeam2 renderer must select its OSR256/OBG1.64 policy");
+        assert_eq!(
+            dsd256.coefficient_table_name(),
+            "ECBEAM2_OSR256_OBG164_INPUT468_V1"
+        );
+        assert_eq!(dsd256.coefficient_osr(), 256);
+        assert_eq!(dsd256.coefficient_obg(), 1.64);
+        assert_eq!(dsd256.modulator_input_peak(), 0.467_858_988_519_470_7);
 
         let error = DsdRenderer::new_with_dsd_modulator(
             FilterType::SincExtreme32k,

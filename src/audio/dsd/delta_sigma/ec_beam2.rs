@@ -2,14 +2,15 @@
 use super::beam_error_profile::selected_pair_byte_indices;
 use super::beam_error_profile::{
     BeamErrorProfile, DSD64_44K_FAMILY_WIRE_RATE, DSD64_48K_FAMILY_WIRE_RATE,
-    DSD128_44K_FAMILY_WIRE_RATE, DSD128_48K_FAMILY_WIRE_RATE, MAX_BEAM_ERROR_PROFILE_STATES,
-    StreamingQuantile, profiles_for_wire_rate,
+    DSD128_44K_FAMILY_WIRE_RATE, DSD128_48K_FAMILY_WIRE_RATE, DSD256_44K_FAMILY_WIRE_RATE,
+    DSD256_48K_FAMILY_WIRE_RATE, MAX_BEAM_ERROR_PROFILE_STATES, StreamingQuantile,
+    profiles_for_wire_rate,
 };
 use super::coeff_math::{denormalized_feedback8, mul8};
 use super::modulator::{CrfbModulator, ModulatorMode};
 use super::stability::{StateStability, stabilize_state};
 use crate::audio::dsd::dsd_coeffs::{
-    CRFB_OSR64_OBG164, CRFB_OSR64_OBG165, CRFB_OSR128_OBG164, ModulatorCoeffs,
+    CRFB_OSR64_OBG164, CRFB_OSR64_OBG165, CRFB_OSR128_OBG164, CRFB_OSR256_OBG164, ModulatorCoeffs,
 };
 use serde::Serialize;
 
@@ -107,21 +108,43 @@ const fn with_input_peak_and_state_limit_scale(
     coefficients
 }
 
-// Production loudness plant. Its CRFB realization and OBG1.64 NTF are
+// Production loudness plants. Their CRFB realizations and OBG1.64 NTFs are
 // unchanged; only the admitted input calibration and proportional hard-state
-// envelope are raised to the clean matched-stress ceiling. This is exactly
-// 2 dB below the original EcBeam DSD128 calibration.
-const ECBEAM2_OSR128_OBG164_INPUT468: f64 = 0.467_858_988_519_470_7;
+// envelopes are equalized to the clean DSD128 matched-stress ceiling. This is
+// exactly 2 dB below the original EcBeam DSD128 calibration.
+const ECBEAM2_OBG164_PRODUCTION_INPUT468: f64 = 0.467_858_988_519_470_7;
+const ECBEAM2_OSR64_OBG164_INPUT468_SCALE: f64 =
+    ECBEAM2_OBG164_PRODUCTION_INPUT468 / CRFB_OSR64_OBG164.input_peak;
+static ECBEAM2_OSR64_OBG164_INPUT468_V1: ModulatorCoeffs = with_input_peak_and_state_limit_scale(
+    CRFB_OSR64_OBG164,
+    ECBEAM2_OBG164_PRODUCTION_INPUT468,
+    ECBEAM2_OSR64_OBG164_INPUT468_SCALE,
+);
 const ECBEAM2_OSR128_OBG164_INPUT468_SCALE: f64 =
-    ECBEAM2_OSR128_OBG164_INPUT468 / CRFB_OSR128_OBG164.input_peak;
+    ECBEAM2_OBG164_PRODUCTION_INPUT468 / CRFB_OSR128_OBG164.input_peak;
 static ECBEAM2_OSR128_OBG164_INPUT468_V1: ModulatorCoeffs = with_input_peak_and_state_limit_scale(
     CRFB_OSR128_OBG164,
-    ECBEAM2_OSR128_OBG164_INPUT468,
+    ECBEAM2_OBG164_PRODUCTION_INPUT468,
     ECBEAM2_OSR128_OBG164_INPUT468_SCALE,
 );
+const ECBEAM2_OSR256_OBG164_INPUT468_SCALE: f64 =
+    ECBEAM2_OBG164_PRODUCTION_INPUT468 / CRFB_OSR256_OBG164.input_peak;
+static ECBEAM2_OSR256_OBG164_INPUT468_V1: ModulatorCoeffs = with_input_peak_and_state_limit_scale(
+    CRFB_OSR256_OBG164,
+    ECBEAM2_OBG164_PRODUCTION_INPUT468,
+    ECBEAM2_OSR256_OBG164_INPUT468_SCALE,
+);
+
+pub(crate) fn ecbeam2_dsd64_production_coefficients() -> &'static ModulatorCoeffs {
+    &ECBEAM2_OSR64_OBG164_INPUT468_V1
+}
 
 pub(crate) fn ecbeam2_dsd128_production_coefficients() -> &'static ModulatorCoeffs {
     &ECBEAM2_OSR128_OBG164_INPUT468_V1
+}
+
+pub(crate) fn ecbeam2_dsd256_production_coefficients() -> &'static ModulatorCoeffs {
+    &ECBEAM2_OSR256_OBG164_INPUT468_V1
 }
 
 /// Internal identity for the production coefficient tables plus the legacy
@@ -130,7 +153,9 @@ pub(crate) fn ecbeam2_dsd128_production_coefficients() -> &'static ModulatorCoef
 pub(crate) enum EcBeam2PlantId {
     #[default]
     Obg164V1,
+    Obg164Osr64Input468V1,
     Obg164Osr128Input468V1,
+    Obg164Osr256Input468V1,
     Obg165V1,
 }
 
@@ -138,7 +163,9 @@ impl EcBeam2PlantId {
     pub(crate) fn coefficients(self) -> &'static ModulatorCoeffs {
         match self {
             Self::Obg164V1 => &CRFB_OSR64_OBG164,
+            Self::Obg164Osr64Input468V1 => &ECBEAM2_OSR64_OBG164_INPUT468_V1,
             Self::Obg164Osr128Input468V1 => &ECBEAM2_OSR128_OBG164_INPUT468_V1,
+            Self::Obg164Osr256Input468V1 => &ECBEAM2_OSR256_OBG164_INPUT468_V1,
             Self::Obg165V1 => &CRFB_OSR64_OBG165,
         }
     }
@@ -148,9 +175,15 @@ impl EcBeam2PlantId {
     }
 
     fn for_coefficients(coefficients: &ModulatorCoeffs) -> Option<Self> {
-        [Self::Obg164V1, Self::Obg164Osr128Input468V1, Self::Obg165V1]
-            .into_iter()
-            .find(|plant| plant.coefficients_match(coefficients))
+        [
+            Self::Obg164V1,
+            Self::Obg164Osr64Input468V1,
+            Self::Obg164Osr128Input468V1,
+            Self::Obg164Osr256Input468V1,
+            Self::Obg165V1,
+        ]
+        .into_iter()
+        .find(|plant| plant.coefficients_match(coefficients))
     }
 }
 
@@ -359,7 +392,7 @@ impl EcBeam2ExperimentConfig {
     }
 }
 
-/// Fixed production M4/N8 objective shared by DSD64 and DSD128.
+/// Fixed production M4/N8 objective shared by DSD64, DSD128, and DSD256.
 pub(crate) fn ecbeam2_production_config() -> EcBeam2ExperimentConfig {
     EcBeam2ExperimentConfig {
         run_mode: EcBeam2RunMode::Active,
@@ -987,12 +1020,15 @@ impl EcBeam2BenchmarkModulator {
     fn coefficients(wire_rate: u32) -> Result<&'static ModulatorCoeffs, &'static str> {
         match wire_rate {
             DSD64_44K_FAMILY_WIRE_RATE | DSD64_48K_FAMILY_WIRE_RATE => {
-                Ok(EcBeam2PlantId::Obg164V1.coefficients())
+                Ok(ecbeam2_dsd64_production_coefficients())
             }
             DSD128_44K_FAMILY_WIRE_RATE | DSD128_48K_FAMILY_WIRE_RATE => {
                 Ok(ecbeam2_dsd128_production_coefficients())
             }
-            _ => Err("EcBeam2 benchmark supports only DSD64 and DSD128 wire rates"),
+            DSD256_44K_FAMILY_WIRE_RATE | DSD256_48K_FAMILY_WIRE_RATE => {
+                Ok(ecbeam2_dsd256_production_coefficients())
+            }
+            _ => Err("EcBeam2 benchmark supports only DSD64, DSD128, and DSD256 wire rates"),
         }
     }
 
@@ -1079,7 +1115,9 @@ impl EcBeam2Modulator {
             && matches!(
                 self.plant,
                 EcBeam2PlantId::Obg164V1
+                    | EcBeam2PlantId::Obg164Osr64Input468V1
                     | EcBeam2PlantId::Obg164Osr128Input468V1
+                    | EcBeam2PlantId::Obg164Osr256Input468V1
                     | EcBeam2PlantId::Obg165V1
             )
             && self.config.state_terminal_weight == 0.0
@@ -1451,13 +1489,22 @@ impl EcBeam2Modulator {
         }
         let plant = EcBeam2PlantId::for_coefficients(coeffs)
             .ok_or("EcBeam2 requires a registered production or legacy-oracle coefficient table")?;
+        let expected_osr = match wire_rate {
+            DSD64_44K_FAMILY_WIRE_RATE | DSD64_48K_FAMILY_WIRE_RATE => 64,
+            DSD128_44K_FAMILY_WIRE_RATE | DSD128_48K_FAMILY_WIRE_RATE => 128,
+            DSD256_44K_FAMILY_WIRE_RATE | DSD256_48K_FAMILY_WIRE_RATE => 256,
+            _ => 0,
+        };
+        if coeffs.osr != expected_osr {
+            return Err("EcBeam2 coefficient OSR does not match the selected wire rate");
+        }
         // Keep profile selection exhaustive even while there is only one
         // profile. A future profile variant must not compile while silently
         // continuing to use the original reconstruction/ultrasonic pair.
         let profiles = match config.profile {
-            EcBeam2ProfileId::Harness24To32V1 => profiles_for_wire_rate(wire_rate).map_err(|_| {
-                "EcBeam2 supports only 2.8224/3.072 MHz DSD64 and 5.6448/6.144 MHz DSD128 wire rates"
-            })?,
+            EcBeam2ProfileId::Harness24To32V1 => profiles_for_wire_rate(wire_rate).map_err(
+                |_| "EcBeam2 supports only DSD64, DSD128, and DSD256 44.1/48 kHz-family wire rates",
+            )?,
         };
         let objective_scales = EcBeam2ObjectiveScales::RAW;
         let mut core = CrfbModulator::new_with_mode(coeffs, seed, ModulatorMode::Ec)?;
@@ -3781,7 +3828,7 @@ mod tests {
     fn ecbeam2_both_sign_certificate_implies_exact_candidate_feasibility() {
         let modulator = EcBeam2Modulator::new_with_diagnostics(
             ecbeam2_dsd128_production_coefficients(),
-            0xCE47_1F1C_A7E,
+            0x0CE4_71F1_CA7E,
             DSD128_44K_FAMILY_WIRE_RATE,
             EcBeam2ExperimentConfig::default(),
             false,
@@ -3818,7 +3865,7 @@ mod tests {
     fn ecbeam2_selected_profile_transition_is_bit_exact_and_reports_finiteness() {
         let modulator = EcBeam2Modulator::new_with_diagnostics(
             ecbeam2_dsd128_production_coefficients(),
-            0xF1A1_7E,
+            0x00F1_A17E,
             DSD128_44K_FAMILY_WIRE_RATE,
             EcBeam2ExperimentConfig::default(),
             false,
@@ -3875,10 +3922,10 @@ mod tests {
             while emitted < bits.len() {
                 let v = if bits[emitted] == 1 { 1.0 } else { -1.0 };
                 expected_state = profile.next_state(&expected_state, v - input[emitted]);
-                for stage in 0..MAX_BEAM_ERROR_PROFILE_STATES {
+                for (stage, expected) in expected_state.iter().enumerate() {
                     assert_eq!(
                         modulator.committed_reconstruction_state[stage].to_bits(),
-                        expected_state[stage].to_bits(),
+                        expected.to_bits(),
                         "emitted sample {emitted}, stage {stage}"
                     );
                 }
@@ -3929,7 +3976,9 @@ mod tests {
 
         for (coefficients, wire_rate) in [
             (&CRFB_OSR64_OBG164, 2_822_400),
+            (&ECBEAM2_OSR64_OBG164_INPUT468_V1, 2_822_400),
             (&ECBEAM2_OSR128_OBG164_INPUT468_V1, 5_644_800),
+            (&ECBEAM2_OSR256_OBG164_INPUT468_V1, 11_289_600),
             (&CRFB_OSR64_OBG165, 2_822_400),
         ] {
             assert!(
@@ -3954,7 +4003,36 @@ mod tests {
         assert_eq!(coefficients.d1, CRFB_OSR128_OBG164.d1);
         assert_eq!(coefficients.obg, 1.64);
         assert_eq!(coefficients.osr, 128);
-        assert_eq!(coefficients.input_peak, ECBEAM2_OSR128_OBG164_INPUT468);
+        assert_eq!(coefficients.input_peak, ECBEAM2_OBG164_PRODUCTION_INPUT468);
+    }
+
+    #[test]
+    fn ecbeam2_dsd64_and_dsd256_production_coefficients_preserve_ntf_and_scale_limits() {
+        let dsd64 = ecbeam2_dsd64_production_coefficients();
+        assert_eq!(dsd64.a, CRFB_OSR64_OBG164.a);
+        assert_eq!(dsd64.b, CRFB_OSR64_OBG164.b);
+        assert_eq!(dsd64.c, CRFB_OSR64_OBG164.c);
+        assert_eq!(dsd64.obg, 1.64);
+        assert_eq!(dsd64.osr, 64);
+        assert_eq!(dsd64.input_peak, ECBEAM2_OBG164_PRODUCTION_INPUT468);
+        for (scaled, generated) in dsd64.state_limit.iter().zip(CRFB_OSR64_OBG164.state_limit) {
+            assert_eq!(*scaled, generated * ECBEAM2_OSR64_OBG164_INPUT468_SCALE);
+        }
+
+        let coefficients = ecbeam2_dsd256_production_coefficients();
+        assert_eq!(coefficients.a, CRFB_OSR256_OBG164.a);
+        assert_eq!(coefficients.b, CRFB_OSR256_OBG164.b);
+        assert_eq!(coefficients.c, CRFB_OSR256_OBG164.c);
+        assert_eq!(coefficients.input_peak, ECBEAM2_OBG164_PRODUCTION_INPUT468);
+        for (scaled, generated) in coefficients
+            .state_limit
+            .iter()
+            .zip(CRFB_OSR256_OBG164.state_limit)
+        {
+            assert_eq!(*scaled, generated * ECBEAM2_OSR256_OBG164_INPUT468_SCALE);
+        }
+        assert_eq!(coefficients.obg, 1.64);
+        assert_eq!(coefficients.osr, 256);
     }
 
     #[test]
