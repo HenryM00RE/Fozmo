@@ -329,6 +329,9 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@c0e9df88980754dd93e5833b8dcb1b304c1fe173 # 1.96.0
 
+      - name: Install media test dependencies
+        run: brew install ffmpeg
+
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
@@ -407,7 +410,11 @@ jobs:
 
       - name: Install Linux audio development libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
+        run: sudo apt-get update && sudo apt-get install --yes ffmpeg libasound2-dev
+
+      - name: Install macOS media test dependencies
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
