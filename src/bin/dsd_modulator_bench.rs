@@ -2,7 +2,8 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use fozmo::audio::dsd::delta_sigma::{
-    CrfbModulator, DsdModulator, Ec2LongFilterPolicy, Ec2PolicyWeights, dc_bias_decay_for_corner_hz,
+    CrfbModulator, DsdModulator, Ec2LongFilterPolicy, Ec2PolicyWeights, EcBeam2BenchmarkModulator,
+    dc_bias_decay_for_corner_hz,
 };
 use fozmo::audio::dsd::dsd_coeffs::{
     CRFB_OSR64_OBG165, CRFB_OSR128_OBG165, CRFB_OSR256_OBG165, ModulatorCoeffs,
@@ -34,6 +35,11 @@ struct BenchResult {
     checksum: u64,
     state_clamps: u64,
     stability_resets: u64,
+}
+
+struct EcBeam2BenchCase {
+    name: &'static str,
+    dsd_rate: DsdRate,
 }
 
 fn main() {
@@ -308,6 +314,80 @@ fn main() {
             result.state_clamps,
             result.stability_resets
         );
+    }
+
+    let ecbeam2_cases = [
+        EcBeam2BenchCase {
+            name: "EcBeam2 playback DSD64",
+            dsd_rate: DsdRate::Dsd64,
+        },
+        EcBeam2BenchCase {
+            name: "EcBeam2 playback DSD128",
+            dsd_rate: DsdRate::Dsd128,
+        },
+    ];
+    for case in ecbeam2_cases {
+        if case_filter
+            .as_ref()
+            .is_some_and(|filter| !case.name.contains(filter))
+        {
+            continue;
+        }
+        let wire_rate = case.dsd_rate.wire_rate_44k_family();
+        let input_peak = EcBeam2BenchmarkModulator::input_peak(wire_rate)
+            .expect("qualified EcBeam2 playback wire rate");
+        let input = make_input(wire_rate as usize, input_peak);
+        for pass in 0..WARMUP_PASSES {
+            black_box(run_ecbeam2_case(&case, &input, 0xC0DE + pass as u64));
+        }
+
+        let mut best: Option<BenchResult> = None;
+        for pass in 0..MEASURED_PASSES {
+            let result = run_ecbeam2_case(&case, &input, 0xBEEF + pass as u64);
+            if best
+                .as_ref()
+                .is_none_or(|best_result| result.elapsed < best_result.elapsed)
+            {
+                best = Some(result);
+            }
+        }
+
+        let result = best.expect("measured passes should produce a result");
+        let ns_per_sample = result.elapsed.as_nanos() as f64 / result.samples as f64;
+        let core_percent = result.elapsed.as_secs_f64() / AUDIO_SECONDS * 100.0;
+        println!(
+            "{:<18} {:>12} {:>14.2} {:>11.2}% {:>11.2}% {:>11} {:>8} {:>8}",
+            case.name,
+            result.samples,
+            ns_per_sample,
+            core_percent,
+            core_percent * 2.0,
+            result.checksum,
+            result.state_clamps,
+            result.stability_resets
+        );
+    }
+}
+
+fn run_ecbeam2_case(case: &EcBeam2BenchCase, input: &[f64], seed: u64) -> BenchResult {
+    let mut modulator =
+        EcBeam2BenchmarkModulator::new_playback(seed, case.dsd_rate.wire_rate_44k_family())
+            .expect("qualified EcBeam2 playback configuration");
+    let mut bits = Vec::with_capacity(input.len());
+    let start = Instant::now();
+    modulator.process_into_bits(input, &mut bits);
+    modulator.flush_into_bits(&mut bits);
+    let elapsed = start.elapsed();
+    let checksum = bits.iter().step_by(251).fold(0u64, |acc, bit| {
+        acc.wrapping_mul(3).wrapping_add(*bit as u64)
+    });
+    black_box(&bits);
+    BenchResult {
+        elapsed,
+        samples: input.len(),
+        checksum,
+        state_clamps: modulator.state_clamps(),
+        stability_resets: modulator.stability_resets(),
     }
 }
 

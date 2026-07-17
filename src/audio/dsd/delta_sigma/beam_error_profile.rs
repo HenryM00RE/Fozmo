@@ -349,8 +349,9 @@ impl BeamErrorProfile {
         parent_indices: [usize; 4],
         errors: [f64; 4],
         next: &mut [[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
-    ) {
+    ) -> [bool; 4] {
         use core::arch::aarch64::*;
+        let mut finite = [true; 4];
         // SAFETY: NEON is baseline on AArch64. Parent indices originate from
         // the fixed M4 selector and every destination store is two lanes wide.
         unsafe {
@@ -370,9 +371,13 @@ impl BeamErrorProfile {
                     }
                     let value = vfmaq_n_f64(dot, error, self.b[row]);
                     vst1q_f64(next[row].as_mut_ptr().add(offset), value);
+                    let row_finite = vcleq_f64(vabsq_f64(value), vdupq_n_f64(f64::MAX));
+                    finite[offset] &= vgetq_lane_u64::<0>(row_finite) != 0;
+                    finite[offset + 1] &= vgetq_lane_u64::<1>(row_finite) != 0;
                 }
             }
         }
+        finite
     }
 
     /// Advance one profile by pairing independent output rows in NEON lanes.
