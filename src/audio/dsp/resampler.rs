@@ -28,6 +28,14 @@ const MINIMUM_COMPACT_BRANCH_TAPS: usize = 131_071;
 const MINIMUM_COMPACT_IMPULSE_SAMPLES: usize = 262_141;
 const MINIMUM_COMPACT_FFT_MULTIPLIER: usize = 8;
 const MINIMUM_COMPACT_CLEANUP_BETA: f64 = 20.47325;
+const MINIMUM_COMPACT_PRODUCTION_STOP_GAIN: f64 = 6.309_573_444_801_93e-8; // -144.0 dB
+const MINIMUM_COMPACT_TAIL_FADE_FRACTION: f64 = 512.0 / MINIMUM_COMPACT_IMPULSE_SAMPLES as f64;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MinimumCompactTransition {
+    Planck,
+    Smootherstep7,
+}
 
 #[derive(Clone, Copy)]
 struct MinimumCompactTrebleTaper {
@@ -44,15 +52,17 @@ struct MinimumCompactParams {
     nyquist_gain: f64,
     tail_fade_samples: usize,
     treble_taper: Option<MinimumCompactTrebleTaper>,
+    transition: MinimumCompactTransition,
 }
 
-const MINIMUM_COMPACT_ORIGINAL_PARAMS: MinimumCompactParams = MinimumCompactParams {
+const MINIMUM_COMPACT_PRODUCTION_PARAMS: MinimumCompactParams = MinimumCompactParams {
     pass_edge_2x: 20_200.0 / 88_200.0,
     stop_edge_2x: 22_050.0 / 88_200.0,
-    stop_gain: 3.162_277_660_168_379e-8,
-    nyquist_gain: 1.0e-15,
+    stop_gain: MINIMUM_COMPACT_PRODUCTION_STOP_GAIN,
+    nyquist_gain: MINIMUM_COMPACT_PRODUCTION_STOP_GAIN,
     tail_fade_samples: 512,
     treble_taper: None,
+    transition: MinimumCompactTransition::Smootherstep7,
 };
 
 const MINIMUM_COMPACT_BALANCED_PARAMS: MinimumCompactParams = MinimumCompactParams {
@@ -62,6 +72,7 @@ const MINIMUM_COMPACT_BALANCED_PARAMS: MinimumCompactParams = MinimumCompactPara
     nyquist_gain: 1.0e-15,
     tail_fade_samples: 512,
     treble_taper: None,
+    transition: MinimumCompactTransition::Planck,
 };
 
 const SMOOTH_PHASE_PARAMS: MinimumCompactParams = MinimumCompactParams {
@@ -75,6 +86,7 @@ const SMOOTH_PHASE_PARAMS: MinimumCompactParams = MinimumCompactParams {
         end_2x: 18_500.0 / 88_200.0,
         attenuation_db: 0.55,
     }),
+    transition: MinimumCompactTransition::Planck,
 };
 
 /// Split-phase blend split points, as fractions of the 2x prototype rate
@@ -370,7 +382,7 @@ impl FilterType {
             | FilterType::MinimumPhase128kV3
             | FilterType::MinimumPhase128kV4 => MINIMUM16K_PRODUCTION_CUTOFF,
             FilterType::MinimumPhaseCompact128k | FilterType::SmoothPhase128k => {
-                MINIMUM_COMPACT_ORIGINAL_PARAMS.stop_edge_2x * 2.0
+                MINIMUM_COMPACT_PRODUCTION_PARAMS.stop_edge_2x * 2.0
             }
             FilterType::MinimumPhaseCompact128kV2 => MINIMUM16K_PRODUCTION_CUTOFF,
             FilterType::Split128k => env_f64("FOZMO_SPLIT128K_CUTOFF")
@@ -2315,23 +2327,30 @@ fn build_decimation_coefficients(spec: &StageSpec) -> (Vec<f64>, usize) {
             ..
         } => {
             let half_width = taps_total / 2;
-            let proto = build_full_rate_2x_prototype(half_width, *beta, *cutoff);
             let impulse = match phase_mode {
-                PhaseMode::Linear => proto,
-                PhaseMode::Minimum => minimum_phase_impulse(&proto),
-                PhaseMode::MinimumPhase128k(_) => {
-                    minimum_phase_impulse_with_params(&proto, minimum128k_phase_params())
-                }
                 PhaseMode::MinimumPhaseCompact128k(profile) => {
                     minimum_phase_compact_impulse(*profile)
                 }
-                PhaseMode::SplitPhase128k => {
-                    split_phase_impulse_with_params(&proto, split128k_phase_params())
+                _ => {
+                    let proto = build_full_rate_2x_prototype(half_width, *beta, *cutoff);
+                    match phase_mode {
+                        PhaseMode::Linear => proto,
+                        PhaseMode::Minimum => minimum_phase_impulse(&proto),
+                        PhaseMode::MinimumPhase128k(_) => {
+                            minimum_phase_impulse_with_params(&proto, minimum128k_phase_params())
+                        }
+                        PhaseMode::MinimumPhaseCompact128k(_) => unreachable!(),
+                        PhaseMode::SplitPhase128k => {
+                            split_phase_impulse_with_params(&proto, split128k_phase_params())
+                        }
+                        PhaseMode::IntegratedPhase128k(profile) => {
+                            integrated_phase_impulse_with_params(
+                                &proto,
+                                integrated128k_phase_params(*profile),
+                            )
+                        }
+                    }
                 }
-                PhaseMode::IntegratedPhase128k(profile) => integrated_phase_impulse_with_params(
-                    &proto,
-                    integrated128k_phase_params(*profile),
-                ),
             };
             let origin = dominant_impulse_index(&impulse);
             (impulse, origin)
@@ -2439,6 +2458,13 @@ impl PolyphaseResampler {
         phase_count: usize,
     ) -> usize {
         let base = Self::base_half_width(filter_type);
+        let base = if phase_count <= MAX_PHASE_AWARE_RATIONAL_PHASE_DEN
+            && matches!(filter_type, FilterType::MinimumPhaseCompact128k)
+        {
+            base.saturating_mul(2)
+        } else {
+            base
+        };
         if target_rate == 0 || target_rate >= source_rate {
             return base;
         }
@@ -2624,6 +2650,8 @@ impl RationalPolyphaseResampler {
             self.half_width,
             self.phase_den,
             cutoff,
+            self.source_rate,
+            self.target_rate,
         );
     }
 
@@ -3374,6 +3402,20 @@ fn planck_step(x: f64) -> f64 {
     }
 }
 
+fn smootherstep7(x: f64) -> f64 {
+    let t = x.clamp(0.0, 1.0);
+    let t2 = t * t;
+    let t4 = t2 * t2;
+    t4 * (35.0 + t * (-84.0 + t * (70.0 - 20.0 * t)))
+}
+
+fn compact_transition_step(x: f64, transition: MinimumCompactTransition) -> f64 {
+    match transition {
+        MinimumCompactTransition::Planck => planck_step(x),
+        MinimumCompactTransition::Smootherstep7 => smootherstep7(x),
+    }
+}
+
 fn db_to_gain(db: f64) -> f64 {
     10.0f64.powf(db / 20.0)
 }
@@ -3399,22 +3441,35 @@ fn compact_minimum_magnitude(frequency: f64, params: MinimumCompactParams) -> f6
     }
     if frequency < params.stop_edge_2x {
         let x = (frequency - params.pass_edge_2x) / (params.stop_edge_2x - params.pass_edge_2x);
-        return params.stop_gain + (pass_edge_gain - params.stop_gain) * (1.0 - planck_step(x));
+        let blend = compact_transition_step(x, params.transition);
+        return params.stop_gain + (pass_edge_gain - params.stop_gain) * (1.0 - blend);
+    }
+    if params.stop_gain == params.nyquist_gain {
+        return params.stop_gain;
     }
     let y = (frequency - params.stop_edge_2x) / (0.5 - params.stop_edge_2x);
     let blend = planck_step(y);
     ((1.0 - blend) * params.stop_gain.ln() + blend * params.nyquist_gain.ln()).exp()
 }
 
+fn minimum_compact_params(profile: MinimumCompactProfile) -> MinimumCompactParams {
+    match profile {
+        MinimumCompactProfile::Original => MINIMUM_COMPACT_PRODUCTION_PARAMS,
+        MinimumCompactProfile::Balanced => MINIMUM_COMPACT_BALANCED_PARAMS,
+        MinimumCompactProfile::Smooth => SMOOTH_PHASE_PARAMS,
+    }
+}
+
 fn minimum_phase_compact_impulse(profile: MinimumCompactProfile) -> Vec<f64> {
-    static ORIGINAL: OnceLock<Vec<f64>> = OnceLock::new();
+    static PRODUCTION: OnceLock<Vec<f64>> = OnceLock::new();
     static BALANCED: OnceLock<Vec<f64>> = OnceLock::new();
     static SMOOTH: OnceLock<Vec<f64>> = OnceLock::new();
-    let (cache, params) = match profile {
-        MinimumCompactProfile::Original => (&ORIGINAL, MINIMUM_COMPACT_ORIGINAL_PARAMS),
-        MinimumCompactProfile::Balanced => (&BALANCED, MINIMUM_COMPACT_BALANCED_PARAMS),
-        MinimumCompactProfile::Smooth => (&SMOOTH, SMOOTH_PHASE_PARAMS),
+    let cache = match profile {
+        MinimumCompactProfile::Original => &PRODUCTION,
+        MinimumCompactProfile::Balanced => &BALANCED,
+        MinimumCompactProfile::Smooth => &SMOOTH,
     };
+    let params = minimum_compact_params(profile);
     cache
         .get_or_init(|| {
             let fft_len = 524_288 * MINIMUM_COMPACT_FFT_MULTIPLIER;
@@ -3511,13 +3566,21 @@ fn build_exact_polyphase_coefficient_table_for_filter(
     half_width: usize,
     phase_den: usize,
     cutoff: f64,
+    source_rate: u32,
+    target_rate: u32,
 ) -> Vec<f64> {
     let beta = filter_type.beta();
     let phase_mode = phase_mode_for_filter(filter_type);
     if filter_type.requires_phase_aware_kernel() && phase_den <= MAX_PHASE_AWARE_RATIONAL_PHASE_DEN
     {
         build_phase_aware_exact_polyphase_coefficient_table(
-            half_width, phase_den, beta, cutoff, phase_mode,
+            half_width,
+            phase_den,
+            beta,
+            cutoff,
+            phase_mode,
+            source_rate,
+            target_rate,
         )
     } else {
         build_exact_polyphase_coefficient_table(half_width, phase_den, beta, cutoff)
@@ -3530,7 +3593,20 @@ fn build_phase_aware_exact_polyphase_coefficient_table(
     beta: f64,
     cutoff: f64,
     phase_mode: PhaseMode,
+    source_rate: u32,
+    target_rate: u32,
 ) -> Vec<f64> {
+    if let PhaseMode::MinimumPhaseCompact128k(profile) = phase_mode {
+        let impulse = minimum_phase_compact_rational_impulse(
+            profile,
+            half_width,
+            phase_den,
+            source_rate,
+            target_rate,
+        );
+        return deinterleave_rational_impulse_into_rows(&impulse, half_width, phase_den);
+    }
+
     let prototype = build_full_rate_rational_prototype(half_width, phase_den, beta, cutoff);
     let split_scale = 2.0 / phase_den as f64;
     let impulse = match phase_mode {
@@ -3539,12 +3615,7 @@ fn build_phase_aware_exact_polyphase_coefficient_table(
         PhaseMode::MinimumPhase128k(_) => {
             minimum_phase_impulse_with_params(&prototype, minimum128k_phase_params())
         }
-        // Exact rational bridges have a phase grid other than the Compact
-        // prototype's fixed 2x grid. Retain a pure minimum-phase kernel there;
-        // the direct Planck target is used by the intended integer cascades.
-        PhaseMode::MinimumPhaseCompact128k(_) => {
-            minimum_phase_impulse_with_params(&prototype, minimum128k_phase_params())
-        }
+        PhaseMode::MinimumPhaseCompact128k(_) => unreachable!(),
         PhaseMode::SplitPhase128k => {
             let mut params = split128k_phase_params();
             params.split_f_lo *= split_scale;
@@ -3561,6 +3632,54 @@ fn build_phase_aware_exact_polyphase_coefficient_table(
     };
 
     deinterleave_rational_impulse_into_rows(&impulse, half_width, phase_den)
+}
+
+fn minimum_phase_compact_rational_impulse(
+    profile: MinimumCompactProfile,
+    half_width: usize,
+    phase_den: usize,
+    source_rate: u32,
+    target_rate: u32,
+) -> Vec<f64> {
+    let mut params = minimum_compact_params(profile);
+    // Each fine-grid polyphase component has approximately 1/phase_den of
+    // the prototype's DC gain and is normalized back to unity after
+    // deinterleaving. Compensate a flat nonzero stop floor for that gain so
+    // the completed rational rows retain the profile's requested rejection.
+    if params.stop_gain == params.nyquist_gain {
+        params.stop_gain /= phase_den as f64;
+        params.nyquist_gain /= phase_den as f64;
+    }
+    let num_taps = 2 * half_width + 1;
+    let output_len = num_taps
+        .checked_mul(phase_den)
+        .expect("compact rational impulse length overflow");
+    let padded_len = output_len
+        .checked_mul(MINIMUM_COMPACT_FFT_MULTIPLIER)
+        .expect("compact rational FFT length overflow");
+    let fft_len = padded_len.next_power_of_two().max(8);
+    let anti_alias_scale = if target_rate < source_rate {
+        target_rate as f64 / source_rate as f64
+    } else {
+        1.0
+    };
+    let magnitude = (0..=fft_len / 2)
+        .map(|bin| {
+            let fine_frequency = bin as f64 / fft_len as f64;
+            let compact_frequency = fine_frequency * phase_den as f64 / (2.0 * anti_alias_scale);
+            compact_minimum_magnitude(compact_frequency, params)
+        })
+        .collect::<Vec<_>>();
+    let max_tail_fade = output_len / 4;
+    let scaled_tail_fade =
+        ((output_len as f64) * MINIMUM_COMPACT_TAIL_FADE_FRACTION).round() as usize;
+    let tail_fade_samples = if max_tail_fade >= 8 {
+        scaled_tail_fade.clamp(8, max_tail_fade)
+    } else {
+        max_tail_fade
+    };
+
+    minimum_phase_from_magnitude(&magnitude, fft_len, output_len, tail_fade_samples)
 }
 
 fn build_full_rate_rational_prototype(

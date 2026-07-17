@@ -156,6 +156,66 @@ fn minimum_phase_128k_profiles_share_fixed_cleanup_beta() {
 }
 
 #[test]
+fn smootherstep7_is_bounded_monotonic_and_has_exact_endpoints() {
+    assert_eq!(smootherstep7(-1.0), 0.0);
+    assert_eq!(smootherstep7(0.0), 0.0);
+    assert_eq!(smootherstep7(1.0), 1.0);
+    assert_eq!(smootherstep7(2.0), 1.0);
+
+    let mut previous = 0.0;
+    for index in 0..=10_000 {
+        let value = smootherstep7(index as f64 / 10_000.0);
+        assert!((0.0..=1.0).contains(&value));
+        assert!(value >= previous, "smootherstep7 reversed at {index}");
+        previous = value;
+    }
+}
+
+#[test]
+fn plan_d_direct_magnitude_matches_the_production_specification() {
+    let params = minimum_compact_params(MinimumCompactProfile::Original);
+    assert_eq!(params.transition, MinimumCompactTransition::Smootherstep7);
+    assert!(params.treble_taper.is_none());
+    assert_eq!(params.stop_gain, MINIMUM_COMPACT_PRODUCTION_STOP_GAIN);
+    assert_eq!(params.nyquist_gain, MINIMUM_COMPACT_PRODUCTION_STOP_GAIN);
+    assert!((20.0 * params.stop_gain.log10() + 144.0).abs() <= 1e-12);
+
+    for hz in [0.0, 14_500.0, 18_500.0, 20_000.0, 20_200.0] {
+        assert_eq!(compact_minimum_magnitude(hz / 88_200.0, params), 1.0);
+    }
+    for normalized_frequency in [params.stop_edge_2x, 0.3, 0.4, 0.5, 0.75, 1.0] {
+        assert_eq!(
+            compact_minimum_magnitude(normalized_frequency, params),
+            MINIMUM_COMPACT_PRODUCTION_STOP_GAIN
+        );
+    }
+
+    let mut previous = 1.0;
+    for index in 0..=10_000 {
+        let frequency = params.pass_edge_2x
+            + (params.stop_edge_2x - params.pass_edge_2x) * index as f64 / 10_000.0;
+        let gain = compact_minimum_magnitude(frequency, params);
+        assert!(gain <= previous, "Plan D transition reversed at {index}");
+        assert!((params.stop_gain..=1.0).contains(&gain));
+        previous = gain;
+    }
+}
+
+#[test]
+fn smooth_phase_direct_target_retains_its_planck_taper() {
+    let params = minimum_compact_params(MinimumCompactProfile::Smooth);
+    assert_eq!(params.transition, MinimumCompactTransition::Planck);
+    for (hz, expected_db) in [(14_500.0, 0.0), (16_500.0, -0.275), (18_500.0, -0.55)] {
+        let gain = compact_minimum_magnitude(hz / 88_200.0, params);
+        let actual_db = 20.0 * gain.log10();
+        assert!(
+            (actual_db - expected_db).abs() <= 1e-12,
+            "Smooth Phase direct gain at {hz} Hz was {actual_db} dB"
+        );
+    }
+}
+
+#[test]
 fn minimum_phase_compact_meets_response_and_time_concentration_gates() {
     let impulse = minimum_phase_compact_impulse(MinimumCompactProfile::Original);
     assert_eq!(impulse.len(), MINIMUM_COMPACT_IMPULSE_SAMPLES);
@@ -167,6 +227,7 @@ fn minimum_phase_compact_meets_response_and_time_concentration_gates() {
     let passband_span = passband.iter().copied().fold(f64::NEG_INFINITY, f64::max)
         - passband.iter().copied().fold(f64::INFINITY, f64::min);
     let gain_20k = coefficient_magnitude_db(&impulse, 20_000.0 / 88_200.0);
+    let gain_20_2k = coefficient_magnitude_db(&impulse, 20_200.0 / 88_200.0);
     let gain_20_6215k = coefficient_magnitude_db(&impulse, 20_621.5 / 88_200.0);
     let gain_21k = coefficient_magnitude_db(&impulse, 21_000.0 / 88_200.0);
     let gain_22_05k = coefficient_magnitude_db(&impulse, 22_050.0 / 88_200.0);
@@ -175,6 +236,7 @@ fn minimum_phase_compact_meets_response_and_time_concentration_gates() {
         "passband span was {passband_span} dB"
     );
     assert!(gain_20k >= -0.01, "20 kHz gain was {gain_20k} dB");
+    assert!(gain_20_2k >= -0.005, "20.2 kHz gain was {gain_20_2k} dB");
     assert!(
         (-0.7..=-0.2).contains(&gain_20_6215k),
         "20.6215 kHz gain was {gain_20_6215k} dB"
@@ -183,7 +245,7 @@ fn minimum_phase_compact_meets_response_and_time_concentration_gates() {
         (-5.0..=-3.0).contains(&gain_21k),
         "21 kHz gain was {gain_21k} dB"
     );
-    assert!(gain_22_05k <= -145.0, "22.05 kHz gain was {gain_22_05k} dB");
+    assert!(gain_22_05k <= -140.0, "22.05 kHz gain was {gain_22_05k} dB");
 
     let total_energy = impulse.iter().map(|x| x * x).sum::<f64>();
     let energy_time_ms = |fraction: f64| {
@@ -208,7 +270,11 @@ fn minimum_phase_compact_meets_response_and_time_concentration_gates() {
 
     let even_sum = impulse.iter().step_by(2).sum::<f64>();
     let odd_sum = impulse.iter().skip(1).step_by(2).sum::<f64>();
-    assert!((even_sum - odd_sum).abs() <= 1e-12);
+    let nyquist_gain = (even_sum - odd_sum).abs();
+    assert!(
+        (nyquist_gain - MINIMUM_COMPACT_PRODUCTION_STOP_GAIN).abs() <= 1e-9,
+        "reconstructed Nyquist gain was {nyquist_gain}"
+    );
 
     // Reconstruct the coefficients exactly as the streaming 2x stage sees
     // them after reversal, branch padding, and independent normalization.
@@ -232,49 +298,88 @@ fn minimum_phase_compact_meets_response_and_time_concentration_gates() {
     let streaming_22_05k = coefficient_magnitude_db(&streaming_impulse, 22_050.0 / 88_200.0);
     assert!((-0.7..=-0.2).contains(&streaming_20_6215k));
     assert!((-5.0..=-3.0).contains(&streaming_21k));
-    assert!(streaming_22_05k <= -145.0);
+    assert!(streaming_22_05k <= -140.0);
 }
 
 #[test]
-fn minimum_phase_compact_balanced_softens_transients_without_voicing_the_passband() {
-    let original = minimum_phase_compact_impulse(MinimumCompactProfile::Original);
+fn plan_d_exact_rational_impulse_and_rows_preserve_the_specification() {
+    for (source_rate, target_rate, phase_den, pass_edge_hz, stop_edge_hz) in [
+        (44_100, 48_000, 160, 20_200.0, 22_050.0),
+        (48_000, 44_100, 147, 20_200.0, 22_050.0),
+    ] {
+        let half_width = PolyphaseResampler::fractional_half_width(
+            FilterType::MinimumPhaseCompact128k,
+            source_rate,
+            target_rate,
+            phase_den,
+        );
+        let impulse = minimum_phase_compact_rational_impulse(
+            MinimumCompactProfile::Original,
+            half_width,
+            phase_den,
+            source_rate,
+            target_rate,
+        );
+        let num_taps = 2 * half_width + 1;
+        assert_eq!(impulse.len(), num_taps * phase_den);
+        assert!(impulse.iter().all(|sample| sample.is_finite()));
+        assert!((impulse.iter().sum::<f64>() - 1.0).abs() <= 1e-10);
+
+        let fine_rate = source_rate as f64 * phase_den as f64;
+        let pass_db = coefficient_magnitude_db(&impulse, pass_edge_hz / fine_rate);
+        let stop_db = coefficient_magnitude_db(&impulse, stop_edge_hz / fine_rate);
+        assert!(
+            pass_db >= -0.005,
+            "{source_rate}->{target_rate} pass edge was {pass_db} dB"
+        );
+        assert!(
+            stop_db <= -137.0,
+            "{source_rate}->{target_rate} stop edge was {stop_db} dB"
+        );
+
+        let table = deinterleave_rational_impulse_into_rows(&impulse, half_width, phase_den);
+        assert_eq!(table.len(), num_taps * phase_den);
+        assert!(table.iter().all(|coefficient| coefficient.is_finite()));
+        for phase in 0..phase_den {
+            let row = &table[phase * num_taps..(phase + 1) * num_taps];
+            assert!((row.iter().sum::<f64>() - 1.0).abs() <= 1e-12);
+            let row_pass_db = coefficient_magnitude_db(row, pass_edge_hz / source_rate as f64);
+            assert!(
+                row_pass_db >= -0.01,
+                "{source_rate}->{target_rate} phase {phase} pass edge was {row_pass_db} dB"
+            );
+            for stopband_step in 0..=16 {
+                let stopband_hz = stop_edge_hz
+                    + (source_rate as f64 * 0.5 - stop_edge_hz) * stopband_step as f64 / 16.0;
+                let row_stop_db = coefficient_magnitude_db(row, stopband_hz / source_rate as f64);
+                assert!(
+                    row_stop_db <= -137.0,
+                    "{source_rate}->{target_rate} phase {phase} at {stopband_hz} Hz was {row_stop_db} dB"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn minimum_phase_compact_balanced_legacy_profile_remains_stable() {
     let balanced = minimum_phase_compact_impulse(MinimumCompactProfile::Balanced);
     assert_eq!(balanced.len(), MINIMUM_COMPACT_IMPULSE_SAMPLES);
     assert!(balanced.iter().all(|sample| sample.is_finite()));
     assert!((balanced.iter().sum::<f64>() - 1.0).abs() < 1e-10);
 
-    for hz in [
-        20.0, 1_000.0, 5_000.0, 10_000.0, 15_000.0, 18_000.0, 20_000.0, 20_621.5, 21_000.0,
-    ] {
-        let original_db = coefficient_magnitude_db(&original, hz / 88_200.0);
-        let balanced_db = coefficient_magnitude_db(&balanced, hz / 88_200.0);
-        assert!(
-            (balanced_db - original_db).abs() <= 0.001,
-            "{hz} Hz changed by {} dB",
-            balanced_db - original_db
-        );
-    }
-
     let stop_db = coefficient_magnitude_db(&balanced, 22_050.0 / 88_200.0);
     assert!(stop_db <= -150.0, "Balanced stop gain was {stop_db} dB");
-    let original_dominant = dominant_amplitude(&original);
     let balanced_dominant = dominant_amplitude(&balanced);
-    let original_overshoot = step_overshoot(&original);
     let balanced_overshoot = step_overshoot(&balanced);
     assert!(balanced_dominant <= 0.300);
     assert!(balanced_overshoot <= 0.228);
-    assert!(balanced_dominant < original_dominant);
-    assert!(balanced_overshoot < original_overshoot);
     assert!(impulse_energy_time_ms(&balanced, 0.999) <= 2.0);
     assert!(impulse_energy_time_ms(&balanced, 0.9999) <= 2.5);
     assert!(tail_energy_db_after_ms(&balanced, 5.0) <= -68.0);
     let even_sum = balanced.iter().step_by(2).sum::<f64>();
     let odd_sum = balanced.iter().skip(1).step_by(2).sum::<f64>();
     assert!((even_sum - odd_sum).abs() <= 1e-12);
-
-    println!(
-        "Compact Original: dominant={original_dominant:.6} overshoot={original_overshoot:.6}; Balanced: dominant={balanced_dominant:.6} overshoot={balanced_overshoot:.6} stop={stop_db:.2} dB"
-    );
 }
 
 #[test]
@@ -1233,6 +1338,7 @@ fn standard_cross_family_ratios_use_exact_rational_path() {
     let cases = [
         (44_100, 48_000, 147, 160),
         (48_000, 44_100, 160, 147),
+        (88_200, 96_000, 147, 160),
         (96_000, 88_200, 160, 147),
         (192_000, 176_400, 160, 147),
         (96_000, 44_100, 320, 147),
@@ -1255,6 +1361,36 @@ fn standard_cross_family_ratios_use_exact_rational_path() {
             (ratio_num as u32, ratio_den as u32)
         );
     }
+}
+
+#[test]
+fn plan_d_exact_rational_runtime_is_preserved_finite_and_drains_to_nominal_length() {
+    let source_rate = 88_200;
+    let target_rate = 96_000;
+    let (left, right) = make_signal(4_096);
+    let mut resampler = SincResampler::new(
+        FilterType::MinimumPhaseCompact128k,
+        source_rate,
+        target_rate,
+    );
+    let info = resampler.runtime_info();
+    assert_eq!(info.path_kind, ResamplerPathKind::ExactRational);
+    assert!(info.phase_profile_preserved);
+    assert!(!info.uses_capped_fallback);
+    assert_eq!((info.ratio_num, info.ratio_den), (147, 160));
+
+    let mut output = Vec::new();
+    for start in (0..left.len()).step_by(257) {
+        let end = (start + 257).min(left.len());
+        resampler.input(&left[start..end], &right[start..end]);
+        resampler.process(&mut output);
+    }
+    resampler.drain_eof(&mut output);
+    assert_eq!(
+        output.len(),
+        nominal_output_samples(left.len(), source_rate, target_rate)
+    );
+    assert!(output.iter().all(|sample| sample.is_finite()));
 }
 
 #[test]

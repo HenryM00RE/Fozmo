@@ -122,6 +122,7 @@ export async function loadSettingsSupportData(): Promise<SettingsSupportData> {
 export const filterOptions = [
   ['LinearPhase128k', 'Linear Phase'],
   ['MinimumPhaseCompact128kV2', 'Minimum Phase'],
+  ['MinimumPhaseCompact128k', 'Minimum Phase B'],
   ['Split128k', 'Split Phase'],
   ['SmoothPhase128k', 'Smooth Phase']
 ] as const;
@@ -148,8 +149,7 @@ const legacyMinimumFilterIds = [
   'MinimumPhase128k',
   'MinimumPhase128kV2',
   'MinimumPhase128kV3',
-  'MinimumPhase128kV4',
-  'MinimumPhaseCompact128k'
+  'MinimumPhase128kV4'
 ] as const;
 
 const visibleFilterIds = new Set<string>(filterOptions.map(([value]) => value));
@@ -203,6 +203,7 @@ export function ecBeam2FilterSupported(filterType: unknown) {
   return (
     filterType === 'Minimum16k' ||
     filterType === 'LinearPhase128k' ||
+    filterType === 'MinimumPhaseCompact128k' ||
     filterType === 'MinimumPhaseCompact128kV2' ||
     filterType === 'Split128k' ||
     filterType === 'SmoothPhase128k'
@@ -667,7 +668,7 @@ export function compactFilterName(name: unknown) {
     MinimumPhase128kV2: 'Minimum Phase 128k 2',
     MinimumPhase128kV3: 'Minimum Phase 128k 3',
     MinimumPhase128kV4: 'Minimum Phase 128k 4',
-    MinimumPhaseCompact128k: 'Minimum Phase Compact',
+    MinimumPhaseCompact128k: 'Minimum Phase B',
     MinimumPhaseCompact128kV2: 'Minimum Phase',
     SmoothPhase128k: 'Smooth Phase',
     Perfect: 'Split Phase',
