@@ -30,6 +30,10 @@ NODE
 }
 
 release_native_rustflags() {
+  if [[ -n "${CI:-}" ]]; then
+    printf "%s" "${RUSTFLAGS:-}"
+    return
+  fi
   if [[ "${RUSTFLAGS:-}" == *"target-cpu="* ]]; then
     printf "%s" "$RUSTFLAGS"
   else
