@@ -143,6 +143,10 @@ pub(crate) fn ecbeam2_dsd128_production_coefficients() -> &'static ModulatorCoef
     &ECBEAM2_OSR128_OBG164_INPUT468_V1
 }
 
+// Future tuning target: higher-OBG OSR256 plants can materially lower in-band
+// noise, but the equal-level OBG1.66 candidate exhibited long-run state drift
+// with the DSD128 objective. Keep the shared OBG1.64 policy until a near-limit
+// safeguard passes the full rated-stress fixture without sacrificing quality.
 pub(crate) fn ecbeam2_dsd256_production_coefficients() -> &'static ModulatorCoeffs {
     &ECBEAM2_OSR256_OBG164_INPUT468_V1
 }

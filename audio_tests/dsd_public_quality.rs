@@ -72,6 +72,10 @@ struct Cli {
     #[arg(long)]
     include_rate_comparison: bool,
 
+    /// Run only DSD256 cells.
+    #[arg(long)]
+    dsd256_only: bool,
+
     /// Return a non-zero status when any structural hard gate fails.
     #[arg(long)]
     check: bool,
@@ -139,6 +143,7 @@ struct BenchReport {
     selected_modulators: Vec<String>,
     selected_filters: Vec<String>,
     include_linear_reference: bool,
+    dsd256_only: bool,
     score_eligible: bool,
     score_policy: ScorePolicy,
     production_path_scores: Vec<ProductionPathScore>,
@@ -510,6 +515,9 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
     if cli.include_rate_comparison {
         append_rate_comparison_diagnostics(&mut matrix, &selected);
     }
+    if cli.dsd256_only {
+        matrix.retain(|cell| cell.dsd_rate == DsdRate::Dsd256);
+    }
     let mut selected_filters = Vec::new();
     for cell in &matrix {
         let filter = cell.filter.as_name().to_string();
@@ -641,6 +649,7 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
             .collect(),
         selected_filters,
         include_linear_reference: cli.include_linear_reference,
+        dsd256_only: cli.dsd256_only,
         score_eligible,
         score_policy: score_policy(),
         production_path_scores,
@@ -2956,6 +2965,7 @@ mod tests {
         assert!(Cli::try_parse_from(["dsd_public_quality", "--filter", "Linear"]).is_err());
         assert!(Cli::try_parse_from(["dsd_public_quality", "--include-linear-reference"]).is_ok());
         assert!(Cli::try_parse_from(["dsd_public_quality", "--include-rate-comparison"]).is_ok());
+        assert!(Cli::try_parse_from(["dsd_public_quality", "--dsd256-only"]).is_ok());
     }
 
     #[test]
