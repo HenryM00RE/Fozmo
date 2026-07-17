@@ -91,7 +91,7 @@ FOZMO_WORKSPACE_DIR="$WORKSPACE_DIR" \
 FOZMO_SCAN_ON_STARTUP=0 \
 FOZMO_DEV_SECRETS_FILE=1 \
 RUSTFLAGS="$RUSTFLAGS_SMOKE" \
-  cargo run --release --features dev-secrets-file -- --lan --port="$APP_PORT" >"$LOG_FILE" 2>&1 &
+  ./target/release/fozmo --lan --port="$APP_PORT" >"$LOG_FILE" 2>&1 &
 SERVER_PID="$!"
 
 echo "==> Waiting for local core on 127.0.0.1:$APP_PORT"
