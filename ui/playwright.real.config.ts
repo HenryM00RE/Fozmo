@@ -20,6 +20,6 @@ export default defineConfig({
     command: 'npm run build && ../tools/run-real-browser-server.sh',
     url: `http://127.0.0.1:${localPort}/healthz`,
     reuseExistingServer: false,
-    timeout: 180_000
+    timeout: 300_000
   }
 });
