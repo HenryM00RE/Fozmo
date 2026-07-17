@@ -262,6 +262,7 @@ pub enum FilterType {
         alias = "Split128k-Tap"
     )]
     Split128k,
+    Split128kV2,
     IntegratedPhase128k,
     IntegratedPhase128kV2,
     IntegratedPhase128kV3,
@@ -286,6 +287,7 @@ impl FilterType {
             FilterType::LinearPhase128k => 33,
             FilterType::Minimum16k => 15,
             FilterType::Split128k => 21,
+            FilterType::Split128kV2 => 34,
             FilterType::IntegratedPhase128k => 22,
             FilterType::IntegratedPhase128kV2 => 23,
             FilterType::IntegratedPhase128kV3 => 24,
@@ -307,6 +309,7 @@ impl FilterType {
             15 => Some(FilterType::Minimum16k),
             0 | 2 | 11 | 16 | 17 | 18 | 19 | 20 => Some(FilterType::Split128k),
             21 => Some(FilterType::Split128k),
+            34 => Some(FilterType::Split128kV2),
             22 => Some(FilterType::IntegratedPhase128k),
             23 => Some(FilterType::IntegratedPhase128kV2),
             24 => Some(FilterType::IntegratedPhase128kV3),
@@ -328,6 +331,7 @@ impl FilterType {
             FilterType::LinearPhase128k => "LinearPhase128k",
             FilterType::Minimum16k => "Minimum16k",
             FilterType::Split128k => "Split128k",
+            FilterType::Split128kV2 => "Split128kV2",
             FilterType::IntegratedPhase128k => "IntegratedPhase128k",
             FilterType::IntegratedPhase128kV2 => "IntegratedPhase128kV2",
             FilterType::IntegratedPhase128kV3 => "IntegratedPhase128kV3",
@@ -348,6 +352,7 @@ impl FilterType {
             "LinearPhase128k" => Some(FilterType::LinearPhase128k),
             "Minimum16k" => Some(FilterType::Minimum16k),
             "Split128k" | "Split128kTap" | "Split128k-Tap" => Some(FilterType::Split128k),
+            "Split128kV2" => Some(FilterType::Split128kV2),
             "IntegratedPhase128k" | "IntegratedPhase" => Some(FilterType::IntegratedPhase128k),
             "IntegratedPhase128kV2" => Some(FilterType::IntegratedPhase128kV2),
             "IntegratedPhase128kV3" => Some(FilterType::IntegratedPhase128kV3),
@@ -385,7 +390,7 @@ impl FilterType {
                 MINIMUM_COMPACT_PRODUCTION_PARAMS.stop_edge_2x * 2.0
             }
             FilterType::MinimumPhaseCompact128kV2 => MINIMUM16K_PRODUCTION_CUTOFF,
-            FilterType::Split128k => env_f64("FOZMO_SPLIT128K_CUTOFF")
+            FilterType::Split128k | FilterType::Split128kV2 => env_f64("FOZMO_SPLIT128K_CUTOFF")
                 .unwrap_or(SPLIT128K_PRODUCTION_CUTOFF)
                 .clamp(0.40, 0.49),
             FilterType::IntegratedPhase128k
@@ -417,7 +422,7 @@ impl FilterType {
                 MINIMUM_COMPACT_CLEANUP_BETA
             }
             FilterType::MinimumPhaseCompact128kV2 => MINIMUM16K_PRODUCTION_BETA,
-            FilterType::Split128k => env_f64("FOZMO_SPLIT128K_BETA")
+            FilterType::Split128k | FilterType::Split128kV2 => env_f64("FOZMO_SPLIT128K_BETA")
                 .unwrap_or(SPLIT128K_PRODUCTION_BETA)
                 .clamp(8.0, 32.0),
             FilterType::IntegratedPhase128k
@@ -459,6 +464,7 @@ impl FilterType {
             Self::LinearPhase128k
                 | Self::Minimum16k
                 | Self::Split128k
+                | Self::Split128kV2
                 | Self::IntegratedPhase128k
                 | Self::IntegratedPhase128kV2
                 | Self::IntegratedPhase128kV3
@@ -481,6 +487,7 @@ impl FilterType {
         matches!(
             self,
             Self::Split128k
+                | Self::Split128kV2
                 | Self::IntegratedPhase128k
                 | Self::IntegratedPhase128kV2
                 | Self::IntegratedPhase128kV3
@@ -563,6 +570,9 @@ pub enum PhaseMode {
     MinimumPhaseCompact128k(MinimumCompactProfile),
     /// 131,073-tap Split128k long split-phase profile.
     SplitPhase128k,
+    /// Split Phase V2: increment-domain C3 phase blend using the exact
+    /// cepstral minimum-phase spectrum.
+    SplitPhase128kV2,
     IntegratedPhase128k(IntegratedPhaseProfile),
 }
 
@@ -625,7 +635,7 @@ impl StageSpec {
                 // the symmetric prototype's center, so it is front-loaded in
                 // the pipeline. Its small residual low-band delay is filter
                 // character, as it is for pure minimum phase.
-                PhaseMode::SplitPhase128k => 0,
+                PhaseMode::SplitPhase128k | PhaseMode::SplitPhase128kV2 => 0,
                 PhaseMode::IntegratedPhase128k(_) => 0,
             },
         };
@@ -1195,7 +1205,7 @@ fn gcd_u32(mut a: u32, mut b: u32) -> u32 {
 
 fn first_stage_spec(family: FilterType) -> StageSpec {
     let taps_total = match family {
-        FilterType::Split128k => 131_073,
+        FilterType::Split128k | FilterType::Split128kV2 => 131_073,
         FilterType::IntegratedPhase128k
         | FilterType::IntegratedPhase128kV2
         | FilterType::IntegratedPhase128kV3
@@ -1215,6 +1225,7 @@ fn first_stage_spec(family: FilterType) -> StageSpec {
         FilterType::LinearPhase128k
         | FilterType::Minimum16k
         | FilterType::Split128k
+        | FilterType::Split128kV2
         | FilterType::IntegratedPhase128k
         | FilterType::IntegratedPhase128kV2
         | FilterType::IntegratedPhase128kV3
@@ -1246,6 +1257,7 @@ fn first_stage_spec(family: FilterType) -> StageSpec {
 fn phase_mode_for_filter(family: FilterType) -> PhaseMode {
     match family {
         FilterType::Split128k => PhaseMode::SplitPhase128k,
+        FilterType::Split128kV2 => PhaseMode::SplitPhase128kV2,
         filter @ (FilterType::IntegratedPhase128k
         | FilterType::IntegratedPhase128kV2
         | FilterType::IntegratedPhase128kV3
@@ -1286,6 +1298,7 @@ fn cleanup_stage_spec(stage_idx: usize, family: FilterType) -> StageSpec {
         FilterType::LinearPhase128k
         | FilterType::Minimum16k
         | FilterType::Split128k
+        | FilterType::Split128kV2
         | FilterType::IntegratedPhase128k
         | FilterType::IntegratedPhase128kV2
         | FilterType::IntegratedPhase128kV3
@@ -2343,6 +2356,9 @@ fn build_decimation_coefficients(spec: &StageSpec) -> (Vec<f64>, usize) {
                         PhaseMode::SplitPhase128k => {
                             split_phase_impulse_with_params(&proto, split128k_phase_params())
                         }
+                        PhaseMode::SplitPhase128kV2 => {
+                            split_phase_v2_impulse_with_params(&proto, split128k_phase_params())
+                        }
                         PhaseMode::IntegratedPhase128k(profile) => {
                             integrated_phase_impulse_with_params(
                                 &proto,
@@ -2437,6 +2453,7 @@ impl PolyphaseResampler {
             | FilterType::LinearPhase128k
             | FilterType::Minimum16k
             | FilterType::Split128k
+            | FilterType::Split128kV2
             | FilterType::IntegratedPhase128k
             | FilterType::IntegratedPhase128kV2
             | FilterType::IntegratedPhase128kV3
@@ -2782,6 +2799,15 @@ fn build_character_polyphase_pair(
             let prepad1 = Some(prepad_for_global_origin(phase1.len(), origin, 1));
             (phase0, phase1, prepad0, prepad1)
         }
+        PhaseMode::SplitPhase128kV2 => {
+            let proto = build_full_rate_2x_prototype(half_width, beta, cutoff);
+            let split = split_phase_v2_impulse_with_params(&proto, split128k_phase_params());
+            let origin = dominant_impulse_index(&split);
+            let (phase0, phase1) = split_full_rate_impulse_into_reversed_branches(&split);
+            let prepad0 = Some(prepad_for_global_origin(phase0.len(), origin, 0));
+            let prepad1 = Some(prepad_for_global_origin(phase1.len(), origin, 1));
+            (phase0, phase1, prepad0, prepad1)
+        }
         PhaseMode::IntegratedPhase128k(profile) => {
             let proto = build_full_rate_2x_prototype(half_width, beta, cutoff);
             let integrated =
@@ -2979,6 +3005,147 @@ fn split_phase_impulse_with_params(linear_phase: &[f64], params: SplitPhaseParam
     let mut split = inverse_real_spectrum(&mut split_spectrum, fft_len, n_lp);
     apply_raised_cosine_tail_fade_with_fraction(&mut split, params.tail_fade_fraction);
     normalize_coefficients(&mut split);
+    split
+}
+
+/// V2 keeps the production split points and low-band minimum-phase floor, but
+/// uses a C3 blend so the phase-increment law and its first three derivatives
+/// settle cleanly at both ends of the transition.
+fn split_phase_v2_blend_weight(freq_norm_2x: f64, params: SplitPhaseParams) -> f64 {
+    if freq_norm_2x <= params.split_f_lo {
+        params.low_blend_floor
+    } else if freq_norm_2x >= params.split_f_hi {
+        1.0
+    } else {
+        let t = (freq_norm_2x.ln() - params.split_f_lo.ln())
+            / (params.split_f_hi.ln() - params.split_f_lo.ln());
+        params.low_blend_floor + (1.0 - params.low_blend_floor) * smootherstep7(t)
+    }
+}
+
+fn split_phase_v2_closure_bump(freq_norm_2x: f64, params: SplitPhaseParams) -> f64 {
+    if freq_norm_2x <= params.split_f_lo || freq_norm_2x >= params.split_f_hi {
+        return 0.0;
+    }
+    let t = (freq_norm_2x.ln() - params.split_f_lo.ln())
+        / (params.split_f_hi.ln() - params.split_f_lo.ln());
+    let one_minus_t = 1.0 - t;
+    t.powi(4) * one_minus_t.powi(4)
+}
+
+/// Preserve V1's low-frequency phase law, blend phase increments only inside
+/// 3–14 kHz, and use a C3 interior bump to close exactly onto minimum phase.
+/// The bump and its first three derivatives are zero at both endpoints, so it
+/// cannot create a new group-delay seam at either split frequency.
+fn split_phase_v2_from_unwrapped_minimum(
+    minimum_phase: &[f64],
+    fft_len: usize,
+    params: SplitPhaseParams,
+) -> Vec<f64> {
+    if minimum_phase.len() < 3 {
+        return minimum_phase.to_vec();
+    }
+
+    let lo_bin =
+        ((params.split_f_lo * fft_len as f64).round() as usize).clamp(1, minimum_phase.len() - 2);
+    let join_bin = ((params.split_f_hi * fft_len as f64 + 0.5).ceil() as usize)
+        .clamp(lo_bin + 1, minimum_phase.len() - 1);
+    let reference_increment = minimum_phase[lo_bin] / lo_bin as f64;
+    if !reference_increment.is_finite() {
+        return minimum_phase.to_vec();
+    }
+
+    let mut target = vec![0.0; minimum_phase.len()];
+    // This is V1's constant-floor absolute-phase law below 3 kHz. At F_LO,
+    // the reference chord meets minimum phase, so the transition begins with
+    // no phase gap.
+    for k in 0..=lo_bin {
+        let reference_phase = reference_increment * k as f64;
+        target[k] = (1.0 - params.low_blend_floor) * reference_phase
+            + params.low_blend_floor * minimum_phase[k];
+    }
+
+    let mut base_increments = Vec::with_capacity(join_bin - lo_bin);
+    let mut closure_shapes = Vec::with_capacity(join_bin - lo_bin);
+    let mut raw_join_phase = target[lo_bin];
+    let mut closure_sum = 0.0;
+    let mut closure_compensation = 0.0;
+    for k in (lo_bin + 1)..=join_bin {
+        let freq_mid = (k as f64 - 0.5) / fft_len as f64;
+        let weight = split_phase_v2_blend_weight(freq_mid, params);
+        let minimum_increment = minimum_phase[k] - minimum_phase[k - 1];
+        let base_increment = (1.0 - weight) * reference_increment + weight * minimum_increment;
+        let closure_shape = split_phase_v2_closure_bump(freq_mid, params);
+        base_increments.push(base_increment);
+        closure_shapes.push(closure_shape);
+        raw_join_phase += base_increment;
+        kahan_add(&mut closure_sum, &mut closure_compensation, closure_shape);
+    }
+
+    let closure_amplitude = if closure_sum > f64::EPSILON {
+        (minimum_phase[join_bin] - raw_join_phase) / closure_sum
+    } else {
+        0.0
+    };
+    for (offset, (&base_increment, &closure_shape)) in base_increments
+        .iter()
+        .zip(closure_shapes.iter())
+        .enumerate()
+    {
+        let k = lo_bin + 1 + offset;
+        target[k] = target[k - 1] + base_increment + closure_amplitude * closure_shape;
+    }
+
+    let join_error_rad = target[join_bin] - minimum_phase[join_bin];
+    debug_assert!(
+        join_error_rad.abs() < 1.0e-8,
+        "Split Phase V2 failed to rejoin minimum phase: {join_error_rad} rad"
+    );
+    target[join_bin..].copy_from_slice(&minimum_phase[join_bin..]);
+    target
+}
+
+/// Split Phase V2 uses the exact complex spectrum produced by the cepstral
+/// exponential. Unlike V1, the minimum-phase reference is never converted to
+/// a finite impulse, faded, truncated, and transformed back before blending.
+fn split_phase_v2_impulse_with_params(linear_phase: &[f64], params: SplitPhaseParams) -> Vec<f64> {
+    let n_lp = linear_phase.len();
+    let fft_len = (n_lp * SPLIT_PHASE_FFT_MULTIPLIER)
+        .next_power_of_two()
+        .max(8);
+    let linear_spectrum = real_spectrum(linear_phase, fft_len);
+    let peak_magnitude = linear_spectrum
+        .iter()
+        .fold(0.0_f64, |peak, bin| peak.max(bin.norm()));
+    let phase_floor = peak_magnitude * MIXED_PHASE_UNWRAP_MAG_FLOOR_REL;
+    let magnitude_floor =
+        (peak_magnitude * MinimumPhaseParams::default().mag_floor_rel).max(f64::MIN_POSITIVE);
+    let cepstral_magnitude = linear_spectrum
+        .iter()
+        .map(|bin| bin.norm().max(magnitude_floor))
+        .collect::<Vec<_>>();
+    let minimum_spectrum = minimum_phase_spectrum_from_magnitude(&cepstral_magnitude, fft_len);
+    let minimum_phase = unwrap_spectrum_phase_with_floor(&minimum_spectrum, phase_floor);
+    let target_phase = split_phase_v2_from_unwrapped_minimum(&minimum_phase, fft_len, params);
+
+    // Keep V1's established global causality shift and tail treatment. They
+    // remain deliberately tunable, but are not retuned as part of V2.
+    let causality_shift = (n_lp / 64) as f64 * params.causality_shift_scale;
+    let mut split_spectrum = linear_spectrum.clone();
+    for (idx, bin) in split_spectrum.iter_mut().enumerate() {
+        let freq = idx as f64 / fft_len as f64;
+        let phase = target_phase[idx] - 2.0 * PI * freq * causality_shift;
+        *bin = Complex64::from_polar(linear_spectrum[idx].norm(), phase);
+    }
+    split_spectrum[0].im = 0.0;
+    if let Some(nyquist) = split_spectrum.last_mut() {
+        nyquist.im = 0.0;
+    }
+
+    let mut split = inverse_real_spectrum(&mut split_spectrum, fft_len, n_lp);
+    apply_raised_cosine_tail_fade_with_fraction(&mut split, params.tail_fade_fraction);
+    normalize_coefficients(&mut split);
+    debug_assert!(split.iter().all(|sample| sample.is_finite()));
     split
 }
 
@@ -3339,16 +3506,36 @@ fn minimum_phase_from_magnitude(
     assert!(output_len <= fft_len);
     let scale = 1.0 / fft_len as f64;
     let mut planner = RealFftPlanner::<f64>::new();
+    let inv = planner.plan_fft_inverse(fft_len);
+    let mut minimum_spectrum = minimum_phase_spectrum_from_magnitude(magnitude, fft_len);
+    let mut min_phase = inv.make_output_vec();
+    inv.process(&mut minimum_spectrum, &mut min_phase)
+        .expect("inverse FFT plan should match the allocated buffers");
+    for x in min_phase.iter_mut() {
+        *x *= scale;
+    }
+
+    min_phase.truncate(output_len);
+    apply_raised_cosine_tail_fade(&mut min_phase, tail_fade_samples);
+    normalize_coefficients(&mut min_phase);
+    min_phase
+}
+
+#[allow(clippy::needless_range_loop)]
+fn minimum_phase_spectrum_from_magnitude(magnitude: &[f64], fft_len: usize) -> Vec<Complex64> {
+    assert_eq!(magnitude.len(), fft_len / 2 + 1);
+    let scale = 1.0 / fft_len as f64;
+    let mut planner = RealFftPlanner::<f64>::new();
     let fwd = planner.plan_fft_forward(fft_len);
     let inv = planner.plan_fft_inverse(fft_len);
-    let mut spectrum = magnitude
+    let mut log_spectrum = magnitude
         .iter()
         .map(|mag| Complex64::new(mag.max(f64::MIN_POSITIVE).ln(), 0.0))
         .collect::<Vec<_>>();
 
     // IFFT to cepstrum (real-valued in time domain).
     let mut cepstrum = inv.make_output_vec();
-    inv.process(&mut spectrum, &mut cepstrum)
+    inv.process(&mut log_spectrum, &mut cepstrum)
         .expect("inverse FFT plan should match the allocated buffers");
     for x in cepstrum.iter_mut() {
         *x *= scale;
@@ -3372,18 +3559,7 @@ fn minimum_phase_from_magnitude(
     for bin in folded_spec.iter_mut() {
         *bin = bin.exp();
     }
-
-    let mut min_phase = inv.make_output_vec();
-    inv.process(&mut folded_spec, &mut min_phase)
-        .expect("inverse FFT plan should match the allocated buffers");
-    for x in min_phase.iter_mut() {
-        *x *= scale;
-    }
-
-    min_phase.truncate(output_len);
-    apply_raised_cosine_tail_fade(&mut min_phase, tail_fade_samples);
-    normalize_coefficients(&mut min_phase);
-    min_phase
+    folded_spec
 }
 
 fn planck_step(x: f64) -> f64 {
@@ -3621,6 +3797,12 @@ fn build_phase_aware_exact_polyphase_coefficient_table(
             params.split_f_lo *= split_scale;
             params.split_f_hi *= split_scale;
             split_phase_impulse_with_params(&prototype, params)
+        }
+        PhaseMode::SplitPhase128kV2 => {
+            let mut params = split128k_phase_params();
+            params.split_f_lo *= split_scale;
+            params.split_f_hi *= split_scale;
+            split_phase_v2_impulse_with_params(&prototype, params)
         }
         PhaseMode::IntegratedPhase128k(profile) => {
             let mut params = integrated128k_phase_params(profile);

@@ -1088,6 +1088,7 @@ fn filter_ids_are_backward_compatible() {
     assert_eq!(FilterType::LinearPhase128k.as_id(), 33);
     assert_eq!(FilterType::Minimum16k.as_id(), 15);
     assert_eq!(FilterType::Split128k.as_id(), 21);
+    assert_eq!(FilterType::Split128kV2.as_id(), 34);
     assert_eq!(FilterType::from_id(0), Some(FilterType::Split128k));
     assert_eq!(FilterType::from_id(2), Some(FilterType::Split128k));
     assert_eq!(FilterType::from_id(11), Some(FilterType::Split128k));
@@ -1110,10 +1111,16 @@ fn filter_ids_are_backward_compatible() {
     assert_eq!(FilterType::from_id(20), Some(FilterType::Split128k));
     assert_eq!(FilterType::from_id(21), Some(FilterType::Split128k));
     assert_eq!(FilterType::from_id(33), Some(FilterType::LinearPhase128k));
+    assert_eq!(FilterType::from_id(34), Some(FilterType::Split128kV2));
     assert_eq!(FilterType::SincExtreme32k.as_name(), "SincExtreme32k");
     assert_eq!(FilterType::LinearPhase128k.as_name(), "LinearPhase128k");
     assert_eq!(FilterType::Minimum16k.as_name(), "Minimum16k");
     assert_eq!(FilterType::Split128k.as_name(), "Split128k");
+    assert_eq!(FilterType::Split128kV2.as_name(), "Split128kV2");
+    assert_eq!(
+        FilterType::from_name("Split128kV2"),
+        Some(FilterType::Split128kV2)
+    );
     assert_eq!(
         FilterType::from_name("Minimum16k"),
         Some(FilterType::Minimum16k)
@@ -2854,12 +2861,102 @@ fn split_phase_polyphase_pair_preserves_branch_dc() {
 }
 
 #[test]
+fn split_phase_v2_polyphase_pair_preserves_branch_dc() {
+    let (phase0, phase1, prepad0, prepad1) =
+        build_character_polyphase_pair(256, 23.12088, 0.465333, PhaseMode::SplitPhase128kV2);
+    let dc0: f64 = phase0.iter().sum();
+    let dc1: f64 = phase1.iter().sum();
+    assert!((dc0 - 1.0).abs() < 1e-9, "phase0 DC gain {dc0}");
+    assert!((dc1 - 1.0).abs() < 1e-9, "phase1 DC gain {dc1}");
+    assert!(prepad0.is_some());
+    assert!(prepad1.is_some());
+}
+
+#[test]
+fn split_phase_v2_integrates_group_delay_and_closes_to_minimum_phase() {
+    let fft_len = 4096usize;
+    let params = SplitPhaseParams {
+        low_blend_floor: SPLIT128K_PRODUCTION_BLEND_FLOOR,
+        ..SplitPhaseParams::default()
+    };
+    let minimum_phase = (0..=fft_len / 2)
+        .map(|k| {
+            let x = k as f64;
+            -0.004 * x - 1.5e-6 * x * x + 2.0e-10 * x * x * x
+        })
+        .collect::<Vec<_>>();
+    let target = split_phase_v2_from_unwrapped_minimum(&minimum_phase, fft_len, params);
+    let lo_bin =
+        ((params.split_f_lo * fft_len as f64).round() as usize).clamp(1, minimum_phase.len() - 2);
+    let join_bin =
+        ((params.split_f_hi * fft_len as f64 + 0.5).ceil() as usize).min(minimum_phase.len() - 1);
+
+    let reference_increment = minimum_phase[lo_bin] / lo_bin as f64;
+    for k in 0..=lo_bin {
+        let expected = (1.0 - params.low_blend_floor) * reference_increment * k as f64
+            + params.low_blend_floor * minimum_phase[k];
+        assert!(
+            (target[k] - expected).abs() < 1.0e-14,
+            "low-frequency identity changed at bin {k}"
+        );
+    }
+
+    for k in join_bin..minimum_phase.len() {
+        assert_eq!(
+            target[k], minimum_phase[k],
+            "target did not close at bin {k}"
+        );
+    }
+
+    let mut inferred_correction: Option<f64> = None;
+    for k in (lo_bin + 1)..join_bin {
+        let freq_mid = (k as f64 - 0.5) / fft_len as f64;
+        let weight = split_phase_v2_blend_weight(freq_mid, params);
+        let closure_shape = split_phase_v2_closure_bump(freq_mid, params);
+        if closure_shape < 1.0e-5 {
+            continue;
+        }
+        let target_increment = target[k] - target[k - 1];
+        let minimum_increment = minimum_phase[k] - minimum_phase[k - 1];
+        let base_increment = (1.0 - weight) * reference_increment + weight * minimum_increment;
+        let correction = (target_increment - base_increment) / closure_shape;
+        if let Some(expected) = inferred_correction {
+            assert!(
+                (correction - expected).abs() < 1.0e-9,
+                "phase increments do not share one smooth closure correction: {correction} vs {expected}"
+            );
+        } else {
+            inferred_correction = Some(correction);
+        }
+    }
+
+    assert_eq!(
+        split_phase_v2_blend_weight(params.split_f_lo, params),
+        params.low_blend_floor
+    );
+    assert_eq!(split_phase_v2_blend_weight(params.split_f_hi, params), 1.0);
+    assert_eq!(split_phase_v2_closure_bump(params.split_f_lo, params), 0.0);
+    assert_eq!(split_phase_v2_closure_bump(params.split_f_hi, params), 0.0);
+}
+
+#[test]
 fn split_phase_impulse_fades_to_zero_at_truncation() {
     let proto = build_full_rate_2x_prototype(64, 23.12088, 0.465333);
     let split = split_phase_impulse_with_params(&proto, split128k_phase_params());
     assert!(
         split.last().unwrap().abs() < 1e-18,
         "split-phase tail should fade to zero"
+    );
+}
+
+#[test]
+fn split_phase_v2_impulse_fades_to_zero_at_truncation() {
+    let proto = build_full_rate_2x_prototype(64, 23.12088, 0.465333);
+    let split = split_phase_v2_impulse_with_params(&proto, split128k_phase_params());
+    assert!(split.iter().all(|sample| sample.is_finite()));
+    assert!(
+        split.last().unwrap().abs() < 1e-18,
+        "Split Phase V2 tail should fade to zero"
     );
 }
 
@@ -2932,6 +3029,42 @@ fn split128k_kernel_keeps_split_phase_shape() {
         split_peak < proto.len() / 8,
         "Split128k impulse peak at {split_peak} of {} is not front-loaded",
         proto.len()
+    );
+}
+
+#[test]
+fn split128k_v2_kernel_preserves_magnitude_and_has_a_smooth_transition() {
+    let half_width = 8_192usize;
+    let proto = build_full_rate_2x_prototype(half_width, 23.12088, 0.465333);
+    let split = split_phase_v2_impulse_with_params(&proto, split128k_phase_params());
+
+    for &freq in &[0.0_f64, 0.025, 0.05, 0.10, 0.15, 0.20, 0.2268] {
+        let linear_db = full_rate_magnitude_db(&proto, freq);
+        let split_db = full_rate_magnitude_db(&split, freq);
+        assert!(
+            (linear_db - split_db).abs() < 0.03,
+            "Split Phase V2 magnitude mismatch at f={freq}: linear={linear_db} dB, split={split_db} dB"
+        );
+    }
+    for &freq in &[0.235_f64, 0.25, 0.27, 0.30, 0.35, 0.45] {
+        let stop_db = full_rate_magnitude_db(&split, freq);
+        assert!(
+            stop_db < -185.0,
+            "Split Phase V2 stopband at f={freq} must stay below -185 dB, got {stop_db} dB"
+        );
+    }
+
+    let transition = group_delay_samples(&split, SPLIT_PHASE_BLEND_F_LO, SPLIT_PHASE_BLEND_F_HI);
+    let max_adjacent_step = transition.windows(2).fold(0.0_f64, |maximum, pair| {
+        maximum.max((pair[1] - pair[0]).abs())
+    });
+    assert!(
+        max_adjacent_step < 4.0,
+        "Split Phase V2 transition group delay has an adjacent step of {max_adjacent_step} samples"
+    );
+    assert!(
+        dominant_impulse_index(&split) < proto.len() / 8,
+        "Split Phase V2 impulse is not front-loaded"
     );
 }
 
