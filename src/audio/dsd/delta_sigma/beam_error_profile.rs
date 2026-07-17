@@ -31,6 +31,28 @@ pub(crate) const DSD64_48K_FAMILY_WIRE_RATE: u32 = 3_072_000;
 pub(crate) const DSD128_44K_FAMILY_WIRE_RATE: u32 = 5_644_800;
 pub(crate) const DSD128_48K_FAMILY_WIRE_RATE: u32 = 6_144_000;
 
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+pub(crate) fn selected_pair_byte_indices(
+    parent_indices: [usize; 4],
+) -> [core::arch::aarch64::uint8x16_t; 2] {
+    use core::arch::aarch64::*;
+    debug_assert!(parent_indices.into_iter().all(|parent| parent < 4));
+    // Each source table contains four packed f64 lanes. Reuse these byte
+    // indices for every reconstruction-profile and CRFB stage.
+    unsafe {
+        let lane_offsets = vreinterpretq_u8_u64(vdupq_n_u64(0x0706_0504_0302_0100));
+        core::array::from_fn(|pair| {
+            let offset = pair * 2;
+            let parent_offsets = vcombine_u8(
+                vdup_n_u8((parent_indices[offset] * 8) as u8),
+                vdup_n_u8((parent_indices[offset + 1] * 8) as u8),
+            );
+            vaddq_u8(lane_offsets, parent_offsets)
+        })
+    }
+}
+
 pub(crate) type BeamErrorProfileState = [f64; MAX_BEAM_ERROR_PROFILE_STATES];
 
 /// Immutable coefficient view used by offline implementation-equivalence
@@ -362,6 +384,44 @@ impl BeamErrorProfile {
                     core::array::from_fn(|stage| {
                         let value = vdupq_n_f64(states[stage][p0]);
                         vsetq_lane_f64::<1>(states[stage][p1], value)
+                    });
+                let error = vld1q_f64(errors.as_ptr().add(offset));
+                for row in 0..MAX_BEAM_ERROR_PROFILE_STATES {
+                    let mut dot = vdupq_n_f64(0.0);
+                    for (stage, state) in state_vectors.iter().copied().enumerate() {
+                        dot = vfmaq_n_f64(dot, state, self.a[row][stage]);
+                    }
+                    let value = vfmaq_n_f64(dot, error, self.b[row]);
+                    vst1q_f64(next[row].as_mut_ptr().add(offset), value);
+                    let row_finite = vcleq_f64(vabsq_f64(value), vdupq_n_f64(f64::MAX));
+                    finite[offset] &= vgetq_lane_u64::<0>(row_finite) != 0;
+                    finite[offset + 1] &= vgetq_lane_u64::<1>(row_finite) != 0;
+                }
+            }
+        }
+        finite
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[allow(clippy::needless_range_loop)]
+    #[inline(always)]
+    pub(crate) fn next_state4_selected_gathered(
+        &self,
+        states: &[[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
+        parent_byte_indices: [core::arch::aarch64::uint8x16_t; 2],
+        errors: [f64; 4],
+        next: &mut [[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
+    ) -> [bool; 4] {
+        use core::arch::aarch64::*;
+        let mut finite = [true; 4];
+        // SAFETY: NEON is baseline on AArch64. Parent indices originate from
+        // the fixed M4 selector and every destination store is two lanes wide.
+        unsafe {
+            for offset in [0usize, 2] {
+                let state_vectors: [float64x2_t; MAX_BEAM_ERROR_PROFILE_STATES] =
+                    core::array::from_fn(|stage| {
+                        let table = vld1q_u8_x2(states[stage].as_ptr().cast());
+                        vreinterpretq_f64_u8(vqtbl2q_u8(table, parent_byte_indices[offset >> 1]))
                     });
                 let error = vld1q_f64(errors.as_ptr().add(offset));
                 for row in 0..MAX_BEAM_ERROR_PROFILE_STATES {

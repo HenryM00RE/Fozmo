@@ -1,3 +1,5 @@
+#[cfg(target_arch = "aarch64")]
+use super::beam_error_profile::selected_pair_byte_indices;
 use super::beam_error_profile::{
     BeamErrorProfile, DSD64_44K_FAMILY_WIRE_RATE, DSD64_48K_FAMILY_WIRE_RATE,
     DSD128_44K_FAMILY_WIRE_RATE, DSD128_48K_FAMILY_WIRE_RATE, MAX_BEAM_ERROR_PROFILE_STATES,
@@ -25,6 +27,18 @@ enum SimdSteadyStep {
     RecoverNonfinite,
     CommitSlow,
     Emitted(u8),
+}
+
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+fn ecbeam2_child_index(index: u8) -> usize {
+    let index = index as usize;
+    debug_assert!(index < 2 * ECBEAM2_WIDTH);
+    // SAFETY: every order entry is written from the fixed eight-child M4
+    // selector. Stating that invariant here removes repeated bounds branches
+    // from survivor materialization.
+    unsafe { core::hint::assert_unchecked(index < 2 * ECBEAM2_WIDTH) };
+    index
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -1111,7 +1125,15 @@ impl EcBeam2Modulator {
         let bank = self.parents_bank;
         for parent in 0..self.parents_len {
             self.parents[bank][parent].metric = self.simd_metric[bank][parent];
-            self.parents[bank][parent].prev_v = self.simd_prev_v[bank][parent];
+            self.parents[bank][parent].prev_v = if self.buffered > 0 {
+                if self.simd_bits[bank][parent] & 1 != 0 {
+                    1.0
+                } else {
+                    -1.0
+                }
+            } else {
+                self.simd_prev_v[bank][parent]
+            };
             self.parents[bank][parent].bits = self.simd_bits[bank][parent];
             for stage in 0..8 {
                 self.parents[bank][parent].state[stage] = self.simd_raw_state[bank][stage][parent];
@@ -1156,8 +1178,16 @@ impl EcBeam2Modulator {
         let mut generation = self.simd_reconstruction_generation;
         let mut slot = 0usize;
         for _ in 0..ECBEAM2_HORIZON - 1 {
-            slot = self.simd_reconstruction_parent[generation][slot] as usize;
+            // SAFETY: every ancestry entry is recorded from an M4 survivor
+            // slot, and the generation is masked to the eight-entry ring.
+            slot = unsafe {
+                *self
+                    .simd_reconstruction_parent
+                    .get_unchecked(generation)
+                    .get_unchecked(slot)
+            } as usize;
             debug_assert!(slot < ECBEAM2_WIDTH);
+            unsafe { core::hint::assert_unchecked(slot < ECBEAM2_WIDTH) };
             generation = generation.wrapping_sub(1) & (ECBEAM2_HORIZON - 1);
         }
         for stage in 0..MAX_BEAM_ERROR_PROFILE_STATES {
@@ -1556,7 +1586,6 @@ impl EcBeam2Modulator {
                     self.process_sample_simd::<false>(u, out_bits);
                 }
             }
-            self.sync_simd_paths();
             debug_assert_eq!(
                 out_bits.len() - starting_output_len + self.buffered,
                 input.len() + starting_buffered
@@ -1658,6 +1687,8 @@ impl EcBeam2Modulator {
         if self.buffered == 0 {
             return;
         }
+        #[cfg(target_arch = "aarch64")]
+        self.sync_simd_paths();
         let starting_output_len = out_bits.len();
         let starting_buffered = self.buffered;
         let best = self.parents[self.parents_bank][0];
@@ -2335,20 +2366,21 @@ impl EcBeam2Modulator {
         let mut selected_v = [0.0; ECBEAM2_WIDTH];
         let mut errors = [0.0; ECBEAM2_WIDTH];
         for slot in 0..ECBEAM2_WIDTH {
-            let child = order[slot] as usize;
+            let child = ecbeam2_child_index(order[slot]);
             let parent = child >> 1;
             let v = if child & 1 == 0 { 1.0 } else { -1.0 };
             selected_parents[slot] = parent;
             selected_v[slot] = v;
             errors[slot] = v - u;
         }
+        let selected_byte_indices = selected_pair_byte_indices(selected_parents);
 
-        let reconstruction_profile = self.reconstruction_profile;
+        let reconstruction_profile = &self.reconstruction_profile;
         if parent_bank == 0 {
             let (source, destination) = self.simd_reconstruction_state.split_at_mut(1);
-            let reconstruction_finite = reconstruction_profile.next_state4_selected(
+            let reconstruction_finite = reconstruction_profile.next_state4_selected_gathered(
                 &source[0],
-                selected_parents,
+                selected_byte_indices,
                 errors,
                 &mut destination[0],
             );
@@ -2357,9 +2389,9 @@ impl EcBeam2Modulator {
             }
         } else {
             let (destination, source) = self.simd_reconstruction_state.split_at_mut(1);
-            let reconstruction_finite = reconstruction_profile.next_state4_selected(
+            let reconstruction_finite = reconstruction_profile.next_state4_selected_gathered(
                 &source[0],
-                selected_parents,
+                selected_byte_indices,
                 errors,
                 &mut destination[0],
             );
@@ -2373,14 +2405,11 @@ impl EcBeam2Modulator {
         // `denormalized_feedback8` in the scalar reference path.
         unsafe {
             for offset in [0usize, 2] {
-                let p0 = selected_parents[offset];
-                let p1 = selected_parents[offset + 1];
                 let v = vld1q_f64(selected_v.as_ptr().add(offset));
                 for stage in 0..8 {
-                    let base = vsetq_lane_f64::<1>(
-                        self.simd_base_norm[stage][p1],
-                        vdupq_n_f64(self.simd_base_norm[stage][p0]),
-                    );
+                    let table = vld1q_u8_x2(self.simd_base_norm[stage].as_ptr().cast());
+                    let base =
+                        vreinterpretq_f64_u8(vqtbl2q_u8(table, selected_byte_indices[offset >> 1]));
                     let raw_base = vmulq_n_f64(base, self.core.state_limit8[stage]);
                     let state = vfmaq_n_f64(raw_base, v, self.core.bv[stage]);
                     vst1q_f64(
@@ -2393,14 +2422,13 @@ impl EcBeam2Modulator {
             }
         }
         self.record_simd_reconstruction_generation(materialize_bank, selected_parents);
-        let mut minimum_metric = child_metric[order[0] as usize];
+        let mut minimum_metric = child_metric[ecbeam2_child_index(order[0])];
         for slot in 1..ECBEAM2_WIDTH {
-            minimum_metric = minimum_metric.min(child_metric[order[slot] as usize]);
+            minimum_metric = minimum_metric.min(child_metric[ecbeam2_child_index(order[slot])]);
         }
         for slot in 0..ECBEAM2_WIDTH {
-            let child = order[slot] as usize;
+            let child = ecbeam2_child_index(order[slot]);
             self.simd_metric[materialize_bank][slot] = child_metric[child] - minimum_metric;
-            self.simd_prev_v[materialize_bank][slot] = selected_v[slot];
             self.simd_bits[materialize_bank][slot] = child_bits[child];
         }
 
@@ -3806,7 +3834,13 @@ mod tests {
         let selected = [3, 1, 0, 2];
         let errors = [0.75, -1.125, 1.375, -0.625];
         let mut next = [[0.0; ECBEAM2_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES];
-        let finite = profile.next_state4_selected(&states, selected, errors, &mut next);
+        let selected_byte_indices = selected_pair_byte_indices(selected);
+        let finite = profile.next_state4_selected_gathered(
+            &states,
+            selected_byte_indices,
+            errors,
+            &mut next,
+        );
         assert_eq!(finite, [true; ECBEAM2_WIDTH]);
         for lane in 0..ECBEAM2_WIDTH {
             let parent = core::array::from_fn(|stage| states[stage][selected[lane]]);
@@ -4289,6 +4323,8 @@ mod tests {
                 assert_bits(&full_bits, &lean_scalar_bits, &scalar_context);
                 assert_bits(&full_bits, &lean_neon_bits, &neon_context);
                 assert_decision_state(&full, &lean_scalar, &scalar_context);
+                #[cfg(target_arch = "aarch64")]
+                lean_neon.sync_simd_paths();
                 assert_decision_state(&full, &lean_neon, &neon_context);
                 offset = end;
                 chunk_index += 1;
