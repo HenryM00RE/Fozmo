@@ -1,6 +1,21 @@
 use super::*;
+use sha2::{Digest, Sha256};
+use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::Arc;
+
+fn compensated_sum(values: impl IntoIterator<Item = f64>) -> f64 {
+    let mut sum = 0.0_f64;
+    let mut compensation = 0.0_f64;
+    for value in values {
+        let adjusted = value - compensation;
+        let next = sum + adjusted;
+        compensation = (next - sum) - adjusted;
+        sum = next;
+    }
+    sum
+}
 
 fn step_overshoot(impulse: &[f64]) -> f64 {
     let mut step = 0.0_f64;
@@ -1089,6 +1104,7 @@ fn filter_ids_are_backward_compatible() {
     assert_eq!(FilterType::Minimum16k.as_id(), 15);
     assert_eq!(FilterType::Split128k.as_id(), 21);
     assert_eq!(FilterType::Split128kV2.as_id(), 34);
+    assert_eq!(FilterType::SplitPhase128kV3.as_id(), 35);
     assert_eq!(FilterType::from_id(0), Some(FilterType::Split128k));
     assert_eq!(FilterType::from_id(2), Some(FilterType::Split128k));
     assert_eq!(FilterType::from_id(11), Some(FilterType::Split128k));
@@ -1112,14 +1128,28 @@ fn filter_ids_are_backward_compatible() {
     assert_eq!(FilterType::from_id(21), Some(FilterType::Split128k));
     assert_eq!(FilterType::from_id(33), Some(FilterType::LinearPhase128k));
     assert_eq!(FilterType::from_id(34), Some(FilterType::Split128kV2));
+    assert_eq!(FilterType::from_id(35), Some(FilterType::SplitPhase128kV3));
     assert_eq!(FilterType::SincExtreme32k.as_name(), "SincExtreme32k");
     assert_eq!(FilterType::LinearPhase128k.as_name(), "LinearPhase128k");
     assert_eq!(FilterType::Minimum16k.as_name(), "Minimum16k");
     assert_eq!(FilterType::Split128k.as_name(), "Split128k");
     assert_eq!(FilterType::Split128kV2.as_name(), "Split128kV2");
+    assert_eq!(FilterType::SplitPhase128kV3.as_name(), "SplitPhase128kV3");
     assert_eq!(
         FilterType::from_name("Split128kV2"),
         Some(FilterType::Split128kV2)
+    );
+    assert_eq!(
+        FilterType::from_name("SplitPhase128kV3"),
+        Some(FilterType::SplitPhase128kV3)
+    );
+    assert_eq!(
+        serde_json::from_str::<FilterType>("\"SplitPhase128kV3\"").unwrap(),
+        FilterType::SplitPhase128kV3
+    );
+    assert_eq!(
+        serde_json::to_string(&FilterType::SplitPhase128kV3).unwrap(),
+        "\"SplitPhase128kV3\""
     );
     assert_eq!(
         FilterType::from_name("Minimum16k"),
@@ -1169,6 +1199,17 @@ fn filter_ids_are_backward_compatible() {
     assert_eq!(FilterType::from_name("MinimumExtreme128k"), None);
     assert_eq!(FilterType::from_name("MinimumExp512k"), None);
     assert_eq!(FilterType::from_name("MinimumExp1m"), None);
+}
+
+#[test]
+fn frozen_filter_assets_decode_little_endian_f64() {
+    let values = [0.5_f64, -0.25, f64::MIN_POSITIVE];
+    let bytes = values
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect::<Vec<_>>();
+    let decoded = decode_f64le_asset(&bytes, values.len(), "test");
+    assert_eq!(&*decoded, &values);
 }
 
 #[test]
@@ -1575,6 +1616,47 @@ fn integrated_phase_is_chunk_boundary_invariant_for_pop_sensitive_rates() {
 }
 
 #[test]
+fn split_phase_v3_is_chunk_boundary_invariant_and_reset_eof_stable() {
+    assert_long_filter_chunk_case(
+        FilterType::SplitPhase128kV3,
+        "SplitPhase128kV3",
+        44_100,
+        176_400,
+        &[4095, 4096, 4097],
+        1024,
+        8192,
+    );
+
+    let (left, right) = make_signal(2_048);
+    let mut resampler = SincResampler::new(FilterType::SplitPhase128kV3, 44_100, 88_200);
+    let mut first = Vec::new();
+    resampler.input(&left, &right);
+    resampler.process(&mut first);
+    resampler.drain_eof(&mut first);
+    assert_eq!(
+        first.len(),
+        nominal_output_samples(left.len(), 44_100, 88_200)
+    );
+    assert!(first.iter().all(|sample| sample.is_finite()));
+
+    resampler.reset();
+    let mut second = Vec::new();
+    resampler.input(&left, &right);
+    resampler.process(&mut second);
+    resampler.drain_eof(&mut second);
+    assert_eq!(first.len(), second.len());
+    assert!(
+        first
+            .iter()
+            .zip(&second)
+            .all(|(left, right)| left.to_bits() == right.to_bits())
+    );
+    let mut already_drained = Vec::new();
+    assert_eq!(resampler.drain_eof(&mut already_drained), 0);
+    assert!(already_drained.is_empty());
+}
+
+#[test]
 fn minimum_phase128k_endpoints_are_chunk_boundary_invariant() {
     for (filter, label) in [
         (FilterType::MinimumPhase128k, "MinimumPhase128k1"),
@@ -1635,6 +1717,7 @@ fn split16k_two_x_stage_matches_slow_branch_reference_for_offset_impulses() {
         beta: FilterType::Split128k.beta(),
         engine: EngineKind::DirectSimd,
         phase_mode: PhaseMode::SplitPhase128k,
+        coefficient_source: CharacterCoefficientSource::Procedural,
     };
     let (phase0, phase1, prepad0, prepad1) = build_character_polyphase_pair(
         half_width,
@@ -1708,6 +1791,7 @@ fn integrated_phase_two_x_stage_matches_slow_branch_reference_for_offset_impulse
             beta: filter.beta(),
             engine: EngineKind::DirectSimd,
             phase_mode,
+            coefficient_source: CharacterCoefficientSource::Procedural,
         };
         let (phase0, phase1, prepad0, prepad1) =
             build_character_polyphase_pair(half_width, filter.beta(), filter.cutoff(), phase_mode);
@@ -2691,6 +2775,7 @@ fn planner_configures_linear128k_as_long_partitioned_linear_phase() {
                 partition_frames: 4096
             },
             phase_mode: PhaseMode::Linear,
+            coefficient_source: CharacterCoefficientSource::Procedural,
         }
     ));
 
@@ -2745,6 +2830,7 @@ fn planner_configures_minimum16k_as_apodizing_min_phase_fft_mode() {
                 partition_frames: 4096
             },
             phase_mode: PhaseMode::Minimum,
+            coefficient_source: CharacterCoefficientSource::Procedural,
         }
     ));
 
@@ -2823,6 +2909,7 @@ fn planner_configures_split128k_as_long_frequency_split_fft_mode() {
                 partition_frames: 4096
             },
             phase_mode: PhaseMode::SplitPhase128k,
+            coefficient_source: CharacterCoefficientSource::Procedural,
         }
     ));
 
@@ -2846,6 +2933,265 @@ fn planner_configures_split128k_as_long_frequency_split_fft_mode() {
     for stage in dsd_plan.stages.iter().skip(1) {
         assert!(stage.taps_total() <= MAX_SIMD_DIRECT_TAPS);
     }
+}
+
+#[test]
+fn planner_routes_split_phase_v3_to_frozen_character_and_cleanup_sources() {
+    for exponent in 1..=8 {
+        let ratio = 1u32 << exponent;
+        let plan = build_integer_stage_plan(
+            44_100,
+            44_100 * ratio,
+            FilterType::SplitPhase128kV3,
+            1_000.0,
+        )
+        .unwrap();
+        assert!(plan.high_latency);
+        assert!(matches!(
+            plan.stages[0],
+            StageSpec::Character2x {
+                taps_total: 131_073,
+                cutoff: 0.0,
+                beta: 0.0,
+                engine: EngineKind::PartitionedFft {
+                    partition_frames: 4096
+                },
+                phase_mode: PhaseMode::SplitPhase128kV3,
+                coefficient_source: CharacterCoefficientSource::SplitPhaseV3,
+            }
+        ));
+        assert_eq!(
+            plan.stages[0].latency_frames_at_stage_rate(),
+            SPLIT_PHASE_V3_FULL_RATE_ORIGIN / 2 + 4096
+        );
+        for (stage_index, stage) in plan.stages.iter().enumerate().skip(1) {
+            assert!(matches!(
+                stage,
+                StageSpec::CleanupHalfband2x {
+                    coefficient_source: CleanupCoefficientSource::SplitPhaseV3 {
+                        stage_index: asset_stage
+                    },
+                    ..
+                } if *asset_stage == stage_index as u8
+            ));
+        }
+    }
+}
+
+#[test]
+fn split_phase_v3_assets_match_manifest_hashes_and_exact_contracts() {
+    let asset_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/filters/split_phase_v3");
+    let manifest: serde_json::Value = serde_json::from_slice(
+        &fs::read(asset_dir.join("manifest.json")).expect("Split Phase V3 manifest"),
+    )
+    .expect("valid Split Phase V3 manifest JSON");
+    assert_eq!(manifest["identity"], "SplitPhase128kV3");
+    assert_eq!(
+        manifest["alignment"]["full_rate_origin"].as_u64(),
+        Some(SPLIT_PHASE_V3_FULL_RATE_ORIGIN as u64)
+    );
+    assert_eq!(
+        manifest["alignment"]["phase0_prepad"].as_u64(),
+        Some(SPLIT_PHASE_V3_PHASE0_PREPAD as u64)
+    );
+    assert_eq!(
+        manifest["alignment"]["phase1_prepad"].as_u64(),
+        Some(SPLIT_PHASE_V3_PHASE1_PREPAD as u64)
+    );
+    assert_eq!(
+        manifest["alignment"]["decimation_prepad"].as_u64(),
+        Some(SPLIT_PHASE_V3_DECIMATION_PREPAD as u64)
+    );
+
+    let files = &manifest["files"];
+    let mut entries = vec![&files["character"], &files["rational_147_160"]];
+    entries.push(&files["rational_160_147"]);
+    entries.extend(
+        files["cleanups"]
+            .as_array()
+            .expect("cleanup manifest entries"),
+    );
+    for entry in entries {
+        let file = entry["file"].as_str().expect("asset filename");
+        let bytes = fs::read(asset_dir.join(file)).expect("frozen coefficient asset");
+        assert_eq!(
+            bytes.len() as u64,
+            entry["byte_length"].as_u64().expect("asset byte length"),
+            "{file} byte length"
+        );
+        assert_eq!(
+            format!("{:x}", Sha256::digest(&bytes)),
+            entry["sha256"].as_str().expect("asset SHA-256"),
+            "{file} SHA-256"
+        );
+    }
+
+    let assets = split_phase_v3_assets();
+    assert_eq!(
+        assets.character.len(),
+        SPLIT_PHASE_V3_CHARACTER_COEFFICIENTS
+    );
+    assert!((compensated_sum(assets.character.iter().step_by(2).copied()) - 0.5).abs() <= 2e-15);
+    assert!(
+        (compensated_sum(assets.character.iter().skip(1).step_by(2).copied()) - 0.5).abs() <= 2e-15
+    );
+    for cleanup in &assets.cleanups {
+        let center = cleanup.len() / 2;
+        assert!(
+            cleanup
+                .iter()
+                .zip(cleanup.iter().rev())
+                .all(|(left, right)| left.to_bits() == right.to_bits())
+        );
+        assert_eq!(cleanup[center].to_bits(), 0.5_f64.to_bits());
+        for (index, coefficient) in cleanup.iter().enumerate().step_by(2) {
+            if index != center {
+                assert_eq!(coefficient.to_bits(), 0.0_f64.to_bits());
+            }
+        }
+        assert!((compensated_sum(cleanup.iter().copied()) - 1.0).abs() <= 2e-15);
+        assert!((compensated_sum(cleanup.iter().skip(1).step_by(2).copied()) - 0.5).abs() <= 2e-15);
+    }
+    for left in 3..assets.cleanups.len() {
+        for right in left + 1..assets.cleanups.len() {
+            assert_ne!(
+                assets.cleanups[left].as_ref(),
+                assets.cleanups[right].as_ref()
+            );
+        }
+    }
+}
+
+#[test]
+fn split_phase_v3_runtime_mapping_uses_frozen_coefficients_without_normalization() {
+    let assets = split_phase_v3_assets();
+    let (phase0, phase1, prepad0, prepad1) = split_phase_v3_character_polyphase_pair();
+    assert_eq!(prepad0, Some(SPLIT_PHASE_V3_PHASE0_PREPAD));
+    assert_eq!(prepad1, Some(SPLIT_PHASE_V3_PHASE1_PREPAD));
+    assert_eq!(phase0.len(), 131_073);
+    assert_eq!(phase1.len(), 131_073);
+    assert!((compensated_sum(phase0.iter().copied()) - 1.0).abs() <= 4e-15);
+    assert!((compensated_sum(phase1.iter().copied()) - 1.0).abs() <= 4e-15);
+    assert_eq!(phase1[0].to_bits(), 0.0_f64.to_bits());
+    for index in 0..131_072 {
+        assert_eq!(
+            phase0[131_072 - index].to_bits(),
+            (2.0 * assets.character[2 * index]).to_bits()
+        );
+        assert_eq!(
+            phase1[131_072 - index].to_bits(),
+            (2.0 * assets.character[2 * index + 1]).to_bits()
+        );
+    }
+    assert_eq!(
+        phase0[0].to_bits(),
+        (2.0 * assets.character[262_144]).to_bits()
+    );
+
+    for stage_index in 1..=7u8 {
+        let branch = split_phase_v3_cleanup_odd_branch(stage_index);
+        let canonical = &assets.cleanups[usize::from(stage_index) - 1];
+        assert_eq!(branch.len(), canonical.len() / 2 + 1);
+        assert_eq!(branch[0].to_bits(), 0.0_f64.to_bits());
+        assert!((compensated_sum(branch.iter().copied()) - 1.0).abs() <= 4e-15);
+        for odd_index in 0..canonical.len() / 2 {
+            assert_eq!(
+                branch[branch.len() - 1 - odd_index].to_bits(),
+                (2.0 * canonical[2 * odd_index + 1]).to_bits()
+            );
+        }
+    }
+
+    let character_spec =
+        build_integer_stage_plan(44_100, 88_200, FilterType::SplitPhase128kV3, 1_000.0)
+            .expect("Split Phase V3 2x plan")
+            .stages
+            .remove(0);
+    let (decimation, prepad) = build_decimation_coefficients(&character_spec);
+    assert_eq!(prepad, SPLIT_PHASE_V3_DECIMATION_PREPAD);
+    assert!(
+        decimation
+            .iter()
+            .zip(assets.character.iter().rev())
+            .all(|(actual, expected)| actual.to_bits() == expected.to_bits())
+    );
+}
+
+#[test]
+fn split_phase_v3_rational_tables_are_selected_only_for_frozen_ratios() {
+    let assets = split_phase_v3_assets();
+    for (source_rate, target_rate, expected) in [
+        (44_100, 48_000, &assets.rational_147_160),
+        (48_000, 44_100, &assets.rational_160_147),
+    ] {
+        let resampler = SincResampler::new(FilterType::SplitPhase128kV3, source_rate, target_rate);
+        let ResamplerPath::Rational(rational) = &resampler.path else {
+            panic!("expected frozen exact-rational path");
+        };
+        assert!(Arc::ptr_eq(&rational.coefficients, expected));
+        assert!(resampler.runtime_info().phase_profile_preserved);
+        let row_taps = 2 * rational.half_width + 1;
+        for row in rational.coefficients.chunks_exact(row_taps) {
+            assert!((compensated_sum(row.iter().copied()) - 1.0).abs() <= 2e-15);
+        }
+    }
+
+    let unsupported = SincResampler::new(FilterType::SplitPhase128kV3, 96_000, 44_100);
+    let ResamplerPath::Rational(rational) = &unsupported.path else {
+        panic!("expected generic exact-rational fallback");
+    };
+    assert_eq!((rational.step_num, rational.phase_den), (320, 147));
+    assert!(!unsupported.runtime_info().phase_profile_preserved);
+    assert!(!Arc::ptr_eq(
+        &rational.coefficients,
+        &assets.rational_160_147
+    ));
+}
+
+#[test]
+fn split_phase_v3_partitioned_runtime_rejects_the_2x_image_below_140_db() {
+    const FRAMES: usize = 147_456;
+    const ANALYSIS_FRAMES: usize = 16_384;
+    let input_omega = PI / 2.0;
+    let left = (0..FRAMES)
+        .map(|index| (input_omega * index as f64).cos())
+        .collect::<Vec<_>>();
+    let right = (0..FRAMES)
+        .map(|index| (input_omega * index as f64).sin())
+        .collect::<Vec<_>>();
+    let mut resampler = SincResampler::new(FilterType::SplitPhase128kV3, 44_100, 88_200);
+    let mut output = Vec::new();
+    for start in (0..FRAMES).step_by(4_093) {
+        let end = (start + 4_093).min(FRAMES);
+        resampler.input(&left[start..end], &right[start..end]);
+        resampler.process(&mut output);
+    }
+
+    let output_frames = output.len() / 2;
+    assert!(output_frames >= ANALYSIS_FRAMES);
+    let start = output_frames - ANALYSIS_FRAMES;
+    let desired_omega = input_omega / 2.0;
+    let image_omega = desired_omega + PI;
+    let mut desired = Complex64::new(0.0, 0.0);
+    let mut image = Complex64::new(0.0, 0.0);
+    for (local_index, frame) in output
+        .chunks_exact(2)
+        .skip(start)
+        .take(ANALYSIS_FRAMES)
+        .enumerate()
+    {
+        let sample = Complex64::new(frame[0], frame[1]);
+        desired += sample * Complex64::from_polar(1.0, -desired_omega * local_index as f64);
+        image += sample * Complex64::from_polar(1.0, -image_omega * local_index as f64);
+    }
+    let desired_amplitude = desired.norm() / ANALYSIS_FRAMES as f64;
+    let image_amplitude = image.norm() / ANALYSIS_FRAMES as f64;
+    let image_db = 20.0 * (image_amplitude / desired_amplitude).max(1.0e-300).log10();
+    assert!(
+        desired_amplitude > 0.99,
+        "desired amplitude {desired_amplitude}"
+    );
+    assert!(image_db <= -140.0, "runtime image peak was {image_db} dB");
 }
 
 #[test]

@@ -157,7 +157,7 @@ fn validate_ecbeam2_playback_config(
     }
     if !ecbeam2_filter_supported(filter_type) {
         return Err(PlaybackError::bad_request(
-            "7th Order Search supports only the four selectable 128k filters",
+            "7th Order Search supports only the supported production 128k filters",
         ));
     }
 
@@ -198,7 +198,7 @@ fn validate_ecbeam2_playback_config(
         })
     {
         return Err(PlaybackError::bad_request(
-            "7th Order Search requires every enabled DSD rule to use one of the four selectable 128k filters",
+            "7th Order Search requires every enabled DSD rule to use a supported production 128k filter",
         ));
     }
     Ok(())
@@ -795,7 +795,7 @@ mod tests {
             update_active_playback_config(&state, update)
                 .expect_err("SincExtreme32k must not be persisted for EcBeam2")
                 .message(),
-            "7th Order Search supports only the four selectable 128k filters"
+            "7th Order Search supports only the supported production 128k filters"
         );
     }
 
@@ -805,6 +805,19 @@ mod tests {
             validate_ecbeam2_playback_config(
                 DsdModulator::EcBeam2,
                 FilterType::Split128k,
+                true,
+                OutputMode::Dsd64,
+                false,
+                &[],
+                0.0,
+                -2.0,
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_ecbeam2_playback_config(
+                DsdModulator::EcBeam2,
+                FilterType::SplitPhase128kV3,
                 true,
                 OutputMode::Dsd64,
                 false,
@@ -866,7 +879,7 @@ mod tests {
             )
             .expect_err("SincExtreme32k must be rejected")
             .message(),
-            "7th Order Search supports only the four selectable 128k filters"
+            "7th Order Search supports only the supported production 128k filters"
         );
         assert!(
             validate_ecbeam2_playback_config(
@@ -1063,7 +1076,7 @@ mod tests {
             )
             .expect_err("enabled SincExtreme32k rule must be rejected")
             .message(),
-            "7th Order Search requires every enabled DSD rule to use one of the four selectable 128k filters"
+            "7th Order Search requires every enabled DSD rule to use a supported production 128k filter"
         );
         assert!(
             validate_ecbeam2_playback_config(

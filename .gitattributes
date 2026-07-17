@@ -2,3 +2,4 @@ static/react-app/** linguist-generated=true
 static/react-app/**/*.js -diff
 static/react-app/**/*.js.map -diff
 static/react-app/**/*.css -diff
+assets/filters/**/*.f64le binary
