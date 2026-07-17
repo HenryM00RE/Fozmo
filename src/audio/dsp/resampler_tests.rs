@@ -73,7 +73,7 @@ fn minimum_phase_compact_has_stable_identity_and_spec() {
 }
 
 #[test]
-fn minimum_phase_compact_balanced_has_stable_identity_and_spec() {
+fn minimum_phase_compact_v2_is_the_plain_128k_minimum_phase_filter() {
     let filter = FilterType::MinimumPhaseCompact128kV2;
     assert_eq!(filter.as_id(), 31);
     assert_eq!(FilterType::from_id(31), Some(filter));
@@ -83,11 +83,10 @@ fn minimum_phase_compact_balanced_has_stable_identity_and_spec() {
         serde_json::from_str::<FilterType>(&serde_json::to_string(&filter).unwrap()).unwrap(),
         filter
     );
-    assert_eq!(
-        filter.minimum_compact_profile(),
-        Some(MinimumCompactProfile::Balanced)
-    );
-    assert_eq!(filter.character_beta(), None);
+    assert_eq!(filter.minimum_compact_profile(), None);
+    assert_eq!(filter.cutoff(), MINIMUM16K_PRODUCTION_CUTOFF);
+    assert_eq!(filter.beta(), MINIMUM16K_PRODUCTION_BETA);
+    assert_eq!(filter.character_beta(), Some(MINIMUM16K_PRODUCTION_BETA));
     assert_eq!(filter.cleanup_beta(), MINIMUM_COMPACT_CLEANUP_BETA);
     let plan = build_integer_stage_plan(44_100, 88_200, filter, 100.0).unwrap();
     assert!(matches!(
@@ -97,7 +96,7 @@ fn minimum_phase_compact_balanced_has_stable_identity_and_spec() {
             engine: EngineKind::PartitionedFft {
                 partition_frames: 4096
             },
-            phase_mode: PhaseMode::MinimumPhaseCompact128k(MinimumCompactProfile::Balanced),
+            phase_mode: PhaseMode::MinimumPhase128k(MinimumPhase128kProfile::One),
             ..
         })
     ));
@@ -981,6 +980,7 @@ fn write_wav_i16(
 #[test]
 fn filter_ids_are_backward_compatible() {
     assert_eq!(FilterType::SincExtreme32k.as_id(), 6);
+    assert_eq!(FilterType::LinearPhase128k.as_id(), 33);
     assert_eq!(FilterType::Minimum16k.as_id(), 15);
     assert_eq!(FilterType::Split128k.as_id(), 21);
     assert_eq!(FilterType::from_id(0), Some(FilterType::Split128k));
@@ -1004,7 +1004,9 @@ fn filter_ids_are_backward_compatible() {
     assert_eq!(FilterType::from_id(19), Some(FilterType::Split128k));
     assert_eq!(FilterType::from_id(20), Some(FilterType::Split128k));
     assert_eq!(FilterType::from_id(21), Some(FilterType::Split128k));
+    assert_eq!(FilterType::from_id(33), Some(FilterType::LinearPhase128k));
     assert_eq!(FilterType::SincExtreme32k.as_name(), "SincExtreme32k");
+    assert_eq!(FilterType::LinearPhase128k.as_name(), "LinearPhase128k");
     assert_eq!(FilterType::Minimum16k.as_name(), "Minimum16k");
     assert_eq!(FilterType::Split128k.as_name(), "Split128k");
     assert_eq!(
@@ -1016,6 +1018,10 @@ fn filter_ids_are_backward_compatible() {
         Some(FilterType::Split128k)
     );
     assert_eq!(FilterType::from_name("Linear"), Some(FilterType::Split128k));
+    assert_eq!(
+        FilterType::from_name("LinearPhase128k"),
+        Some(FilterType::LinearPhase128k)
+    );
     assert_eq!(
         FilterType::from_name("SincMedium"),
         Some(FilterType::Split128k)
@@ -2525,6 +2531,60 @@ fn planner_marks_minimum16k_as_high_latency() {
             ..
         }
     ));
+}
+
+#[test]
+fn planner_configures_linear128k_as_long_partitioned_linear_phase() {
+    let plan =
+        build_integer_stage_plan(44_100, 44_100 * 32, FilterType::LinearPhase128k, 100.0).unwrap();
+    assert!(plan.high_latency);
+    assert!(matches!(
+        plan.stages[0],
+        StageSpec::Character2x {
+            taps_total: 131_073,
+            cutoff: 0.465333,
+            beta: 23.12088,
+            engine: EngineKind::PartitionedFft {
+                partition_frames: 4096
+            },
+            phase_mode: PhaseMode::Linear,
+        }
+    ));
+
+    let cleanup: Vec<(usize, f64)> = plan
+        .stages
+        .iter()
+        .skip(1)
+        .map(|stage| match stage {
+            StageSpec::CleanupHalfband2x {
+                taps_total, cutoff, ..
+            } => (*taps_total, *cutoff),
+            _ => panic!("expected cleanup stage"),
+        })
+        .collect();
+    assert_eq!(cleanup, vec![(255, 0.5), (127, 0.5), (63, 0.5), (31, 0.5)]);
+}
+
+#[test]
+fn linear128k_resampler_constructs_with_symmetric_character_kernel() {
+    let resampler = SincResampler::new(FilterType::LinearPhase128k, 44_100, 352_800);
+    assert!(resampler.is_high_latency());
+    assert!(resampler.estimated_memory_bytes() > 0);
+
+    let half_width = LINEAR128K_TAPS_TOTAL / 2;
+    let coefficients = build_phase_coefficients(
+        half_width,
+        0.0,
+        FilterType::LinearPhase128k.beta(),
+        FilterType::LinearPhase128k.cutoff(),
+    );
+    assert_eq!(coefficients.len(), LINEAR128K_TAPS_TOTAL);
+    for index in 0..coefficients.len() / 2 {
+        assert_eq!(
+            coefficients[index],
+            coefficients[coefficients.len() - 1 - index]
+        );
+    }
 }
 
 #[test]

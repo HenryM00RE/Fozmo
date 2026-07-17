@@ -54,7 +54,7 @@ The setup I currently use is:
 
 ```text
 Filter:          Smooth Phase
-DSD modulator:   7th Order Beam
+DSD modulator:   7th Order Search
 Headroom:        -2.0 dB
 DSD target:      DSD128
 ```

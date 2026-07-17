@@ -188,7 +188,7 @@ export function SignalPopover({
   };
   const transport = transportNames[outputTransport] || 'DSD';
   const dsdModulatorName =
-    dsdModulatorOptions.find(([value]) => value === status.dsd_modulator)?.[1] || '7th Order EC';
+    dsdModulatorOptions.find(([value]) => value === status.dsd_modulator)?.[1] || '7th Order';
   const dsdLastLoad = numberValue(status.dsd_last_load);
   const dsdRecentLoadP95 = numberValue(status.dsd_recent_load_p95);
   const blockDurationNs = numberValue(status.block_duration_ns);

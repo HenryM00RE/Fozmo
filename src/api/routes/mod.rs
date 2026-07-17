@@ -1825,7 +1825,7 @@ mod tests {
         assert_eq!(playback_settings.exclusive, Some(false));
         assert_eq!(playback_settings.dither_mode.as_deref(), Some("Auto"));
         assert_eq!(playback_settings.output_mode.as_deref(), Some("Pcm"));
-        assert_eq!(playback_settings.headroom_db, Some(-6.0));
+        assert_eq!(playback_settings.headroom_db, Some(-4.0));
         assert_eq!(playback_settings.dsp_buffer_ms, Some(200));
 
         let eq = crate::audio::eq::EqConfig {

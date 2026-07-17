@@ -84,10 +84,11 @@ product chain rather than claiming to isolate an abstract modulator algorithm.
 | High-frequency level-matched stress | 44.1 kHz to DSD128 | 4 | Direct modulator comparison at one effective peak |
 | Hi-res reconstruction | 176.4 kHz to DSD256 | 3 | Per-carrier accuracy through 70 kHz and split-band residuals |
 
-The production modulators are `Standard`, `EcDepth2`, `EcBeam`, and `EcBeam2`,
-shown in the application as 7th Order, 7th Order EC, 7th Order Search, and 7th
-Order Beam. EcBeam2 supports DSD64 and DSD128; it has no DSD256 matrix cell or
-score. Filter identity can change a modulator's effective production policy,
+The bench retains `Standard`, `EcDepth2`, `EcBeam`, and `EcBeam2` as technical
+comparison identities. The application exposes only `Standard` as 7th Order
+and `EcBeam2` as 7th Order Search; the other algorithms remain available for
+diagnostics. EcBeam2 supports DSD64 and DSD128, so it has no DSD256 matrix cell
+or score. Filter identity can change a modulator's effective production policy,
 which is why the public score measures only the actual default product path.
 
 Every cell records its comparison class, whether its levels are matched across

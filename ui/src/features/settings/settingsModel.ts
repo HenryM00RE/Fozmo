@@ -120,21 +120,19 @@ export async function loadSettingsSupportData(): Promise<SettingsSupportData> {
 }
 
 export const filterOptions = [
+  ['LinearPhase128k', 'Linear Phase'],
+  ['MinimumPhaseCompact128kV2', 'Minimum Phase'],
   ['Split128k', 'Split Phase'],
-  ['SincExtreme32k', 'Linear Phase'],
-  ['Minimum16k', 'Min Phase'],
-  ['MinimumPhaseCompact128kV2', 'Compact Phase'],
   ['SmoothPhase128k', 'Smooth Phase']
 ] as const;
 
 export const dsdModulatorOptions = [
   ['Standard', '7th Order'],
-  ['EcDepth2', '7th Order EC'],
-  ['EcBeam', '7th Order Search'],
-  ['EcBeam2', '7th Order Beam']
+  ['EcBeam2', '7th Order Search']
 ] as const;
 
 export const legacyFilterIds = [
+  'SincExtreme32k',
   'Linear',
   'Mixed16k',
   'Perfect',
@@ -145,14 +143,27 @@ export const legacyFilterIds = [
   'Split32k'
 ] as const;
 
+const legacyMinimumFilterIds = [
+  'Minimum16k',
+  'MinimumPhase128k',
+  'MinimumPhase128kV2',
+  'MinimumPhase128kV3',
+  'MinimumPhase128kV4',
+  'MinimumPhaseCompact128k'
+] as const;
+
 const visibleFilterIds = new Set<string>(filterOptions.map(([value]) => value));
 export const knownFilterIds = new Set<string>([
   ...filterOptions.map(([value]) => value),
-  ...legacyFilterIds
+  ...legacyFilterIds,
+  ...legacyMinimumFilterIds
 ]);
 
 export function visibleFilterType(name: unknown) {
   const key = stringValue(name, 'Split128k');
+  if (key === 'SincExtreme32k') return 'LinearPhase128k';
+  if (legacyMinimumFilterIds.includes(key as (typeof legacyMinimumFilterIds)[number]))
+    return 'MinimumPhaseCompact128kV2';
   if (legacyFilterIds.includes(key as (typeof legacyFilterIds)[number])) return 'Split128k';
   if (visibleFilterIds.has(key)) return key;
   return 'Split128k';
@@ -162,23 +173,26 @@ const knownDsdModulatorIds = new Set<string>(dsdModulatorOptions.map(([value]) =
 const defaultHeadroomDb = -4;
 
 export function visibleDsdModulator(name: unknown) {
-  const key = stringValue(name, 'EcDepth2');
+  const key = stringValue(name, 'Standard');
   if (knownDsdModulatorIds.has(key)) return key;
-  if (key === 'EC depth 2') return 'EcDepth2';
-  if (/^(EC ?Beam ?2|ECB2|7th Order Beam|7th Order ECB2(?: \(Experimental\))?)$/i.test(key))
+  if (
+    /^(EC ?Beam ?2|ECB2|7th Order Search|7th Order Beam|7th Order ECB2(?: \(Experimental\))?)$/i.test(
+      key
+    )
+  )
     return 'EcBeam2';
-  if (/^(EC ?Beam|ECB|7th Order ECB|7th Order Search)$/i.test(key)) return 'EcBeam';
-  // Collapse stale persisted EC aliases without exposing them as selectable modes.
-  if (/^EcDepth/i.test(key) || /^EC depth/i.test(key)) return 'EcDepth2';
-  return 'EcDepth2';
+  // Collapse retired EC and EcBeam values to the selectable baseline.
+  return 'Standard';
 }
 
 export function headroomAfterDsdModulatorChange(currentHeadroomDb: number, modulator: string) {
-  return modulator === 'EcBeam' || modulator === 'EcBeam2' ? -2 : currentHeadroomDb;
+  if (modulator === 'Standard') return -4;
+  if (modulator === 'EcBeam2') return -2;
+  return currentHeadroomDb;
 }
 
 export function headroomLockedForDsdModulator(modulator: string) {
-  return modulator === 'EcBeam2';
+  return modulator === 'Standard' || modulator === 'EcBeam2';
 }
 
 export function isiPenaltyAfterDsdModulatorChange(currentIsiPenalty: number, modulator: string) {
@@ -187,7 +201,11 @@ export function isiPenaltyAfterDsdModulatorChange(currentIsiPenalty: number, mod
 
 export function ecBeam2FilterSupported(filterType: unknown) {
   return (
-    filterType === 'Minimum16k' || filterType === 'Split128k' || filterType === 'SmoothPhase128k'
+    filterType === 'Minimum16k' ||
+    filterType === 'LinearPhase128k' ||
+    filterType === 'MinimumPhaseCompact128kV2' ||
+    filterType === 'Split128k' ||
+    filterType === 'SmoothPhase128k'
   );
 }
 
@@ -639,6 +657,7 @@ export function compactFilterName(name: unknown) {
   const overrides: Record<string, string> = {
     Linear: 'Split Phase',
     SincExtreme32k: 'Linear Phase',
+    LinearPhase128k: 'Linear Phase',
     Mixed16k: 'Split Phase',
     Minimum16k: 'Minimum Phase',
     MinimumPhase128k: 'Minimum Phase 128k 1',
@@ -646,7 +665,7 @@ export function compactFilterName(name: unknown) {
     MinimumPhase128kV3: 'Minimum Phase 128k 3',
     MinimumPhase128kV4: 'Minimum Phase 128k 4',
     MinimumPhaseCompact128k: 'Minimum Phase Compact',
-    MinimumPhaseCompact128kV2: 'Compact Phase',
+    MinimumPhaseCompact128kV2: 'Minimum Phase',
     SmoothPhase128k: 'Smooth Phase',
     Perfect: 'Split Phase',
     Split16k: 'Split Phase',

@@ -283,8 +283,7 @@ export function DspSettingsPage({
                   options={dsdModulatorOptions.map(([value, label]) => ({
                     value,
                     label,
-                    disabled: value === 'EcBeam2' && !ecBeam2Selectable,
-                    after: value === 'EcDepth2' ? <FavoriteStarIcon /> : undefined
+                    disabled: value === 'EcBeam2' && !ecBeam2Selectable
                   }))}
                 />
               </div>

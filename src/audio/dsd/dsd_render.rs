@@ -65,7 +65,11 @@ pub const DSD128_EC4A_DITHER_SCALE_MULTIPLIER: f64 = 0.30 * core::f64::consts::S
 pub(crate) fn ecbeam2_filter_supported(filter_type: FilterType) -> bool {
     matches!(
         filter_type,
-        FilterType::Minimum16k | FilterType::Split128k | FilterType::SmoothPhase128k
+        FilterType::LinearPhase128k
+            | FilterType::Minimum16k
+            | FilterType::MinimumPhaseCompact128kV2
+            | FilterType::Split128k
+            | FilterType::SmoothPhase128k
     )
 }
 
@@ -93,7 +97,8 @@ pub fn dsd_source_window_to_modulator_samples(
     // families with a different alignment contract cannot be added silently.
     if !matches!(
         filter_type,
-        FilterType::Minimum16k
+        FilterType::LinearPhase128k
+            | FilterType::Minimum16k
             | FilterType::Split128k
             | FilterType::IntegratedPhase128k
             | FilterType::IntegratedPhase128kV2
@@ -749,7 +754,7 @@ fn select_modulator_coeffs(
     }
     if dsd_modulator == DsdModulator::EcBeam2 {
         if !ecbeam2_filter_supported(filter_type) {
-            return Err("EcBeam2 supports only Minimum16k, Split128k, and SmoothPhase128k filters");
+            return Err("7th Order Search supports only the four selectable 128k filters");
         }
         return ecbeam2_production_policy(dsd_rate)
             .map(|policy| policy.coefficients)
@@ -1615,9 +1620,7 @@ impl DsdRenderer {
                 return Err("EcBeam2 supports DSD64 and DSD128 only");
             }
             if !ecbeam2_filter_supported(filter_type) {
-                return Err(
-                    "EcBeam2 supports only Minimum16k, Split128k, and SmoothPhase128k filters",
-                );
+                return Err("7th Order Search supports only the four selectable 128k filters");
             }
             // EcBeam2's production contract is stricter than the legacy
             // renderer sanitizer: reject negative and non-finite values too,
@@ -2433,10 +2436,13 @@ mod tests {
         let result = DsdRenderer::new(FilterType::SincExtreme32k, 44_100, DsdRate::Dsd128);
         if CALIBRATED {
             let renderer = result.expect("calibrated coefficients should construct");
-            assert_eq!(renderer.coefficient_table_name(), "CRFB7_EC_OSR128");
-            assert_eq!(renderer.coefficient_osr(), CRFB7_EC_OSR128.osr);
-            assert_eq!(renderer.coefficient_obg(), CRFB7_EC_OSR128.obg);
-            assert_eq!(renderer.modulator_input_peak(), CRFB7_EC_OSR128.input_peak);
+            assert_eq!(renderer.coefficient_table_name(), "CRFB7_STANDARD_OSR128");
+            assert_eq!(renderer.coefficient_osr(), CRFB7_STANDARD_OSR128.osr);
+            assert_eq!(renderer.coefficient_obg(), CRFB7_STANDARD_OSR128.obg);
+            assert_eq!(
+                renderer.modulator_input_peak(),
+                CRFB7_STANDARD_OSR128.input_peak
+            );
             assert_eq!(
                 renderer.effective_modulator_seeds(),
                 [DSD_MOD_SEED_LEFT, DSD_MOD_SEED_RIGHT]
@@ -4349,7 +4355,7 @@ mod tests {
         .err();
         assert_eq!(
             error,
-            Some("EcBeam2 supports only Minimum16k, Split128k, and SmoothPhase128k filters")
+            Some("7th Order Search supports only the four selectable 128k filters")
         );
 
         let error = DsdRenderer::new_with_dsd_modulator_and_experiment_tweaks(
