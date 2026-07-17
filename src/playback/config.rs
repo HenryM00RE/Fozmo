@@ -157,7 +157,7 @@ fn validate_ecbeam2_playback_config(
     }
     if !ecbeam2_filter_supported(filter_type) {
         return Err(PlaybackError::bad_request(
-            "EcBeam2 supports only the Minimum16k, Split128k, and SmoothPhase128k filters",
+            "7th Order Search supports only the four selectable 128k filters",
         ));
     }
 
@@ -198,7 +198,7 @@ fn validate_ecbeam2_playback_config(
         })
     {
         return Err(PlaybackError::bad_request(
-            "EcBeam2 requires every enabled DSD rule to use the Minimum16k, Split128k, or SmoothPhase128k filter",
+            "7th Order Search requires every enabled DSD rule to use one of the four selectable 128k filters",
         ));
     }
     Ok(())
@@ -610,6 +610,33 @@ mod tests {
     }
 
     #[test]
+    fn playback_config_persists_linear128k_for_standard() {
+        let state = crate::playback::test_support::app_state("linear128k-standard");
+        let update = PlaybackConfigUpdate {
+            filter_type: "LinearPhase128k".to_string(),
+            target_rate: 0,
+            target_bit_depth: 24,
+            upsampling_enabled: true,
+            exclusive: true,
+            output_mode: Some("Dsd128".to_string()),
+            dsd_modulator: Some("Standard".to_string()),
+            dsd_isi_penalty: 0.0,
+            dsd_rules_enabled: false,
+            dsd_rules: Vec::new(),
+            headroom_db: -4.0,
+            dsp_buffer_ms: 0,
+        };
+
+        update_active_playback_config(&state, update).expect("Linear128k config should update");
+
+        let zone_id = state.zones().active_zone_id();
+        let settings = state.settings().playback_for_zone(&zone_id);
+        assert_eq!(settings.filter_type.as_deref(), Some("LinearPhase128k"));
+        assert_eq!(settings.dsd_modulator.as_deref(), Some("Standard"));
+        assert_eq!(settings.headroom_db, Some(-4.0));
+    }
+
+    #[test]
     fn playback_config_normalizes_retired_ecbeam_to_standard_with_safe_headroom() {
         let state = crate::playback::test_support::app_state("retired-ecbeam");
         let update = PlaybackConfigUpdate {
@@ -687,7 +714,7 @@ mod tests {
     fn playback_config_persists_production_ecbeam2_at_dsd128() {
         let state = crate::playback::test_support::app_state("selectable-ecbeam2-dsd128");
         let update = PlaybackConfigUpdate {
-            filter_type: "Minimum16k".to_string(),
+            filter_type: "MinimumPhaseCompact128kV2".to_string(),
             target_rate: 0,
             target_bit_depth: 24,
             upsampling_enabled: true,
@@ -706,6 +733,10 @@ mod tests {
 
         let zone_id = state.zones().active_zone_id();
         let settings = state.settings().playback_for_zone(&zone_id);
+        assert_eq!(
+            settings.filter_type.as_deref(),
+            Some("MinimumPhaseCompact128kV2")
+        );
         assert_eq!(settings.output_mode.as_deref(), Some("Dsd128"));
         assert_eq!(settings.dsd_modulator.as_deref(), Some("EcBeam2"));
         assert_eq!(settings.dsd_isi_penalty, Some(0.0));
@@ -764,7 +795,7 @@ mod tests {
             update_active_playback_config(&state, update)
                 .expect_err("SincExtreme32k must not be persisted for EcBeam2")
                 .message(),
-            "EcBeam2 supports only the Minimum16k, Split128k, and SmoothPhase128k filters"
+            "7th Order Search supports only the four selectable 128k filters"
         );
     }
 
@@ -776,6 +807,19 @@ mod tests {
                 FilterType::Split128k,
                 true,
                 OutputMode::Dsd64,
+                false,
+                &[],
+                0.0,
+                -2.0,
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_ecbeam2_playback_config(
+                DsdModulator::EcBeam2,
+                FilterType::LinearPhase128k,
+                true,
+                OutputMode::Dsd128,
                 false,
                 &[],
                 0.0,
@@ -822,7 +866,7 @@ mod tests {
             )
             .expect_err("SincExtreme32k must be rejected")
             .message(),
-            "EcBeam2 supports only the Minimum16k, Split128k, and SmoothPhase128k filters"
+            "7th Order Search supports only the four selectable 128k filters"
         );
         assert!(
             validate_ecbeam2_playback_config(
@@ -1022,7 +1066,7 @@ mod tests {
             )
             .expect_err("enabled SincExtreme32k rule must be rejected")
             .message(),
-            "EcBeam2 requires every enabled DSD rule to use the Minimum16k, Split128k, or SmoothPhase128k filter"
+            "7th Order Search requires every enabled DSD rule to use one of the four selectable 128k filters"
         );
         assert!(
             validate_ecbeam2_playback_config(

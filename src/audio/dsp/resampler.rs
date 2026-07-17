@@ -18,6 +18,7 @@ const MINIMUM16K_PRODUCTION_CUTOFF: f64 = 0.467621;
 const MINIMUM16K_PRODUCTION_BETA: f64 = 20.47325;
 const MINIMUM16K_PRODUCTION_TAIL_FADE: f64 = 0.007617;
 const MINIMUM16K_PRODUCTION_MAG_FLOOR_REL: f64 = 1.13771845358e-12;
+const LINEAR128K_TAPS_TOTAL: usize = 131_073;
 const MINIMUM128K_TAPS_TOTAL: usize = 131_071;
 const MINIMUM128K_PROFILE_1_BETA: f64 = MINIMUM16K_PRODUCTION_BETA;
 const MINIMUM128K_PROFILE_2_BETA: f64 = 80.0;
@@ -230,6 +231,7 @@ impl IntegratedPhaseProfile {
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub enum FilterType {
     SincExtreme32k,
+    LinearPhase128k,
     Minimum16k,
     #[serde(
         alias = "Linear",
@@ -269,6 +271,7 @@ impl FilterType {
     pub fn as_id(self) -> u32 {
         match self {
             FilterType::SincExtreme32k => 6,
+            FilterType::LinearPhase128k => 33,
             FilterType::Minimum16k => 15,
             FilterType::Split128k => 21,
             FilterType::IntegratedPhase128k => 22,
@@ -288,6 +291,7 @@ impl FilterType {
     pub fn from_id(id: u32) -> Option<Self> {
         match id {
             6 => Some(FilterType::SincExtreme32k),
+            33 => Some(FilterType::LinearPhase128k),
             15 => Some(FilterType::Minimum16k),
             0 | 2 | 11 | 16 | 17 | 18 | 19 | 20 => Some(FilterType::Split128k),
             21 => Some(FilterType::Split128k),
@@ -309,6 +313,7 @@ impl FilterType {
     pub fn as_name(self) -> &'static str {
         match self {
             FilterType::SincExtreme32k => "SincExtreme32k",
+            FilterType::LinearPhase128k => "LinearPhase128k",
             FilterType::Minimum16k => "Minimum16k",
             FilterType::Split128k => "Split128k",
             FilterType::IntegratedPhase128k => "IntegratedPhase128k",
@@ -328,6 +333,7 @@ impl FilterType {
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "SincExtreme32k" => Some(FilterType::SincExtreme32k),
+            "LinearPhase128k" => Some(FilterType::LinearPhase128k),
             "Minimum16k" => Some(FilterType::Minimum16k),
             "Split128k" | "Split128kTap" | "Split128k-Tap" => Some(FilterType::Split128k),
             "IntegratedPhase128k" | "IntegratedPhase" => Some(FilterType::IntegratedPhase128k),
@@ -353,6 +359,9 @@ impl FilterType {
     fn cutoff(self) -> f64 {
         match self {
             FilterType::SincExtreme32k => 0.454,
+            FilterType::LinearPhase128k => env_f64("FOZMO_LINEAR128K_CUTOFF")
+                .unwrap_or(SPLIT128K_PRODUCTION_CUTOFF)
+                .clamp(0.40, 0.49),
             FilterType::Minimum16k => env_f64("FOZMO_MINIMUM16K_CUTOFF")
                 .unwrap_or(MINIMUM16K_PRODUCTION_CUTOFF)
                 .clamp(0.40, 0.49),
@@ -360,9 +369,10 @@ impl FilterType {
             | FilterType::MinimumPhase128kV2
             | FilterType::MinimumPhase128kV3
             | FilterType::MinimumPhase128kV4 => MINIMUM16K_PRODUCTION_CUTOFF,
-            FilterType::MinimumPhaseCompact128k
-            | FilterType::MinimumPhaseCompact128kV2
-            | FilterType::SmoothPhase128k => MINIMUM_COMPACT_ORIGINAL_PARAMS.stop_edge_2x * 2.0,
+            FilterType::MinimumPhaseCompact128k | FilterType::SmoothPhase128k => {
+                MINIMUM_COMPACT_ORIGINAL_PARAMS.stop_edge_2x * 2.0
+            }
+            FilterType::MinimumPhaseCompact128kV2 => MINIMUM16K_PRODUCTION_CUTOFF,
             FilterType::Split128k => env_f64("FOZMO_SPLIT128K_CUTOFF")
                 .unwrap_or(SPLIT128K_PRODUCTION_CUTOFF)
                 .clamp(0.40, 0.49),
@@ -378,6 +388,9 @@ impl FilterType {
     fn beta(self) -> f64 {
         match self {
             FilterType::SincExtreme32k => 19.5,
+            FilterType::LinearPhase128k => env_f64("FOZMO_LINEAR128K_BETA")
+                .unwrap_or(SPLIT128K_PRODUCTION_BETA)
+                .clamp(8.0, 32.0),
             FilterType::Minimum16k => env_f64("FOZMO_MINIMUM16K_BETA")
                 .unwrap_or(MINIMUM16K_PRODUCTION_BETA)
                 .clamp(8.0, 32.0),
@@ -388,9 +401,10 @@ impl FilterType {
                 .minimum_phase128k_profile()
                 .expect("Minimum Phase 128k filter must have a profile")
                 .beta(),
-            FilterType::MinimumPhaseCompact128k
-            | FilterType::MinimumPhaseCompact128kV2
-            | FilterType::SmoothPhase128k => MINIMUM_COMPACT_CLEANUP_BETA,
+            FilterType::MinimumPhaseCompact128k | FilterType::SmoothPhase128k => {
+                MINIMUM_COMPACT_CLEANUP_BETA
+            }
+            FilterType::MinimumPhaseCompact128kV2 => MINIMUM16K_PRODUCTION_BETA,
             FilterType::Split128k => env_f64("FOZMO_SPLIT128K_BETA")
                 .unwrap_or(SPLIT128K_PRODUCTION_BETA)
                 .clamp(8.0, 32.0),
@@ -405,9 +419,7 @@ impl FilterType {
 
     fn character_beta(self) -> Option<f64> {
         match self {
-            Self::MinimumPhaseCompact128k
-            | Self::MinimumPhaseCompact128kV2
-            | Self::SmoothPhase128k => None,
+            Self::MinimumPhaseCompact128k | Self::SmoothPhase128k => None,
             _ => Some(self.beta()),
         }
     }
@@ -432,7 +444,8 @@ impl FilterType {
     fn requires_phase_aware_kernel(self) -> bool {
         matches!(
             self,
-            Self::Minimum16k
+            Self::LinearPhase128k
+                | Self::Minimum16k
                 | Self::Split128k
                 | Self::IntegratedPhase128k
                 | Self::IntegratedPhase128kV2
@@ -486,7 +499,6 @@ impl FilterType {
     fn minimum_compact_profile(self) -> Option<MinimumCompactProfile> {
         match self {
             Self::MinimumPhaseCompact128k => Some(MinimumCompactProfile::Original),
-            Self::MinimumPhaseCompact128kV2 => Some(MinimumCompactProfile::Balanced),
             Self::SmoothPhase128k => Some(MinimumCompactProfile::Smooth),
             _ => None,
         }
@@ -1183,11 +1195,13 @@ fn first_stage_spec(family: FilterType) -> StageSpec {
         FilterType::MinimumPhaseCompact128k
         | FilterType::MinimumPhaseCompact128kV2
         | FilterType::SmoothPhase128k => MINIMUM_COMPACT_BRANCH_TAPS,
+        FilterType::LinearPhase128k => LINEAR128K_TAPS_TOTAL,
         FilterType::SincExtreme32k => 32769,
         FilterType::Minimum16k => 16_385,
     };
     let engine = match family {
-        FilterType::Minimum16k
+        FilterType::LinearPhase128k
+        | FilterType::Minimum16k
         | FilterType::Split128k
         | FilterType::IntegratedPhase128k
         | FilterType::IntegratedPhase128kV2
@@ -1236,15 +1250,18 @@ fn phase_mode_for_filter(family: FilterType) -> PhaseMode {
                 .minimum_phase128k_profile()
                 .expect("Minimum Phase 128k filter must have a profile"),
         ),
-        filter @ (FilterType::MinimumPhaseCompact128k
-        | FilterType::MinimumPhaseCompact128kV2
-        | FilterType::SmoothPhase128k) => PhaseMode::MinimumPhaseCompact128k(
-            filter
-                .minimum_compact_profile()
-                .expect("Minimum Phase Compact filter must have a profile"),
-        ),
+        FilterType::MinimumPhaseCompact128kV2 => {
+            PhaseMode::MinimumPhase128k(MinimumPhase128kProfile::One)
+        }
+        filter @ (FilterType::MinimumPhaseCompact128k | FilterType::SmoothPhase128k) => {
+            PhaseMode::MinimumPhaseCompact128k(
+                filter
+                    .minimum_compact_profile()
+                    .expect("Minimum Phase Compact filter must have a profile"),
+            )
+        }
         FilterType::Minimum16k => PhaseMode::Minimum,
-        FilterType::SincExtreme32k => PhaseMode::Linear,
+        FilterType::SincExtreme32k | FilterType::LinearPhase128k => PhaseMode::Linear,
     }
 }
 
@@ -1254,7 +1271,8 @@ fn cleanup_stage_spec(stage_idx: usize, family: FilterType) -> StageSpec {
     // kernel is plenty. Keeping the count ≤ MAX_SIMD_DIRECT_TAPS (257) lets
     // the AVX2/FMA direct path stay engaged for every late stage.
     let taps_total = match family {
-        FilterType::Minimum16k
+        FilterType::LinearPhase128k
+        | FilterType::Minimum16k
         | FilterType::Split128k
         | FilterType::IntegratedPhase128k
         | FilterType::IntegratedPhase128kV2
@@ -2397,6 +2415,7 @@ impl PolyphaseResampler {
     fn base_half_width(filter_type: FilterType) -> usize {
         match filter_type {
             FilterType::SincExtreme32k
+            | FilterType::LinearPhase128k
             | FilterType::Minimum16k
             | FilterType::Split128k
             | FilterType::IntegratedPhase128k

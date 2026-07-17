@@ -35,12 +35,24 @@ fn main() {
             filter: FilterType::SincExtreme32k,
         },
         BenchCase {
+            name: "LinearPhase128k",
+            filter: FilterType::LinearPhase128k,
+        },
+        BenchCase {
             name: "Minimum16k",
             filter: FilterType::Minimum16k,
         },
         BenchCase {
+            name: "MinimumPhase128k",
+            filter: FilterType::MinimumPhaseCompact128kV2,
+        },
+        BenchCase {
             name: "Split128k",
             filter: FilterType::Split128k,
+        },
+        BenchCase {
+            name: "SmoothPhase128k",
+            filter: FilterType::SmoothPhase128k,
         },
         BenchCase {
             name: "IntegratedPhase1",

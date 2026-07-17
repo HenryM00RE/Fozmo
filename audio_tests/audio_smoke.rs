@@ -39,7 +39,9 @@ fn production_modulators_render_native_dsd() {
 #[test]
 fn ecbeam2_renders_every_supported_filter_and_rate() {
     for filter in [
+        FilterType::LinearPhase128k,
         FilterType::Minimum16k,
+        FilterType::MinimumPhaseCompact128kV2,
         FilterType::Split128k,
         FilterType::SmoothPhase128k,
     ] {
@@ -52,6 +54,16 @@ fn ecbeam2_renders_every_supported_filter_and_rate() {
                 "{filter:?} {rate:?} channel lengths"
             );
         }
+    }
+}
+
+#[test]
+fn linear128k_renders_every_selectable_modulator() {
+    for modulator in [DsdModulator::Standard, DsdModulator::EcBeam2] {
+        let (left, right) =
+            render_native_bits(modulator, FilterType::LinearPhase128k, DsdRate::Dsd128);
+        assert!(!left.is_empty());
+        assert_eq!(left.len(), right.len());
     }
 }
 

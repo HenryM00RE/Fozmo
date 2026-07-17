@@ -202,7 +202,7 @@ export function useDspSettings(
         source_rate: sourceRate,
         filter_type: knownFilterIds.has(migratedFilterType)
           ? migratedFilterType
-          : fallback?.filter_type || 'Minimum16k',
+          : fallback?.filter_type || 'MinimumPhaseCompact128kV2',
         output_mode: outputMode
       };
     });
