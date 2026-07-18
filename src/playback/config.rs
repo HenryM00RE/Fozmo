@@ -830,6 +830,19 @@ mod tests {
         assert!(
             validate_ecbeam2_playback_config(
                 DsdModulator::EcBeam2,
+                FilterType::SplitPhase128kV4,
+                true,
+                OutputMode::Dsd64,
+                false,
+                &[],
+                0.0,
+                -2.0,
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_ecbeam2_playback_config(
+                DsdModulator::EcBeam2,
                 FilterType::LinearPhase128k,
                 true,
                 OutputMode::Dsd128,

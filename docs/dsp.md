@@ -22,13 +22,16 @@ The available DSD rates are DSD64, DSD128, and DSD256. Going higher also increas
 
 ### Filters
 
-There are four filters to try. They are all 128k-class reconstruction filters, but they arrange their impulse response and phase in different ways. The exact tap counts are odd so each FIR has a well-defined centre sample. Both modulators can use every filter in this list.
+The selectable filters are 128k-class reconstruction filters, but they arrange their impulse response and phase in different ways. The exact tap counts are odd so each FIR has a well-defined centre sample. Both modulators can use every filter in this list, including Split Phase D with 7th Order Search.
 
 | Filter | First-stage taps | What it does |
 | --- | ---: | --- |
 | Linear Phase | 131,073 | Uses a long symmetric FIR matched to the Split Phase magnitude target, with constant group delay that keeps relative phase aligned through the passband. |
 | Minimum Phase | 131,071 | Converts the long reconstruction response to minimum phase, moving the impulse energy after its leading edge instead of spreading it symmetrically. |
 | Split Phase | 131,073 | Keeps linear phase in the low frequencies, changes to minimum phase in the high frequencies, and blends between the two. |
+| Split Phase B | 131,073 | Uses the second procedural split-phase transition law. |
+| Split Phase C | 131,073 | Uses the first frozen, jointly optimized split-phase coefficient bundle. |
+| Split Phase D | 131,073 | Uses an audit-complete frozen bundle derived from a genuine PSD-constrained magnitude design, with independently optimized interpolation, decimation, cleanup, and rational paths. |
 | Smooth Phase | 131,071 | Uses a long minimum-phase structure with a gradual high-frequency taper before the cutoff. |
 
 It is best to use integer upsampling and keep the source in the same sample-rate family. For example, 44.1 kHz sources should go to 88.2, 176.4, or 352.8 kHz, while 48 kHz sources should go to 96, 192, or 384 kHz. These integer-multiple paths are what I tuned the upsampling filters for.

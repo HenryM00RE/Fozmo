@@ -104,17 +104,16 @@ const SPLIT128K_PRODUCTION_TAIL_FADE: f64 = 0.005621;
 /// points, so the reconstruction uses heavy FFT padding.
 const SPLIT_PHASE_FFT_MULTIPLIER: usize = 32;
 const SPLIT_PHASE_V3_CHARACTER_COEFFICIENTS: usize = 262_145;
-const SPLIT_PHASE_V3_CLEANUP_COEFFICIENTS: usize = 509 + 253 + 125 + 61 * 4;
 const SPLIT_PHASE_V3_RATIONAL_147_160_COEFFICIENTS: usize = 160 * (2 * 512 + 1);
 const SPLIT_PHASE_V3_RATIONAL_160_147_COEFFICIENTS: usize = 147 * (2 * 1024 + 1);
-const SPLIT_PHASE_V3_TOTAL_ASSET_COEFFICIENTS: usize = SPLIT_PHASE_V3_CHARACTER_COEFFICIENTS
-    + SPLIT_PHASE_V3_CLEANUP_COEFFICIENTS
-    + SPLIT_PHASE_V3_RATIONAL_147_160_COEFFICIENTS
-    + SPLIT_PHASE_V3_RATIONAL_160_147_COEFFICIENTS;
 const SPLIT_PHASE_V3_FULL_RATE_ORIGIN: usize = 6_280;
 const SPLIT_PHASE_V3_PHASE0_PREPAD: usize = 127_932;
 const SPLIT_PHASE_V3_PHASE1_PREPAD: usize = 127_932;
 const SPLIT_PHASE_V3_DECIMATION_PREPAD: usize = 255_864;
+include!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/assets/filters/split_phase_v4/generated.rs"
+));
 const INTEGRATED128K_TAPS_TOTAL: usize = 131_071;
 const INTEGRATED128K_PRODUCTION_CUTOFF: f64 = 0.468_750;
 const INTEGRATED128K_PRODUCTION_BETA: f64 = 22.400;
@@ -276,6 +275,7 @@ pub enum FilterType {
     Split128k,
     Split128kV2,
     SplitPhase128kV3,
+    SplitPhase128kV4,
     IntegratedPhase128k,
     IntegratedPhase128kV2,
     IntegratedPhase128kV3,
@@ -302,6 +302,7 @@ impl FilterType {
             FilterType::Split128k => 21,
             FilterType::Split128kV2 => 34,
             FilterType::SplitPhase128kV3 => 35,
+            FilterType::SplitPhase128kV4 => 36,
             FilterType::IntegratedPhase128k => 22,
             FilterType::IntegratedPhase128kV2 => 23,
             FilterType::IntegratedPhase128kV3 => 24,
@@ -325,6 +326,7 @@ impl FilterType {
             21 => Some(FilterType::Split128k),
             34 => Some(FilterType::Split128kV2),
             35 => Some(FilterType::SplitPhase128kV3),
+            36 => Some(FilterType::SplitPhase128kV4),
             22 => Some(FilterType::IntegratedPhase128k),
             23 => Some(FilterType::IntegratedPhase128kV2),
             24 => Some(FilterType::IntegratedPhase128kV3),
@@ -348,6 +350,7 @@ impl FilterType {
             FilterType::Split128k => "Split128k",
             FilterType::Split128kV2 => "Split128kV2",
             FilterType::SplitPhase128kV3 => "SplitPhase128kV3",
+            FilterType::SplitPhase128kV4 => "SplitPhase128kV4",
             FilterType::IntegratedPhase128k => "IntegratedPhase128k",
             FilterType::IntegratedPhase128kV2 => "IntegratedPhase128kV2",
             FilterType::IntegratedPhase128kV3 => "IntegratedPhase128kV3",
@@ -370,6 +373,7 @@ impl FilterType {
             "Split128k" | "Split128kTap" | "Split128k-Tap" => Some(FilterType::Split128k),
             "Split128kV2" => Some(FilterType::Split128kV2),
             "SplitPhase128kV3" | "Split128kV3" => Some(FilterType::SplitPhase128kV3),
+            "SplitPhase128kV4" | "Split128kV4" => Some(FilterType::SplitPhase128kV4),
             "IntegratedPhase128k" | "IntegratedPhase" => Some(FilterType::IntegratedPhase128k),
             "IntegratedPhase128kV2" => Some(FilterType::IntegratedPhase128kV2),
             "IntegratedPhase128kV3" => Some(FilterType::IntegratedPhase128kV3),
@@ -410,7 +414,7 @@ impl FilterType {
             FilterType::Split128k | FilterType::Split128kV2 => env_f64("FOZMO_SPLIT128K_CUTOFF")
                 .unwrap_or(SPLIT128K_PRODUCTION_CUTOFF)
                 .clamp(0.40, 0.49),
-            FilterType::SplitPhase128kV3 => 0.0,
+            FilterType::SplitPhase128kV3 | FilterType::SplitPhase128kV4 => 0.0,
             FilterType::IntegratedPhase128k
             | FilterType::IntegratedPhase128kV2
             | FilterType::IntegratedPhase128kV3
@@ -443,7 +447,7 @@ impl FilterType {
             FilterType::Split128k | FilterType::Split128kV2 => env_f64("FOZMO_SPLIT128K_BETA")
                 .unwrap_or(SPLIT128K_PRODUCTION_BETA)
                 .clamp(8.0, 32.0),
-            FilterType::SplitPhase128kV3 => 0.0,
+            FilterType::SplitPhase128kV3 | FilterType::SplitPhase128kV4 => 0.0,
             FilterType::IntegratedPhase128k
             | FilterType::IntegratedPhase128kV2
             | FilterType::IntegratedPhase128kV3
@@ -485,6 +489,7 @@ impl FilterType {
                 | Self::Split128k
                 | Self::Split128kV2
                 | Self::SplitPhase128kV3
+                | Self::SplitPhase128kV4
                 | Self::IntegratedPhase128k
                 | Self::IntegratedPhase128kV2
                 | Self::IntegratedPhase128kV3
@@ -509,11 +514,20 @@ impl FilterType {
             Self::Split128k
                 | Self::Split128kV2
                 | Self::SplitPhase128kV3
+                | Self::SplitPhase128kV4
                 | Self::IntegratedPhase128k
                 | Self::IntegratedPhase128kV2
                 | Self::IntegratedPhase128kV3
                 | Self::IntegratedPhase128kV4
         )
+    }
+
+    fn frozen_filter_version(self) -> Option<FrozenFilterVersion> {
+        match self {
+            Self::SplitPhase128kV3 => Some(FrozenFilterVersion::V3),
+            Self::SplitPhase128kV4 => Some(FrozenFilterVersion::V4),
+            _ => None,
+        }
     }
 
     pub(crate) fn integrated_phase_profile(self) -> Option<IntegratedPhaseProfile> {
@@ -594,21 +608,30 @@ pub enum PhaseMode {
     /// Split Phase V2: increment-domain C3 phase blend using the exact
     /// cepstral minimum-phase spectrum.
     SplitPhase128kV2,
-    /// Frozen finite-support joint-polyphase production asset.
-    SplitPhase128kV3,
+    /// Frozen finite-support jointly optimized production asset.
+    FrozenSplitPhase(FrozenFilterVersion),
     IntegratedPhase128k(IntegratedPhaseProfile),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrozenFilterVersion {
+    V3,
+    V4,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CharacterCoefficientSource {
     Procedural,
-    SplitPhaseV3,
+    Frozen(FrozenFilterVersion),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CleanupCoefficientSource {
     Procedural,
-    SplitPhaseV3 { stage_index: u8 },
+    Frozen {
+        version: FrozenFilterVersion,
+        stage_index: u8,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -664,9 +687,12 @@ impl StageSpec {
         let group_delay = match self {
             StageSpec::CleanupHalfband2x { .. } => linear_group_delay,
             StageSpec::Character2x {
-                coefficient_source: CharacterCoefficientSource::SplitPhaseV3,
+                coefficient_source: CharacterCoefficientSource::Frozen(version),
                 ..
-            } => SPLIT_PHASE_V3_FULL_RATE_ORIGIN.div_ceil(2),
+            } => frozen_filter_assets(*version)
+                .alignment
+                .full_rate_origin
+                .div_ceil(2),
             StageSpec::Character2x { phase_mode, .. } => match phase_mode {
                 PhaseMode::Linear => linear_group_delay,
                 PhaseMode::Minimum
@@ -677,8 +703,8 @@ impl StageSpec {
                 // the pipeline. Its small residual low-band delay is filter
                 // character, as it is for pure minimum phase.
                 PhaseMode::SplitPhase128k | PhaseMode::SplitPhase128kV2 => 0,
-                PhaseMode::SplitPhase128kV3 => {
-                    unreachable!("V3 latency uses its exported alignment contract")
+                PhaseMode::FrozenSplitPhase(_) => {
+                    unreachable!("frozen split-phase latency uses its exported alignment contract")
                 }
                 PhaseMode::IntegratedPhase128k(_) => 0,
             },
@@ -840,12 +866,12 @@ impl SincResampler {
                         if warn_on_capped_polyphase
                             && filter_type.requires_phase_aware_kernel()
                             && (phase_den > MAX_PHASE_AWARE_RATIONAL_PHASE_DEN
-                                || (filter_type == FilterType::SplitPhase128kV3
-                                    && !split_phase_v3_rational_asset_supported(
+                                || (filter_type.frozen_filter_version().is_some()
+                                    && !frozen_rational_asset_supported(
                                         step_num, phase_den,
                                     )))
                         {
-                            if filter_type == FilterType::SplitPhase128kV3 {
+                            if filter_type.frozen_filter_version().is_some() {
                                 eprintln!(
                                     "resampler: {} has no frozen table for exact ratio {} -> {}; using a generic linear-phase rational kernel",
                                     filter_type.as_name(), source_rate, target_rate
@@ -941,8 +967,8 @@ impl SincResampler {
         let phase_profile_preserved = match path_kind {
             ResamplerPathKind::IntegerCascade | ResamplerPathKind::DownsampleChain => true,
             ResamplerPathKind::ExactRational => {
-                if self.filter_type == FilterType::SplitPhase128kV3 {
-                    split_phase_v3_rational_asset_supported(ratio_num as usize, ratio_den as usize)
+                if self.filter_type.frozen_filter_version().is_some() {
+                    frozen_rational_asset_supported(ratio_num as usize, ratio_den as usize)
                 } else {
                     !self.filter_type.requires_phase_aware_kernel()
                         || ratio_den as usize <= MAX_PHASE_AWARE_RATIONAL_PHASE_DEN
@@ -1244,7 +1270,7 @@ fn reduced_ratio(source_rate: u32, target_rate: u32) -> (u32, u32) {
     (source_rate / gcd, target_rate / gcd)
 }
 
-fn split_phase_v3_rational_asset_supported(step_num: usize, phase_den: usize) -> bool {
+fn frozen_rational_asset_supported(step_num: usize, phase_den: usize) -> bool {
     matches!((step_num, phase_den), (147, 160) | (160, 147))
 }
 
@@ -1268,7 +1294,10 @@ fn gcd_u32(mut a: u32, mut b: u32) -> u32 {
 
 fn first_stage_spec(family: FilterType) -> StageSpec {
     let taps_total = match family {
-        FilterType::Split128k | FilterType::Split128kV2 | FilterType::SplitPhase128kV3 => 131_073,
+        FilterType::Split128k
+        | FilterType::Split128kV2
+        | FilterType::SplitPhase128kV3
+        | FilterType::SplitPhase128kV4 => 131_073,
         FilterType::IntegratedPhase128k
         | FilterType::IntegratedPhase128kV2
         | FilterType::IntegratedPhase128kV3
@@ -1290,6 +1319,7 @@ fn first_stage_spec(family: FilterType) -> StageSpec {
         | FilterType::Split128k
         | FilterType::Split128kV2
         | FilterType::SplitPhase128kV3
+        | FilterType::SplitPhase128kV4
         | FilterType::IntegratedPhase128k
         | FilterType::IntegratedPhase128kV2
         | FilterType::IntegratedPhase128kV3
@@ -1307,11 +1337,10 @@ fn first_stage_spec(family: FilterType) -> StageSpec {
             partition_frames: 2048,
         },
     };
-    let coefficient_source = if family == FilterType::SplitPhase128kV3 {
-        CharacterCoefficientSource::SplitPhaseV3
-    } else {
-        CharacterCoefficientSource::Procedural
-    };
+    let coefficient_source = family
+        .frozen_filter_version()
+        .map(CharacterCoefficientSource::Frozen)
+        .unwrap_or(CharacterCoefficientSource::Procedural);
     StageSpec::Character2x {
         taps_total,
         cutoff: if coefficient_source == CharacterCoefficientSource::Procedural {
@@ -1336,7 +1365,8 @@ fn phase_mode_for_filter(family: FilterType) -> PhaseMode {
     match family {
         FilterType::Split128k => PhaseMode::SplitPhase128k,
         FilterType::Split128kV2 => PhaseMode::SplitPhase128kV2,
-        FilterType::SplitPhase128kV3 => PhaseMode::SplitPhase128kV3,
+        FilterType::SplitPhase128kV3 => PhaseMode::FrozenSplitPhase(FrozenFilterVersion::V3),
+        FilterType::SplitPhase128kV4 => PhaseMode::FrozenSplitPhase(FrozenFilterVersion::V4),
         filter @ (FilterType::IntegratedPhase128k
         | FilterType::IntegratedPhase128kV2
         | FilterType::IntegratedPhase128kV3
@@ -1379,6 +1409,7 @@ fn cleanup_stage_spec(stage_idx: usize, family: FilterType) -> StageSpec {
         | FilterType::Split128k
         | FilterType::Split128kV2
         | FilterType::SplitPhase128kV3
+        | FilterType::SplitPhase128kV4
         | FilterType::IntegratedPhase128k
         | FilterType::IntegratedPhase128kV2
         | FilterType::IntegratedPhase128kV3
@@ -1404,7 +1435,7 @@ fn cleanup_stage_spec(stage_idx: usize, family: FilterType) -> StageSpec {
     };
     StageSpec::CleanupHalfband2x {
         taps_total,
-        beta: if family == FilterType::SplitPhase128kV3 {
+        beta: if family.frozen_filter_version().is_some() {
             0.0
         } else {
             family.cleanup_beta()
@@ -1414,8 +1445,9 @@ fn cleanup_stage_spec(stage_idx: usize, family: FilterType) -> StageSpec {
         // can take the true-halfband structure (even branch an exact delay).
         cutoff: 0.5,
         engine: EngineKind::DirectSimd,
-        coefficient_source: if family == FilterType::SplitPhase128kV3 {
-            CleanupCoefficientSource::SplitPhaseV3 {
+        coefficient_source: if let Some(version) = family.frozen_filter_version() {
+            CleanupCoefficientSource::Frozen {
+                version,
                 stage_index: stage_idx as u8,
             }
         } else {
@@ -1449,19 +1481,16 @@ fn estimate_plan_memory_bytes(stages: &[StageSpec]) -> usize {
             coeff_bytes + fft_bytes
         })
         .sum();
-    let frozen_asset_bytes = if stages.iter().any(|stage| {
-        matches!(
-            stage,
+    let frozen_asset_bytes = stages
+        .iter()
+        .find_map(|stage| match stage {
             StageSpec::Character2x {
-                coefficient_source: CharacterCoefficientSource::SplitPhaseV3,
+                coefficient_source: CharacterCoefficientSource::Frozen(version),
                 ..
-            }
-        )
-    }) {
-        SPLIT_PHASE_V3_TOTAL_ASSET_COEFFICIENTS * size_of::<f64>()
-    } else {
-        0
-    };
+            } => Some(frozen_total_asset_coefficients(*version) * size_of::<f64>()),
+            _ => None,
+        })
+        .unwrap_or(0);
     engine_bytes + frozen_asset_bytes
 }
 
@@ -1939,8 +1968,8 @@ impl TwoXStage {
                     CharacterCoefficientSource::Procedural => {
                         build_character_polyphase_pair(half_width, *beta, *cutoff, *phase_mode)
                     }
-                    CharacterCoefficientSource::SplitPhaseV3 => {
-                        split_phase_v3_character_polyphase_pair()
+                    CharacterCoefficientSource::Frozen(version) => {
+                        frozen_character_polyphase_pair(*version)
                     }
                 };
                 (
@@ -1961,9 +1990,10 @@ impl TwoXStage {
                     CleanupCoefficientSource::Procedural => {
                         build_phase_coefficients(half_width, 0.5, *beta, *cutoff)
                     }
-                    CleanupCoefficientSource::SplitPhaseV3 { stage_index } => {
-                        split_phase_v3_cleanup_odd_branch(*stage_index)
-                    }
+                    CleanupCoefficientSource::Frozen {
+                        version,
+                        stage_index,
+                    } => frozen_cleanup_odd_branch(*version, *stage_index),
                 };
                 (None, build_engine(phase1_coeffs, *engine), half_width)
             }
@@ -2194,8 +2224,8 @@ impl DownsampleChain {
             .iter()
             .map(DownsampleStep::estimated_memory_bytes)
             .sum();
-        if filter_type == FilterType::SplitPhase128kV3 {
-            estimated_memory_bytes += SPLIT_PHASE_V3_TOTAL_ASSET_COEFFICIENTS * size_of::<f64>();
+        if let Some(version) = filter_type.frozen_filter_version() {
+            estimated_memory_bytes += frozen_total_asset_coefficients(version) * size_of::<f64>();
         }
         let high_latency = filter_type.is_high_latency() || latency_ms > DEFAULT_LATENCY_BUDGET_MS;
 
@@ -2454,28 +2484,30 @@ impl DecimateBy2Stage {
 }
 
 fn build_decimation_coefficients(spec: &StageSpec) -> (Vec<f64>, usize) {
-    if matches!(
-        spec,
-        StageSpec::Character2x {
-            coefficient_source: CharacterCoefficientSource::SplitPhaseV3,
-            ..
-        }
-    ) {
-        let assets = split_phase_v3_assets();
-        let mut impulse = assets.character.to_vec();
-        impulse.reverse();
-        return (impulse, assets.decimation_prepad);
-    }
-    if let StageSpec::CleanupHalfband2x {
-        coefficient_source: CleanupCoefficientSource::SplitPhaseV3 { stage_index },
+    if let StageSpec::Character2x {
+        coefficient_source: CharacterCoefficientSource::Frozen(version),
         ..
     } = spec
     {
-        let assets = split_phase_v3_assets();
+        let assets = frozen_filter_assets(*version);
+        let mut impulse = assets.character.to_vec();
+        impulse.reverse();
+        return (impulse, assets.alignment.decimation_prepad);
+    }
+    if let StageSpec::CleanupHalfband2x {
+        coefficient_source:
+            CleanupCoefficientSource::Frozen {
+                version,
+                stage_index,
+            },
+        ..
+    } = spec
+    {
+        let assets = frozen_filter_assets(*version);
         let mut impulse = assets
             .cleanups
             .get(usize::from(*stage_index).saturating_sub(1))
-            .unwrap_or_else(|| panic!("invalid Split Phase V3 cleanup stage {stage_index}"))
+            .unwrap_or_else(|| panic!("invalid frozen split-phase cleanup stage {stage_index}"))
             .to_vec();
         impulse.reverse();
         let prepad = impulse.len() / 2;
@@ -2511,8 +2543,8 @@ fn build_decimation_coefficients(spec: &StageSpec) -> (Vec<f64>, usize) {
                         PhaseMode::SplitPhase128kV2 => {
                             split_phase_v2_impulse_with_params(&proto, split128k_phase_params())
                         }
-                        PhaseMode::SplitPhase128kV3 => {
-                            unreachable!("Split Phase V3 bypasses procedural generation")
+                        PhaseMode::FrozenSplitPhase(_) => {
+                            unreachable!("frozen split phase bypasses procedural generation")
                         }
                         PhaseMode::IntegratedPhase128k(profile) => {
                             integrated_phase_impulse_with_params(
@@ -2612,6 +2644,7 @@ impl PolyphaseResampler {
             | FilterType::Split128k
             | FilterType::Split128kV2
             | FilterType::SplitPhase128kV3
+            | FilterType::SplitPhase128kV4
             | FilterType::IntegratedPhase128k
             | FilterType::IntegratedPhase128kV2
             | FilterType::IntegratedPhase128kV3
@@ -2660,7 +2693,7 @@ impl PolyphaseResampler {
         // grid, so scale the normalized cutoff by target/source (e.g. 192k ->
         // 176.4k with a 0.48 cutoff becomes 0.441, keeping 84.7-92.2 kHz
         // source content from folding back below 88.2 kHz).
-        let (base_cutoff, beta) = if self.filter_type == FilterType::SplitPhase128kV3 {
+        let (base_cutoff, beta) = if self.filter_type.frozen_filter_version().is_some() {
             // Unsupported capped paths are intentionally generic linear phase;
             // they do not read V1/V2 tuning environment variables.
             (SPLIT128K_PRODUCTION_CUTOFF, SPLIT128K_PRODUCTION_BETA)
@@ -2813,10 +2846,10 @@ impl RationalPolyphaseResampler {
     }
 
     fn estimated_memory_bytes(&self) -> usize {
-        let coefficient_bytes = if self.filter_type == FilterType::SplitPhase128kV3
-            && split_phase_v3_rational_asset_supported(self.step_num, self.phase_den)
+        let coefficient_bytes = if let Some(version) = self.filter_type.frozen_filter_version()
+            && frozen_rational_asset_supported(self.step_num, self.phase_den)
         {
-            SPLIT_PHASE_V3_TOTAL_ASSET_COEFFICIENTS * size_of::<f64>()
+            frozen_total_asset_coefficients(version) * size_of::<f64>()
         } else {
             self.coefficients.len() * size_of::<f64>()
         };
@@ -2824,15 +2857,16 @@ impl RationalPolyphaseResampler {
     }
 
     fn precompute_coefficients(&mut self) {
-        if self.filter_type == FilterType::SplitPhase128kV3 {
+        if let Some(version) = self.filter_type.frozen_filter_version() {
+            let assets = frozen_filter_assets(version);
             self.coefficients = match (self.step_num, self.phase_den) {
                 (147, 160) => {
                     debug_assert_eq!(self.half_width, 512);
-                    split_phase_v3_assets().rational_147_160.clone()
+                    assets.rational_tables.phase_147_160.clone()
                 }
                 (160, 147) => {
                     debug_assert_eq!(self.half_width, 1_024);
-                    split_phase_v3_assets().rational_160_147.clone()
+                    assets.rational_tables.phase_160_147.clone()
                 }
                 _ => build_exact_polyphase_coefficient_table_for_filter(
                     self.filter_type,
@@ -3004,8 +3038,8 @@ fn build_character_polyphase_pair(
             let prepad1 = Some(prepad_for_global_origin(phase1.len(), origin, 1));
             (phase0, phase1, prepad0, prepad1)
         }
-        PhaseMode::SplitPhase128kV3 => {
-            unreachable!("Split Phase V3 bypasses procedural character generation")
+        PhaseMode::FrozenSplitPhase(_) => {
+            unreachable!("frozen split phase bypasses procedural character generation")
         }
         PhaseMode::IntegratedPhase128k(profile) => {
             let proto = build_full_rate_2x_prototype(half_width, beta, cutoff);
@@ -3585,20 +3619,29 @@ fn decode_f64le_asset(bytes: &[u8], expected_coefficients: usize, label: &str) -
         .into()
 }
 
-struct SplitPhaseV3Assets {
-    character: Arc<[f64]>,
-    cleanups: [Arc<[f64]>; 7],
-    rational_147_160: Arc<[f64]>,
-    rational_160_147: Arc<[f64]>,
-    origin: usize,
+#[derive(Clone, Copy)]
+struct FrozenAlignment {
+    full_rate_origin: usize,
     phase0_prepad: usize,
     phase1_prepad: usize,
     decimation_prepad: usize,
 }
 
-fn split_phase_v3_assets() -> &'static SplitPhaseV3Assets {
-    static ASSETS: OnceLock<SplitPhaseV3Assets> = OnceLock::new();
-    ASSETS.get_or_init(|| SplitPhaseV3Assets {
+struct FrozenRationalTables {
+    phase_147_160: Arc<[f64]>,
+    phase_160_147: Arc<[f64]>,
+}
+
+struct FrozenFilterAssetBundle {
+    character: Arc<[f64]>,
+    cleanups: [Arc<[f64]>; 7],
+    rational_tables: FrozenRationalTables,
+    alignment: FrozenAlignment,
+}
+
+fn split_phase_v3_assets() -> &'static FrozenFilterAssetBundle {
+    static ASSETS: OnceLock<FrozenFilterAssetBundle> = OnceLock::new();
+    ASSETS.get_or_init(|| FrozenFilterAssetBundle {
         character: decode_f64le_asset(
             include_bytes!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
@@ -3665,32 +3708,152 @@ fn split_phase_v3_assets() -> &'static SplitPhaseV3Assets {
                 "Split Phase V3 cleanup stage 7",
             ),
         ],
-        rational_147_160: decode_f64le_asset(
-            include_bytes!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/assets/filters/split_phase_v3/rational_147_160.f64le"
-            )),
-            SPLIT_PHASE_V3_RATIONAL_147_160_COEFFICIENTS,
-            "Split Phase V3 rational 147/160",
-        ),
-        rational_160_147: decode_f64le_asset(
-            include_bytes!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/assets/filters/split_phase_v3/rational_160_147.f64le"
-            )),
-            SPLIT_PHASE_V3_RATIONAL_160_147_COEFFICIENTS,
-            "Split Phase V3 rational 160/147",
-        ),
-        origin: SPLIT_PHASE_V3_FULL_RATE_ORIGIN,
-        phase0_prepad: SPLIT_PHASE_V3_PHASE0_PREPAD,
-        phase1_prepad: SPLIT_PHASE_V3_PHASE1_PREPAD,
-        decimation_prepad: SPLIT_PHASE_V3_DECIMATION_PREPAD,
+        rational_tables: FrozenRationalTables {
+            phase_147_160: decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_v3/rational_147_160.f64le"
+                )),
+                SPLIT_PHASE_V3_RATIONAL_147_160_COEFFICIENTS,
+                "Split Phase V3 rational 147/160",
+            ),
+            phase_160_147: decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_v3/rational_160_147.f64le"
+                )),
+                SPLIT_PHASE_V3_RATIONAL_160_147_COEFFICIENTS,
+                "Split Phase V3 rational 160/147",
+            ),
+        },
+        alignment: FrozenAlignment {
+            full_rate_origin: SPLIT_PHASE_V3_FULL_RATE_ORIGIN,
+            phase0_prepad: SPLIT_PHASE_V3_PHASE0_PREPAD,
+            phase1_prepad: SPLIT_PHASE_V3_PHASE1_PREPAD,
+            decimation_prepad: SPLIT_PHASE_V3_DECIMATION_PREPAD,
+        },
     })
 }
 
-fn split_phase_v3_character_polyphase_pair() -> (Vec<f64>, Vec<f64>, Option<usize>, Option<usize>) {
-    let assets = split_phase_v3_assets();
-    debug_assert_eq!(assets.origin, SPLIT_PHASE_V3_FULL_RATE_ORIGIN);
+fn split_phase_v4_assets() -> &'static FrozenFilterAssetBundle {
+    static ASSETS: OnceLock<FrozenFilterAssetBundle> = OnceLock::new();
+    ASSETS.get_or_init(|| FrozenFilterAssetBundle {
+        character: decode_f64le_asset(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/assets/filters/split_phase_v4/character_full_rate.f64le"
+            )),
+            SPLIT_PHASE_V4_CHARACTER_COEFFICIENTS,
+            "Split Phase V4 character",
+        ),
+        cleanups: [
+            decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_v4/cleanup_stage_1.f64le"
+                )),
+                SPLIT_PHASE_V4_CLEANUP_COEFFICIENTS[0],
+                "Split Phase V4 cleanup stage 1",
+            ),
+            decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_v4/cleanup_stage_2.f64le"
+                )),
+                SPLIT_PHASE_V4_CLEANUP_COEFFICIENTS[1],
+                "Split Phase V4 cleanup stage 2",
+            ),
+            decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_v4/cleanup_stage_3.f64le"
+                )),
+                SPLIT_PHASE_V4_CLEANUP_COEFFICIENTS[2],
+                "Split Phase V4 cleanup stage 3",
+            ),
+            decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_v4/cleanup_stage_4.f64le"
+                )),
+                SPLIT_PHASE_V4_CLEANUP_COEFFICIENTS[3],
+                "Split Phase V4 cleanup stage 4",
+            ),
+            decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_v4/cleanup_stage_5.f64le"
+                )),
+                SPLIT_PHASE_V4_CLEANUP_COEFFICIENTS[4],
+                "Split Phase V4 cleanup stage 5",
+            ),
+            decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_v4/cleanup_stage_6.f64le"
+                )),
+                SPLIT_PHASE_V4_CLEANUP_COEFFICIENTS[5],
+                "Split Phase V4 cleanup stage 6",
+            ),
+            decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_v4/cleanup_stage_7.f64le"
+                )),
+                SPLIT_PHASE_V4_CLEANUP_COEFFICIENTS[6],
+                "Split Phase V4 cleanup stage 7",
+            ),
+        ],
+        rational_tables: FrozenRationalTables {
+            phase_147_160: decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_v4/rational_147_160.f64le"
+                )),
+                SPLIT_PHASE_V4_RATIONAL_147_160_COEFFICIENTS,
+                "Split Phase V4 rational 147/160",
+            ),
+            phase_160_147: decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_v4/rational_160_147.f64le"
+                )),
+                SPLIT_PHASE_V4_RATIONAL_160_147_COEFFICIENTS,
+                "Split Phase V4 rational 160/147",
+            ),
+        },
+        alignment: FrozenAlignment {
+            full_rate_origin: SPLIT_PHASE_V4_FULL_RATE_ORIGIN,
+            phase0_prepad: SPLIT_PHASE_V4_PHASE0_PREPAD,
+            phase1_prepad: SPLIT_PHASE_V4_PHASE1_PREPAD,
+            decimation_prepad: SPLIT_PHASE_V4_DECIMATION_PREPAD,
+        },
+    })
+}
+
+fn frozen_filter_assets(version: FrozenFilterVersion) -> &'static FrozenFilterAssetBundle {
+    match version {
+        FrozenFilterVersion::V3 => split_phase_v3_assets(),
+        FrozenFilterVersion::V4 => split_phase_v4_assets(),
+    }
+}
+
+fn frozen_total_asset_coefficients(version: FrozenFilterVersion) -> usize {
+    let assets = frozen_filter_assets(version);
+    assets.character.len()
+        + assets
+            .cleanups
+            .iter()
+            .map(|values| values.len())
+            .sum::<usize>()
+        + assets.rational_tables.phase_147_160.len()
+        + assets.rational_tables.phase_160_147.len()
+}
+
+fn frozen_character_polyphase_pair(
+    version: FrozenFilterVersion,
+) -> (Vec<f64>, Vec<f64>, Option<usize>, Option<usize>) {
+    let assets = frozen_filter_assets(version);
     let mut phase0 = assets
         .character
         .iter()
@@ -3712,17 +3875,17 @@ fn split_phase_v3_character_polyphase_pair() -> (Vec<f64>, Vec<f64>, Option<usiz
     (
         phase0,
         phase1,
-        Some(assets.phase0_prepad),
-        Some(assets.phase1_prepad),
+        Some(assets.alignment.phase0_prepad),
+        Some(assets.alignment.phase1_prepad),
     )
 }
 
-fn split_phase_v3_cleanup_odd_branch(stage_index: u8) -> Vec<f64> {
-    let assets = split_phase_v3_assets();
+fn frozen_cleanup_odd_branch(version: FrozenFilterVersion, stage_index: u8) -> Vec<f64> {
+    let assets = frozen_filter_assets(version);
     let canonical = assets
         .cleanups
         .get(usize::from(stage_index).saturating_sub(1))
-        .unwrap_or_else(|| panic!("invalid Split Phase V3 cleanup stage {stage_index}"));
+        .unwrap_or_else(|| panic!("invalid frozen split-phase cleanup stage {stage_index}"));
     let mut odd = canonical
         .iter()
         .skip(1)
@@ -4112,7 +4275,7 @@ fn build_exact_polyphase_coefficient_table_for_filter(
     source_rate: u32,
     target_rate: u32,
 ) -> Vec<f64> {
-    if filter_type == FilterType::SplitPhase128kV3 {
+    if filter_type.frozen_filter_version().is_some() {
         return build_exact_polyphase_coefficient_table(
             half_width,
             phase_den,
@@ -4179,8 +4342,8 @@ fn build_phase_aware_exact_polyphase_coefficient_table(
             params.split_f_hi *= split_scale;
             split_phase_v2_impulse_with_params(&prototype, params)
         }
-        PhaseMode::SplitPhase128kV3 => {
-            unreachable!("Split Phase V3 uses a frozen rational table")
+        PhaseMode::FrozenSplitPhase(_) => {
+            unreachable!("frozen split phase uses a frozen rational table")
         }
         PhaseMode::IntegratedPhase128k(profile) => {
             let mut params = integrated128k_phase_params(profile);
