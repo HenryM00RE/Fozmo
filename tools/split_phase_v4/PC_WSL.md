@@ -44,17 +44,23 @@ It writes only to `tools/split_phase_v4/work-pc-mkl`.
 ## Primary 4080 Super run
 
 The GPU path requires an SCS build containing the GPU indirect backend and a
-working CUDA toolkit inside WSL (`nvidia-smi` and `nvcc` must both work). Build
-the SCS 3.2.11 Python package with its documented GPU option:
+working CUDA toolkit inside WSL (`nvidia-smi` and `nvcc` must both work). The
+SCS 3.2.11 release needs the checked-in build-only Meson fix to order its GPU
+target after the common sources and link cuBLAS/cuSPARSE explicitly:
 
 ```sh
 git clone --recursive https://github.com/bodono/scs-python.git /tmp/scs-python-gpu
 cd /tmp/scs-python-gpu
 git checkout 3.2.11
 git submodule update --init --recursive
+git apply /path/to/Fozmo/tools/split_phase_v4/scs-3.2.11-gpu-meson.patch
+/path/to/Fozmo/.venv-split-phase-d/bin/python -m pip install meson-python
 CUDA_PATH=/usr/local/cuda \
-  /path/to/Fozmo/.venv-split-phase-d/bin/python \
-  legacy_setup.py install --scs --gpu
+  /path/to/Fozmo/.venv-split-phase-d/bin/python -m pip install \
+  --no-build-isolation --no-deps --force-reinstall . \
+  --config-settings=setup-args=-Duse_gpu=true \
+  --config-settings=setup-args=-Dint32=true \
+  --config-settings=setup-args=-Dgpu_atrans=true
 cd /path/to/Fozmo
 ```
 
@@ -64,6 +70,20 @@ Then run:
 SPLIT_PHASE_D_WORK_DIR="$PWD/tools/split_phase_v4/work-pc-gpu" \
   tools/split_phase_v4/run_pc_sdp.sh gpu
 ```
+
+The runner checkpoints every 1,000 SCS iterations. To continue an interrupted
+directory after verifying the machine and CUDA backend are healthy:
+
+```sh
+SPLIT_PHASE_D_WORK_DIR="$PWD/tools/split_phase_v4/work-pc-gpu" \
+SPLIT_PHASE_D_RESUME=1 \
+  tools/split_phase_v4/run_pc_sdp.sh gpu initial
+```
+
+Never pass `SPLIT_PHASE_D_RESUME=1` for a different work directory or changed
+solver configuration. Resume refuses mismatched generator, dependency lock,
+specification, backend, accuracy profile, checkpoint interval, file hashes or
+array hashes.
 
 Do not run MKL simultaneously. GPU indirect is the selected PC run; MKL is
 retained only as the dependable fallback.

@@ -1,0 +1,72 @@
+diff --git a/meson.build b/meson.build
+index 181bee3..869bb57 100644
+--- a/meson.build
++++ b/meson.build
+@@ -116,35 +116,11 @@ if not use_32bit_ints
+   common_c_args += '-DDLONG=1'
+ endif
+ 
+-cuda_dep = dependency('cuda', required: is_gpu_build)
++cuda_dep = dependency('cuda', modules: ['cublas', 'cusparse'], required: is_gpu_build)
+ if is_gpu_build and not cuda_dep.found()
+   error('GPU build requested but CUDA toolkit was not found.')
+ endif
+ 
+-if get_option('use_gpu')
+-  gpu_c_args = common_c_args + ['-DPY_GPU=1', '-DINDIRECT=1']
+-  _deps += cuda_dep
+-  if get_option('gpu_atrans')
+-    gpu_c_args += '-DGPU_TRANSPOSE_MAT=1'
+-  endif
+-  ext_modules += py.extension_module(
+-    '_scs_gpu',
+-    common_sources,
+-    # In Meson, sources with a `.cu` extension are compiled with nvcc by default.
+-    # To compile `.c` files with nvcc, they must be explicitly targeted.
+-    # It is strongly recommended to rename CUDA-C files to `.cu`.
+-    fs.glob('scs_source/linsys/gpu/*.c'),
+-    fs.glob('scs_source/linsys/gpu/indirect/*.c'),
+-    c_args: gpu_c_args,
+-    dependencies: _deps,
+-    include_directories: [
+-      common_includes, 'scs_source/linsys/gpu/', 'scs_source/linsys/gpu/indirect'
+-    ],
+-    install: true,
+-    install_dir: scs_dir,
+-  )
+-endif
+-
+ # Sources
+ scs_core_sources = files(
+   'scs_source/src/aa.c',
+@@ -183,6 +159,30 @@ amd_sources = files(
+ 
+ # Build modules
+ scs_dir = py.get_install_dir() / 'scs'
++
++if get_option('use_gpu')
++  gpu_c_args = common_c_args + ['-DPY_GPU=1', '-DINDIRECT=1']
++  _deps += cuda_dep
++  if get_option('gpu_atrans')
++    gpu_c_args += '-DGPU_TRANSPOSE_MAT=1'
++  endif
++  py.extension_module(
++    '_scs_gpu',
++    'scs/scspy.c',
++    common_linsys_sources,
++    scs_core_sources,
++    'scs_source/linsys/gpu/gpu.c',
++    'scs_source/linsys/gpu/indirect/private.c',
++    c_args: gpu_c_args,
++    dependencies: _deps,
++    include_directories: [
++      common_includes, 'scs_source/linsys/gpu/', 'scs_source/linsys/gpu/indirect'
++    ],
++    install: true,
++    install_dir: scs_dir,
++  )
++endif
++
+ py.extension_module(
+   '_scs_direct',
+   'scs/scspy.c',

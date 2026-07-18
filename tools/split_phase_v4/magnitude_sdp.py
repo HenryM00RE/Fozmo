@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import time
-from dataclasses import dataclass
+import uuid
+import warnings
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Optional
 
@@ -12,6 +15,8 @@ import cvxpy as cp
 import mpmath as mp
 import numpy as np
 from scipy import signal
+
+from .resume_checkpoint import CheckpointIntegrityError, LoadedCheckpoint, load_checkpoint, sha256_array, sha256_file, write_checkpoint
 
 
 @dataclass(frozen=True)
@@ -24,6 +29,41 @@ class MagnitudeSpec:
     stopband_amplitude_db: float = -125.0
     verification_fft_len: int = 8_388_608
     maximum_exchange_rounds: int = 10
+
+
+STAGE_NAMES = (
+    "passband_peak_power_error",
+    "stopband_peak_power",
+    "integrated_stopband_then_transition_curvature",
+)
+
+
+def _resume_identity(
+    spec: MagnitudeSpec,
+    solver: str,
+    scs_backend: str,
+    scs_accuracy: str,
+    checkpoint_iterations: int,
+) -> dict[str, Any]:
+    module_dir = Path(__file__).resolve().parent
+    requirements = module_dir / "requirements.lock"
+    checkpoint_module = module_dir / "resume_checkpoint.py"
+    return {
+        "specification": asdict(spec),
+        "solver": solver,
+        "solver_backend": scs_backend,
+        "solver_accuracy_profile": scs_accuracy,
+        "checkpoint_iterations": checkpoint_iterations,
+        "cvxpy_version": cp.__version__,
+        "numpy_version": np.__version__,
+        "generator_sha256": sha256_file(Path(__file__).resolve()),
+        "checkpoint_module_sha256": sha256_file(checkpoint_module),
+        "requirements_lock_sha256": sha256_file(requirements),
+    }
+
+
+def _grid_hashes(grids: dict[str, np.ndarray]) -> dict[str, str]:
+    return {name: sha256_array(np.asarray(values, dtype=np.float64)) for name, values in grids.items()}
 
 
 def _operator(frequencies_hz: np.ndarray, spec: MagnitudeSpec) -> np.ndarray:
@@ -178,7 +218,7 @@ def _solver_audit(problem: cp.Problem) -> dict[str, Any]:
     primal = info.get("pobj", problem.value)
     dual = info.get("dobj")
     gap = info.get("gap")
-    return {
+    audit = {
         "status": problem.status,
         "primal_objective": None if primal is None else float(primal),
         "dual_objective": None if dual is None else float(dual),
@@ -186,6 +226,39 @@ def _solver_audit(problem: cp.Problem) -> dict[str, Any]:
         "iterations": stats.num_iters,
         "solve_time_seconds": stats.solve_time,
         "solver_name": stats.solver_name,
+    }
+    for key in (
+        "status_val",
+        "res_pri",
+        "res_dual",
+        "gap",
+        "pobj",
+        "dobj",
+        "scale",
+        "scale_updates",
+        "accepted_accel_steps",
+        "rejected_accel_steps",
+        "lin_sys_time",
+        "cone_time",
+        "accel_time",
+    ):
+        value = info.get(key)
+        if isinstance(value, (int, float, np.integer, np.floating)) and np.isfinite(value):
+            audit[key] = int(value) if isinstance(value, (int, np.integer)) else float(value)
+    return audit
+
+
+def _interim_checkpoint_metrics(gram: np.ndarray, autocorrelation: np.ndarray, spec: MagnitudeSpec) -> dict[str, Any]:
+    interim_spec = replace(spec, verification_fft_len=min(spec.verification_fft_len, 1_048_576))
+    symmetric = 0.5 * (gram + gram.T)
+    return {
+        "verification_fft_len": interim_spec.verification_fft_len,
+        "dense_verification": _dense_metrics(autocorrelation, interim_spec),
+        "raw_psd_minimum_eigenvalue": float(np.linalg.eigvalsh(symmetric)[0]),
+        "dc_equality_residual": abs(float(np.sum(gram)) - 1.0),
+        "diagonal_sum_equality_residual": float(
+            np.max(np.abs(autocorrelation - autocorrelation_from_gram(gram)))
+        ),
     }
 
 
@@ -196,7 +269,17 @@ def _solve_lexicographic(
     warm_gram: Optional[np.ndarray],
     scs_backend: str,
     scs_accuracy: str,
+    work_dir: Path,
+    round_index: int,
+    checkpoint_iterations: int,
+    checkpoint_identity: dict[str, Any],
+    exchange_history: list[dict[str, Any]],
+    resume_checkpoint: Optional[LoadedCheckpoint] = None,
 ) -> tuple[np.ndarray, dict[str, Any]]:
+    if solver != "SCS":
+        raise RuntimeError("durable iteration resume currently requires SCS")
+    if checkpoint_iterations <= 0:
+        raise ValueError("checkpoint_iterations must be positive")
     dimension = spec.order + 1
     gram = cp.Variable((dimension, dimension), symmetric=True, name="fejer_riesz_gram")
     autocorrelation = cp.Variable(dimension, name="autocorrelation_diagonal_sums")
@@ -221,33 +304,198 @@ def _solve_lexicographic(
         stop_peak <= stop_gate,
         transition_power[1:] <= transition_power[:-1] + 1.0e-11,
     ]
-    if warm_gram is not None:
+    resume_metadata: dict[str, Any] = {}
+    resume_arrays: dict[str, np.ndarray] = {}
+    resume_stage_index = -1
+    run_id = uuid.uuid4().hex
+    completed_history: list[dict[str, Any]] = []
+    total_iterations = 0
+    pass_optimum: Optional[float] = None
+    stop_optimum: Optional[float] = None
+    if resume_checkpoint is not None:
+        resume_metadata = resume_checkpoint.metadata
+        resume_arrays = resume_checkpoint.arrays
+        if int(resume_metadata.get("round_index", -1)) != round_index:
+            raise CheckpointIntegrityError("resume checkpoint exchange round does not match")
+        resume_stage_index = int(resume_metadata.get("stage_index", -1))
+        if resume_stage_index not in range(len(STAGE_NAMES)):
+            raise CheckpointIntegrityError("resume checkpoint stage is invalid")
+        if resume_metadata.get("grid_hashes") != _grid_hashes(grids):
+            raise CheckpointIntegrityError("resume checkpoint frequency grids do not match")
+        run_id = str(resume_metadata.get("run_id", ""))
+        if not run_id:
+            raise CheckpointIntegrityError("resume checkpoint run ID is missing")
+        completed_history = list(resume_metadata.get("lexicographic_history", []))
+        total_iterations = int(resume_metadata.get("total_iterations", 0))
+        pass_optimum = resume_metadata.get("pass_optimum")
+        stop_optimum = resume_metadata.get("stop_optimum")
+        resumed_gram = np.asarray(resume_arrays.get("gram"), dtype=np.float64)
+        resumed_autocorrelation = np.asarray(resume_arrays.get("autocorrelation"), dtype=np.float64)
+        if resumed_gram.shape != (dimension, dimension) or resumed_autocorrelation.shape != (dimension,):
+            raise CheckpointIntegrityError("resume checkpoint Gram dimensions do not match")
+        gram.value = resumed_gram
+        autocorrelation.value = resumed_autocorrelation
+    elif warm_gram is not None:
         gram.value = warm_gram
         autocorrelation.value = autocorrelation_from_gram(warm_gram)
-    history = []
-    options = _solver_options(solver, scs_backend, scs_accuracy)
+
+    base_options = _solver_options(solver, scs_backend, scs_accuracy)
+    maximum_stage_iterations = int(base_options.pop("max_iters"))
+
+    def completed_record(stage_index: int, metadata: dict[str, Any]) -> dict[str, Any]:
+        name = STAGE_NAMES[stage_index]
+        for record in completed_history:
+            if record.get("objective") == name:
+                return record
+        return {
+            "objective": name,
+            "iterations": int(metadata.get("stage_iterations", 0)),
+            "chunks": list(metadata.get("stage_chunk_history", [])),
+            "final_solver_audit": dict(metadata.get("latest_solver_audit", {})),
+        }
+
+    def solve_stage(problem: cp.Problem, stage_index: int) -> dict[str, Any]:
+        nonlocal total_iterations, pass_optimum, stop_optimum
+        resuming_this_stage = resume_stage_index == stage_index
+        stage_iterations = int(resume_metadata.get("stage_iterations", 0)) if resuming_this_stage else 0
+        chunk_index = int(resume_metadata.get("chunk_index", 0)) if resuming_this_stage else 0
+        chunk_history = list(resume_metadata.get("stage_chunk_history", [])) if resuming_this_stage else []
+        if resuming_this_stage and bool(resume_metadata.get("stage_complete")):
+            return completed_record(stage_index, resume_metadata)
+        if resuming_this_stage:
+            for name in ("solver_x", "solver_y", "solver_s"):
+                if name not in resume_arrays or resume_arrays[name].ndim != 1:
+                    raise CheckpointIntegrityError(f"resume checkpoint lacks {name}")
+            problem._solver_cache["SCS"] = {
+                "x": resume_arrays["solver_x"],
+                "y": resume_arrays["solver_y"],
+                "s": resume_arrays["solver_s"],
+            }
+
+        while stage_iterations < maximum_stage_iterations:
+            iteration_budget = min(checkpoint_iterations, maximum_stage_iterations - stage_iterations)
+            options = dict(base_options)
+            options["max_iters"] = iteration_budget
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="Solution may be inaccurate")
+                problem.solve(solver=solver, warm_start=True, **options)
+            audit = _solver_audit(problem)
+            if problem.status not in {cp.OPTIMAL, cp.OPTIMAL_INACCURATE} or gram.value is None:
+                raise RuntimeError(f"PSD magnitude {STAGE_NAMES[stage_index]} solve failed: {problem.status}")
+            chunk_iterations = int(problem.solver_stats.num_iters or 0)
+            if chunk_iterations <= 0:
+                raise RuntimeError("SCS checkpoint chunk made no iteration progress")
+            stage_iterations += chunk_iterations
+            total_iterations += chunk_iterations
+            chunk_index += 1
+            stage_complete = problem.status == cp.OPTIMAL or stage_iterations >= maximum_stage_iterations
+
+            results = problem.solver_stats.extra_stats
+            if not isinstance(results, dict) or any(name not in results for name in ("x", "y", "s")):
+                raise RuntimeError("SCS did not return resumable primal/dual/slack state")
+            solver_state = {name: np.asarray(results[name], dtype=np.float64) for name in ("x", "y", "s")}
+            problem._solver_cache["SCS"] = results
+            raw_gram = np.asarray(gram.value, dtype=np.float64)
+            raw_autocorrelation = np.asarray(autocorrelation.value, dtype=np.float64)
+            chunk_record = {
+                "chunk_index": chunk_index,
+                "chunk_iterations": chunk_iterations,
+                "stage_iterations": stage_iterations,
+                "total_iterations": total_iterations,
+                "solver_audit": audit,
+            }
+            chunk_history.append(chunk_record)
+            metadata = {
+                "checkpoint_kind": "scs_iteration_chunk",
+                "run_id": run_id,
+                "round_index": round_index,
+                "stage_index": stage_index,
+                "stage_name": STAGE_NAMES[stage_index],
+                "chunk_index": chunk_index,
+                "stage_iterations": stage_iterations,
+                "total_iterations": total_iterations,
+                "maximum_stage_iterations": maximum_stage_iterations,
+                "stage_complete": stage_complete,
+                "pass_optimum": pass_optimum,
+                "stop_optimum": stop_optimum,
+                "pass_error_value": None if pass_error.value is None else float(pass_error.value),
+                "stop_peak_value": None if stop_peak.value is None else float(stop_peak.value),
+                "grid_sizes": {name: int(values.size) for name, values in grids.items()},
+                "grid_hashes": _grid_hashes(grids),
+                "lexicographic_history": completed_history,
+                "stage_chunk_history": chunk_history,
+                "exchange_history": exchange_history,
+                "latest_solver_audit": audit,
+                "interim_verification": _interim_checkpoint_metrics(raw_gram, raw_autocorrelation, spec),
+            }
+            write_checkpoint(
+                work_dir,
+                spec.order,
+                checkpoint_identity,
+                metadata,
+                {
+                    "solver_x": solver_state["x"],
+                    "solver_y": solver_state["y"],
+                    "solver_s": solver_state["s"],
+                    "gram": raw_gram,
+                    "autocorrelation": raw_autocorrelation,
+                    "grid_pass": grids["pass"],
+                    "grid_transition": grids["transition"],
+                    "grid_stop": grids["stop"],
+                },
+            )
+            if stage_complete:
+                return {
+                    "objective": STAGE_NAMES[stage_index],
+                    "iterations": stage_iterations,
+                    "chunks": chunk_history,
+                    "final_solver_audit": audit,
+                }
+        raise RuntimeError("SCS stage exited without a checkpointed result")
+
     first = cp.Problem(cp.Minimize(pass_error), constraints)
-    first.solve(solver=solver, warm_start=True, **options)
-    history.append({"objective": "passband_peak_power_error", **_solver_audit(first)})
-    if first.status not in {cp.OPTIMAL, cp.OPTIMAL_INACCURATE} or gram.value is None:
-        raise RuntimeError("PSD magnitude feasibility/passband solve failed: " + first.status)
-    pass_optimum = float(pass_error.value)
+    if resume_stage_index <= 0:
+        first_record = solve_stage(first, 0)
+        if first_record not in completed_history:
+            completed_history.append(first_record)
+        if pass_error.value is not None:
+            pass_optimum = float(pass_error.value)
+        elif pass_optimum is None:
+            pass_optimum = float(resume_metadata["pass_error_value"])
+    elif pass_optimum is None:
+        raise CheckpointIntegrityError("resume checkpoint lacks the passband optimum")
+    if pass_optimum is None:
+        raise RuntimeError("PSD magnitude passband solve produced no optimum")
     constraints.append(pass_error <= max(pass_optimum * 1.01, pass_optimum + 2.0e-12))
     second = cp.Problem(cp.Minimize(stop_peak), constraints)
-    second.solve(solver=solver, warm_start=True, **options)
-    history.append({"objective": "stopband_peak_power", **_solver_audit(second)})
-    if second.status not in {cp.OPTIMAL, cp.OPTIMAL_INACCURATE} or gram.value is None:
-        raise RuntimeError("PSD magnitude stopband solve failed: " + second.status)
-    stop_optimum = float(stop_peak.value)
+    if resume_stage_index <= 1:
+        second_record = solve_stage(second, 1)
+        if second_record not in completed_history:
+            completed_history.append(second_record)
+        if stop_peak.value is not None:
+            stop_optimum = float(stop_peak.value)
+        elif stop_optimum is None:
+            stop_optimum = float(resume_metadata["stop_peak_value"])
+    elif stop_optimum is None:
+        raise CheckpointIntegrityError("resume checkpoint lacks the stopband optimum")
+    if stop_optimum is None:
+        raise RuntimeError("PSD magnitude stopband solve produced no optimum")
     constraints.append(stop_peak <= max(stop_optimum * 1.01, stop_optimum + 1.0e-15))
     integrated_stop = cp.sum(stop_power) / stop_power.shape[0]
     transition_curvature = cp.sum_squares(transition_power[2:] - 2.0 * transition_power[1:-1] + transition_power[:-2])
     third = cp.Problem(cp.Minimize(integrated_stop + 1.0e-3 * transition_curvature), constraints)
-    third.solve(solver=solver, warm_start=True, **options)
-    history.append({"objective": "integrated_stopband_then_transition_curvature", **_solver_audit(third)})
-    if third.status not in {cp.OPTIMAL, cp.OPTIMAL_INACCURATE} or gram.value is None:
-        raise RuntimeError("PSD magnitude energy solve failed: " + third.status)
-    return np.asarray(gram.value, dtype=np.float64), {"lexicographic_history": history}
+    third_record = solve_stage(third, 2)
+    if third_record not in completed_history:
+        completed_history.append(third_record)
+    if gram.value is None:
+        if "gram" not in resume_arrays:
+            raise RuntimeError("PSD magnitude energy solve produced no Gram matrix")
+        gram.value = resume_arrays["gram"]
+    return np.asarray(gram.value, dtype=np.float64), {
+        "lexicographic_history": completed_history,
+        "checkpoint_run_id": run_id,
+        "checkpoint_total_iterations": total_iterations,
+    }
 
 
 def _high_precision_check(autocorrelation: np.ndarray, spec: MagnitudeSpec, points: int = 256) -> dict[str, float]:
@@ -280,6 +528,8 @@ def solve(
     solver: str = "auto",
     scs_backend: str = "indirect",
     scs_accuracy: str = "strict",
+    checkpoint_iterations: int = 1_000,
+    resume: bool = False,
 ) -> dict[str, Any]:
     available = set(cp.installed_solvers())
     if solver == "auto":
@@ -291,14 +541,31 @@ def solve(
             solver = "CLARABEL" if "CLARABEL" in available else "SCS"
     if solver not in available:
         raise RuntimeError("requested genuine PSD-cone solver is unavailable: " + solver)
+    if solver != "SCS":
+        raise RuntimeError("checkpointed Split Phase D magnitude solving currently requires SCS")
+    checkpoint_identity = _resume_identity(spec, solver, scs_backend, scs_accuracy, checkpoint_iterations)
+    resume_manifest = work_dir / f"magnitude_order_{spec.order}_resume.json"
+    loaded_checkpoint: Optional[LoadedCheckpoint] = None
+    if resume:
+        loaded_checkpoint = load_checkpoint(work_dir, spec.order, checkpoint_identity)
+    elif resume_manifest.exists():
+        raise RuntimeError("resume checkpoint already exists; pass --resume or choose a new work directory")
+
     grids = _initial_grids(spec)
+    if loaded_checkpoint is not None:
+        grids = {
+            "pass": np.asarray(loaded_checkpoint.arrays["grid_pass"], dtype=np.float64),
+            "transition": np.asarray(loaded_checkpoint.arrays["grid_transition"], dtype=np.float64),
+            "stop": np.asarray(loaded_checkpoint.arrays["grid_stop"], dtype=np.float64),
+        }
     seed_gram = _conventional_warm_gram(spec)
     seed_autocorrelation = autocorrelation_from_gram(seed_gram)
     seed_hash = __import__("hashlib").sha256(np.asarray(seed_autocorrelation, dtype="<f8").tobytes()).hexdigest()
-    gram: Optional[np.ndarray] = seed_gram
-    exchange_history = []
+    gram: Optional[np.ndarray] = seed_gram if loaded_checkpoint is None else np.asarray(loaded_checkpoint.arrays["gram"], dtype=np.float64)
+    exchange_history = [] if loaded_checkpoint is None else list(loaded_checkpoint.metadata.get("exchange_history", []))
+    first_round = 0 if loaded_checkpoint is None else int(loaded_checkpoint.metadata["round_index"])
     started = time.time()
-    for round_index in range(spec.maximum_exchange_rounds):
+    for round_index in range(first_round, spec.maximum_exchange_rounds):
         raw_gram, audit = _solve_lexicographic(
             spec,
             grids,
@@ -306,7 +573,14 @@ def solve(
             gram,
             scs_backend,
             scs_accuracy,
+            work_dir,
+            round_index,
+            checkpoint_iterations,
+            checkpoint_identity,
+            exchange_history,
+            loaded_checkpoint if round_index == first_round else None,
         )
+        loaded_checkpoint = None
         gram, projection = _project_psd_and_dc(raw_gram)
         autocorrelation = autocorrelation_from_gram(gram)
         metrics = _dense_metrics(autocorrelation, spec)
@@ -356,6 +630,13 @@ def solve(
         "solver": solver,
         "solver_backend": scs_backend if solver == "SCS" else "solver default",
         "solver_accuracy_profile": scs_accuracy if solver == "SCS" else "solver default",
+        "checkpoint_iterations": checkpoint_iterations,
+        "checkpoint_identity": checkpoint_identity,
+        "resumed_from_durable_checkpoint": resume,
+        "resume_semantics": (
+            "SCS primal, dual and slack vectors are restored exactly; internal scaling and acceleration "
+            "history are rebuilt, so only the independent final acceptance audit establishes usability"
+        ),
         "elapsed_seconds": time.time() - started,
         "exchange_history": exchange_history,
         "active_frequency_sets_hz": {key: value.tolist() for key, value in grids.items()},
@@ -441,6 +722,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("--verification-fft-len", type=int, default=8_388_608)
     parser.add_argument("--exchange-rounds", type=int, default=10)
+    parser.add_argument("--checkpoint-iterations", type=int, default=1_000)
+    parser.add_argument("--resume", action="store_true")
     parser.add_argument("--work-dir", type=Path, default=Path(__file__).resolve().parent / "work")
     parser.add_argument("--audit-existing", action="store_true")
     arguments = parser.parse_args()
@@ -451,5 +734,7 @@ if __name__ == "__main__":
         arguments.solver,
         arguments.scs_backend,
         arguments.scs_accuracy,
+        arguments.checkpoint_iterations,
+        arguments.resume,
     )
     print(json.dumps(result, indent=2))

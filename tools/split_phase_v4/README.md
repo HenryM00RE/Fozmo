@@ -18,6 +18,23 @@ python -m tools.split_phase_v4.runtime_capture
 python -m tools.split_phase_v4.certify
 ```
 
+The SCS magnitude solve publishes an atomic, SHA-256-verified resume checkpoint
+every 1,000 iterations by default. Each immutable checkpoint contains the SCS
+primal, dual and slack vectors, raw Gram matrix, autocorrelation, active grids,
+solver residuals/gap and an interim independent verification record. Resume the
+same invocation and work directory with:
+
+```sh
+python -m tools.split_phase_v4.magnitude_sdp \
+  --order 512 --solver SCS --checkpoint-iterations 1000 \
+  --work-dir tools/split_phase_v4/work --resume
+```
+
+Resume restores SCS `x`, `y` and `s` exactly. SCS rebuilds internal scaling and
+acceleration history, so a resumed trajectory is not claimed to be bitwise
+identical. The unchanged dense, PSD, equality and arbitrary-precision final
+audit remains mandatory.
+
 The order-512 SDP and genuine arbitrary-precision certification are intentionally long-running. SCS uses its indirect linear solver because a direct order-512 KKT factorization exceeds the practical memory budget on the reference 16 GB build machine. The magnitude solver escalates to orders 768 and 1024 only when the independently verified lower order is infeasible.
 
 Production export is deliberately separate:

@@ -57,6 +57,28 @@ different `SPLIT_PHASE_D_WORK_DIR`.
 
 The default output is `tools/split_phase_v4/work-pc-mkl`.
 
+## Durable solver checkpoints
+
+SCS now writes a durable checkpoint every 1,000 iterations. The atomically
+published `magnitude_order_512_resume.json` points to an immutable NPZ plus JSON
+sidecar containing exact SCS primal/dual/slack state, the raw Gram matrix,
+autocorrelation, active grids, iteration totals, residuals/gap, array hashes and
+interim verification metrics. A partially written or incompatible checkpoint
+is rejected rather than guessed around.
+
+Resume an interrupted GPU directory with the identical invocation:
+
+```sh
+SPLIT_PHASE_D_WORK_DIR="$PWD/tools/split_phase_v4/work-pc-gpu" \
+SPLIT_PHASE_D_RESUME=1 \
+  tools/split_phase_v4/run_pc_sdp.sh gpu initial
+```
+
+Resume restores SCS `x`, `y` and `s`; internal scaling and acceleration history
+are rebuilt. Consequently, resume is a numerically valid warm continuation, not
+a promise of a bitwise-identical trajectory. All original independent final
+acceptance gates remain binding.
+
 ## Primary run: CUDA GPU indirect
 
 If both `nvidia-smi` and `nvcc` work in WSL, build SCS 3.2.11 with its GPU

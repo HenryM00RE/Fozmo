@@ -29,6 +29,11 @@ export NUMEXPR_NUM_THREADS="${NUMEXPR_NUM_THREADS:-8}"
 
 work_dir="${SPLIT_PHASE_D_WORK_DIR:-$repo_root/tools/split_phase_v4/work-pc-$backend}"
 mkdir -p "$work_dir"
+checkpoint_iterations="${SPLIT_PHASE_D_CHECKPOINT_ITERATIONS:-1000}"
+resume_args=()
+if [[ "${SPLIT_PHASE_D_RESUME:-0}" == "1" ]]; then
+  resume_args+=(--resume)
+fi
 
 "$python_bin" - <<'PY'
 import cvxpy as cp
@@ -50,4 +55,6 @@ exec "$python_bin" -m tools.split_phase_v4.magnitude_sdp \
   --scs-accuracy "$accuracy" \
   --verification-fft-len 8388608 \
   --exchange-rounds 10 \
+  --checkpoint-iterations "$checkpoint_iterations" \
+  "${resume_args[@]}" \
   --work-dir "$work_dir"
