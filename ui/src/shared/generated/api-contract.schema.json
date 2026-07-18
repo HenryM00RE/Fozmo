@@ -2807,6 +2807,14 @@
             "null"
           ]
         },
+        "link_code_issuance": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/RemoteLinkCodeIssuance"
+            }
+          ],
+          "description": "Request-scoped authority to issue an internet-facing Remote Access link code. Route handlers replace this conservative default using the actual peer and control-session credentials on each response."
+        },
         "running": {
           "type": "boolean"
         }
@@ -2815,9 +2823,18 @@
         "active_remote_sessions",
         "bound_port",
         "enabled",
+        "link_code_issuance",
         "running"
       ],
       "type": "object"
+    },
+    "RemoteLinkCodeIssuance": {
+      "enum": [
+        "host_local",
+        "authenticated_lan",
+        "unavailable"
+      ],
+      "type": "string"
     },
     "RemoteLinkCodeResponse": {
       "properties": {
