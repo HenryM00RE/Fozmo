@@ -27,6 +27,39 @@ const QOBUZ_STARTUP_PROBE_BYTES: usize = 64 * 1024;
 /// an expired entry is also healed by the 401/403 retry path.
 const PROXY_STREAM_URL_TTL: Duration = Duration::from_secs(5 * 60);
 
+/// Validate the signed playback URL returned by Qobuz before it can cross a
+/// server-side network boundary. Keep this allowlist deliberately narrower
+/// than the domains used by Qobuz's API and artwork services.
+pub(super) fn validate_qobuz_stream_url(raw_url: &str) -> Result<reqwest::Url, String> {
+    let parsed =
+        reqwest::Url::parse(raw_url).map_err(|_| "Qobuz stream URL is invalid".to_string())?;
+    if parsed.scheme() != "https" {
+        return Err("Qobuz stream URL must use https".to_string());
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("Qobuz stream URL must not include credentials".to_string());
+    }
+    if parsed.port().is_some_and(|port| port != 443) {
+        return Err("Qobuz stream URL must use the default https port".to_string());
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "Qobuz stream URL is missing a host".to_string())?
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    if !trusted_qobuz_stream_host(&host) {
+        return Err("Qobuz stream URL host is not trusted".to_string());
+    }
+    Ok(parsed)
+}
+
+fn trusted_qobuz_stream_host(host: &str) -> bool {
+    matches!(
+        host,
+        "streaming.qobuz.com" | "streaming2.qobuz.com" | "streaming-qobuz-sec.akamaized.net"
+    )
+}
+
 /// Progressive-stream reader handed to the audio worker. Wraps `stream-download`'s
 /// `StreamDownload<TempStorageProvider>` so Symphonia can begin decoding as soon as
 /// the prefetch threshold is reached, while the rest of the FLAC continues
@@ -187,7 +220,7 @@ impl QobuzService {
                         &secret,
                     )
                     .await?;
-                if cd_stream.url.is_empty() || !stream_matches_requested_format(6, &cd_stream) {
+                if !stream_matches_requested_format(6, &cd_stream) {
                     return Err(format!(
                         "Qobuz stream failed ({primary_error}); CD fallback did not return a playable stream"
                     ));
@@ -300,8 +333,7 @@ impl QobuzService {
         stream: StreamUrl,
         display_name: String,
     ) -> Result<(QobuzStreamHandle, StreamUrl), String> {
-        let url =
-            reqwest::Url::parse(&stream.url).map_err(|e| format!("parse Qobuz stream URL: {e}"))?;
+        let url = validate_qobuz_stream_url(&stream.url)?;
 
         let prefetch = prefetch_for_format(stream.format_id);
         debug!(
@@ -320,14 +352,19 @@ impl QobuzService {
 
         // stream-download bundles its own reqwest (different major version from ours),
         // so the Client type used here is its re-export, not our `reqwest::Client`.
-        let http_stream = HttpStream::<stream_download::http::reqwest::Client>::create(url)
-            .await
-            .map_err(|e| {
-                format!(
-                    "open Qobuz HTTP stream: {}",
-                    crate::diagnostics::logging::sanitize_error(&e.to_string())
-                )
-            })?;
+        let progressive_url = stream_download::http::reqwest::Url::parse(url.as_str())
+            .map_err(|_| "Qobuz progressive stream URL is invalid".to_string())?;
+        let http_stream = HttpStream::<stream_download::http::reqwest::Client>::new(
+            self.progressive_stream_http.clone(),
+            progressive_url,
+        )
+        .await
+        .map_err(|e| {
+            format!(
+                "open Qobuz HTTP stream: {}",
+                crate::diagnostics::logging::sanitize_error(&e.to_string())
+            )
+        })?;
         let byte_len = http_stream.content_length();
         debug!(
             event = "stream_probe",
@@ -371,9 +408,10 @@ impl QobuzService {
         stream: &StreamUrl,
     ) -> Result<Option<u64>, String> {
         let end = QOBUZ_STARTUP_PROBE_BYTES.saturating_sub(1);
+        let url = validate_qobuz_stream_url(&stream.url)?;
         let response = self
-            .http
-            .get(&stream.url)
+            .stream_http
+            .get(url)
             .header(RANGE, format!("bytes=0-{end}"))
             .send()
             .await
@@ -494,22 +532,21 @@ impl QobuzService {
                 )
                 .await?
             };
-            if stream.url.is_empty()
-                || requested_format_id
-                    .is_some_and(|format_id| !stream_matches_requested_format(format_id, &stream))
+            if requested_format_id
+                .is_some_and(|format_id| !stream_matches_requested_format(format_id, &stream))
             {
                 return Err("No playable Qobuz stream URL was returned".to_string());
             }
             match self.verify_resolved_stream_download(&stream).await {
                 Ok(byte_len) => {
                     self.remember_proxy_stream_url(cache_key, stream.clone())
-                        .await;
+                        .await?;
                     if Some(stream.format_id) != requested_format_id {
                         self.remember_proxy_stream_url(
                             (track_id, Some(stream.format_id)),
                             stream.clone(),
                         )
-                        .await;
+                        .await?;
                     }
                     return Ok(QobuzResolvedStream {
                         mime_type: if stream.mime_type.is_empty() {
@@ -595,13 +632,20 @@ impl QobuzService {
                         "Qobuz proxy stream URL cache miss"
                     );
                     self.remember_proxy_stream_url(cache_key, stream.clone())
-                        .await;
+                        .await?;
                     stream
                 }
             };
 
             let downstream_range = range_header;
-            let mut req = self.stream_http.get(&stream.url);
+            let url = match validate_qobuz_stream_url(&stream.url) {
+                Ok(url) => url,
+                Err(error) => {
+                    self.proxy_stream_url_cache.write().await.remove(&cache_key);
+                    return Err(error);
+                }
+            };
+            let mut req = self.stream_http.get(url);
             req = req.header(RANGE, downstream_range.unwrap_or("bytes=0-"));
             let response = req
                 .send()
@@ -744,15 +788,27 @@ impl QobuzService {
     }
 
     async fn cached_proxy_stream_url(&self, key: &(u64, Option<u32>)) -> Option<StreamUrl> {
-        let cache = self.proxy_stream_url_cache.read().await;
-        let (resolved_at, stream) = cache.get(key)?;
-        (resolved_at.elapsed() < PROXY_STREAM_URL_TTL).then(|| stream.clone())
+        let cached = self.proxy_stream_url_cache.read().await.get(key).cloned()?;
+        let (resolved_at, stream) = cached;
+        if resolved_at.elapsed() < PROXY_STREAM_URL_TTL
+            && validate_qobuz_stream_url(&stream.url).is_ok()
+        {
+            return Some(stream);
+        }
+        self.proxy_stream_url_cache.write().await.remove(key);
+        None
     }
 
-    async fn remember_proxy_stream_url(&self, key: (u64, Option<u32>), stream: StreamUrl) {
+    async fn remember_proxy_stream_url(
+        &self,
+        key: (u64, Option<u32>),
+        stream: StreamUrl,
+    ) -> Result<(), String> {
+        validate_qobuz_stream_url(&stream.url)?;
         let mut cache = self.proxy_stream_url_cache.write().await;
         cache.retain(|_, (resolved_at, _)| resolved_at.elapsed() < PROXY_STREAM_URL_TTL);
         cache.insert(key, (Instant::now(), stream));
+        Ok(())
     }
 
     async fn cached_or_resolved_stream_url(
@@ -780,7 +836,7 @@ impl QobuzService {
         let stream = self
             .stream_url(key.0, app_id, auth_token, secret, key.1)
             .await?;
-        self.remember_proxy_stream_url(key, stream.clone()).await;
+        self.remember_proxy_stream_url(key, stream.clone()).await?;
         Ok(stream)
     }
 
@@ -852,7 +908,7 @@ impl QobuzService {
                 .stream_url_for_quality(track_id, format_id, app_id, auth_token, secret)
                 .await
             {
-                Ok(stream) if !stream.url.is_empty() => {
+                Ok(stream) => {
                     if let Some(requested) = requested_format_id
                         && !stream_matches_requested_format(requested, &stream)
                     {
@@ -870,7 +926,6 @@ impl QobuzService {
                     }
                     return Ok(stream);
                 }
-                Ok(_) => continue,
                 Err(_) if idx != last_idx => continue,
                 Err(e) => return Err(e),
             }
@@ -906,12 +961,14 @@ impl QobuzService {
             .await
             .map_err(|e| qobuz_reqwest_error("Qobuz stream URL response was not JSON", e))?;
 
+        let url = response
+            .get("url")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "Qobuz stream URL response did not include a URL".to_string())?;
+        let validated_url = validate_qobuz_stream_url(url)?;
+
         Ok(StreamUrl {
-            url: response
-                .get("url")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string(),
+            url: validated_url.to_string(),
             requested_format_id: format_id,
             format_id: response
                 .get("format_id")
