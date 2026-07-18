@@ -12,6 +12,7 @@ import {
   dsdDefaultRules,
   dsdSourceRates,
   ecBeam2SelectableForDsdConfig,
+  headroomAfterUpsamplingChange,
   knownFilterIds,
   numberValue,
   playbackDspConfigKey,
@@ -166,10 +167,20 @@ export function useDspSettings(
     setPlaybackConfigDirty(true);
     setPlaybackConfigError('');
     lastAppliedConfigKeyRef.current = null;
-    setPlaybackConfig((current) => ({
-      ...current,
-      [key]: value
-    }));
+    setPlaybackConfig((current) => {
+      const next = {
+        ...current,
+        [key]: value
+      };
+      if (key === 'upsamplingEnabled' && typeof value === 'boolean') {
+        next.headroomDb = headroomAfterUpsamplingChange(
+          current.headroomDb,
+          value,
+          current.dsdModulator
+        );
+      }
+      return next;
+    });
   };
 
   const normalizePlaybackDsdRules = () => {
@@ -202,7 +213,7 @@ export function useDspSettings(
         source_rate: sourceRate,
         filter_type: knownFilterIds.has(migratedFilterType)
           ? migratedFilterType
-          : fallback?.filter_type || 'MinimumPhaseCompact128kV2',
+          : fallback?.filter_type || 'MinimumPhaseCompact128k',
         output_mode: outputMode
       };
     });

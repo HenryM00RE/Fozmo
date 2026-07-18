@@ -121,10 +121,8 @@ export async function loadSettingsSupportData(): Promise<SettingsSupportData> {
 
 export const filterOptions = [
   ['LinearPhase128k', 'Linear Phase'],
-  ['MinimumPhaseCompact128kV2', 'Minimum Phase'],
-  ['MinimumPhaseCompact128k', 'Minimum Phase B'],
+  ['MinimumPhaseCompact128k', 'Minimum Phase'],
   ['Split128k', 'Split Phase'],
-  ['Split128kV2', 'Split Phase B'],
   ['SplitPhase128kV3', 'Split Phase C'],
   ['SplitPhase128kV4', 'Split Phase D'],
   ['SmoothPhase128k', 'Smooth Phase']
@@ -155,9 +153,12 @@ const legacyMinimumFilterIds = [
   'MinimumPhase128kV4'
 ] as const;
 
+const hiddenFilterIds = ['MinimumPhaseCompact128kV2', 'Split128kV2'] as const;
+
 const visibleFilterIds = new Set<string>(filterOptions.map(([value]) => value));
 export const knownFilterIds = new Set<string>([
   ...filterOptions.map(([value]) => value),
+  ...hiddenFilterIds,
   ...legacyFilterIds,
   ...legacyMinimumFilterIds
 ]);
@@ -165,8 +166,10 @@ export const knownFilterIds = new Set<string>([
 export function visibleFilterType(name: unknown) {
   const key = stringValue(name, 'Split128k');
   if (key === 'SincExtreme32k') return 'LinearPhase128k';
+  if (key === 'MinimumPhaseCompact128kV2') return 'MinimumPhaseCompact128k';
+  if (key === 'Split128kV2') return 'Split128k';
   if (legacyMinimumFilterIds.includes(key as (typeof legacyMinimumFilterIds)[number]))
-    return 'MinimumPhaseCompact128kV2';
+    return 'MinimumPhaseCompact128k';
   if (legacyFilterIds.includes(key as (typeof legacyFilterIds)[number])) return 'Split128k';
   if (visibleFilterIds.has(key)) return key;
   return 'Split128k';
@@ -192,6 +195,14 @@ export function headroomAfterDsdModulatorChange(currentHeadroomDb: number, modul
   if (modulator === 'Standard') return -4;
   if (modulator === 'EcBeam2') return -2;
   return currentHeadroomDb;
+}
+
+export function headroomAfterUpsamplingChange(
+  currentHeadroomDb: number,
+  enabled: boolean,
+  modulator: string
+) {
+  return enabled ? headroomAfterDsdModulatorChange(currentHeadroomDb, modulator) : 0;
 }
 
 export function headroomLockedForDsdModulator(modulator: string) {
@@ -674,7 +685,7 @@ export function compactFilterName(name: unknown) {
     MinimumPhase128kV2: 'Minimum Phase 128k 2',
     MinimumPhase128kV3: 'Minimum Phase 128k 3',
     MinimumPhase128kV4: 'Minimum Phase 128k 4',
-    MinimumPhaseCompact128k: 'Minimum Phase B',
+    MinimumPhaseCompact128k: 'Minimum Phase',
     MinimumPhaseCompact128kV2: 'Minimum Phase',
     SmoothPhase128k: 'Smooth Phase',
     Perfect: 'Split Phase',
@@ -682,7 +693,7 @@ export function compactFilterName(name: unknown) {
     Split16kDsd128: 'Split Phase',
     Split32k: 'Split Phase',
     Split128k: 'Split Phase',
-    Split128kV2: 'Split Phase B',
+    Split128kV2: 'Split Phase',
     SplitPhase128kV3: 'Split Phase C',
     SplitPhase128kV4: 'Split Phase D',
     IntegratedPhase128k: 'Integrated Phase 1',

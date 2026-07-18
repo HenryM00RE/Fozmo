@@ -1278,7 +1278,7 @@ mod tests {
     }
 
     #[test]
-    fn disabled_local_dsp_status_reports_saved_requested_settings() {
+    fn disabled_local_dsp_status_reports_saved_settings_with_zero_headroom() {
         let state = app_state("local-disabled-dsp-saved-settings");
         let zone_id = state.zones().active_zone_id();
         let _ = state
@@ -1315,7 +1315,11 @@ mod tests {
         assert_eq!(status.dsd_isi_penalty, 0.012);
         assert!(status.dsd_rules_enabled);
         assert_eq!(status.dsd_rules.len(), 1);
-        assert_eq!(status.headroom_db, -4.0);
+        assert_eq!(status.headroom_db, 0.0);
+        assert_eq!(
+            state.zones().active_player().snapshot().config.headroom_db,
+            0.0
+        );
         assert_eq!(status.dsp_buffer_ms, 250);
         assert!(status.exclusive);
     }
@@ -1616,10 +1620,17 @@ fn build_status_response_for_player(
     let configured_headroom_db = zone_playback_settings
         .headroom_db
         .unwrap_or(config.headroom_db);
-    let headroom_db = match selected_dsd_modulator {
-        DsdModulator::Standard => -4.0,
-        DsdModulator::EcBeam2 => -2.0,
-        _ => configured_headroom_db,
+    let upsampling_enabled = zone_playback_settings
+        .upsampling_enabled
+        .unwrap_or(config.upsampling_enabled);
+    let headroom_db = if !upsampling_enabled {
+        0.0
+    } else {
+        match selected_dsd_modulator {
+            DsdModulator::Standard => -4.0,
+            DsdModulator::EcBeam2 => -2.0,
+            _ => configured_headroom_db,
+        }
     };
     let exclusive = zone_playback_settings.exclusive.unwrap_or(config.exclusive);
     let output_transport = signal.output_transport.as_name().to_string();
@@ -1644,10 +1655,6 @@ fn build_status_response_for_player(
         bits @ (16 | 24 | 32) => bits,
         _ => 24,
     };
-    let upsampling_enabled = zone_playback_settings
-        .upsampling_enabled
-        .unwrap_or(config.upsampling_enabled);
-
     let position_secs = if tgt_rate > 0 {
         metrics.position_samples as f64 / tgt_rate as f64
     } else {
