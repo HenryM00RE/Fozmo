@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-backend="${1:-mkl}"
+backend="${1:-gpu}"
 accuracy="${2:-initial}"
 case "$backend" in
   mkl|gpu|indirect|direct) ;;

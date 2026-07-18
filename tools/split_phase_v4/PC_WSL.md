@@ -4,6 +4,9 @@ Run the PC solve alongside the Mac solve. Do not stop the Mac process. Each
 backend uses its own work directory, and no candidate is usable until the same
 independent audit accepts it.
 
+The selected PC mode is one CUDA GPU-indirect solve. Do not also launch MKL.
+MKL remains a fallback only if the CUDA-enabled SCS extension is unavailable.
+
 ## WSL setup
 
 Use Ubuntu under WSL2. Give WSL at least 56 GB of memory and 16 GB of swap in
@@ -27,8 +30,8 @@ python3 -m venv .venv-split-phase-d
 .venv-split-phase-d/bin/python -m pip install -r tools/split_phase_v4/requirements.lock
 ```
 
-The Linux x86-64 SCS wheel includes its MKL backend. Start with the threaded
-MKL/Pardiso solve because it is robust and the PC has enough RAM:
+The Linux x86-64 SCS wheel includes its MKL backend. Use this only as the CPU
+fallback if CUDA setup fails:
 
 ```sh
 chmod +x tools/split_phase_v4/run_pc_sdp.sh
@@ -38,7 +41,7 @@ OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 \
 
 It writes only to `tools/split_phase_v4/work-pc-mkl`.
 
-## Optional 4080 Super race
+## Primary 4080 Super run
 
 The GPU path requires an SCS build containing the GPU indirect backend and a
 working CUDA toolkit inside WSL (`nvidia-smi` and `nvcc` must both work). Build
@@ -62,8 +65,8 @@ SPLIT_PHASE_D_WORK_DIR="$PWD/tools/split_phase_v4/work-pc-gpu" \
   tools/split_phase_v4/run_pc_sdp.sh gpu
 ```
 
-Do not overwrite the MKL directory. The GPU and MKL jobs may be raced, but start
-MKL first: it needs no custom CUDA build and is the dependable fallback.
+Do not run MKL simultaneously. GPU indirect is the selected PC run; MKL is
+retained only as the dependable fallback.
 
 The `initial` profile matches the Mac race: SCS may return an inaccurate status,
 but the candidate is still rejected unless every independent dense, PSD and

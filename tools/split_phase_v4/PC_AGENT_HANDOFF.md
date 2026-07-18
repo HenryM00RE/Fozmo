@@ -30,7 +30,14 @@ products. It is healthy but has no completed checkpoint. Do not stop it.
 This PC has a Ryzen 7 9800X3D, 64 GB RAM and RTX 4080 Super. Use WSL2/Linux and
 follow `tools/split_phase_v4/PC_WSL.md`.
 
-## First run: threaded MKL
+## Chosen execution mode
+
+Run one CUDA GPU-indirect solve. Do not start a simultaneous MKL solve. MKL is
+only the fallback if the CUDA-enabled SCS extension cannot be built or loaded.
+The backend changes only the linear algebra; it solves the same PSD program and
+uses the same independent acceptance audit.
+
+## CPU fallback: threaded MKL
 
 From the repository root inside WSL:
 
@@ -50,7 +57,7 @@ different `SPLIT_PHASE_D_WORK_DIR`.
 
 The default output is `tools/split_phase_v4/work-pc-mkl`.
 
-## Optional GPU race
+## Primary run: CUDA GPU indirect
 
 If both `nvidia-smi` and `nvcc` work in WSL, build SCS 3.2.11 with its GPU
 indirect backend as described in `PC_WSL.md`, then run:
@@ -60,8 +67,9 @@ SPLIT_PHASE_D_WORK_DIR="$PWD/tools/split_phase_v4/work-pc-gpu" \
   tools/split_phase_v4/run_pc_sdp.sh gpu initial
 ```
 
-Never share a work directory between jobs. Prioritize MKL rather than spending
-the night debugging CUDA packaging.
+The runner defaults to GPU. Use the dedicated GPU work directory shown above.
+If CUDA cannot be enabled promptly, use the MKL fallback; do not run both PC
+backends simultaneously.
 
 ## Magnitude acceptance
 
