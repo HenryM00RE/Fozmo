@@ -233,7 +233,11 @@ export function ZonesSettingsPage({
                       <div className="zone-output-actions">
                         <button
                           className={
-                            enabled ? 'zone-output-icon-action' : 'zone-output-action primary'
+                            enabled
+                              ? isBrowserZone(zone)
+                                ? 'zone-output-action secondary zone-browser-stream-action'
+                                : 'zone-output-icon-action'
+                              : 'zone-output-action primary'
                           }
                           type="button"
                           title={
@@ -251,7 +255,11 @@ export function ZonesSettingsPage({
                           }
                         >
                           {enabled ? (
-                            <Icon path="M9.67 4.14a2.34 2.34 0 0 1 4.66 0 2.34 2.34 0 0 0 3.32 1.91 2.34 2.34 0 0 1 2.33 4.03 2.34 2.34 0 0 0 0 3.84 2.34 2.34 0 0 1-2.33 4.03 2.34 2.34 0 0 0-3.32 1.91 2.34 2.34 0 0 1-4.66 0 2.34 2.34 0 0 0-3.32-1.91 2.34 2.34 0 0 1-2.33-4.03 2.34 2.34 0 0 0 0-3.84 2.34 2.34 0 0 1 2.33-4.03 2.34 2.34 0 0 0 3.32-1.91ZM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" />
+                            isBrowserZone(zone) ? (
+                              <span>Stream settings</span>
+                            ) : (
+                              <Icon path="M9.67 4.14a2.34 2.34 0 0 1 4.66 0 2.34 2.34 0 0 0 3.32 1.91 2.34 2.34 0 0 1 2.33 4.03 2.34 2.34 0 0 0 0 3.84 2.34 2.34 0 0 1-2.33 4.03 2.34 2.34 0 0 0-3.32 1.91 2.34 2.34 0 0 1-4.66 0 2.34 2.34 0 0 0-3.32-1.91 2.34 2.34 0 0 1-2.33-4.03 2.34 2.34 0 0 0 0-3.84 2.34 2.34 0 0 1 2.33-4.03 2.34 2.34 0 0 0 3.32-1.91ZM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" />
+                            )
                           ) : (
                             <span>Enable</span>
                           )}

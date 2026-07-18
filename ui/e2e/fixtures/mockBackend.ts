@@ -304,7 +304,7 @@ export const fixtures = {
 export async function installMockBackend(page: Page, options: MockBackendOptions = {}) {
   const status = { ...fixtures.status, ...(options.status || {}) };
   let zoneStatus = { ...status, ...(options.zoneStatus || {}) };
-  const zones = options.zones || [defaultZone];
+  const zones = (options.zones || [defaultZone]).map((zone) => ({ ...zone }));
   const queueState = options.queueState || fixtures.queueState;
   const qobuzStatus = options.qobuzStatus || fixtures.qobuzLoggedOut;
   const qobuzHome = options.qobuzHome || fixtures.qobuzHome;
@@ -518,6 +518,13 @@ export async function installMockBackend(page: Page, options: MockBackendOptions
       return json(route, { revoked: 1 });
     }
     if (method === 'POST' && path === '/api/config') return json(route, { ok: true });
+    const zoneSettingsMatch = path.match(/^\/api\/zones\/([^/]+)\/settings$/);
+    if (method === 'POST' && zoneSettingsMatch) {
+      const zoneId = decodeURIComponent(zoneSettingsMatch[1]);
+      const zone = zones.find((candidate) => candidate.id === zoneId);
+      if (zone && body && typeof body === 'object') Object.assign(zone, body);
+      return json(route, zone || {});
+    }
     if (method === 'POST' && path.endsWith('/config')) return json(route, status);
     if (method === 'GET' && path.endsWith('/status')) {
       if (options.zoneStatusDelayMs) {

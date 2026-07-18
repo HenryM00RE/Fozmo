@@ -9003,6 +9003,11 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   color: var(--ink-muted, #a8a297);
 }
 
+.react-app .zones-panel-card .zone-browser-stream-action {
+  min-width: 116px;
+  white-space: nowrap;
+}
+
 .react-app .zones-panel-card .zone-output-icon-action {
   width: 32px;
   height: 32px;
@@ -10201,6 +10206,20 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
     max-height: calc(100dvh - var(--mobile-bottom-chrome-height) - 32px);
   }
 
+  .react-app .zones-panel-card .zone-browser-stream-action {
+    min-width: 72px;
+    padding-inline: 10px;
+  }
+
+  .react-app .zones-panel-card .zone-browser-stream-action span {
+    font-size: 0;
+  }
+
+  .react-app .zones-panel-card .zone-browser-stream-action span::after {
+    content: "Stream";
+    font-size: 12px;
+  }
+
   .react-app .zone-hegel-settings-panel {
     width: min(420px, 100%);
     max-height: calc(100dvh - var(--mobile-bottom-chrome-height) - 32px);
@@ -10592,6 +10611,7 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   .react-app .mobile-nav-drawer .settings-nav-item svg {
     fill: none;
     stroke: currentColor;
+    pointer-events: none;
   }
 
   .react-app .mobile-nav-drawer .sidebar-library-list {

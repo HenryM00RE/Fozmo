@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { endpoints } from '../../../shared/lib/api';
-import { isBrowserZone } from '../../../shared/lib/browserZone';
+import { browserZoneAgentId, isBrowserZone } from '../../../shared/lib/browserZone';
 import type { JsonRecord, ZoneProfile } from '../../../shared/types';
 import { type OutputIconId, savedOutputIcon } from '../../../shared/ui/ZoneOutputIcon';
 import {
@@ -42,6 +42,10 @@ export type ZoneBrowserStreamDraft = {
 
 export const BROWSER_OPUS_KBPS_OPTIONS = [128, 256, 320] as const;
 const DEFAULT_BROWSER_OPUS_KBPS = 256;
+
+export function browserOwnedSettingsZones(zones: ZoneProfile[], ownBrowserZoneId: string) {
+  return zones.filter((zone) => !isBrowserZone(zone) || zone.id === ownBrowserZoneId);
+}
 
 function zoneBrowserStreamDraftFromZone(zone: ZoneProfile): ZoneBrowserStreamDraft {
   const saved = (zone.browser_stream || {}) as JsonRecord;
@@ -120,8 +124,12 @@ export function useZonesSettings(zones: ZoneProfile[], onRefresh: () => Promise<
     opusKbps: DEFAULT_BROWSER_OPUS_KBPS
   });
 
-  const zoneGroups = groupedSettingsZones(zones);
-  const settingsZone = zones.find((zone) => zone.id === settingsZoneId) || null;
+  // The server already scopes browser zones to the requesting browser. Keep
+  // the same ownership boundary in the UI so an accidentally over-broad zone
+  // response can never expose another browser's private output settings.
+  const outputSettingsZones = browserOwnedSettingsZones(zones, browserZoneAgentId());
+  const zoneGroups = groupedSettingsZones(outputSettingsZones);
+  const settingsZone = outputSettingsZones.find((zone) => zone.id === settingsZoneId) || null;
 
   const selectSettingsZone = async (zone: ZoneProfile) => {
     if (zone.enabled === false) {
@@ -300,6 +308,7 @@ export function useZonesSettings(zones: ZoneProfile[], onRefresh: () => Promise<
     zoneHegelMessage,
     zoneHegelSettingsOpen,
     zoneNameDraft,
-    zoneUpnpCapabilitiesDraft
+    zoneUpnpCapabilitiesDraft,
+    outputSettingsZones
   };
 }
