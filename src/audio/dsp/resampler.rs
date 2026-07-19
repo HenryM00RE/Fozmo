@@ -295,8 +295,8 @@ pub enum FilterType {
     SmoothPhase128k,
 }
 
-pub const DEFAULT_FILTER_TYPE: FilterType = FilterType::Split128k;
-pub const DEFAULT_FILTER_NAME: &str = "Split128k";
+pub const DEFAULT_FILTER_TYPE: FilterType = FilterType::SplitPhase128kE2v3;
+pub const DEFAULT_FILTER_NAME: &str = "SplitPhase128kE2v3";
 
 impl FilterType {
     pub fn as_id(self) -> u32 {
@@ -378,11 +378,16 @@ impl FilterType {
             "SincExtreme32k" => Some(FilterType::SincExtreme32k),
             "LinearPhase128k" => Some(FilterType::LinearPhase128k),
             "Minimum16k" => Some(FilterType::Minimum16k),
-            "Split128k" | "Split128kTap" | "Split128k-Tap" => Some(FilterType::Split128k),
-            "Split128kV2" => Some(FilterType::Split128kV2),
-            "SplitPhase128kV3" | "Split128kV3" => Some(FilterType::SplitPhase128kV3),
-            "SplitPhase128kV4" | "Split128kV4" => Some(FilterType::SplitPhase128kV4),
-            "SplitPhase128kE2v3" | "SplitPhase128kV5E2v3" => Some(FilterType::SplitPhase128kE2v3),
+            "Split128k"
+            | "Split128kTap"
+            | "Split128k-Tap"
+            | "Split128kV2"
+            | "SplitPhase128kV3"
+            | "Split128kV3"
+            | "SplitPhase128kV4"
+            | "Split128kV4"
+            | "SplitPhase128kE2v3"
+            | "SplitPhase128kV5E2v3" => Some(FilterType::SplitPhase128kE2v3),
             "IntegratedPhase128k" | "IntegratedPhase" => Some(FilterType::IntegratedPhase128k),
             "IntegratedPhase128kV2" => Some(FilterType::IntegratedPhase128kV2),
             "IntegratedPhase128kV3" => Some(FilterType::IntegratedPhase128kV3),
@@ -398,7 +403,7 @@ impl FilterType {
             "SmoothPhase128k" => Some(FilterType::SmoothPhase128k),
             "Linear" | "SincMedium" | "SincExperimental1m" | "Mixed16k" | "Perfect"
             | "Split16k" | "Split16kDsd128" | "Split16kDsd128Apod" | "Split16k-DSD128"
-            | "Split32k" | "Split32kTap" | "Split32k-Tap" => Some(FilterType::Split128k),
+            | "Split32k" | "Split32kTap" | "Split32k-Tap" => Some(FilterType::SplitPhase128kE2v3),
             _ => None,
         }
     }
@@ -3862,7 +3867,7 @@ fn split_phase_e2v3_assets() -> &'static FrozenFilterAssetBundle {
                 "/assets/filters/split_phase_e2v3/character_full_rate.f64le"
             )),
             SPLIT_PHASE_E2V3_CHARACTER_COEFFICIENTS,
-            "Split Phase E2v3 experimental character",
+            "Split Phase E2v3 character",
         ),
         cleanups: [
             decode_f64le_asset(

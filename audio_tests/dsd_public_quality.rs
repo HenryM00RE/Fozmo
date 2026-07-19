@@ -25,9 +25,9 @@ use sha2::{Digest, Sha256};
 
 const REPORT_SCHEMA_VERSION: &str = "dsd-public-quality-report-v4";
 const MEASUREMENT_VERSION: &str = "dsd-public-quality-v4";
-const MATRIX_VERSION: &str = "dsd-public-matrix-28-v5";
-const SCORE_VERSION: &str = "dsd-public-production-score-v2";
-const SCORE_CLAIM: &str = "Fozmo PCM-to-DSD production-path score using Split128k";
+const MATRIX_VERSION: &str = "dsd-public-matrix-28-v6";
+const SCORE_VERSION: &str = "dsd-public-production-score-v3";
+const SCORE_CLAIM: &str = "Fozmo PCM-to-DSD production-path score using Split Phase E2v3";
 const CANONICAL_PRODUCTION_CELL_COUNT: usize = 28;
 const CHUNK_FRAMES: usize = 1024;
 const SPECTRAL_ANALYSIS_FRAMES: usize = 65_536;
@@ -63,6 +63,14 @@ struct Cli {
     /// Comma-separated production modulators.
     #[arg(long, default_value = "Standard,EcDepth2,EcBeam,EcBeam2")]
     modulator: String,
+
+    /// Reconstruction filter under test. Non-default filters are noncanonical and unscored.
+    #[arg(long, default_value = "SplitPhase128kE2v3")]
+    filter: String,
+
+    /// Comma-separated DSD rates to exercise: 64, 128, and/or 256.
+    #[arg(long, default_value = "64,128,256")]
+    rates: String,
 
     /// Add the non-scoring SincExtreme32k Linear Phase diagnostic matrix.
     #[arg(long)]
@@ -511,9 +519,16 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
     require_canonical_build()?;
     reject_filter_overrides()?;
     let selected = parse_modulators(&cli.modulator)?;
-    let mut matrix = build_matrix(&selected, cli.include_linear_reference);
+    let selected_filter = parse_filter(&cli.filter)?;
+    let selected_rates = parse_rates(&cli.rates)?;
+    let mut matrix = build_matrix(
+        &selected,
+        cli.include_linear_reference,
+        selected_filter,
+        &selected_rates,
+    );
     if cli.include_rate_comparison {
-        append_rate_comparison_diagnostics(&mut matrix, &selected);
+        append_rate_comparison_diagnostics(&mut matrix, &selected, selected_filter);
     }
     if cli.dsd256_only {
         matrix.retain(|cell| cell.dsd_rate == DsdRate::Dsd256);
@@ -565,7 +580,8 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
     let successful_diagnostic_cell_count = cells.iter().filter(|cell| cell.diagnostic).count();
     let failed_production_cell_count = production_execution_failure_count;
     let failed_diagnostic_cell_count = diagnostic_execution_failure_count;
-    let matrix_complete = canonical_selection(&selected)
+    let matrix_complete = selected_filter == DEFAULT_FILTER_TYPE
+        && canonical_selection(&selected)
         && attempted_production_cell_count == CANONICAL_PRODUCTION_CELL_COUNT
         && successful_production_cell_count == CANONICAL_PRODUCTION_CELL_COUNT
         && failed_production_cell_count == 0;
@@ -587,7 +603,7 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
         measurement_version: MEASUREMENT_VERSION,
         matrix_version: MATRIX_VERSION,
         reconstruction_algorithm_version: analysis::RECONSTRUCTION_ALGORITHM_VERSION,
-        quality_policy: "the versioned production-path scores are comparative presentation only; --check requires the complete canonical Split128k matrix and enforces whole-render health plus scoped structural gates",
+        quality_policy: "the versioned production-path scores are comparative presentation only; --check requires the complete canonical Split Phase E2v3 matrix and enforces whole-render health plus scoped structural gates",
         dbfs_reference: "full-scale-sine: peak amplitude 1.0 and RMS 1/sqrt(2) are both 0 dBFS",
         sinad_definition: "declared carrier power divided by every other in-band component, including declared distortion products",
         unknown_spur_definition: "Blackman-Harris-4 integrated main-lobe power after joint least-squares removal of declared carriers/products and DC; lines unresolved from a declared frequency are absorbed by that fit",
@@ -616,8 +632,8 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
         filter_policies: vec![
             FilterPolicy {
                 name: FilterType::Split128k.as_name().to_string(),
-                role: "production_default",
-                production_default: true,
+                role: "retired_split_phase_reference",
+                production_default: false,
             },
             FilterPolicy {
                 name: FilterType::SincExtreme32k.as_name().to_string(),
@@ -628,6 +644,11 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
                 name: FilterType::SmoothPhase128k.as_name().to_string(),
                 role: "smooth_phase_production_option",
                 production_default: false,
+            },
+            FilterPolicy {
+                name: FilterType::SplitPhase128kE2v3.as_name().to_string(),
+                role: "production_default_split_phase",
+                production_default: true,
             },
         ],
         reconstruction_profiles: vec![AUDIO_BAND, HIRES_BAND],
@@ -788,7 +809,50 @@ fn parse_modulators(value: &str) -> Result<Vec<DsdModulator>, String> {
     Ok(selected)
 }
 
-fn build_matrix(selected: &[DsdModulator], include_linear_reference: bool) -> Vec<CellSpec> {
+fn parse_filter(value: &str) -> Result<FilterType, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "split128k" => Ok(FilterType::Split128k),
+        "splitphase" | "split-phase" | "splitphase128ke2v3" | "splitphasee2v3"
+        | "split-phase-e2v3" => Ok(FilterType::SplitPhase128kE2v3),
+        _ => Err(format!(
+            "unsupported filter {value}; use Split128k or SplitPhase128kE2v3"
+        )),
+    }
+}
+
+fn parse_rates(value: &str) -> Result<Vec<DsdRate>, String> {
+    let mut rates = Vec::new();
+    for token in value
+        .split(',')
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+    {
+        let rate = match token.to_ascii_lowercase().as_str() {
+            "64" | "dsd64" => DsdRate::Dsd64,
+            "128" | "dsd128" => DsdRate::Dsd128,
+            "256" | "dsd256" => DsdRate::Dsd256,
+            _ => {
+                return Err(format!(
+                    "unsupported DSD rate {token}; use 64, 128, and/or 256"
+                ));
+            }
+        };
+        if !rates.contains(&rate) {
+            rates.push(rate);
+        }
+    }
+    if rates.is_empty() {
+        return Err("--rates must select at least one DSD rate".to_string());
+    }
+    Ok(rates)
+}
+
+fn build_matrix(
+    selected: &[DsdModulator],
+    include_linear_reference: bool,
+    production_filter: FilterType,
+    rates: &[DsdRate],
+) -> Vec<CellSpec> {
     let legacy = [
         DsdModulator::Standard,
         DsdModulator::EcDepth2,
@@ -798,11 +862,14 @@ fn build_matrix(selected: &[DsdModulator], include_linear_reference: bool) -> Ve
     .filter(|modulator| selected.contains(modulator))
     .collect::<Vec<_>>();
     let mut matrix = Vec::new();
-    for (filter, diagnostic) in [(FilterType::Split128k, false)]
+    for (filter, diagnostic) in [(production_filter, false)]
         .into_iter()
         .chain(include_linear_reference.then_some((FilterType::SincExtreme32k, true)))
     {
-        for rate in [DsdRate::Dsd64, DsdRate::Dsd128, DsdRate::Dsd256] {
+        for rate in [DsdRate::Dsd64, DsdRate::Dsd128, DsdRate::Dsd256]
+            .into_iter()
+            .filter(|rate| rates.contains(rate))
+        {
             for &modulator in &legacy {
                 matrix.push(CellSpec {
                     scenario: Scenario::LevelSweep,
@@ -824,6 +891,9 @@ fn build_matrix(selected: &[DsdModulator], include_linear_reference: bool) -> Ve
             } else {
                 DsdRate::Dsd128
             };
+            if !rates.contains(&dsd_rate) {
+                continue;
+            }
             for &modulator in &legacy {
                 matrix.push(CellSpec {
                     scenario,
@@ -835,63 +905,78 @@ fn build_matrix(selected: &[DsdModulator], include_linear_reference: bool) -> Ve
                 });
             }
         }
-        for &modulator in &legacy {
-            matrix.push(CellSpec {
-                scenario: Scenario::HiresReconstruction,
-                source_rate: signals::SOURCE_RATE_176K4_HZ,
-                dsd_rate: DsdRate::Dsd256,
-                modulator,
-                filter,
-                diagnostic,
-            });
+        if rates.contains(&DsdRate::Dsd256) {
+            for &modulator in &legacy {
+                matrix.push(CellSpec {
+                    scenario: Scenario::HiresReconstruction,
+                    source_rate: signals::SOURCE_RATE_176K4_HZ,
+                    dsd_rate: DsdRate::Dsd256,
+                    modulator,
+                    filter,
+                    diagnostic,
+                });
+            }
         }
     }
 
     if selected.contains(&DsdModulator::EcBeam2) {
-        for dsd_rate in [DsdRate::Dsd64, DsdRate::Dsd128, DsdRate::Dsd256] {
+        for dsd_rate in [DsdRate::Dsd64, DsdRate::Dsd128, DsdRate::Dsd256]
+            .into_iter()
+            .filter(|rate| rates.contains(rate))
+        {
             matrix.push(CellSpec {
                 scenario: Scenario::LevelSweep,
                 source_rate: signals::SOURCE_RATE_44K1_HZ,
                 dsd_rate,
                 modulator: DsdModulator::EcBeam2,
-                filter: FilterType::Split128k,
+                filter: production_filter,
                 diagnostic: false,
             });
         }
-        matrix.push(CellSpec {
-            scenario: Scenario::IdleTinySignal,
-            source_rate: signals::SOURCE_RATE_44K1_HZ,
-            dsd_rate: DsdRate::Dsd64,
-            modulator: DsdModulator::EcBeam2,
-            filter: FilterType::Split128k,
-            diagnostic: false,
-        });
-        for scenario in [
-            Scenario::HighFrequencyRatedStress,
-            Scenario::HighFrequencyMatchedStress,
-        ] {
+        if rates.contains(&DsdRate::Dsd64) {
             matrix.push(CellSpec {
-                scenario,
+                scenario: Scenario::IdleTinySignal,
                 source_rate: signals::SOURCE_RATE_44K1_HZ,
-                dsd_rate: DsdRate::Dsd128,
+                dsd_rate: DsdRate::Dsd64,
                 modulator: DsdModulator::EcBeam2,
-                filter: FilterType::Split128k,
+                filter: production_filter,
                 diagnostic: false,
             });
         }
-        matrix.push(CellSpec {
-            scenario: Scenario::HiresReconstruction,
-            source_rate: signals::SOURCE_RATE_176K4_HZ,
-            dsd_rate: DsdRate::Dsd256,
-            modulator: DsdModulator::EcBeam2,
-            filter: FilterType::Split128k,
-            diagnostic: false,
-        });
+        if rates.contains(&DsdRate::Dsd128) {
+            for scenario in [
+                Scenario::HighFrequencyRatedStress,
+                Scenario::HighFrequencyMatchedStress,
+            ] {
+                matrix.push(CellSpec {
+                    scenario,
+                    source_rate: signals::SOURCE_RATE_44K1_HZ,
+                    dsd_rate: DsdRate::Dsd128,
+                    modulator: DsdModulator::EcBeam2,
+                    filter: production_filter,
+                    diagnostic: false,
+                });
+            }
+        }
+        if rates.contains(&DsdRate::Dsd256) {
+            matrix.push(CellSpec {
+                scenario: Scenario::HiresReconstruction,
+                source_rate: signals::SOURCE_RATE_176K4_HZ,
+                dsd_rate: DsdRate::Dsd256,
+                modulator: DsdModulator::EcBeam2,
+                filter: production_filter,
+                diagnostic: false,
+            });
+        }
     }
     matrix
 }
 
-fn append_rate_comparison_diagnostics(matrix: &mut Vec<CellSpec>, selected: &[DsdModulator]) {
+fn append_rate_comparison_diagnostics(
+    matrix: &mut Vec<CellSpec>,
+    selected: &[DsdModulator],
+    filter: FilterType,
+) {
     for modulator in [
         DsdModulator::Standard,
         DsdModulator::EcDepth2,
@@ -904,7 +989,7 @@ fn append_rate_comparison_diagnostics(matrix: &mut Vec<CellSpec>, selected: &[Ds
                 source_rate: signals::SOURCE_RATE_176K4_HZ,
                 dsd_rate: DsdRate::Dsd128,
                 modulator,
-                filter: FilterType::Split128k,
+                filter,
                 diagnostic: true,
             });
         }
@@ -915,10 +1000,10 @@ fn score_policy() -> ScorePolicy {
     ScorePolicy {
         name: SCORE_VERSION,
         claim: SCORE_CLAIM,
-        canonical_filter: "Split128k",
+        canonical_filter: "SplitPhase128kE2v3",
         normalization: "each category has a frozen v1 quality-index anchor; normalized score = clamp(100 - max(0, anchor_db - measured_quality_index_db), 0, 100), so one average decibel below the anchor costs one category point before the published category weight is applied",
-        anchor_basis: "best Split128k category quality index in the clean native 42-cell v2 research comparison at Git commit 82a4395db0e0d3f85a08a0b8a8e700940f78f1f7",
-        eligibility: "scores are emitted only when all 28 canonical Split128k cells complete with zero canonical structural hard failures; optional Linear Phase cells never affect scores; every production modulator is scored at DSD64, DSD128, and DSD256",
+        anchor_basis: "historical best Split128k category quality index in the clean native 42-cell v2 research comparison at Git commit 82a4395db0e0d3f85a08a0b8a8e700940f78f1f7",
+        eligibility: "scores are emitted only when all 28 canonical Split Phase E2v3 cells complete with zero canonical structural hard failures; optional Linear Phase cells never affect scores; every production modulator is scored at DSD64, DSD128, and DSD256",
         rated_stress_role: "DSD128 rated stress is a structural qualification gate only; only matched-effective-peak stress contributes ranking points",
         anchors: vec![
             ScoreAnchorPolicy {
@@ -1079,7 +1164,7 @@ fn score_production_path(cells: &[CellReport]) -> Result<Vec<ProductionPathScore
             canonical_score_cell(cells, name, Scenario::HighFrequencyRatedStress, "DSD128")?;
         Ok(ProductionPathScore {
             modulator: name.to_string(),
-            filter: FilterType::Split128k.as_name().to_string(),
+            filter: DEFAULT_FILTER_TYPE.as_name().to_string(),
             rated_stress_qualified: rated.hard_failures.is_empty(),
             rates,
         })
@@ -1136,14 +1221,14 @@ fn canonical_score_cell<'a>(
         .iter()
         .find(|cell| {
             !cell.diagnostic
-                && cell.filter == FilterType::Split128k.as_name()
+                && cell.filter == DEFAULT_FILTER_TYPE.as_name()
                 && cell.modulator == modulator
                 && cell.scenario == scenario.as_name()
                 && cell.dsd_rate == dsd_rate
         })
         .ok_or_else(|| {
             format!(
-                "score input missing: {} Split128k {dsd_rate} {modulator}",
+                "score input missing: {} Split Phase E2v3 {dsd_rate} {modulator}",
                 scenario.as_name()
             )
         })
@@ -2273,7 +2358,7 @@ fn headroom_db(modulator: DsdModulator) -> f64 {
 fn filter_guard_frames(filter: FilterType) -> usize {
     match filter {
         FilterType::SincExtreme32k => LINEAR_FILTER_GUARD_FRAMES,
-        FilterType::Split128k => SPLIT_FILTER_GUARD_FRAMES,
+        FilterType::Split128k | FilterType::SplitPhase128kE2v3 => SPLIT_FILTER_GUARD_FRAMES,
         _ => LINEAR_FILTER_GUARD_FRAMES,
     }
 }
@@ -2378,9 +2463,9 @@ fn markdown_summary(report: &BenchReport) -> String {
         report.dbfs_reference,
         report.rolling_density_window_seconds * 1000.0,
     ));
-    output.push_str("Rated stress preserves each modulator's production headroom and is not a loudness-matched comparison. Use only `matched_effective_peak` stress rows for direct cross-modulator comparison. `Split128k` is the only canonical and scoring path; optional `SincExtreme32k` cells are a non-scoring Linear Phase diagnostic limited to modulators that support it. Every production modulator is scored at DSD64, DSD128, and DSD256.\n\n");
+    output.push_str("Rated stress preserves each modulator's production headroom and is not a loudness-matched comparison. Use only `matched_effective_peak` stress rows for direct cross-modulator comparison. `SplitPhase128kE2v3` is the only canonical and scoring Split Phase path; optional `SincExtreme32k` cells are a non-scoring Linear Phase diagnostic limited to modulators that support it. Every production modulator is scored at DSD64, DSD128, and DSD256.\n\n");
 
-    output.push_str("## Split128k production-path scores\n\n");
+    output.push_str("## Split Phase E2v3 production-path scores\n\n");
     output.push_str(&format!("Score system: `{}`. {}. Scores are comparative presentation, not `--check` quality gates.\n\n", report.score_policy.name, report.score_policy.claim));
     if report.score_eligible {
         output.push_str(
@@ -2430,7 +2515,7 @@ fn markdown_summary(report: &BenchReport) -> String {
             }
         }
     } else {
-        output.push_str("Scores were withheld because the complete healthy 28-cell canonical Split128k matrix was not available. Optional diagnostic cells do not affect eligibility.\n");
+        output.push_str("Scores were withheld because the complete healthy 28-cell canonical Split Phase E2v3 matrix was not available. Optional diagnostic cells do not affect eligibility.\n");
     }
     output.push('\n');
 
@@ -2843,7 +2928,12 @@ mod tests {
             DsdModulator::EcBeam,
             DsdModulator::EcBeam2,
         ];
-        let matrix = build_matrix(&selected, false);
+        let matrix = build_matrix(
+            &selected,
+            false,
+            DEFAULT_FILTER_TYPE,
+            &[DsdRate::Dsd64, DsdRate::Dsd128, DsdRate::Dsd256],
+        );
         assert_eq!(matrix.len(), CANONICAL_PRODUCTION_CELL_COUNT);
         assert!(canonical_selection(&selected));
         for (scenario, expected) in [
@@ -2866,7 +2956,7 @@ mod tests {
         assert!(
             matrix
                 .iter()
-                .all(|cell| { cell.filter == FilterType::Split128k && !cell.diagnostic })
+                .all(|cell| { cell.filter == DEFAULT_FILTER_TYPE && !cell.diagnostic })
         );
 
         let ecbeam2 = matrix
@@ -2895,12 +2985,17 @@ mod tests {
             DsdModulator::EcBeam,
             DsdModulator::EcBeam2,
         ];
-        let matrix = build_matrix(&selected, true);
+        let matrix = build_matrix(
+            &selected,
+            true,
+            DEFAULT_FILTER_TYPE,
+            &[DsdRate::Dsd64, DsdRate::Dsd128, DsdRate::Dsd256],
+        );
         assert_eq!(matrix.len(), 49);
         assert_eq!(
             matrix
                 .iter()
-                .filter(|cell| cell.filter == FilterType::Split128k && !cell.diagnostic)
+                .filter(|cell| cell.filter == DEFAULT_FILTER_TYPE && !cell.diagnostic)
                 .count(),
             28
         );
@@ -2920,12 +3015,22 @@ mod tests {
 
     #[test]
     fn partial_selection_keeps_only_supported_canonical_cells() {
-        let ecbeam2 = build_matrix(&[DsdModulator::EcBeam2], true);
+        let ecbeam2 = build_matrix(
+            &[DsdModulator::EcBeam2],
+            true,
+            DEFAULT_FILTER_TYPE,
+            &[DsdRate::Dsd64, DsdRate::Dsd128, DsdRate::Dsd256],
+        );
         assert_eq!(ecbeam2.len(), 7);
         assert!(ecbeam2.iter().all(|cell| !cell.diagnostic));
         assert!(!canonical_selection(&[DsdModulator::EcBeam2]));
 
-        let standard = build_matrix(&[DsdModulator::Standard], false);
+        let standard = build_matrix(
+            &[DsdModulator::Standard],
+            false,
+            DEFAULT_FILTER_TYPE,
+            &[DsdRate::Dsd64, DsdRate::Dsd128, DsdRate::Dsd256],
+        );
         assert_eq!(standard.len(), 7);
         assert!(
             standard
@@ -2937,9 +3042,14 @@ mod tests {
     #[test]
     fn rate_comparison_adds_a_noncanonical_dsd128_hires_cell_per_selected_modulator() {
         let selected = [DsdModulator::Standard, DsdModulator::EcBeam2];
-        let mut matrix = build_matrix(&selected, false);
+        let mut matrix = build_matrix(
+            &selected,
+            false,
+            DEFAULT_FILTER_TYPE,
+            &[DsdRate::Dsd64, DsdRate::Dsd128, DsdRate::Dsd256],
+        );
         let production_cells = matrix.len();
-        append_rate_comparison_diagnostics(&mut matrix, &selected);
+        append_rate_comparison_diagnostics(&mut matrix, &selected, DEFAULT_FILTER_TYPE);
         assert_eq!(matrix.len(), production_cells + selected.len());
         let diagnostics = matrix
             .iter()
@@ -2950,7 +3060,7 @@ mod tests {
             cell.scenario == Scenario::HiresReconstruction
                 && cell.source_rate == signals::SOURCE_RATE_176K4_HZ
                 && cell.dsd_rate == DsdRate::Dsd128
-                && cell.filter == FilterType::Split128k
+                && cell.filter == DEFAULT_FILTER_TYPE
                 && comparison_class(**cell) == "rate_comparison_level_matched"
         }));
     }
@@ -2962,7 +3072,27 @@ mod tests {
             vec![DsdModulator::Standard, DsdModulator::EcBeam2]
         );
         assert!(parse_modulators("EcDepth4").is_err());
-        assert!(Cli::try_parse_from(["dsd_public_quality", "--filter", "Linear"]).is_err());
+        assert_eq!(parse_filter("Split128k").unwrap(), FilterType::Split128k);
+        assert_eq!(
+            parse_filter("SplitPhase128kE2v3").unwrap(),
+            FilterType::SplitPhase128kE2v3
+        );
+        assert!(parse_filter("Linear").is_err());
+        assert_eq!(
+            parse_rates("64,128").unwrap(),
+            vec![DsdRate::Dsd64, DsdRate::Dsd128]
+        );
+        assert!(parse_rates("").is_err());
+        assert!(
+            Cli::try_parse_from([
+                "dsd_public_quality",
+                "--filter",
+                "SplitPhase128kE2v3",
+                "--rates",
+                "64,128"
+            ])
+            .is_ok()
+        );
         assert!(Cli::try_parse_from(["dsd_public_quality", "--include-linear-reference"]).is_ok());
         assert!(Cli::try_parse_from(["dsd_public_quality", "--include-rate-comparison"]).is_ok());
         assert!(Cli::try_parse_from(["dsd_public_quality", "--dsd256-only"]).is_ok());
@@ -2974,7 +3104,7 @@ mod tests {
         assert_eq!(headroom_db(DsdModulator::EcDepth2), -4.0);
         assert_eq!(headroom_db(DsdModulator::EcBeam), -2.0);
         assert_eq!(headroom_db(DsdModulator::EcBeam2), -2.0);
-        assert_eq!(DEFAULT_FILTER_TYPE, FilterType::Split128k);
+        assert_eq!(DEFAULT_FILTER_TYPE, FilterType::SplitPhase128kE2v3);
         assert_eq!(
             filter_guard_frames(FilterType::SincExtreme32k),
             LINEAR_FILTER_GUARD_FRAMES
@@ -2984,8 +3114,52 @@ mod tests {
             SPLIT_FILTER_GUARD_FRAMES
         );
         assert_eq!(
+            filter_guard_frames(FilterType::SplitPhase128kE2v3),
+            SPLIT_FILTER_GUARD_FRAMES
+        );
+        assert_eq!(
             filter_guard_frames(FilterType::SmoothPhase128k),
             LINEAR_FILTER_GUARD_FRAMES
+        );
+    }
+
+    #[test]
+    fn e2v3_dsd64_dsd128_matrix_has_expected_public_bench_cells() {
+        let matrix = build_matrix(
+            &[DsdModulator::Standard, DsdModulator::EcBeam2],
+            false,
+            FilterType::SplitPhase128kE2v3,
+            &[DsdRate::Dsd64, DsdRate::Dsd128],
+        );
+        assert_eq!(matrix.len(), 10);
+        assert!(matrix.iter().all(|cell| {
+            cell.filter == FilterType::SplitPhase128kE2v3
+                && matches!(cell.dsd_rate, DsdRate::Dsd64 | DsdRate::Dsd128)
+                && !cell.diagnostic
+        }));
+        assert_eq!(
+            matrix
+                .iter()
+                .filter(|cell| cell.scenario == Scenario::LevelSweep)
+                .count(),
+            4
+        );
+        assert_eq!(
+            matrix
+                .iter()
+                .filter(|cell| cell.scenario == Scenario::IdleTinySignal)
+                .count(),
+            2
+        );
+        assert_eq!(
+            matrix
+                .iter()
+                .filter(|cell| matches!(
+                    cell.scenario,
+                    Scenario::HighFrequencyRatedStress | Scenario::HighFrequencyMatchedStress
+                ))
+                .count(),
+            4
         );
     }
 

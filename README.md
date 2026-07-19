@@ -50,10 +50,10 @@ For more information about the audio processing options, read the [DSP guide](do
 
 ## DSP Starting Point
 
-The setup I currently use is:
+The default setup I currently use is:
 
 ```text
-Filter:          Smooth Phase
+Filter:          Split Phase
 DSD modulator:   7th Order Search
 Headroom:        -2.0 dB
 DSD target:      DSD128
@@ -61,7 +61,10 @@ DSD target:      DSD128
 
 This is a personal preference, not a quality ranking. Try the available filters and modulators yourself. PCM output is the safer compatibility path and should be used when a DAC, driver, or operating-system route does not have a confirmed DSD path.
 
-The audio system is documented in [docs/dsp.md](docs/dsp.md). The lower-level playback pipeline is documented in [docs/audio-pipeline.md](docs/audio-pipeline.md).
+The audio system is documented in [docs/dsp.md](docs/dsp.md), with current
+digital results in [docs/Measurements.md](docs/Measurements.md). The lower-level
+playback pipeline is documented in
+[docs/audio-pipeline.md](docs/audio-pipeline.md).
 
 ## Platform Status
 

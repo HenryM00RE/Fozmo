@@ -635,7 +635,7 @@ fn integrated128k_id_name_serde_and_stage_spec_are_stable() {
             "IntegratedPhase128kV4",
         ),
     ];
-    assert_eq!(DEFAULT_FILTER_TYPE, FilterType::Split128k);
+    assert_eq!(DEFAULT_FILTER_TYPE, FilterType::SplitPhase128kE2v3);
     assert_eq!(
         FilterType::from_name("IntegratedPhase"),
         Some(FilterType::IntegratedPhase128k)
@@ -1148,16 +1148,20 @@ fn filter_ids_are_backward_compatible() {
         "SplitPhase128kE2v3"
     );
     assert_eq!(
+        FilterType::from_name("Split128k"),
+        Some(FilterType::SplitPhase128kE2v3)
+    );
+    assert_eq!(
         FilterType::from_name("Split128kV2"),
-        Some(FilterType::Split128kV2)
+        Some(FilterType::SplitPhase128kE2v3)
     );
     assert_eq!(
         FilterType::from_name("SplitPhase128kV3"),
-        Some(FilterType::SplitPhase128kV3)
+        Some(FilterType::SplitPhase128kE2v3)
     );
     assert_eq!(
         FilterType::from_name("SplitPhase128kV4"),
-        Some(FilterType::SplitPhase128kV4)
+        Some(FilterType::SplitPhase128kE2v3)
     );
     assert_eq!(
         FilterType::from_name("SplitPhase128kE2v3"),
@@ -1193,28 +1197,31 @@ fn filter_ids_are_backward_compatible() {
     );
     assert_eq!(
         FilterType::from_name("Mixed16k"),
-        Some(FilterType::Split128k)
+        Some(FilterType::SplitPhase128kE2v3)
     );
-    assert_eq!(FilterType::from_name("Linear"), Some(FilterType::Split128k));
+    assert_eq!(
+        FilterType::from_name("Linear"),
+        Some(FilterType::SplitPhase128kE2v3)
+    );
     assert_eq!(
         FilterType::from_name("LinearPhase128k"),
         Some(FilterType::LinearPhase128k)
     );
     assert_eq!(
         FilterType::from_name("SincMedium"),
-        Some(FilterType::Split128k)
+        Some(FilterType::SplitPhase128kE2v3)
     );
     assert_eq!(
         FilterType::from_name("Perfect"),
-        Some(FilterType::Split128k)
+        Some(FilterType::SplitPhase128kE2v3)
     );
     assert_eq!(
         FilterType::from_name("Split16k"),
-        Some(FilterType::Split128k)
+        Some(FilterType::SplitPhase128kE2v3)
     );
     assert_eq!(
         FilterType::from_name("Split16kDsd128"),
-        Some(FilterType::Split128k)
+        Some(FilterType::SplitPhase128kE2v3)
     );
     assert_eq!(
         serde_json::from_str::<FilterType>("\"Perfect\"").unwrap(),

@@ -109,11 +109,20 @@ Responsibilities:
 
 - Pick the requested DSD target mode from settings and source rules.
 - Preserve source clock-family behavior where required.
-- Render PCM to DSD128 or DSD256.
+- Render PCM to DSD64, DSD128, or DSD256.
 - Pack DSD as DoP for CoreAudio-compatible paths.
 - Pack native DSD for ASIO/vendor-driver paths.
 - Fall back to PCM when a requested DSD path is not supported by the selected
   device.
+
+The product's **Split Phase** filter is the promoted
+`SplitPhase128kE2v3` reconstruction path. The selectable **7th Order Search**
+modulator is `EcBeam2`, a fixed M4/N8 beam search used at −2 dB headroom with
+zero DSD ISI compensation. The current personal default documented for Fozmo
+is Split Phase with 7th Order Search at DSD128; this is a listening preference,
+not a pipeline requirement. See [DSP](dsp.md) for the user-facing options and
+[Split Phase DSD Measurements](Measurements.md) for the measured digital
+results.
 
 DSD code is especially sensitive to platform support and device capabilities.
 Keep rate-selection tests and native/DoP packing tests close to the code, and

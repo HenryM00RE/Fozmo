@@ -26,14 +26,9 @@ test('filter selections persist their canonical setting names', async ({ page })
   const configPath = '/api/zones/local-core/config';
   for (const [label, filterType] of [
     ['Linear Phase', 'LinearPhase128k'],
-    ['Minimum Phase', 'MinimumPhaseCompact128kV2'],
-    ['Minimum Phase B', 'MinimumPhaseCompact128k'],
+    ['Minimum Phase', 'MinimumPhaseCompact128k'],
     ['Smooth Phase', 'SmoothPhase128k'],
-    ['Split Phase', 'Split128k'],
-    ['Split Phase B', 'Split128kV2'],
-    ['Split Phase C', 'SplitPhase128kV3'],
-    ['Split Phase D', 'SplitPhase128kV4'],
-    ['Split Phase E2v3 (Experimental)', 'SplitPhase128kE2v3']
+    ['Split Phase', 'SplitPhase128kE2v3']
   ]) {
     await page.getByRole('button', { name: 'Filter' }).click();
     await page.getByRole('option', { name: label, exact: true }).click();

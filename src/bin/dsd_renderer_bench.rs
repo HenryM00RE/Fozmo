@@ -80,8 +80,8 @@ fn main() -> Result<(), String> {
             modulator: DsdModulator::EcDepth2,
         },
         Case {
-            name: "Split128k DSD128 EcDepth2",
-            filter: FilterType::Split128k,
+            name: "Split Phase DSD128 EcDepth2",
+            filter: FilterType::SplitPhase128kE2v3,
             dsd_rate: DsdRate::Dsd128,
             modulator: DsdModulator::EcDepth2,
         },

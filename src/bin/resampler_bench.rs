@@ -47,8 +47,8 @@ fn main() {
             filter: FilterType::MinimumPhaseCompact128kV2,
         },
         BenchCase {
-            name: "Split128k",
-            filter: FilterType::Split128k,
+            name: "Split Phase",
+            filter: FilterType::SplitPhase128kE2v3,
         },
         BenchCase {
             name: "SmoothPhase128k",
