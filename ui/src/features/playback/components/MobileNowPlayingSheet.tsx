@@ -58,6 +58,10 @@ export function MobileNowPlayingSheet({
   const closeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
+    if (nowPlayingOpen) setView('now-playing');
+  }, [nowPlayingOpen]);
+
+  useEffect(() => {
     return () => {
       if (closeTimerRef.current !== null) {
         window.clearTimeout(closeTimerRef.current);
