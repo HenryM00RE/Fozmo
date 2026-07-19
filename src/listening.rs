@@ -337,7 +337,9 @@ impl ListeningTracker {
                 return;
             }
             let completed = is_complete(current.last_position_secs, current.duration_secs);
-            if completed && !current.queue.is_empty() {
+            if completed
+                && (!current.queue.is_empty() || persisted_repeat_current_enabled(library, zone_id))
+            {
                 let waiting_since = *current.waiting_for_queue_advance_since.get_or_insert(now);
                 if now.duration_since(waiting_since).as_secs_f64() < PENDING_MATCH_GRACE_SECONDS {
                     current.last_tick = now;
@@ -593,6 +595,21 @@ impl ListeningTracker {
             })
             .collect()
     }
+}
+
+fn persisted_repeat_current_enabled(library: &Library, zone_id: &str) -> bool {
+    library
+        .now_playing_queue(zone_id)
+        .ok()
+        .flatten()
+        .and_then(|snapshot| {
+            snapshot
+                .state
+                .get("loopMode")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .is_some_and(|mode| mode == "loop")
 }
 
 fn record_recent_source(library: &Library, profile_id: &str, source: &SourceRef, radio: bool) {
@@ -1212,6 +1229,99 @@ mod tests {
         let listen = active.get(zone_id).unwrap();
         assert_eq!(listen.queue.len(), 1);
         assert_eq!(listen.queue[0].source.key(), remaining.key());
+    }
+
+    #[test]
+    fn completed_final_stop_keeps_active_source_for_repeat_current() {
+        let library = test_library("repeat-current-stopped-keeps-final-source");
+        let tracker = ListeningTracker::default();
+        let zone_id = "local-core";
+        let final_source = qobuz_test_source(3, "Three");
+        library
+            .upsert_zone_definition(zone_id, "Local", "local_coreaudio", None, true)
+            .unwrap();
+        library
+            .set_now_playing_queue(
+                zone_id,
+                &serde_json::json!({
+                    "kind": "qobuz",
+                    "cursor": 2,
+                    "items": [],
+                    "loopMode": "loop"
+                }),
+            )
+            .unwrap();
+        tracker.start(
+            &library,
+            zone_id.to_string(),
+            "Local".to_string(),
+            "default".to_string(),
+            final_source.clone(),
+            Vec::new(),
+        );
+        tracker.observe(
+            &library,
+            zone_id,
+            "default".to_string(),
+            observation_for_source("Playing", &final_source, 5.0, 10.0),
+        );
+
+        tracker.observe(
+            &library,
+            zone_id,
+            "default".to_string(),
+            observation_for_source("Stopped", &final_source, 10.0, 10.0),
+        );
+
+        assert_eq!(
+            tracker.active_source(zone_id).map(|source| source.key()),
+            Some(final_source.key())
+        );
+    }
+
+    #[test]
+    fn completed_final_stop_finalizes_when_loop_is_off() {
+        let library = test_library("loop-off-finalizes-final-source");
+        let tracker = ListeningTracker::default();
+        let zone_id = "local-core";
+        let final_source = qobuz_test_source(3, "Three");
+        library
+            .upsert_zone_definition(zone_id, "Local", "local_coreaudio", None, true)
+            .unwrap();
+        library
+            .set_now_playing_queue(
+                zone_id,
+                &serde_json::json!({
+                    "kind": "qobuz",
+                    "cursor": 0,
+                    "items": [],
+                    "loopMode": "off"
+                }),
+            )
+            .unwrap();
+        tracker.start(
+            &library,
+            zone_id.to_string(),
+            "Local".to_string(),
+            "default".to_string(),
+            final_source.clone(),
+            Vec::new(),
+        );
+        tracker.observe(
+            &library,
+            zone_id,
+            "default".to_string(),
+            observation_for_source("Playing", &final_source, 5.0, 10.0),
+        );
+
+        tracker.observe(
+            &library,
+            zone_id,
+            "default".to_string(),
+            observation_for_source("Stopped", &final_source, 10.0, 10.0),
+        );
+
+        assert!(tracker.active_source(zone_id).is_none());
     }
 
     #[test]

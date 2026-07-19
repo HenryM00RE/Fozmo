@@ -94,3 +94,15 @@ impl LoopMode {
         matches!(self, Self::One | Self::Loop)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::LoopMode;
+
+    #[test]
+    fn loop_mode_enables_repeat_one() {
+        assert!(LoopMode::Loop.repeat_one());
+        assert!(LoopMode::One.repeat_one());
+        assert!(!LoopMode::Off.repeat_one());
+    }
+}

@@ -87,6 +87,20 @@ routing, state ownership, and service boundaries.
 | Active output switching | Switch between local, remote, Sonos, or AirPlay outputs as available. | Preferred active output is persisted and only the selected output receives playback commands/settings. | Pending |
 | Remote agent playback | Pair an agent, select its output, and play a local or stream-backed source. | Agent receives playback/config commands, renders audio, reports status, and survives reconnect. | Pending |
 
+### Repeat current track
+
+The loop button is repeat-one: while enabled, completion restarts the current
+track without consuming the upcoming queue. Turning it off restores normal
+queue advancement. Manual Next still skips to the next queued item.
+
+| Output | Repeat after natural completion | Loop off advances normally | Evidence |
+| --- | --- | --- | --- |
+| CoreAudio / local DAC | Pending | Pending | Engine coverage; hardware pending |
+| Browser / remote agent | Pending | Pending | Route and fallback coverage; audible check pending |
+| AirPlay | Pending | Pending | Engine coverage; hardware pending |
+| UPnP renderer | Pending | Pending | Backend fallback coverage; hardware pending |
+| Sonos | Pending | Pending | Backend fallback coverage; hardware pending |
+
 ## Local Playback
 
 | Area | Command Or Action | Expected Result | Evidence |

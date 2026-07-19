@@ -881,7 +881,7 @@ fn auto_advance_completion_reason(
 fn is_remote_queue_protocol(protocol: Option<&SinkProtocol>) -> bool {
     matches!(
         protocol,
-        Some(SinkProtocol::SonosUpnp | SinkProtocol::UpnpAvRenderer)
+        Some(SinkProtocol::RemoteAgent | SinkProtocol::SonosUpnp | SinkProtocol::UpnpAvRenderer)
     )
 }
 
@@ -1216,8 +1216,9 @@ fn text_eq(left: &str, right: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::playback::test_support::{app_state, qobuz_source};
-    use crate::protocol::SinkProtocol;
+    use crate::playback::test_support::{agent_capabilities, app_state, qobuz_source};
+    use crate::protocol::{CoreToAgentCommand, SinkProtocol};
+    use tokio::sync::mpsc;
 
     #[test]
     fn completion_detection_does_not_treat_immediate_short_stop_as_finished() {
@@ -1343,6 +1344,88 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn remote_completion_restarts_current_item_when_loop_is_enabled() {
+        let state = app_state("remote-auto-advance-repeat-current");
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        state.zones().register_agent(
+            "agent-1".to_string(),
+            "Studio PC".to_string(),
+            agent_capabilities("Agent DAC"),
+            tx,
+        );
+        let zone_id = state
+            .zones()
+            .list_zones()
+            .into_iter()
+            .find(|zone| zone.agent_name.as_deref() == Some("Studio PC"))
+            .expect("remote agent zone should be registered")
+            .id;
+        let current = qobuz_source(1, false);
+        let next = qobuz_source(2, false);
+        state
+            .library()
+            .upsert_zone_definition(
+                &zone_id,
+                "Studio PC",
+                "remote_agent",
+                Some("Agent DAC"),
+                true,
+            )
+            .unwrap();
+        state
+            .library()
+            .set_now_playing_queue(
+                &zone_id,
+                &serde_json::json!({
+                    "kind": "qobuz",
+                    "cursor": 0,
+                    "items": [
+                        { "resolvedSource": current.clone() },
+                        { "resolvedSource": next.clone() }
+                    ],
+                    "loopMode": "loop"
+                }),
+            )
+            .unwrap();
+        state.listening().start(
+            state.library(),
+            zone_id.clone(),
+            "Studio PC".to_string(),
+            state.settings().active_profile_id(),
+            current.clone(),
+            vec![next.clone()],
+        );
+        state
+            .library()
+            .set_zone_queue(&zone_id, std::slice::from_ref(&next))
+            .unwrap();
+        let mut status = status_with_position("Stopped", 180.0, 180.0);
+        status.current_source = Some(current.clone());
+        let pending = Arc::new(Mutex::new(HashSet::new()));
+
+        maybe_spawn_qobuz_auto_advance(
+            &state,
+            &zone_id,
+            &status,
+            &pending,
+            &AutoAdvanceMonitorState::default(),
+            None,
+        );
+
+        let command = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+            .await
+            .expect("repeat-one fallback should send a playback command")
+            .expect("remote agent should remain connected");
+        assert!(matches!(
+            command,
+            CoreToAgentCommand::PlaySource { source_ref, queue, .. }
+                if source_ref.key() == current.key()
+                    && queue.len() == 1
+                    && queue[0].key() == "qobuz:2"
+        ));
     }
 
     #[test]
