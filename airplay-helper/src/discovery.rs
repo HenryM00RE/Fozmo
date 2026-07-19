@@ -142,23 +142,9 @@ fn preferred_target(services: &HashMap<String, AirPlayTarget>) -> Option<AirPlay
 fn preference(target: &AirPlayTarget) -> u8 {
     match target.service_kind {
         ServiceKind::AirPlay2 => 3,
-        ServiceKind::Raop if modern_raop_endpoint(target) => 1,
+        ServiceKind::Raop if target.prefers_airplay2_transport() => 1,
         ServiceKind::Raop => 2,
     }
-}
-
-fn modern_raop_endpoint(target: &AirPlayTarget) -> bool {
-    target.service_kind == ServiceKind::Raop
-        && !target.encryption_types.contains(&1)
-        && target
-            .model
-            .as_deref()
-            .is_some_and(|model| model.starts_with("AudioAccessory"))
-        && (target.port == 7000
-            || target
-                .encryption_types
-                .iter()
-                .any(|kind| matches!(kind, 3 | 5)))
 }
 
 fn wire_receiver(opaque_id: &str, entry: &ReceiverEntry) -> Receiver {
@@ -346,6 +332,38 @@ fn stable_id(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mdns_sd::ServiceInfo;
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct DiscoveryFixture {
+        services: Vec<ServiceFixture>,
+    }
+
+    #[derive(Deserialize)]
+    struct ServiceFixture {
+        service_type: String,
+        instance: String,
+        host: String,
+        address: String,
+        port: u16,
+        txt: HashMap<String, String>,
+    }
+
+    impl ServiceFixture {
+        fn resolved(&self) -> ResolvedService {
+            ServiceInfo::new(
+                &self.service_type,
+                &self.instance,
+                &self.host,
+                self.address.as_str(),
+                self.port,
+                self.txt.clone(),
+            )
+            .expect("fixture service should be valid")
+            .as_resolved_service()
+        }
+    }
 
     fn target(kind: ServiceKind, service: &str) -> AirPlayTarget {
         AirPlayTarget {
@@ -379,6 +397,29 @@ mod tests {
             preferred_target(&services).unwrap().service_kind,
             ServiceKind::AirPlay2
         );
+    }
+
+    #[test]
+    fn captured_hegel_h390_keeps_airplay2_service() {
+        let fixture: DiscoveryFixture = serde_json::from_str(include_str!(
+            "../tests/fixtures/hegel-h390-dual-service.json"
+        ))
+        .expect("Hegel discovery fixture should parse");
+        let mut receivers = HashMap::new();
+
+        for service in fixture.services {
+            let resolved = service.resolved();
+            let target = receiver_from_service(&service.service_type, &resolved)
+                .expect("fixture should resolve to an AirPlay target");
+            upsert(&mut receivers, target);
+        }
+
+        assert_eq!(receivers.len(), 1);
+        let entry = receivers.values().next().unwrap();
+        assert_eq!(entry.target.model.as_deref(), Some("H390"));
+        assert_eq!(entry.target.service_kind, ServiceKind::AirPlay2);
+        assert!(entry.target.prefers_airplay2_transport());
+        assert!(wire_receiver("receiver-fixture", entry).supported);
     }
 
     #[test]

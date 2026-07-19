@@ -5,8 +5,11 @@ use fozmo_airplay_protocol::Metadata;
 use ringbuf::HeapRb;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::thread;
+use std::time::Duration;
 
 const RING_CAPACITY_SAMPLES: usize = 44_100 * 2 * 4;
+const AIRPLAY2_TAIL_DRAIN: Duration = Duration::from_secs(2);
 
 pub struct BackendSession {
     pub producer: Option<AudioProducer>,
@@ -89,6 +92,15 @@ impl BackendSession {
         match &self.handle {
             BackendHandle::Raop(stream) => stream.reset_requested(),
             BackendHandle::AirPlay2(stream) => stream.reset_requested(),
+        }
+    }
+
+    pub fn drain_buffered_tail(&self) {
+        if matches!(self.handle, BackendHandle::AirPlay2(_)) {
+            // The AirPlay 2 live sender owns a receiver jitter buffer beyond
+            // this session's PCM ring. Keep standalone `play` alive long
+            // enough for the final ALAC frames and render delay to drain.
+            thread::sleep(AIRPLAY2_TAIL_DRAIN);
         }
     }
 }
