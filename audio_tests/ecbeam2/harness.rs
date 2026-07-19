@@ -11779,7 +11779,8 @@ fn minimum_measurement_frames(filter: FilterType) -> usize {
         | FilterType::Split128k
         | FilterType::Split128kV2
         | FilterType::SplitPhase128kV3
-        | FilterType::SplitPhase128kV4 => 131_072,
+        | FilterType::SplitPhase128kV4
+        | FilterType::SplitPhase128kE2v3 => 131_072,
         FilterType::IntegratedPhase128k
         | FilterType::IntegratedPhase128kV2
         | FilterType::IntegratedPhase128kV3

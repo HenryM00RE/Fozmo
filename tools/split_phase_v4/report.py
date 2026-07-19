@@ -4,12 +4,12 @@ import argparse
 import json
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
 from .analytic_group_delay import physical_log_derivatives
-from .baseline import _load_c, _metrics
+from .baseline import DESIGN_FFT_LEN, _load_c, _metrics
 from .character_minimax import matrix_free_lawson, save as save_character
 from .certify import _ratio_metrics, _resample_target
 from .cleanup_socp import optimize_all, project_cleanup_equalities
@@ -75,10 +75,18 @@ def _temporal_objectives(coefficients: np.ndarray, fft_len: int) -> tuple[float,
     return results[0], results[1]
 
 
-def _target_from_joint_delay(root: Path, work_dir: Path, fft_len: int) -> tuple[np.ndarray, dict[str, Any], dict[str, Any]]:
+FactorBuilder = Callable[[np.ndarray, int, Path], dict[str, Any]]
+
+
+def _target_from_joint_delay(
+    root: Path,
+    work_dir: Path,
+    fft_len: int,
+    factor_builder: FactorBuilder = factor,
+) -> tuple[np.ndarray, dict[str, Any], dict[str, Any]]:
     magnitude_data = np.load(work_dir / "magnitude_order_512.npz")
     autocorrelation = magnitude_data["autocorrelation"]
-    factor_report = factor(autocorrelation, fft_len, work_dir)
+    factor_report = factor_builder(autocorrelation, fft_len, work_dir)
     factor_coefficients = np.load(work_dir / "spectral_factor_coefficients.npy")
     minimum_response = np.fft.rfft(factor_coefficients, n=fft_len)
     weighted = np.fft.rfft(np.arange(factor_coefficients.size, dtype=np.float64) * factor_coefficients, n=fft_len)
@@ -123,8 +131,19 @@ def _target_from_joint_delay(root: Path, work_dir: Path, fft_len: int) -> tuple[
     return target, {"factor": factor_report, "spline": spline_report}, state
 
 
-def build(root: Path, work_dir: Path, fft_len: int = 1_048_576) -> dict[str, Any]:
-    target, target_report, joint_state = _target_from_joint_delay(root, work_dir, fft_len)
+def build(
+    root: Path,
+    work_dir: Path,
+    fft_len: int = 1_048_576,
+    factor_builder: FactorBuilder = factor,
+    identity: str = "SplitPhase128kV4",
+) -> dict[str, Any]:
+    target, target_report, joint_state = _target_from_joint_delay(
+        root,
+        work_dir,
+        fft_len,
+        factor_builder,
+    )
     character_c, cleanups_c, origin_c, _ = _load_c(root)
     periodic = np.fft.irfft(target, n=fft_len)
     support_candidate, origin, support_report = search(periodic, target, 262_145, origin_c, work_dir / "support_search.json")
@@ -297,7 +316,14 @@ def build(root: Path, work_dir: Path, fft_len: int = 1_048_576) -> dict[str, Any
     np.savez(work_dir / "cleanup_optimized.npz", **{"stage_" + str(index): value for index, value in enumerate(cleanups, start=1)})
     (work_dir / "cleanup_socp.json").write_text(json.dumps(cleanup_report, indent=2) + "\n")
     rational_147_160, rational_160_147, rational_report = optimize_both(root / "assets/filters/split_phase_v3", target, origin, work_dir)
-    d_metrics = _metrics(character, [type(cleanups_c[0])(value) for value in cleanups], origin, target)
+    metric_omega = np.linspace(0.0, np.pi, DESIGN_FFT_LEN // 2 + 1)
+    metric_target = _resample_target(target, metric_omega, origin)
+    d_metrics = _metrics(
+        character,
+        [type(cleanups_c[0])(value) for value in cleanups],
+        origin,
+        metric_target,
+    )
     comparison = compare(root, d_metrics, character, rational_report)
     comparison["d_metrics"] = d_metrics
     (work_dir / "comparison_abcd.json").write_text(json.dumps(comparison, indent=2) + "\n")
@@ -309,7 +335,7 @@ def build(root: Path, work_dir: Path, fft_len: int = 1_048_576) -> dict[str, Any
         {"block": "simultaneous_jax_polish", "accepted": False, "reason": "not run; production acceptance relies on the constrained reduced-coordinate block loop"},
     ]
     summary = {
-        "identity": "SplitPhase128kV4",
+        "identity": identity,
         "target": target_report,
         "support": support_report,
         "character": character_report,
