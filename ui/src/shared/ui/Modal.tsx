@@ -18,7 +18,7 @@ export function Modal({
   if (!open) return null;
   return (
     <div
-      className={`modal-backdrop${className ? ` ${className}` : ''}`}
+      className={`modal-backdrop app-modal-backdrop${className ? ` ${className}` : ''}`}
       role="dialog"
       aria-modal="true"
       aria-label={ariaLabel}

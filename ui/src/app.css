@@ -1890,6 +1890,13 @@ body.recently-played-selection-mode .react-app .home-qobuz-grid .album-cover-pla
   }
 }
 
+@media (hover: none), (pointer: coarse) {
+  .react-app [data-selection-press] {
+    -webkit-touch-callout: none;
+    user-select: none;
+  }
+}
+
 .react-app .songs-track-panel .song-list .file-item.songs-track-row {
   grid-template-columns: 64px minmax(0, 1fr) minmax(54px, auto) minmax(44px, auto) 40px;
   min-height: 53.5px;
@@ -10285,6 +10292,10 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
     gap: 4px;
   }
 
+  .react-app .mobile-top-bar-main.is-selection-mode {
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+  }
+
   .react-app .mobile-top-bar .btn-ghost,
   .react-app .mobile-nav-head .btn-ghost,
   .react-app .mobile-sheet-head .btn-ghost,
@@ -10417,13 +10428,40 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   }
 
   .react-app .mobile-selection-toolbar {
-    overflow-x: auto;
-    padding-bottom: 2px;
+    min-width: 0;
+    overflow: visible;
   }
 
   .react-app .mobile-selection-toolbar .toolbar-selection-actions {
-    width: max-content;
-    min-width: 100%;
+    width: 100%;
+    min-width: 0;
+    gap: 0;
+    justify-content: center;
+  }
+
+  .react-app .mobile-selection-toolbar .toolbar-selection-count {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    white-space: nowrap;
+  }
+
+  .react-app .mobile-selection-toolbar .toolbar-selection-play {
+    max-width: 100%;
+  }
+
+  .react-app .mobile-selection-toolbar .album-play-main {
+    padding-inline: 11px 9px;
+  }
+
+  .react-app .mobile-top-bar-main.is-selection-mode .mobile-top-actions {
+    gap: 4px;
   }
 
   .react-app .workspace {
@@ -11535,5 +11573,32 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
     grid-template-areas:
       "track controls close"
       "progress progress progress";
+  }
+}
+
+/* Keep mobile dialogs close to the top and fully inside the usable viewport. */
+@media (max-width: 760px) {
+  .react-app .app-modal-backdrop {
+    --mobile-modal-top-gap: max(12px, env(safe-area-inset-top, 0px));
+    --mobile-modal-right-gap: max(12px, env(safe-area-inset-right, 0px));
+    --mobile-modal-bottom-gap: calc(var(--mobile-bottom-chrome-height, 0px) + 12px);
+    --mobile-modal-left-gap: max(12px, env(safe-area-inset-left, 0px));
+
+    box-sizing: border-box;
+    align-items: flex-start;
+    justify-content: center;
+    padding: var(--mobile-modal-top-gap) var(--mobile-modal-right-gap)
+      var(--mobile-modal-bottom-gap) var(--mobile-modal-left-gap);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .react-app .app-modal-surface {
+    max-height: calc(100dvh - var(--mobile-modal-top-gap) - var(--mobile-modal-bottom-gap));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 }

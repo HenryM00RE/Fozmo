@@ -257,7 +257,10 @@ export function GeneralSettingsPage({
         open={Boolean(folderToRemove)}
         onClose={closeFolderRemove}
       >
-        <section className="folder-remove-panel" onMouseDown={(event) => event.stopPropagation()}>
+        <section
+          className="folder-remove-panel app-modal-surface"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
           <div className="folder-remove-body">
             <div className="section-label">Music folder</div>
             <h2 id="folder-remove-title">Remove this folder?</h2>
@@ -300,7 +303,7 @@ export function GeneralSettingsPage({
         open={importOpen}
         onClose={() => setImportOpen(false)}
       >
-        <div className="history-import-panel">
+        <div className="history-import-panel app-modal-surface">
           <div className="history-import-head">
             <div>
               <div className="section-label">History</div>

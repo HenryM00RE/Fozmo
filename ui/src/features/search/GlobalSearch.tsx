@@ -167,7 +167,7 @@ export function GlobalSearch({
       ariaLabel="Search library and Qobuz"
       onClose={closeSearch}
     >
-      <div className="global-search-panel">
+      <div className="global-search-panel app-modal-surface">
         <header className="global-search-head">
           <label className="global-search-field">
             <span className="sr-only">Search library and Qobuz</span>

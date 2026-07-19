@@ -39,7 +39,7 @@ export function MobileTopBar({
 
   return (
     <header className="mobile-top-bar" aria-label="Page controls">
-      <div className="mobile-top-bar-main">
+      <div className={`mobile-top-bar-main${activeSelectionType ? ' is-selection-mode' : ''}`}>
         <button
           className="btn-ghost mobile-menu-trigger"
           type="button"
@@ -49,24 +49,32 @@ export function MobileTopBar({
         >
           <Icon path="M4 7h16M4 12h16M4 17h16" />
         </button>
-        <button
-          className="btn-ghost"
-          type="button"
-          title="Go back"
-          aria-label="Go back"
-          onClick={() => window.history.back()}
-        >
-          <Icon path="m15 18-6-6 6-6" />
-        </button>
-        <button
-          className="btn-ghost"
-          type="button"
-          title="Go forward"
-          aria-label="Go forward"
-          onClick={() => window.history.forward()}
-        >
-          <Icon path="m9 18 6-6-6-6" />
-        </button>
+        {activeSelectionType ? (
+          <div className="mobile-selection-toolbar">
+            <SelectionActionsToolbar selectionToolbar={selectionToolbar} />
+          </div>
+        ) : (
+          <>
+            <button
+              className="btn-ghost"
+              type="button"
+              title="Go back"
+              aria-label="Go back"
+              onClick={() => window.history.back()}
+            >
+              <Icon path="m15 18-6-6 6-6" />
+            </button>
+            <button
+              className="btn-ghost"
+              type="button"
+              title="Go forward"
+              aria-label="Go forward"
+              onClick={() => window.history.forward()}
+            >
+              <Icon path="m9 18 6-6-6-6" />
+            </button>
+          </>
+        )}
         <div className="mobile-top-actions">
           {toolbarAction ? (
             <button
@@ -112,11 +120,6 @@ export function MobileTopBar({
         <span className="mobile-notice" key={noticeKey}>
           {notice}
         </span>
-      ) : null}
-      {activeSelectionType ? (
-        <div className="mobile-selection-toolbar">
-          <SelectionActionsToolbar selectionToolbar={selectionToolbar} />
-        </div>
       ) : null}
     </header>
   );

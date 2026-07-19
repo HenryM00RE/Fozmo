@@ -223,7 +223,7 @@ export function PlaylistsPage({
         ariaLabelledBy="playlist-create-title"
         onClose={closeCreatePlaylist}
       >
-        <form className="history-import-panel" onSubmit={createPlaylist}>
+        <form className="history-import-panel app-modal-surface" onSubmit={createPlaylist}>
           <div className="history-import-head">
             <div>
               <div className="section-label">Playlists</div>

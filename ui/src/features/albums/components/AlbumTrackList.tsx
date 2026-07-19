@@ -4,6 +4,7 @@ import type { LibraryTrack } from '../../../shared/types';
 import { Icon } from '../../../shared/ui/Icon';
 import { PlaybarPlayIcon } from '../../../shared/ui/PlaybarPlayIcon';
 import { PlayingEqualizer } from '../../../shared/ui/PlayingEqualizer';
+import { useLongPressSelection } from '../../../shared/ui/useLongPressSelection';
 import {
   type PendingPlaybackIntentSnapshot,
   usePlaybackControlSnapshot
@@ -179,8 +180,16 @@ export function AlbumTrackList({
     playbackStatus,
     getPlaybackFilename
   });
+  const longPressSelection = useLongPressSelection({
+    onSelect: onToggleSelection,
+    resolveSelection: (target, currentTarget) => {
+      const row = target.closest<HTMLElement>('[data-album-track-selection-key]');
+      if (!row || !currentTarget.contains(row)) return null;
+      return row.dataset.albumTrackSelectionKey || null;
+    }
+  });
   return (
-    <ul className="file-list song-list">
+    <ul className="file-list song-list" {...longPressSelection}>
       {tracks.map((track, index) => {
         const allIndex = allTracks.indexOf(track);
         const playIndex = allIndex >= 0 ? allIndex : index;
@@ -216,11 +225,6 @@ export function AlbumTrackList({
             data-album-track-selection-key={selectionKey}
             data-filename={playbackFilename}
             onClick={playOrSelect}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              if (selectionKey) onToggleSelection(selectionKey);
-            }}
           >
             <span className="track-row-hover-surface" aria-hidden="true" />
             <div className="album-track-index">

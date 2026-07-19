@@ -16,7 +16,9 @@ type Failure = {
 };
 
 type MockBackendOptions = {
+  albumBrowse?: JsonRecord;
   status?: JsonRecord;
+  trackBrowse?: JsonRecord;
   zoneStatus?: JsonRecord;
   zoneStatusDelayMs?: number;
   zones?: JsonRecord[];
@@ -303,6 +305,20 @@ export const fixtures = {
 
 export async function installMockBackend(page: Page, options: MockBackendOptions = {}) {
   const status = { ...fixtures.status, ...(options.status || {}) };
+  const albumBrowse = options.albumBrowse || {
+    items: [],
+    total: 0,
+    limit: 50,
+    offset: 0,
+    has_more: false
+  };
+  const trackBrowse = options.trackBrowse || {
+    items: [],
+    total: 0,
+    limit: 50,
+    offset: 0,
+    has_more: false
+  };
   let zoneStatus = { ...status, ...(options.zoneStatus || {}) };
   const zones = (options.zones || [defaultZone]).map((zone) => ({ ...zone }));
   const queueState = options.queueState || fixtures.queueState;
@@ -457,6 +473,12 @@ export async function installMockBackend(page: Page, options: MockBackendOptions
       return json(route, [
         { name: 'M83', album_count: 1, track_count: 3, play_count: 0, listened_secs: 0 }
       ]);
+    }
+    if (method === 'GET' && path === '/api/library/browse/albums') {
+      return json(route, albumBrowse);
+    }
+    if (method === 'GET' && path === '/api/library/browse/tracks') {
+      return json(route, trackBrowse);
     }
     if (method === 'GET' && path.startsWith('/api/library/browse/')) {
       return json(route, { items: [], total: 0, limit: 50, offset: 0, has_more: false });

@@ -275,7 +275,7 @@ export function ZonesSettingsPage({
       </div>
       {settingsZone ? (
         <div
-          className="zone-settings-backdrop is-open"
+          className="zone-settings-backdrop app-modal-backdrop is-open"
           role="dialog"
           aria-modal="true"
           aria-labelledby="zone-settings-title"
@@ -283,7 +283,7 @@ export function ZonesSettingsPage({
             if (event.target === event.currentTarget) setSettingsZoneId(null);
           }}
         >
-          <div className="zone-settings-panel">
+          <div className="zone-settings-panel app-modal-surface">
             <header className="zone-settings-head">
               <div className="zone-settings-identity">
                 <div className="zone-output-logo-picker-wrap" ref={iconPickerRef}>
@@ -639,7 +639,7 @@ function ZoneHegelSettingsModal({
 
   return (
     <div
-      className="zone-settings-backdrop zone-hegel-settings-backdrop is-open"
+      className="zone-settings-backdrop zone-hegel-settings-backdrop app-modal-backdrop is-open"
       role="dialog"
       aria-modal="true"
       aria-labelledby="zone-hegel-settings-title"
@@ -647,7 +647,7 @@ function ZoneHegelSettingsModal({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="zone-settings-panel zone-hegel-settings-panel">
+      <div className="zone-settings-panel zone-hegel-settings-panel app-modal-surface">
         <header className="zone-settings-head">
           <div className="zone-settings-identity zone-hegel-settings-identity">
             <div>

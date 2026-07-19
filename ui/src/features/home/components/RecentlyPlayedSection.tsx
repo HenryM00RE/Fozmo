@@ -9,6 +9,7 @@ import {
 import type { JsonRecord, Playlist } from '../../../shared/types';
 import { AlbumCoverPlayButton } from '../../../shared/ui/AlbumCoverPlayButton';
 import { Icon } from '../../../shared/ui/Icon';
+import { useLongPressSelection } from '../../../shared/ui/useLongPressSelection';
 
 type RecentlyPlayedSectionProps = {
   expanded: boolean;
@@ -128,15 +129,16 @@ function RecentPlayedCard({
   const art = item.recent_type === 'playlist' ? null : albumArt(item);
   const selectionKey = recentlyPlayedSelectionKey(item);
   const open = () => (selectionActive ? onToggleSelection(item) : onOpen(item));
+  const longPressSelection = useLongPressSelection({
+    onSelect: onToggleSelection,
+    resolveSelection: () => item
+  });
   return (
     <article
+      {...longPressSelection}
       className={`album-card recently-played-card${selectionActive ? ' is-selection-mode' : ''}${selected ? ' is-selected' : ''}`}
       data-recent-key={selectionKey}
       onClick={open}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        onToggleSelection(item);
-      }}
     >
       <div className="album-cover rp-cover">
         {playlist ? (

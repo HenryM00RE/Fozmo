@@ -33,7 +33,7 @@ export function HistoryAllModal({
 
   const modal = (
     <Modal open className="history-all-backdrop" ariaLabelledBy={modalTitleId} onClose={onClose}>
-      <div className="history-all-panel">
+      <div className="history-all-panel app-modal-surface">
         <div className="history-all-head">
           <div>
             <div className="section-label">History</div>

@@ -9,6 +9,7 @@ import {
 } from '../../../shared/lib/appSupport';
 import type { LibraryAlbum } from '../../../shared/types';
 import { AlbumCoverPlayButton } from '../../../shared/ui/AlbumCoverPlayButton';
+import { useLongPressSelection } from '../../../shared/ui/useLongPressSelection';
 
 const progressiveAlbumSkeletonCount = 24;
 
@@ -259,9 +260,15 @@ const AlbumCard = memo(function AlbumCard({
     if (selectionActive && onToggleSelection) onToggleSelection(selectionAlbum);
     else openAlbum();
   };
+  const longPressSelection = useLongPressSelection({
+    enabled: Boolean(onToggleSelection),
+    onSelect: (selectedAlbum: LibraryAlbum) => onToggleSelection?.(selectedAlbum),
+    resolveSelection: () => selectionAlbum
+  });
 
   return (
     <article
+      {...longPressSelection}
       className={`album-card${selectionActive ? ' is-selection-mode' : ''}${selected ? ' is-selected' : ''}`}
       role="button"
       tabIndex={0}
@@ -272,11 +279,6 @@ const AlbumCard = memo(function AlbumCard({
         if (event.key !== 'Enter' && event.key !== ' ') return;
         event.preventDefault();
         openOrSelect();
-      }}
-      onContextMenu={(event) => {
-        if (!onToggleSelection) return;
-        event.preventDefault();
-        onToggleSelection(selectionAlbum);
       }}
     >
       <div className="album-cover">
