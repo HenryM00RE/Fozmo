@@ -1,0 +1,54 @@
+[identity]
+name = "SplitPhase128kV3"
+profiles = 1
+seed = 128003
+
+[reference]
+source_rate_hz = 44100.0
+split_lo_hz = 3000.0
+split_hi_hz = 14000.0
+pass_edge_hz = 20000.0
+stop_edge_hz = 22050.0
+
+[support]
+character_branch_taps = 131073
+cleanup_branch_taps = [255, 127, 63, 31, 31, 31, 31]
+bulk_shift_even_only = true
+edge_measure_samples = 2048
+v2_bulk_shift = 4262
+
+[magnitude_sdp]
+initial_order = 1024
+maximum_order = 2048
+solver = "auto"
+verification_fft_len = 4194304
+adaptive_exchange = true
+maximum_exchange_rounds = 8
+
+[group_delay]
+spline_degree = 5
+control_values = 24
+frequency_coordinate = "log"
+exact_phase_closure = true
+match_endpoint_derivative_order = 2
+starts = 8
+
+[optimization]
+dtype = "float64"
+working_fft_len = 1048576
+p_continuation = [8, 16, 32, 64, 128, 256]
+adam_steps_per_p = 120
+lbfgs_steps = 40
+block_coordinate_cycles = 8
+
+[certification]
+fft_len = 16777216
+high_precision_worst_points = 1000
+passband_ripple_db = 0.0001
+design_stopband_db = -150.0
+runtime_stopband_db = -140.0
+rational_stopband_db = -130.0
+lowband_delay_error_samples = 0.01
+highband_delay_error_samples = 0.02
+realized_join_phase_error_rad = 2.0e-5
+edge_energy_db = -170.0

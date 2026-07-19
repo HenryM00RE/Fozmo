@@ -1,3 +1,4 @@
+use ap2rs_core::features::Features;
 use fozmo_airplay_protocol::ServiceKind;
 
 pub const AIRPLAY2_GROUP_UNSUPPORTED_MESSAGE: &str =
@@ -9,6 +10,10 @@ pub const AIRPLAY_FAIRPLAY_UNSUPPORTED_MESSAGE: &str = concat!(
     "FairPlay-only AirPlay receivers are not supported yet. ",
     "Use the system AirPlay/CoreAudio output for this receiver."
 );
+pub const AIRPLAY_AUDIO_UNSUPPORTED_MESSAGE: &str =
+    "Receiver does not advertise AirPlay audio playback support.";
+pub const AIRPLAY_FEATURES_INVALID_MESSAGE: &str =
+    "Receiver advertises invalid AirPlay capabilities and cannot be used.";
 
 const AIRPLAY_ENCRYPTION_NONE: u8 = 0;
 const AIRPLAY_ENCRYPTION_RSA: u8 = 1;
@@ -43,6 +48,16 @@ impl AirPlayTarget {
         }
         if self.service_kind == ServiceKind::AirPlay2 && self.password_protected {
             return Some(AIRPLAY2_ACCESS_UNSUPPORTED_MESSAGE);
+        }
+        if self.service_kind == ServiceKind::AirPlay2 {
+            if let Some(features) = self.features.as_deref() {
+                let Ok(features) = Features::from_txt_value(features) else {
+                    return Some(AIRPLAY_FEATURES_INVALID_MESSAGE);
+                };
+                if !features.supports_audio() {
+                    return Some(AIRPLAY_AUDIO_UNSUPPORTED_MESSAGE);
+                }
+            }
         }
         if self.password_protected {
             return Some(AIRPLAY_PASSWORD_UNSUPPORTED_MESSAGE);
@@ -88,5 +103,57 @@ impl AirPlayTarget {
                     .encryption_types
                     .iter()
                     .any(|kind| matches!(kind, 3 | 5)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn airplay2_target(features: Option<&str>) -> AirPlayTarget {
+        AirPlayTarget {
+            id: "receiver".into(),
+            name: "Receiver".into(),
+            host: "192.0.2.10".into(),
+            port: 7000,
+            model: Some("Receiver1,1".into()),
+            service_name: "Receiver._airplay._tcp.local.".into(),
+            password_protected: false,
+            requires_encryption: false,
+            encryption_types: vec![],
+            service_kind: ServiceKind::AirPlay2,
+            device_id: None,
+            features: features.map(str::to_string),
+            source_version: None,
+            grouped: false,
+            group_id: None,
+            group_public_name: None,
+            parent_group_id: None,
+            tight_sync_id: None,
+        }
+    }
+
+    #[test]
+    fn captured_hegel_features_advertise_audio_support() {
+        assert_eq!(
+            airplay2_target(Some("0x445F8A00,0x1C340")).unsupported_reason(),
+            None
+        );
+    }
+
+    #[test]
+    fn airplay2_without_audio_support_is_rejected_during_discovery() {
+        assert_eq!(
+            airplay2_target(Some("0x1,0x0")).unsupported_reason(),
+            Some(AIRPLAY_AUDIO_UNSUPPORTED_MESSAGE)
+        );
+    }
+
+    #[test]
+    fn invalid_airplay2_features_are_rejected_during_discovery() {
+        assert_eq!(
+            airplay2_target(Some("not-a-feature-mask")).unsupported_reason(),
+            Some(AIRPLAY_FEATURES_INVALID_MESSAGE)
+        );
     }
 }

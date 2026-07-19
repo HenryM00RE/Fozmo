@@ -87,6 +87,20 @@ routing, state ownership, and service boundaries.
 | Active output switching | Switch between local, remote, Sonos, or AirPlay outputs as available. | Preferred active output is persisted and only the selected output receives playback commands/settings. | Pending |
 | Remote agent playback | Pair an agent, select its output, and play a local or stream-backed source. | Agent receives playback/config commands, renders audio, reports status, and survives reconnect. | Pending |
 
+### Repeat current track
+
+The loop button is repeat-one: while enabled, completion restarts the current
+track without consuming the upcoming queue. Turning it off restores normal
+queue advancement. Manual Next still skips to the next queued item.
+
+| Output | Repeat after natural completion | Loop off advances normally | Evidence |
+| --- | --- | --- | --- |
+| CoreAudio / local DAC | Pending | Pending | Engine coverage; hardware pending |
+| Browser / remote agent | Pending | Pending | Route and fallback coverage; audible check pending |
+| AirPlay | Pending | Pending | Engine coverage; hardware pending |
+| UPnP renderer | Pending | Pending | Backend fallback coverage; hardware pending |
+| Sonos | Pending | Pending | Backend fallback coverage; hardware pending |
+
 ## Local Playback
 
 | Area | Command Or Action | Expected Result | Evidence |
@@ -125,7 +139,7 @@ routing, state ownership, and service boundaries.
 | Qobuz login/status | Log in and check Qobuz status. | Status reports initialized account without leaking tokens. | Pending |
 | Qobuz playback | Search or browse Qobuz and play a track. | Stream resolves, playback starts, and history updates. | Pending |
 | Qobuz radio | Start radio from a track or artist seed. | Recommendations load and excluded tracks are skipped. | Pending |
-| AirPlay helper CLI | Run helper `list`, then play WAV and raw s16le PCM without starting the Fozmo server. | Receivers are listed by opaque ID and RAOP/AirPlay 2 ALAC playback works independently. | CLI/unit automated; real devices pending |
+| AirPlay helper CLI | Run helper `list`, then play WAV and raw s16le PCM without starting the Fozmo server. | Receivers are listed by opaque ID and RAOP/AirPlay 2 ALAC playback works independently. | 2026-07-19 Hegel H390 transport smoke: sanitized dual-service advertisement captured; direct AirPlay 2 ALAC command completed, while forced RAOP was rejected at `ANNOUNCE` with 403. A known-good modern AirPlay 2 receiver also completed a silent setup/playback regression probe. Audible H390 rendering remains pending maintainer confirmation. CLI/unit automated for other paths; other real devices pending. |
 | AirPlay 1/2 isolation | Select RAOP and AirPlay 2 receivers, then terminate or version-mismatch the helper. | ALAC playback works; helper failure reports degraded/missing/incompatible and other Fozmo outputs continue. | Pending real devices |
 | Sonos | Select a Sonos target and play PCM. | Stream proxy, transport, volume, and metadata behave as expected. | Pending |
 | UPnP / KEF gapless handoff | Select a UPnP renderer such as KEF, play a queued pair of local or Qobuz tracks, then inspect `/api/diagnostics/upnp/:zone_id`. | Diagnostics show `SetNextAVTransportURI`, next asset prepared/armed, any early renderer request for the next asset, and promotion at completion; if the renderer rejects next URI, fallback auto-advance remains active with a clear notice. | Pending |

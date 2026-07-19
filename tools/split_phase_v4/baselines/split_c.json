@@ -1,0 +1,43 @@
+{
+  "identity": "SplitPhase128kV3",
+  "coefficient_sha256": "9e3e33585cff946b6b74d1d66368b1e837c5e2dffc65b893d38e23e71cac87cf",
+  "frozen": {
+    "identity": "SplitPhase128kV3",
+    "immutable_asset_hashes": {
+      "character_full_rate.f64le": "9e3e33585cff946b6b74d1d66368b1e837c5e2dffc65b893d38e23e71cac87cf",
+      "rational_147_160.f64le": "d54deec5e73e9cd717033066cc5363141ae3860dbb67242690438267034b8344",
+      "rational_160_147.f64le": "4cb47b0ca6d2d1830354d72de365ba12b76ad22571b547ce8d826a3c953369d3",
+      "cleanup_stage_1.f64le": "5a570d99cace3800ccf1742684937a91f375b4b6b6cbd3db248741cd14e36676",
+      "cleanup_stage_2.f64le": "469f1850d2b771a6bb3f753d9536e6847e90cb211e1b3c319591905f61995841",
+      "cleanup_stage_3.f64le": "7c729685ad9e5d7b906102dbf5f04e43d04553c1603ffd4b5419931286629cce",
+      "cleanup_stage_4.f64le": "fe37bbaf6eb6aaf027fd6d49a3153bcf7489ca2132ee52a78e2a9914787a5ee9",
+      "cleanup_stage_5.f64le": "6304355ab471fee82f07b6e2acd363f6d4a5c6d05dcc35722e746ad86638da7b",
+      "cleanup_stage_6.f64le": "fc01d8edf4e04caaee44730458a7b5210de1fe3b6c2417a6a7550fdec8497006",
+      "cleanup_stage_7.f64le": "af3e74a5e0bed5e2b12f100ec301c332c0826f0a0f2543a16b3b45ae21d870e2"
+    },
+    "all_match_manifest": true
+  },
+  "metrics": {
+    "metric_definition_version": 1,
+    "logical_origin": 6280,
+    "dominant_peak_index": 6287,
+    "pre_energy_before_exported_logical_origin_db": -43.753173075858015,
+    "pre_energy_before_dominant_peak_db": -8.091868775219716,
+    "bandlimited_3_14khz_pre_peak_energy_db": -4.960918180165569,
+    "bandlimited_14_20khz_pre_peak_energy_db": -11.043447676443714,
+    "post_peak_0_100us_energy_db": -3.807941332888247,
+    "post_peak_100_500us_energy_db": -7.588558553357769,
+    "step_response_overshoot": 0.22383749177726964,
+    "grid": {
+      "coordinate": "ln(f/Hz)",
+      "minimum_hz": 20.0,
+      "maximum_hz": 20000.0,
+      "points": 4096
+    },
+    "group_delay_slope_max_abs_samples_per_ln_hz": 882.5511797592044,
+    "group_delay_curvature_max_abs_samples_per_ln_hz_squared": 26300.301302952226,
+    "worst_interpolation_image_db": -164.7010698966704,
+    "worst_independent_decimation_alias_db": -164.69604218890711,
+    "worst_complex_passband_error": 2.03371219574477e-09
+  }
+}

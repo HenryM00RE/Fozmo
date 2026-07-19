@@ -67,8 +67,13 @@ pub(crate) fn ecbeam2_filter_supported(filter_type: FilterType) -> bool {
         filter_type,
         FilterType::LinearPhase128k
             | FilterType::Minimum16k
+            | FilterType::MinimumPhaseCompact128k
             | FilterType::MinimumPhaseCompact128kV2
             | FilterType::Split128k
+            | FilterType::Split128kV2
+            | FilterType::SplitPhase128kV3
+            | FilterType::SplitPhase128kV4
+            | FilterType::SplitPhase128kE2v3
             | FilterType::SmoothPhase128k
     )
 }
@@ -100,6 +105,10 @@ pub fn dsd_source_window_to_modulator_samples(
         FilterType::LinearPhase128k
             | FilterType::Minimum16k
             | FilterType::Split128k
+            | FilterType::Split128kV2
+            | FilterType::SplitPhase128kV3
+            | FilterType::SplitPhase128kV4
+            | FilterType::SplitPhase128kE2v3
             | FilterType::IntegratedPhase128k
             | FilterType::IntegratedPhase128kV2
             | FilterType::IntegratedPhase128kV3
@@ -757,7 +766,7 @@ fn select_modulator_coeffs(
     }
     if dsd_modulator == DsdModulator::EcBeam2 {
         if !ecbeam2_filter_supported(filter_type) {
-            return Err("7th Order Search supports only the four selectable 128k filters");
+            return Err("7th Order Search supports only the supported production 128k filters");
         }
         return ecbeam2_production_policy(dsd_rate)
             .map(|policy| policy.coefficients)
@@ -1620,7 +1629,7 @@ impl DsdRenderer {
     ) -> Result<Self, &'static str> {
         if dsd_modulator == DsdModulator::EcBeam2 {
             if !ecbeam2_filter_supported(filter_type) {
-                return Err("7th Order Search supports only the four selectable 128k filters");
+                return Err("7th Order Search supports only the supported production 128k filters");
             }
             // EcBeam2's production contract is stricter than the legacy
             // renderer sanitizer: reject negative and non-finite values too,
@@ -4208,7 +4217,12 @@ mod tests {
         };
         for filter_type in [
             FilterType::Minimum16k,
+            FilterType::MinimumPhaseCompact128k,
             FilterType::Split128k,
+            FilterType::Split128kV2,
+            FilterType::SplitPhase128kV3,
+            FilterType::SplitPhase128kV4,
+            FilterType::SplitPhase128kE2v3,
             FilterType::SmoothPhase128k,
         ] {
             for source_rate in [44_100, 48_000] {
@@ -4366,7 +4380,7 @@ mod tests {
         .err();
         assert_eq!(
             error,
-            Some("7th Order Search supports only the four selectable 128k filters")
+            Some("7th Order Search supports only the supported production 128k filters")
         );
 
         let error = DsdRenderer::new_with_dsd_modulator_and_experiment_tweaks(

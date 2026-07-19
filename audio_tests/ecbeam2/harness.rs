@@ -11775,7 +11775,12 @@ fn minimum_measurement_frames(filter: FilterType) -> usize {
     match filter {
         FilterType::Minimum16k => 32_768,
         FilterType::SincExtreme32k => 65_536,
-        FilterType::LinearPhase128k | FilterType::Split128k => 131_072,
+        FilterType::LinearPhase128k
+        | FilterType::Split128k
+        | FilterType::Split128kV2
+        | FilterType::SplitPhase128kV3
+        | FilterType::SplitPhase128kV4
+        | FilterType::SplitPhase128kE2v3 => 131_072,
         FilterType::IntegratedPhase128k
         | FilterType::IntegratedPhase128kV2
         | FilterType::IntegratedPhase128kV3

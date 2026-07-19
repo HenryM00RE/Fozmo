@@ -1890,6 +1890,35 @@ body.recently-played-selection-mode .react-app .home-qobuz-grid .album-cover-pla
   }
 }
 
+@media (hover: none), (pointer: coarse) {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  .react-app img,
+  .react-app [data-selection-press],
+  .react-app [data-selection-press] * {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .react-app img {
+    -webkit-user-drag: none;
+  }
+
+  .react-app button,
+  .react-app a,
+  .react-app [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .react-app .album-cover-play {
+    display: none;
+  }
+}
+
 .react-app .songs-track-panel .song-list .file-item.songs-track-row {
   grid-template-columns: 64px minmax(0, 1fr) minmax(54px, auto) minmax(44px, auto) 40px;
   min-height: 53.5px;
@@ -9003,6 +9032,11 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   color: var(--ink-muted, #a8a297);
 }
 
+.react-app .zones-panel-card .zone-browser-stream-action {
+  min-width: 116px;
+  white-space: nowrap;
+}
+
 .react-app .zones-panel-card .zone-output-icon-action {
   width: 32px;
   height: 32px;
@@ -10201,6 +10235,20 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
     max-height: calc(100dvh - var(--mobile-bottom-chrome-height) - 32px);
   }
 
+  .react-app .zones-panel-card .zone-browser-stream-action {
+    min-width: 72px;
+    padding-inline: 10px;
+  }
+
+  .react-app .zones-panel-card .zone-browser-stream-action span {
+    font-size: 0;
+  }
+
+  .react-app .zones-panel-card .zone-browser-stream-action span::after {
+    content: "Stream";
+    font-size: 12px;
+  }
+
   .react-app .zone-hegel-settings-panel {
     width: min(420px, 100%);
     max-height: calc(100dvh - var(--mobile-bottom-chrome-height) - 32px);
@@ -10264,6 +10312,10 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
     grid-template-columns: 42px 42px 42px minmax(0, 1fr);
     align-items: center;
     gap: 4px;
+  }
+
+  .react-app .mobile-top-bar-main.is-selection-mode {
+    grid-template-columns: 42px minmax(0, 1fr) auto;
   }
 
   .react-app .mobile-top-bar .btn-ghost,
@@ -10398,13 +10450,68 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   }
 
   .react-app .mobile-selection-toolbar {
-    overflow-x: auto;
-    padding-bottom: 2px;
+    min-width: 0;
+    overflow: visible;
   }
 
   .react-app .mobile-selection-toolbar .toolbar-selection-actions {
-    width: max-content;
-    min-width: 100%;
+    width: 100%;
+    min-width: 0;
+    gap: 0;
+    justify-content: center;
+  }
+
+  .react-app .mobile-selection-toolbar .toolbar-selection-count {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    white-space: nowrap;
+  }
+
+  .react-app .mobile-selection-toolbar .toolbar-selection-play {
+    max-width: 100%;
+  }
+
+  .react-app .mobile-selection-toolbar .album-play-main {
+    padding-inline: 11px 9px;
+  }
+
+  .react-app .mobile-selection-toolbar .react-selection-menu {
+    overflow: hidden;
+    border: 0;
+    background: color-mix(in srgb, var(--canvas, #151515) 68%, transparent);
+    box-shadow: var(--floating-menu-glass-shadow, 0 18px 54px rgba(0, 0, 0, 0.26));
+    backdrop-filter: blur(30px) saturate(165%);
+    -webkit-backdrop-filter: blur(30px) saturate(165%);
+    isolation: isolate;
+  }
+
+  .react-app .mobile-selection-toolbar .react-selection-menu::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--canvas, #151515) 70%, transparent),
+      color-mix(in srgb, var(--canvas-tint, #1e1e1e) 66%, transparent)
+    );
+    pointer-events: none;
+  }
+
+  .react-app .mobile-selection-toolbar .react-selection-menu > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .react-app .mobile-top-bar-main.is-selection-mode .mobile-top-actions {
+    gap: 4px;
   }
 
   .react-app .workspace {
@@ -10592,6 +10699,7 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   .react-app .mobile-nav-drawer .settings-nav-item svg {
     fill: none;
     stroke: currentColor;
+    pointer-events: none;
   }
 
   .react-app .mobile-nav-drawer .sidebar-library-list {
@@ -10831,13 +10939,13 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
     gap: 10px;
     padding: calc(10px + env(safe-area-inset-top, 0px)) 16px
       calc(8px + env(safe-area-inset-bottom, 0px));
-    background: var(--canvas, #151515);
+    background: var(--player-bar-bg, rgb(242, 239, 230));
     overflow: hidden;
     transform: translateY(var(--mobile-sheet-drag-y, 0));
     transition:
-      transform 180ms cubic-bezier(0.2, 0, 0.12, 1),
-      opacity 180ms cubic-bezier(0.2, 0, 0.12, 1);
-    animation: mobile-sheet-rise 180ms ease-out;
+      transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 160ms ease-in 140ms;
+    animation: mobile-sheet-open 360ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .react-app .mobile-now-playing-sheet.is-dragging {
@@ -10845,17 +10953,47 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   }
 
   .react-app .mobile-now-playing-sheet.is-closing {
-    opacity: 0.82;
+    opacity: 0;
+    animation: none;
   }
 
-  @keyframes mobile-sheet-rise {
+  .react-app .mobile-now-playing-sheet .mobile-sheet-head,
+  .react-app .mobile-now-playing-sheet .mobile-sheet-now,
+  .react-app .mobile-now-playing-sheet .mobile-sheet-queue {
+    transition:
+      opacity 160ms ease-in 100ms,
+      transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .react-app .mobile-now-playing-sheet.is-closing .mobile-sheet-head,
+  .react-app .mobile-now-playing-sheet.is-closing .mobile-sheet-now,
+  .react-app .mobile-now-playing-sheet.is-closing .mobile-sheet-queue {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+
+  @keyframes mobile-sheet-open {
     from {
-      transform: translateY(28px);
-      opacity: 0.7;
+      transform: translateY(100%);
+      opacity: 0.94;
     }
     to {
       transform: translateY(0);
       opacity: 1;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .react-app .mobile-now-playing-sheet {
+      animation: none;
+      transition-duration: 1ms;
+    }
+
+    .react-app .mobile-now-playing-sheet .mobile-sheet-head,
+    .react-app .mobile-now-playing-sheet .mobile-sheet-now,
+    .react-app .mobile-now-playing-sheet .mobile-sheet-queue {
+      transition-duration: 1ms;
+      transition-delay: 0ms;
     }
   }
 
@@ -11085,8 +11223,8 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
     --fill-color: rgb(var(--seek-fill-rgb) / var(--seek-fill-alpha));
     --slider-track-color: rgb(var(--seek-track-rgb) / var(--seek-track-alpha));
     grid-area: slider;
-    height: 32px;
-    margin-block: -8px -4px;
+    height: 44px;
+    margin-block: -14px -8px;
   }
 
   html[data-theme="dark"] .react-app .mobile-sheet-now .react-progress-stack .seek-slider-shell {
@@ -11161,10 +11299,53 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   }
 
   .react-app .mobile-sheet-now .react-progress-stack .seek-slider {
-    height: 32px;
+    height: 44px;
     background: transparent;
     box-shadow: none;
     touch-action: none;
+  }
+
+  @media (hover: none), (pointer: coarse) {
+    .react-app .mobile-sheet-now .react-progress-stack .seek-slider-shell:hover,
+    .react-app .mobile-sheet-now .react-progress-stack .seek-slider-shell:focus-within {
+      --seek-height: 6px;
+      --seek-track-alpha: 0.26;
+      --seek-fill-alpha: 0.9;
+    }
+
+    .react-app .mobile-sheet-now .react-progress-stack .seek-slider-shell.is-scrubbing {
+      --seek-height: 10px;
+      --seek-track-alpha: 0.42;
+      --seek-fill-alpha: 1;
+    }
+
+    .react-app .mobile-sheet-now .react-progress-stack .seek-slider-shell.is-loading {
+      animation: none;
+      filter: none;
+    }
+
+    html[data-theme="dark"]
+      .react-app
+      .mobile-sheet-now
+      .react-progress-stack
+      .seek-slider-shell:hover,
+    html[data-theme="dark"]
+      .react-app
+      .mobile-sheet-now
+      .react-progress-stack
+      .seek-slider-shell:focus-within {
+      --seek-track-alpha: 0.28;
+      --seek-fill-alpha: 0.9;
+    }
+
+    html[data-theme="dark"]
+      .react-app
+      .mobile-sheet-now
+      .react-progress-stack
+      .seek-slider-shell.is-scrubbing {
+      --seek-track-alpha: 0.46;
+      --seek-fill-alpha: 1;
+    }
   }
 
   .react-app .mobile-sheet-now .react-progress-stack > span {
@@ -11368,7 +11549,7 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
     top: 0;
     z-index: 1;
     padding: 0 10px 12px 0;
-    background: var(--canvas, #151515);
+    background: var(--player-bar-bg, rgb(242, 239, 230));
   }
 
   .react-app .mobile-sheet-queue .react-now-playing-queue {
@@ -11515,5 +11696,36 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
     grid-template-areas:
       "track controls close"
       "progress progress progress";
+  }
+}
+
+/* Keep mobile dialogs close to the top and fully inside the usable viewport. */
+@media (max-width: 760px) {
+  .react-app .app-modal-backdrop {
+    --mobile-modal-top-gap: max(12px, env(safe-area-inset-top, 0px));
+    --mobile-modal-right-gap: max(12px, env(safe-area-inset-right, 0px));
+    --mobile-modal-bottom-gap: calc(var(--mobile-bottom-chrome-height, 0px) + 12px);
+    --mobile-modal-left-gap: max(12px, env(safe-area-inset-left, 0px));
+
+    box-sizing: border-box;
+    z-index: 2400;
+    align-items: flex-start;
+    justify-content: center;
+    padding: var(--mobile-modal-top-gap) var(--mobile-modal-right-gap)
+      var(--mobile-modal-bottom-gap) var(--mobile-modal-left-gap);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--modal-backdrop-bg, rgba(0, 0, 0, 0.55));
+    backdrop-filter: blur(8px) saturate(0.88) var(--modal-backdrop-open-filter);
+    -webkit-backdrop-filter: blur(8px) saturate(0.88) var(--modal-backdrop-open-filter);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .react-app .app-modal-surface {
+    max-height: calc(100dvh - var(--mobile-modal-top-gap) - var(--mobile-modal-bottom-gap));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 }

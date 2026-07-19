@@ -290,7 +290,7 @@ function AutoMetaModal({
       onClose={onClose}
     >
       <section
-        className="metadata-assigner-panel autometa-panel"
+        className="metadata-assigner-panel autometa-panel app-modal-surface"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="metadata-assigner-head">

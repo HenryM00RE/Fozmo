@@ -117,7 +117,7 @@ export function FirstRunGuide({
       onClose={() => finish()}
     >
       <section
-        className="metadata-assigner-panel getting-started-modal"
+        className="metadata-assigner-panel getting-started-modal app-modal-surface"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="metadata-assigner-head getting-started-head">

@@ -24,7 +24,7 @@ export function AlbumDescriptionModal({
       ariaLabelledBy="album-description-title"
       onClose={onClose}
     >
-      <div className="album-description-panel">
+      <div className="album-description-panel app-modal-surface">
         <header className="album-description-head">
           <div>
             <div className="section-label">{label}</div>

@@ -189,23 +189,25 @@ export function DspSettingsPage({
                   options={targetRateOptions}
                 />
               </div>
-              <div className="setting-row control-row">
-                <span>
-                  <strong>Target BitDepth</strong>
-                  <small>Set rendered PCM bit depth.</small>
-                </span>
-                <SelectMenu
-                  ariaLabel="Target bit depth"
-                  value={String(playbackConfig.targetBitDepth)}
-                  disabled={!playbackConfig.upsamplingEnabled || dsdOutputMode}
-                  onChange={(value) => updatePlaybackConfig('targetBitDepth', Number(value))}
-                  options={pcmBitDepthOptions.map((value) => ({
-                    value: String(value),
-                    label: `${value} bit`,
-                    after: value === 24 ? <FavoriteStarIcon /> : undefined
-                  }))}
-                />
-              </div>
+              {!dsdOutputMode ? (
+                <div className="setting-row control-row">
+                  <span>
+                    <strong>Target BitDepth</strong>
+                    <small>Set rendered PCM bit depth.</small>
+                  </span>
+                  <SelectMenu
+                    ariaLabel="Target bit depth"
+                    value={String(playbackConfig.targetBitDepth)}
+                    disabled={!playbackConfig.upsamplingEnabled}
+                    onChange={(value) => updatePlaybackConfig('targetBitDepth', Number(value))}
+                    options={pcmBitDepthOptions.map((value) => ({
+                      value: String(value),
+                      label: `${value} bit`,
+                      after: value === 24 ? <FavoriteStarIcon /> : undefined
+                    }))}
+                  />
+                </div>
+              ) : null}
               <div className="setting-row control-row">
                 <span>
                   <strong>Filter</strong>
@@ -232,7 +234,10 @@ export function DspSettingsPage({
                 <SelectMenu
                   ariaLabel="Headroom"
                   value={String(playbackConfig.headroomDb)}
-                  disabled={headroomLockedForDsdModulator(playbackConfig.dsdModulator)}
+                  disabled={
+                    !playbackConfig.upsamplingEnabled ||
+                    headroomLockedForDsdModulator(playbackConfig.dsdModulator)
+                  }
                   onChange={(value) => updatePlaybackConfig('headroomDb', Number(value))}
                   options={[0, -1, -2, -3, -4, -5, -6, -9, -12].map((value) => ({
                     value: String(value),
@@ -291,27 +296,27 @@ export function DspSettingsPage({
                   }))}
                 />
               </div>
-              <label className="setting-row control-row">
-                <span>
-                  <strong>DSD ISI penalty</strong>
-                  <small>Leave at 0 for most DACs.</small>
-                </span>
-                <input
-                  type="number"
-                  min="0"
-                  max="0.05"
-                  step="0.001"
-                  value={playbackConfig.dsdIsiPenalty}
-                  disabled={
-                    !playbackConfig.upsamplingEnabled ||
-                    playbackConfig.outputMode === 'Pcm' ||
-                    playbackConfig.dsdModulator === 'EcBeam2'
-                  }
-                  onChange={(event) =>
-                    updatePlaybackConfig('dsdIsiPenalty', Number(event.target.value))
-                  }
-                />
-              </label>
+              {dsdOutputMode ? (
+                <label className="setting-row control-row">
+                  <span>
+                    <strong>DSD ISI penalty</strong>
+                    <small>Leave at 0 for most DACs.</small>
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="0.05"
+                    step="0.001"
+                    value={playbackConfig.dsdIsiPenalty}
+                    disabled={
+                      !playbackConfig.upsamplingEnabled || playbackConfig.dsdModulator === 'EcBeam2'
+                    }
+                    onChange={(event) =>
+                      updatePlaybackConfig('dsdIsiPenalty', Number(event.target.value))
+                    }
+                  />
+                </label>
+              ) : null}
             </div>
           ) : null}
         </div>

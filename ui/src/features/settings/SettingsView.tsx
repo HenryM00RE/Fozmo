@@ -178,7 +178,8 @@ export function SettingsView({
     zoneHegelSettingsOpen,
     zoneIconDraft,
     zoneNameDraft,
-    zoneUpnpCapabilitiesDraft
+    zoneUpnpCapabilitiesDraft,
+    outputSettingsZones
   } = useZonesSettings(zones, onRefresh);
 
   // Entering DSP/EQ starts on the active playback device. DSP and EQ share the
@@ -268,7 +269,7 @@ export function SettingsView({
           zoneIconDraft={zoneIconDraft}
           zoneNameDraft={zoneNameDraft}
           zoneUpnpCapabilitiesDraft={zoneUpnpCapabilitiesDraft}
-          zones={zones}
+          zones={outputSettingsZones}
         />
       ) : null}
 

@@ -23,6 +23,8 @@ type MobileNowPlayingSheetProps = {
   playbackPosition: number;
 };
 
+const MOBILE_SHEET_CLOSE_FALLBACK_MS = 420;
+
 export function MobileNowPlayingSheet({
   onOpenArtist,
   playbackChrome,
@@ -56,6 +58,10 @@ export function MobileNowPlayingSheet({
   const closeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
+    if (nowPlayingOpen) setView('now-playing');
+  }, [nowPlayingOpen]);
+
+  useEffect(() => {
     return () => {
       if (closeTimerRef.current !== null) {
         window.clearTimeout(closeTimerRef.current);
@@ -78,18 +84,21 @@ export function MobileNowPlayingSheet({
   const sheetStyle =
     sheetDragY > 0 ? ({ '--mobile-sheet-drag-y': `${sheetDragY}px` } as CSSProperties) : undefined;
 
+  const finishCollapse = () => {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    setNowPlayingOpen(false);
+    setSheetClosing(false);
+    setSheetDragY(0);
+    dragRef.current = null;
+    closeTimerRef.current = null;
+  };
+
   const collapseSheet = () => {
     if (closeTimerRef.current !== null) return;
     setSheetDragging(false);
     setSheetClosing(true);
     setSheetDragY(window.innerHeight);
-    closeTimerRef.current = window.setTimeout(() => {
-      setNowPlayingOpen(false);
-      setSheetClosing(false);
-      setSheetDragY(0);
-      dragRef.current = null;
-      closeTimerRef.current = null;
-    }, 180);
+    closeTimerRef.current = window.setTimeout(finishCollapse, MOBILE_SHEET_CLOSE_FALLBACK_MS);
   };
 
   const resetSheetDrag = () => {
@@ -161,6 +170,15 @@ export function MobileNowPlayingSheet({
       onPointerMove={onSheetPointerMove}
       onPointerUp={onSheetPointerUp}
       onPointerCancel={resetSheetDrag}
+      onTransitionEnd={(event) => {
+        if (
+          sheetClosing &&
+          event.target === event.currentTarget &&
+          event.propertyName === 'transform'
+        ) {
+          finishCollapse();
+        }
+      }}
     >
       <div className="mobile-sheet-head">
         <button

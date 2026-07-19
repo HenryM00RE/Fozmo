@@ -9,7 +9,7 @@
 //! rate-limited per peer IP.
 
 use super::internal_response;
-use crate::app::server_remote::RemoteAccessStatus;
+use crate::app::server_remote::{RemoteAccessStatus, RemoteLinkCodeIssuance};
 use crate::app::state::AppState;
 use crate::settings::RemoteSessionClientMetadata;
 use axum::{
@@ -159,28 +159,61 @@ fn local_or_control_authorized(
     headers: &HeaderMap,
     peer: Option<SocketAddr>,
 ) -> bool {
+    remote_link_code_issuance(state, headers, peer) != RemoteLinkCodeIssuance::Unavailable
+}
+
+fn remote_link_code_issuance(
+    state: &AppState,
+    headers: &HeaderMap,
+    peer: Option<SocketAddr>,
+) -> RemoteLinkCodeIssuance {
     if crate::app::auth::local_filesystem_request_allowed(headers, peer) {
-        return true;
+        return RemoteLinkCodeIssuance::HostLocal;
     }
     let cookie_token = crate::app::auth::control_session_token_from_headers(headers);
     let header_token = super::auth_token_from_headers(headers);
-    cookie_token
+    if cookie_token
         .as_deref()
         .is_some_and(|token| state.pairing().verify_control_token(Some(token)))
         || header_token
             .as_deref()
             .is_some_and(|token| state.pairing().verify_control_token(Some(token)))
+    {
+        RemoteLinkCodeIssuance::AuthenticatedLan
+    } else {
+        RemoteLinkCodeIssuance::Unavailable
+    }
 }
 
-async fn get_remote_settings(State(state): State<AppState>) -> Json<RemoteAccessSettingsResponse> {
+fn status_for_request(
+    state: &AppState,
+    headers: &HeaderMap,
+    peer: Option<SocketAddr>,
+) -> RemoteAccessStatus {
+    let mut status = state.remote_access().status(state);
+    status.link_code_issuance = remote_link_code_issuance(state, headers, peer);
+    status
+}
+
+async fn get_remote_settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    peer: Option<ConnectInfo<SocketAddr>>,
+) -> Json<RemoteAccessSettingsResponse> {
+    let peer = peer.map(|ConnectInfo(addr)| addr);
     Json(RemoteAccessSettingsResponse {
         settings: state.settings().remote_access_settings().into(),
-        status: state.remote_access().status(&state),
+        status: status_for_request(&state, &headers, peer),
     })
 }
 
-async fn get_remote_status(State(state): State<AppState>) -> Json<RemoteAccessStatus> {
-    Json(state.remote_access().status(&state))
+async fn get_remote_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    peer: Option<ConnectInfo<SocketAddr>>,
+) -> Json<RemoteAccessStatus> {
+    let peer = peer.map(|ConnectInfo(addr)| addr);
+    Json(status_for_request(&state, &headers, peer))
 }
 
 async fn update_remote_settings(
@@ -217,7 +250,8 @@ async fn update_remote_settings(
             persisted.remote_access = updated.clone();
         })
         .map_err(internal_response)?;
-    let status = state.remote_access().apply(&state).await;
+    let mut status = state.remote_access().apply(&state).await;
+    status.link_code_issuance = remote_link_code_issuance(&state, &headers, peer);
     info!(
         event = "remote_settings_update",
         status = "ok",
@@ -639,6 +673,47 @@ mod tests {
         assert_eq!(body.get("enabled").and_then(Value::as_bool), Some(false));
         assert_eq!(body.get("running").and_then(Value::as_bool), Some(false));
         assert_eq!(body.get("bound_port").and_then(Value::as_u64), Some(8443));
+        assert_eq!(
+            body.get("link_code_issuance").and_then(Value::as_str),
+            Some("host_local")
+        );
+    }
+
+    #[tokio::test]
+    async fn link_code_capability_reflects_authenticated_lan_authority() {
+        let state = app_state("remote-link-code-capability");
+        let app = lan_app(&state);
+        let control = state.pairing().create_control_session(None).unwrap().token;
+
+        let request = |token: Option<&str>| {
+            let mut builder = Request::builder()
+                .method(Method::GET)
+                .uri("/api/remote/status")
+                .header(header::HOST, "player.lan:3000")
+                .header(header::ORIGIN, "http://player.lan:3000");
+            if let Some(token) = token {
+                builder = builder.header(crate::app::identity::AUTH_HEADER, token);
+            }
+            builder.body(Body::empty()).unwrap()
+        };
+
+        for (token, expected) in [
+            (None, "unavailable"),
+            (Some(control.as_str()), "authenticated_lan"),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(request(token))
+                .await
+                .expect("status request should complete");
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+            let json: Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(
+                json.get("link_code_issuance").and_then(Value::as_str),
+                Some(expected)
+            );
+        }
     }
 
     #[tokio::test]
@@ -880,6 +955,39 @@ mod tests {
                 .consume_remote_link_code(Some(code))
                 .unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn authenticated_lan_link_code_exchanges_for_an_unlinked_remote_browser() {
+        let state = app_state("remote-lan-code-exchange");
+        let app = lan_app(&state);
+        let control = state.pairing().create_control_session(None).unwrap().token;
+        let issue_request = Request::builder()
+            .method(Method::POST)
+            .uri("/api/remote/link-code")
+            .header(header::HOST, "player.lan:3000")
+            .header(header::ORIGIN, "http://player.lan:3000")
+            .header(crate::app::identity::AUTH_HEADER, control)
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(issue_request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let issued: Value = serde_json::from_slice(&body).unwrap();
+        let code = issued.get("code").and_then(Value::as_str).unwrap();
+
+        let remote_exchange = remote_session_routes().with_state(state.clone());
+        let exchange_request = Request::builder()
+            .method(Method::POST)
+            .uri("/api/remote/session")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(json!({ "code": code }).to_string()))
+            .unwrap();
+        let exchange_response = remote_exchange.oneshot(exchange_request).await.unwrap();
+
+        assert_eq!(exchange_response.status(), StatusCode::OK);
+        assert!(exchange_response.headers().contains_key(header::SET_COOKIE));
+        assert_eq!(state.pairing().count_active_remote_sessions(), 1);
     }
 
     #[tokio::test]

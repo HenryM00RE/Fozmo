@@ -1,6 +1,21 @@
 use super::*;
+use sha2::{Digest, Sha256};
+use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::Arc;
+
+fn compensated_sum(values: impl IntoIterator<Item = f64>) -> f64 {
+    let mut sum = 0.0_f64;
+    let mut compensation = 0.0_f64;
+    for value in values {
+        let adjusted = value - compensation;
+        let next = sum + adjusted;
+        compensation = (next - sum) - adjusted;
+        sum = next;
+    }
+    sum
+}
 
 fn step_overshoot(impulse: &[f64]) -> f64 {
     let mut step = 0.0_f64;
@@ -156,6 +171,66 @@ fn minimum_phase_128k_profiles_share_fixed_cleanup_beta() {
 }
 
 #[test]
+fn smootherstep7_is_bounded_monotonic_and_has_exact_endpoints() {
+    assert_eq!(smootherstep7(-1.0), 0.0);
+    assert_eq!(smootherstep7(0.0), 0.0);
+    assert_eq!(smootherstep7(1.0), 1.0);
+    assert_eq!(smootherstep7(2.0), 1.0);
+
+    let mut previous = 0.0;
+    for index in 0..=10_000 {
+        let value = smootherstep7(index as f64 / 10_000.0);
+        assert!((0.0..=1.0).contains(&value));
+        assert!(value >= previous, "smootherstep7 reversed at {index}");
+        previous = value;
+    }
+}
+
+#[test]
+fn plan_d_direct_magnitude_matches_the_production_specification() {
+    let params = minimum_compact_params(MinimumCompactProfile::Original);
+    assert_eq!(params.transition, MinimumCompactTransition::Smootherstep7);
+    assert!(params.treble_taper.is_none());
+    assert_eq!(params.stop_gain, MINIMUM_COMPACT_PRODUCTION_STOP_GAIN);
+    assert_eq!(params.nyquist_gain, MINIMUM_COMPACT_PRODUCTION_STOP_GAIN);
+    assert!((20.0 * params.stop_gain.log10() + 144.0).abs() <= 1e-12);
+
+    for hz in [0.0, 14_500.0, 18_500.0, 20_000.0, 20_200.0] {
+        assert_eq!(compact_minimum_magnitude(hz / 88_200.0, params), 1.0);
+    }
+    for normalized_frequency in [params.stop_edge_2x, 0.3, 0.4, 0.5, 0.75, 1.0] {
+        assert_eq!(
+            compact_minimum_magnitude(normalized_frequency, params),
+            MINIMUM_COMPACT_PRODUCTION_STOP_GAIN
+        );
+    }
+
+    let mut previous = 1.0;
+    for index in 0..=10_000 {
+        let frequency = params.pass_edge_2x
+            + (params.stop_edge_2x - params.pass_edge_2x) * index as f64 / 10_000.0;
+        let gain = compact_minimum_magnitude(frequency, params);
+        assert!(gain <= previous, "Plan D transition reversed at {index}");
+        assert!((params.stop_gain..=1.0).contains(&gain));
+        previous = gain;
+    }
+}
+
+#[test]
+fn smooth_phase_direct_target_retains_its_planck_taper() {
+    let params = minimum_compact_params(MinimumCompactProfile::Smooth);
+    assert_eq!(params.transition, MinimumCompactTransition::Planck);
+    for (hz, expected_db) in [(14_500.0, 0.0), (16_500.0, -0.275), (18_500.0, -0.55)] {
+        let gain = compact_minimum_magnitude(hz / 88_200.0, params);
+        let actual_db = 20.0 * gain.log10();
+        assert!(
+            (actual_db - expected_db).abs() <= 1e-12,
+            "Smooth Phase direct gain at {hz} Hz was {actual_db} dB"
+        );
+    }
+}
+
+#[test]
 fn minimum_phase_compact_meets_response_and_time_concentration_gates() {
     let impulse = minimum_phase_compact_impulse(MinimumCompactProfile::Original);
     assert_eq!(impulse.len(), MINIMUM_COMPACT_IMPULSE_SAMPLES);
@@ -167,6 +242,7 @@ fn minimum_phase_compact_meets_response_and_time_concentration_gates() {
     let passband_span = passband.iter().copied().fold(f64::NEG_INFINITY, f64::max)
         - passband.iter().copied().fold(f64::INFINITY, f64::min);
     let gain_20k = coefficient_magnitude_db(&impulse, 20_000.0 / 88_200.0);
+    let gain_20_2k = coefficient_magnitude_db(&impulse, 20_200.0 / 88_200.0);
     let gain_20_6215k = coefficient_magnitude_db(&impulse, 20_621.5 / 88_200.0);
     let gain_21k = coefficient_magnitude_db(&impulse, 21_000.0 / 88_200.0);
     let gain_22_05k = coefficient_magnitude_db(&impulse, 22_050.0 / 88_200.0);
@@ -175,6 +251,7 @@ fn minimum_phase_compact_meets_response_and_time_concentration_gates() {
         "passband span was {passband_span} dB"
     );
     assert!(gain_20k >= -0.01, "20 kHz gain was {gain_20k} dB");
+    assert!(gain_20_2k >= -0.005, "20.2 kHz gain was {gain_20_2k} dB");
     assert!(
         (-0.7..=-0.2).contains(&gain_20_6215k),
         "20.6215 kHz gain was {gain_20_6215k} dB"
@@ -183,7 +260,7 @@ fn minimum_phase_compact_meets_response_and_time_concentration_gates() {
         (-5.0..=-3.0).contains(&gain_21k),
         "21 kHz gain was {gain_21k} dB"
     );
-    assert!(gain_22_05k <= -145.0, "22.05 kHz gain was {gain_22_05k} dB");
+    assert!(gain_22_05k <= -140.0, "22.05 kHz gain was {gain_22_05k} dB");
 
     let total_energy = impulse.iter().map(|x| x * x).sum::<f64>();
     let energy_time_ms = |fraction: f64| {
@@ -208,7 +285,11 @@ fn minimum_phase_compact_meets_response_and_time_concentration_gates() {
 
     let even_sum = impulse.iter().step_by(2).sum::<f64>();
     let odd_sum = impulse.iter().skip(1).step_by(2).sum::<f64>();
-    assert!((even_sum - odd_sum).abs() <= 1e-12);
+    let nyquist_gain = (even_sum - odd_sum).abs();
+    assert!(
+        (nyquist_gain - MINIMUM_COMPACT_PRODUCTION_STOP_GAIN).abs() <= 1e-9,
+        "reconstructed Nyquist gain was {nyquist_gain}"
+    );
 
     // Reconstruct the coefficients exactly as the streaming 2x stage sees
     // them after reversal, branch padding, and independent normalization.
@@ -232,49 +313,88 @@ fn minimum_phase_compact_meets_response_and_time_concentration_gates() {
     let streaming_22_05k = coefficient_magnitude_db(&streaming_impulse, 22_050.0 / 88_200.0);
     assert!((-0.7..=-0.2).contains(&streaming_20_6215k));
     assert!((-5.0..=-3.0).contains(&streaming_21k));
-    assert!(streaming_22_05k <= -145.0);
+    assert!(streaming_22_05k <= -140.0);
 }
 
 #[test]
-fn minimum_phase_compact_balanced_softens_transients_without_voicing_the_passband() {
-    let original = minimum_phase_compact_impulse(MinimumCompactProfile::Original);
+fn plan_d_exact_rational_impulse_and_rows_preserve_the_specification() {
+    for (source_rate, target_rate, phase_den, pass_edge_hz, stop_edge_hz) in [
+        (44_100, 48_000, 160, 20_200.0, 22_050.0),
+        (48_000, 44_100, 147, 20_200.0, 22_050.0),
+    ] {
+        let half_width = PolyphaseResampler::fractional_half_width(
+            FilterType::MinimumPhaseCompact128k,
+            source_rate,
+            target_rate,
+            phase_den,
+        );
+        let impulse = minimum_phase_compact_rational_impulse(
+            MinimumCompactProfile::Original,
+            half_width,
+            phase_den,
+            source_rate,
+            target_rate,
+        );
+        let num_taps = 2 * half_width + 1;
+        assert_eq!(impulse.len(), num_taps * phase_den);
+        assert!(impulse.iter().all(|sample| sample.is_finite()));
+        assert!((impulse.iter().sum::<f64>() - 1.0).abs() <= 1e-10);
+
+        let fine_rate = source_rate as f64 * phase_den as f64;
+        let pass_db = coefficient_magnitude_db(&impulse, pass_edge_hz / fine_rate);
+        let stop_db = coefficient_magnitude_db(&impulse, stop_edge_hz / fine_rate);
+        assert!(
+            pass_db >= -0.005,
+            "{source_rate}->{target_rate} pass edge was {pass_db} dB"
+        );
+        assert!(
+            stop_db <= -137.0,
+            "{source_rate}->{target_rate} stop edge was {stop_db} dB"
+        );
+
+        let table = deinterleave_rational_impulse_into_rows(&impulse, half_width, phase_den);
+        assert_eq!(table.len(), num_taps * phase_den);
+        assert!(table.iter().all(|coefficient| coefficient.is_finite()));
+        for phase in 0..phase_den {
+            let row = &table[phase * num_taps..(phase + 1) * num_taps];
+            assert!((row.iter().sum::<f64>() - 1.0).abs() <= 1e-12);
+            let row_pass_db = coefficient_magnitude_db(row, pass_edge_hz / source_rate as f64);
+            assert!(
+                row_pass_db >= -0.01,
+                "{source_rate}->{target_rate} phase {phase} pass edge was {row_pass_db} dB"
+            );
+            for stopband_step in 0..=16 {
+                let stopband_hz = stop_edge_hz
+                    + (source_rate as f64 * 0.5 - stop_edge_hz) * stopband_step as f64 / 16.0;
+                let row_stop_db = coefficient_magnitude_db(row, stopband_hz / source_rate as f64);
+                assert!(
+                    row_stop_db <= -137.0,
+                    "{source_rate}->{target_rate} phase {phase} at {stopband_hz} Hz was {row_stop_db} dB"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn minimum_phase_compact_balanced_legacy_profile_remains_stable() {
     let balanced = minimum_phase_compact_impulse(MinimumCompactProfile::Balanced);
     assert_eq!(balanced.len(), MINIMUM_COMPACT_IMPULSE_SAMPLES);
     assert!(balanced.iter().all(|sample| sample.is_finite()));
     assert!((balanced.iter().sum::<f64>() - 1.0).abs() < 1e-10);
 
-    for hz in [
-        20.0, 1_000.0, 5_000.0, 10_000.0, 15_000.0, 18_000.0, 20_000.0, 20_621.5, 21_000.0,
-    ] {
-        let original_db = coefficient_magnitude_db(&original, hz / 88_200.0);
-        let balanced_db = coefficient_magnitude_db(&balanced, hz / 88_200.0);
-        assert!(
-            (balanced_db - original_db).abs() <= 0.001,
-            "{hz} Hz changed by {} dB",
-            balanced_db - original_db
-        );
-    }
-
     let stop_db = coefficient_magnitude_db(&balanced, 22_050.0 / 88_200.0);
     assert!(stop_db <= -150.0, "Balanced stop gain was {stop_db} dB");
-    let original_dominant = dominant_amplitude(&original);
     let balanced_dominant = dominant_amplitude(&balanced);
-    let original_overshoot = step_overshoot(&original);
     let balanced_overshoot = step_overshoot(&balanced);
     assert!(balanced_dominant <= 0.300);
     assert!(balanced_overshoot <= 0.228);
-    assert!(balanced_dominant < original_dominant);
-    assert!(balanced_overshoot < original_overshoot);
     assert!(impulse_energy_time_ms(&balanced, 0.999) <= 2.0);
     assert!(impulse_energy_time_ms(&balanced, 0.9999) <= 2.5);
     assert!(tail_energy_db_after_ms(&balanced, 5.0) <= -68.0);
     let even_sum = balanced.iter().step_by(2).sum::<f64>();
     let odd_sum = balanced.iter().skip(1).step_by(2).sum::<f64>();
     assert!((even_sum - odd_sum).abs() <= 1e-12);
-
-    println!(
-        "Compact Original: dominant={original_dominant:.6} overshoot={original_overshoot:.6}; Balanced: dominant={balanced_dominant:.6} overshoot={balanced_overshoot:.6} stop={stop_db:.2} dB"
-    );
 }
 
 #[test]
@@ -515,7 +635,7 @@ fn integrated128k_id_name_serde_and_stage_spec_are_stable() {
             "IntegratedPhase128kV4",
         ),
     ];
-    assert_eq!(DEFAULT_FILTER_TYPE, FilterType::Split128k);
+    assert_eq!(DEFAULT_FILTER_TYPE, FilterType::SplitPhase128kE2v3);
     assert_eq!(
         FilterType::from_name("IntegratedPhase"),
         Some(FilterType::IntegratedPhase128k)
@@ -983,6 +1103,10 @@ fn filter_ids_are_backward_compatible() {
     assert_eq!(FilterType::LinearPhase128k.as_id(), 33);
     assert_eq!(FilterType::Minimum16k.as_id(), 15);
     assert_eq!(FilterType::Split128k.as_id(), 21);
+    assert_eq!(FilterType::Split128kV2.as_id(), 34);
+    assert_eq!(FilterType::SplitPhase128kV3.as_id(), 35);
+    assert_eq!(FilterType::SplitPhase128kV4.as_id(), 36);
+    assert_eq!(FilterType::SplitPhase128kE2v3.as_id(), 37);
     assert_eq!(FilterType::from_id(0), Some(FilterType::Split128k));
     assert_eq!(FilterType::from_id(2), Some(FilterType::Split128k));
     assert_eq!(FilterType::from_id(11), Some(FilterType::Split128k));
@@ -1005,38 +1129,99 @@ fn filter_ids_are_backward_compatible() {
     assert_eq!(FilterType::from_id(20), Some(FilterType::Split128k));
     assert_eq!(FilterType::from_id(21), Some(FilterType::Split128k));
     assert_eq!(FilterType::from_id(33), Some(FilterType::LinearPhase128k));
+    assert_eq!(FilterType::from_id(34), Some(FilterType::Split128kV2));
+    assert_eq!(FilterType::from_id(35), Some(FilterType::SplitPhase128kV3));
+    assert_eq!(FilterType::from_id(36), Some(FilterType::SplitPhase128kV4));
+    assert_eq!(
+        FilterType::from_id(37),
+        Some(FilterType::SplitPhase128kE2v3)
+    );
     assert_eq!(FilterType::SincExtreme32k.as_name(), "SincExtreme32k");
     assert_eq!(FilterType::LinearPhase128k.as_name(), "LinearPhase128k");
     assert_eq!(FilterType::Minimum16k.as_name(), "Minimum16k");
     assert_eq!(FilterType::Split128k.as_name(), "Split128k");
+    assert_eq!(FilterType::Split128kV2.as_name(), "Split128kV2");
+    assert_eq!(FilterType::SplitPhase128kV3.as_name(), "SplitPhase128kV3");
+    assert_eq!(FilterType::SplitPhase128kV4.as_name(), "SplitPhase128kV4");
+    assert_eq!(
+        FilterType::SplitPhase128kE2v3.as_name(),
+        "SplitPhase128kE2v3"
+    );
+    assert_eq!(
+        FilterType::from_name("Split128k"),
+        Some(FilterType::SplitPhase128kE2v3)
+    );
+    assert_eq!(
+        FilterType::from_name("Split128kV2"),
+        Some(FilterType::SplitPhase128kE2v3)
+    );
+    assert_eq!(
+        FilterType::from_name("SplitPhase128kV3"),
+        Some(FilterType::SplitPhase128kE2v3)
+    );
+    assert_eq!(
+        FilterType::from_name("SplitPhase128kV4"),
+        Some(FilterType::SplitPhase128kE2v3)
+    );
+    assert_eq!(
+        FilterType::from_name("SplitPhase128kE2v3"),
+        Some(FilterType::SplitPhase128kE2v3)
+    );
+    assert_eq!(
+        FilterType::from_name("SplitPhase128kV5E2v3"),
+        Some(FilterType::SplitPhase128kE2v3)
+    );
+    assert_eq!(
+        serde_json::from_str::<FilterType>("\"SplitPhase128kV3\"").unwrap(),
+        FilterType::SplitPhase128kV3
+    );
+    assert_eq!(
+        serde_json::to_string(&FilterType::SplitPhase128kV3).unwrap(),
+        "\"SplitPhase128kV3\""
+    );
+    assert_eq!(
+        serde_json::from_str::<FilterType>("\"SplitPhase128kV4\"").unwrap(),
+        FilterType::SplitPhase128kV4
+    );
+    assert_eq!(
+        serde_json::to_string(&FilterType::SplitPhase128kV4).unwrap(),
+        "\"SplitPhase128kV4\""
+    );
+    assert_eq!(
+        serde_json::from_str::<FilterType>("\"SplitPhase128kE2v3\"").unwrap(),
+        FilterType::SplitPhase128kE2v3
+    );
     assert_eq!(
         FilterType::from_name("Minimum16k"),
         Some(FilterType::Minimum16k)
     );
     assert_eq!(
         FilterType::from_name("Mixed16k"),
-        Some(FilterType::Split128k)
+        Some(FilterType::SplitPhase128kE2v3)
     );
-    assert_eq!(FilterType::from_name("Linear"), Some(FilterType::Split128k));
+    assert_eq!(
+        FilterType::from_name("Linear"),
+        Some(FilterType::SplitPhase128kE2v3)
+    );
     assert_eq!(
         FilterType::from_name("LinearPhase128k"),
         Some(FilterType::LinearPhase128k)
     );
     assert_eq!(
         FilterType::from_name("SincMedium"),
-        Some(FilterType::Split128k)
+        Some(FilterType::SplitPhase128kE2v3)
     );
     assert_eq!(
         FilterType::from_name("Perfect"),
-        Some(FilterType::Split128k)
+        Some(FilterType::SplitPhase128kE2v3)
     );
     assert_eq!(
         FilterType::from_name("Split16k"),
-        Some(FilterType::Split128k)
+        Some(FilterType::SplitPhase128kE2v3)
     );
     assert_eq!(
         FilterType::from_name("Split16kDsd128"),
-        Some(FilterType::Split128k)
+        Some(FilterType::SplitPhase128kE2v3)
     );
     assert_eq!(
         serde_json::from_str::<FilterType>("\"Perfect\"").unwrap(),
@@ -1057,6 +1242,17 @@ fn filter_ids_are_backward_compatible() {
     assert_eq!(FilterType::from_name("MinimumExtreme128k"), None);
     assert_eq!(FilterType::from_name("MinimumExp512k"), None);
     assert_eq!(FilterType::from_name("MinimumExp1m"), None);
+}
+
+#[test]
+fn frozen_filter_assets_decode_little_endian_f64() {
+    let values = [0.5_f64, -0.25, f64::MIN_POSITIVE];
+    let bytes = values
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect::<Vec<_>>();
+    let decoded = decode_f64le_asset(&bytes, values.len(), "test");
+    assert_eq!(&*decoded, &values);
 }
 
 #[test]
@@ -1233,6 +1429,7 @@ fn standard_cross_family_ratios_use_exact_rational_path() {
     let cases = [
         (44_100, 48_000, 147, 160),
         (48_000, 44_100, 160, 147),
+        (88_200, 96_000, 147, 160),
         (96_000, 88_200, 160, 147),
         (192_000, 176_400, 160, 147),
         (96_000, 44_100, 320, 147),
@@ -1255,6 +1452,36 @@ fn standard_cross_family_ratios_use_exact_rational_path() {
             (ratio_num as u32, ratio_den as u32)
         );
     }
+}
+
+#[test]
+fn plan_d_exact_rational_runtime_is_preserved_finite_and_drains_to_nominal_length() {
+    let source_rate = 88_200;
+    let target_rate = 96_000;
+    let (left, right) = make_signal(4_096);
+    let mut resampler = SincResampler::new(
+        FilterType::MinimumPhaseCompact128k,
+        source_rate,
+        target_rate,
+    );
+    let info = resampler.runtime_info();
+    assert_eq!(info.path_kind, ResamplerPathKind::ExactRational);
+    assert!(info.phase_profile_preserved);
+    assert!(!info.uses_capped_fallback);
+    assert_eq!((info.ratio_num, info.ratio_den), (147, 160));
+
+    let mut output = Vec::new();
+    for start in (0..left.len()).step_by(257) {
+        let end = (start + 257).min(left.len());
+        resampler.input(&left[start..end], &right[start..end]);
+        resampler.process(&mut output);
+    }
+    resampler.drain_eof(&mut output);
+    assert_eq!(
+        output.len(),
+        nominal_output_samples(left.len(), source_rate, target_rate)
+    );
+    assert!(output.iter().all(|sample| sample.is_finite()));
 }
 
 #[test]
@@ -1432,6 +1659,53 @@ fn integrated_phase_is_chunk_boundary_invariant_for_pop_sensitive_rates() {
 }
 
 #[test]
+fn frozen_split_phase_filters_are_chunk_boundary_invariant_and_reset_eof_stable() {
+    for (filter, label) in [
+        (FilterType::SplitPhase128kV3, "SplitPhase128kV3"),
+        (FilterType::SplitPhase128kV4, "SplitPhase128kV4"),
+        (FilterType::SplitPhase128kE2v3, "SplitPhase128kE2v3"),
+    ] {
+        assert_long_filter_chunk_case(
+            filter,
+            label,
+            44_100,
+            176_400,
+            &[1, 2, 3, 127, 255, 256, 257, 4095, 4096, 4097],
+            1024,
+            8192,
+        );
+
+        let (left, right) = make_signal(2_048);
+        let mut resampler = SincResampler::new(filter, 44_100, 88_200);
+        let mut first = Vec::new();
+        resampler.input(&left, &right);
+        resampler.process(&mut first);
+        resampler.drain_eof(&mut first);
+        assert_eq!(
+            first.len(),
+            nominal_output_samples(left.len(), 44_100, 88_200)
+        );
+        assert!(first.iter().all(|sample| sample.is_finite()));
+
+        resampler.reset();
+        let mut second = Vec::new();
+        resampler.input(&left, &right);
+        resampler.process(&mut second);
+        resampler.drain_eof(&mut second);
+        assert_eq!(first.len(), second.len());
+        assert!(
+            first
+                .iter()
+                .zip(&second)
+                .all(|(left, right)| left.to_bits() == right.to_bits())
+        );
+        let mut already_drained = Vec::new();
+        assert_eq!(resampler.drain_eof(&mut already_drained), 0);
+        assert!(already_drained.is_empty());
+    }
+}
+
+#[test]
 fn minimum_phase128k_endpoints_are_chunk_boundary_invariant() {
     for (filter, label) in [
         (FilterType::MinimumPhase128k, "MinimumPhase128k1"),
@@ -1492,6 +1766,7 @@ fn split16k_two_x_stage_matches_slow_branch_reference_for_offset_impulses() {
         beta: FilterType::Split128k.beta(),
         engine: EngineKind::DirectSimd,
         phase_mode: PhaseMode::SplitPhase128k,
+        coefficient_source: CharacterCoefficientSource::Procedural,
     };
     let (phase0, phase1, prepad0, prepad1) = build_character_polyphase_pair(
         half_width,
@@ -1565,6 +1840,7 @@ fn integrated_phase_two_x_stage_matches_slow_branch_reference_for_offset_impulse
             beta: filter.beta(),
             engine: EngineKind::DirectSimd,
             phase_mode,
+            coefficient_source: CharacterCoefficientSource::Procedural,
         };
         let (phase0, phase1, prepad0, prepad1) =
             build_character_polyphase_pair(half_width, filter.beta(), filter.cutoff(), phase_mode);
@@ -1826,75 +2102,65 @@ fn fractional_resampler_is_consistent_across_blocks() {
 }
 
 #[test]
-fn exact_rational_resampler_is_consistent_across_chunk_sizes() {
+fn exact_rational_and_split_phase_v4_are_consistent_across_chunk_sizes() {
     let (left, right) = make_signal(8192);
-    let reference = run_resampler_interleaved(
-        FilterType::SincExtreme32k,
-        44_100,
-        48_000,
-        &left,
-        &right,
-        left.len(),
-        4096,
-    );
-    assert!(!reference.is_empty());
+    for filter in [FilterType::SincExtreme32k, FilterType::SplitPhase128kV4] {
+        let reference =
+            run_resampler_interleaved(filter, 44_100, 48_000, &left, &right, left.len(), 4096);
+        assert!(!reference.is_empty());
 
-    for chunk_frames in [1usize, 257, 997, 1024] {
-        let chunked = run_resampler_interleaved(
-            FilterType::SincExtreme32k,
-            44_100,
-            48_000,
-            &left,
-            &right,
-            chunk_frames,
-            4096,
-        );
-        assert_eq!(
-            reference.len(),
-            chunked.len(),
-            "chunk={chunk_frames} changed output length"
-        );
-        for (idx, (expected, actual)) in reference.iter().zip(&chunked).enumerate() {
-            assert!(
-                (expected - actual).abs() < 1e-10,
-                "chunk={chunk_frames} sample={idx}: expected={expected} actual={actual}"
+        for chunk_frames in [1usize, 2, 3, 127, 255, 256, 257, 997, 4095, 4096, 4097] {
+            let chunked = run_resampler_interleaved(
+                filter,
+                44_100,
+                48_000,
+                &left,
+                &right,
+                chunk_frames,
+                4096,
             );
+            assert_eq!(
+                reference.len(),
+                chunked.len(),
+                "filter={filter:?} chunk={chunk_frames} changed output length"
+            );
+            for (idx, (expected, actual)) in reference.iter().zip(&chunked).enumerate() {
+                assert!(
+                    (expected - actual).abs() < 1e-10,
+                    "filter={filter:?} chunk={chunk_frames} sample={idx}: expected={expected} actual={actual}"
+                );
+            }
         }
     }
 }
 
 #[test]
-fn drain_eof_matches_manual_zero_flush_for_exact_rational() {
+fn drain_eof_matches_manual_zero_flush_for_exact_rational_and_split_phase_v4() {
     let source_rate = 44_100;
     let target_rate = 48_000;
     let frames = 4096usize;
     let (left, right) = make_signal(frames);
-    let actual = run_resampler_interleaved_with_eof_drain(
-        FilterType::SincExtreme32k,
-        source_rate,
-        target_rate,
-        &left,
-        &right,
-        997,
-    );
-    let mut expected = run_resampler_interleaved(
-        FilterType::SincExtreme32k,
-        source_rate,
-        target_rate,
-        &left,
-        &right,
-        997,
-        4096,
-    );
-    expected.truncate(nominal_output_samples(frames, source_rate, target_rate));
-
-    assert_eq!(actual.len(), expected.len());
-    for (idx, (expected, actual)) in expected.iter().zip(&actual).enumerate() {
-        let err = (expected - actual).abs();
-        assert!(
-            err < 1e-9,
-            "exact rational EOF drain sample {idx} mismatch: expected={expected} actual={actual} err={err}"
+    for filter in [FilterType::SincExtreme32k, FilterType::SplitPhase128kV4] {
+        let actual = run_resampler_interleaved_with_eof_drain(
+            filter,
+            source_rate,
+            target_rate,
+            &left,
+            &right,
+            997,
         );
+        let mut expected =
+            run_resampler_interleaved(filter, source_rate, target_rate, &left, &right, 997, 4096);
+        expected.truncate(nominal_output_samples(frames, source_rate, target_rate));
+
+        assert_eq!(actual.len(), expected.len());
+        for (idx, (expected, actual)) in expected.iter().zip(&actual).enumerate() {
+            let err = (expected - actual).abs();
+            assert!(
+                err < 1e-9,
+                "filter={filter:?} exact rational EOF drain sample {idx} mismatch: expected={expected} actual={actual} err={err}"
+            );
+        }
     }
 }
 
@@ -2002,41 +2268,43 @@ fn minimum_phase_compact_reset_and_eof_are_bit_stable() {
 }
 
 #[test]
-fn exact_rational_long_duration_frame_count_drift_stays_bounded() {
+fn exact_rational_and_split_phase_v4_long_duration_frame_count_drift_stays_bounded() {
     let source_rate = 44_100u32;
     let target_rate = 48_000u32;
     let input_frames = source_rate as usize * 60;
     let chunk_frames = 997usize;
-    let mut resampler = SincResampler::new(FilterType::SincExtreme32k, source_rate, target_rate);
-    let ResamplerPath::Rational(rational) = &resampler.path else {
-        panic!("expected exact rational path");
-    };
-    let (half_width, step_num, phase_den) =
-        (rational.half_width, rational.step_num, rational.phase_den);
+    for filter in [FilterType::SincExtreme32k, FilterType::SplitPhase128kV4] {
+        let mut resampler = SincResampler::new(filter, source_rate, target_rate);
+        let ResamplerPath::Rational(rational) = &resampler.path else {
+            panic!("expected exact rational path");
+        };
+        let (half_width, step_num, phase_den) =
+            (rational.half_width, rational.step_num, rational.phase_den);
 
-    let zeros = vec![0.0; chunk_frames];
-    let mut block = Vec::new();
-    let mut written = 0usize;
-    let mut remaining = input_frames;
-    while remaining > 0 {
-        let frames = remaining.min(chunk_frames);
-        resampler.input(&zeros[..frames], &zeros[..frames]);
-        block.clear();
-        written += resampler.process(&mut block);
-        remaining -= frames;
+        let zeros = vec![0.0; chunk_frames];
+        let mut block = Vec::new();
+        let mut written = 0usize;
+        let mut remaining = input_frames;
+        while remaining > 0 {
+            let frames = remaining.min(chunk_frames);
+            resampler.input(&zeros[..frames], &zeros[..frames]);
+            block.clear();
+            written += resampler.process(&mut block);
+            remaining -= frames;
+        }
+
+        let expected = expected_rational_output_frames_without_eof_tail(
+            input_frames,
+            half_width,
+            step_num,
+            phase_den,
+        );
+        let drift = written.abs_diff(expected);
+        assert!(
+            drift <= 1,
+            "filter={filter:?} expected {expected} output frames over 60s, wrote {written}, drift={drift}"
+        );
     }
-
-    let expected = expected_rational_output_frames_without_eof_tail(
-        input_frames,
-        half_width,
-        step_num,
-        phase_den,
-    );
-    let drift = written.abs_diff(expected);
-    assert!(
-        drift <= 1,
-        "expected {expected} output frames over 60s, wrote {written}, drift={drift}"
-    );
 }
 
 #[test]
@@ -2548,6 +2816,7 @@ fn planner_configures_linear128k_as_long_partitioned_linear_phase() {
                 partition_frames: 4096
             },
             phase_mode: PhaseMode::Linear,
+            coefficient_source: CharacterCoefficientSource::Procedural,
         }
     ));
 
@@ -2602,6 +2871,7 @@ fn planner_configures_minimum16k_as_apodizing_min_phase_fft_mode() {
                 partition_frames: 4096
             },
             phase_mode: PhaseMode::Minimum,
+            coefficient_source: CharacterCoefficientSource::Procedural,
         }
     ));
 
@@ -2680,6 +2950,7 @@ fn planner_configures_split128k_as_long_frequency_split_fft_mode() {
                 partition_frames: 4096
             },
             phase_mode: PhaseMode::SplitPhase128k,
+            coefficient_source: CharacterCoefficientSource::Procedural,
         }
     ));
 
@@ -2706,6 +2977,670 @@ fn planner_configures_split128k_as_long_frequency_split_fft_mode() {
 }
 
 #[test]
+fn planner_routes_split_phase_v3_to_frozen_character_and_cleanup_sources() {
+    for exponent in 1..=8 {
+        let ratio = 1u32 << exponent;
+        let plan = build_integer_stage_plan(
+            44_100,
+            44_100 * ratio,
+            FilterType::SplitPhase128kV3,
+            1_000.0,
+        )
+        .unwrap();
+        assert!(plan.high_latency);
+        assert!(matches!(
+            plan.stages[0],
+            StageSpec::Character2x {
+                taps_total: 131_073,
+                cutoff: 0.0,
+                beta: 0.0,
+                engine: EngineKind::PartitionedFft {
+                    partition_frames: 4096
+                },
+                phase_mode: PhaseMode::FrozenSplitPhase(FrozenFilterVersion::V3),
+                coefficient_source: CharacterCoefficientSource::Frozen(FrozenFilterVersion::V3),
+            }
+        ));
+        assert_eq!(
+            plan.stages[0].latency_frames_at_stage_rate(),
+            SPLIT_PHASE_V3_FULL_RATE_ORIGIN / 2 + 4096
+        );
+        for (stage_index, stage) in plan.stages.iter().enumerate().skip(1) {
+            assert!(matches!(
+                stage,
+                StageSpec::CleanupHalfband2x {
+                    coefficient_source: CleanupCoefficientSource::Frozen {
+                        version: FrozenFilterVersion::V3,
+                        stage_index: asset_stage
+                    },
+                    ..
+                } if *asset_stage == stage_index as u8
+            ));
+        }
+    }
+}
+
+#[test]
+fn planner_routes_split_phase_v4_to_its_frozen_bundle() {
+    let plan = build_integer_stage_plan(44_100, 11_289_600, FilterType::SplitPhase128kV4, 1_000.0)
+        .expect("Split Phase V4 256x plan");
+    assert!(matches!(
+        plan.stages[0],
+        StageSpec::Character2x {
+            phase_mode: PhaseMode::FrozenSplitPhase(FrozenFilterVersion::V4),
+            coefficient_source: CharacterCoefficientSource::Frozen(FrozenFilterVersion::V4),
+            ..
+        }
+    ));
+    for (stage_index, stage) in plan.stages.iter().enumerate().skip(1) {
+        assert!(matches!(
+            stage,
+            StageSpec::CleanupHalfband2x {
+                coefficient_source: CleanupCoefficientSource::Frozen {
+                    version: FrozenFilterVersion::V4,
+                    stage_index: asset_stage,
+                },
+                ..
+            } if *asset_stage == stage_index as u8
+        ));
+    }
+}
+
+#[test]
+fn planner_routes_split_phase_e2v3_to_its_experimental_bundle() {
+    let plan =
+        build_integer_stage_plan(44_100, 11_289_600, FilterType::SplitPhase128kE2v3, 1_000.0)
+            .expect("Split Phase E2v3 256x plan");
+    assert!(matches!(
+        plan.stages[0],
+        StageSpec::Character2x {
+            phase_mode: PhaseMode::FrozenSplitPhase(FrozenFilterVersion::E2v3),
+            coefficient_source: CharacterCoefficientSource::Frozen(FrozenFilterVersion::E2v3),
+            ..
+        }
+    ));
+    for (stage_index, stage) in plan.stages.iter().enumerate().skip(1) {
+        assert!(matches!(
+            stage,
+            StageSpec::CleanupHalfband2x {
+                coefficient_source: CleanupCoefficientSource::Frozen {
+                    version: FrozenFilterVersion::E2v3,
+                    stage_index: asset_stage,
+                },
+                ..
+            } if *asset_stage == stage_index as u8
+        ));
+    }
+}
+
+#[test]
+fn split_phase_v4_generated_constants_match_embedded_assets() {
+    let assets = split_phase_v4_assets();
+    assert_eq!(
+        assets.character.len(),
+        SPLIT_PHASE_V4_CHARACTER_COEFFICIENTS
+    );
+    assert_eq!(
+        assets.alignment.full_rate_origin,
+        SPLIT_PHASE_V4_FULL_RATE_ORIGIN
+    );
+    assert_eq!(assets.alignment.phase0_prepad, SPLIT_PHASE_V4_PHASE0_PREPAD);
+    assert_eq!(assets.alignment.phase1_prepad, SPLIT_PHASE_V4_PHASE1_PREPAD);
+    assert_eq!(
+        assets.alignment.decimation_prepad,
+        SPLIT_PHASE_V4_DECIMATION_PREPAD
+    );
+    let bytes = assets
+        .character
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&bytes)),
+        SPLIT_PHASE_V4_CHARACTER_SHA256
+    );
+    for (index, cleanup) in assets.cleanups.iter().enumerate() {
+        assert_eq!(cleanup.len(), SPLIT_PHASE_V4_CLEANUP_COEFFICIENTS[index]);
+        let bytes = cleanup
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            format!("{:x}", Sha256::digest(&bytes)),
+            SPLIT_PHASE_V4_CLEANUP_SHA256[index]
+        );
+    }
+    for (values, expected) in [
+        (
+            &assets.rational_tables.phase_147_160,
+            SPLIT_PHASE_V4_RATIONAL_147_160_SHA256,
+        ),
+        (
+            &assets.rational_tables.phase_160_147,
+            SPLIT_PHASE_V4_RATIONAL_160_147_SHA256,
+        ),
+    ] {
+        let bytes = values
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect::<Vec<_>>();
+        assert_eq!(format!("{:x}", Sha256::digest(&bytes)), expected);
+    }
+}
+
+#[test]
+fn split_phase_e2v3_generated_constants_match_embedded_assets() {
+    let assets = split_phase_e2v3_assets();
+    assert_eq!(
+        assets.character.len(),
+        SPLIT_PHASE_E2V3_CHARACTER_COEFFICIENTS
+    );
+    assert_eq!(
+        assets.alignment.full_rate_origin,
+        SPLIT_PHASE_E2V3_FULL_RATE_ORIGIN
+    );
+    assert_eq!(
+        assets.alignment.phase0_prepad,
+        SPLIT_PHASE_E2V3_PHASE0_PREPAD
+    );
+    assert_eq!(
+        assets.alignment.phase1_prepad,
+        SPLIT_PHASE_E2V3_PHASE1_PREPAD
+    );
+    assert_eq!(
+        assets.alignment.decimation_prepad,
+        SPLIT_PHASE_E2V3_DECIMATION_PREPAD
+    );
+    let bytes = assets
+        .character
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&bytes)),
+        SPLIT_PHASE_E2V3_CHARACTER_SHA256
+    );
+    for (index, cleanup) in assets.cleanups.iter().enumerate() {
+        assert_eq!(cleanup.len(), SPLIT_PHASE_E2V3_CLEANUP_COEFFICIENTS[index]);
+        let bytes = cleanup
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            format!("{:x}", Sha256::digest(&bytes)),
+            SPLIT_PHASE_E2V3_CLEANUP_SHA256[index]
+        );
+    }
+    for (values, expected) in [
+        (
+            &assets.rational_tables.phase_147_160,
+            SPLIT_PHASE_E2V3_RATIONAL_147_160_SHA256,
+        ),
+        (
+            &assets.rational_tables.phase_160_147,
+            SPLIT_PHASE_E2V3_RATIONAL_160_147_SHA256,
+        ),
+    ] {
+        let bytes = values
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect::<Vec<_>>();
+        assert_eq!(format!("{:x}", Sha256::digest(&bytes)), expected);
+    }
+}
+
+#[test]
+fn split_phase_v4_runtime_cost_and_memory_class_match_v3() {
+    let mut maximum_memory_ratio = 0.0_f64;
+    for (source_rate, target_rate) in [
+        (44_100, 88_200),
+        (44_100, 11_289_600),
+        (88_200, 44_100),
+        (11_289_600, 44_100),
+        (44_100, 48_000),
+        (48_000, 44_100),
+    ] {
+        let c = SincResampler::new(FilterType::SplitPhase128kV3, source_rate, target_rate)
+            .runtime_info();
+        let d = SincResampler::new(FilterType::SplitPhase128kV4, source_rate, target_rate)
+            .runtime_info();
+        assert_eq!(c.path_kind, d.path_kind);
+        let ratio = d.estimated_memory_bytes as f64 / c.estimated_memory_bytes.max(1) as f64;
+        maximum_memory_ratio = maximum_memory_ratio.max(ratio);
+        assert!(
+            ratio <= 1.0,
+            "{source_rate}->{target_rate} memory ratio {ratio}"
+        );
+    }
+    // V3 and V4 use the same generic frozen engine, coefficient counts,
+    // partition sizes, and rational dimensions. Their exact operation-count
+    // ratio is therefore one; coefficient values do not alter the hot path.
+    println!(
+        "SPLIT_PHASE_V4_COST operation_count_ratio=1.000000000000 memory_ratio={maximum_memory_ratio:.12}"
+    );
+}
+
+#[test]
+fn split_phase_v3_assets_match_manifest_hashes_and_exact_contracts() {
+    let asset_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/filters/split_phase_v3");
+    let manifest: serde_json::Value = serde_json::from_slice(
+        &fs::read(asset_dir.join("manifest.json")).expect("Split Phase V3 manifest"),
+    )
+    .expect("valid Split Phase V3 manifest JSON");
+    assert_eq!(manifest["identity"], "SplitPhase128kV3");
+    assert_eq!(
+        manifest["alignment"]["full_rate_origin"].as_u64(),
+        Some(SPLIT_PHASE_V3_FULL_RATE_ORIGIN as u64)
+    );
+    assert_eq!(
+        manifest["alignment"]["phase0_prepad"].as_u64(),
+        Some(SPLIT_PHASE_V3_PHASE0_PREPAD as u64)
+    );
+    assert_eq!(
+        manifest["alignment"]["phase1_prepad"].as_u64(),
+        Some(SPLIT_PHASE_V3_PHASE1_PREPAD as u64)
+    );
+    assert_eq!(
+        manifest["alignment"]["decimation_prepad"].as_u64(),
+        Some(SPLIT_PHASE_V3_DECIMATION_PREPAD as u64)
+    );
+
+    let files = &manifest["files"];
+    let mut entries = vec![&files["character"], &files["rational_147_160"]];
+    entries.push(&files["rational_160_147"]);
+    entries.extend(
+        files["cleanups"]
+            .as_array()
+            .expect("cleanup manifest entries"),
+    );
+    for entry in entries {
+        let file = entry["file"].as_str().expect("asset filename");
+        let bytes = fs::read(asset_dir.join(file)).expect("frozen coefficient asset");
+        assert_eq!(
+            bytes.len() as u64,
+            entry["byte_length"].as_u64().expect("asset byte length"),
+            "{file} byte length"
+        );
+        assert_eq!(
+            format!("{:x}", Sha256::digest(&bytes)),
+            entry["sha256"].as_str().expect("asset SHA-256"),
+            "{file} SHA-256"
+        );
+    }
+
+    let assets = split_phase_v3_assets();
+    assert_eq!(
+        assets.character.len(),
+        SPLIT_PHASE_V3_CHARACTER_COEFFICIENTS
+    );
+    assert!((compensated_sum(assets.character.iter().step_by(2).copied()) - 0.5).abs() <= 2e-15);
+    assert!(
+        (compensated_sum(assets.character.iter().skip(1).step_by(2).copied()) - 0.5).abs() <= 2e-15
+    );
+    for cleanup in &assets.cleanups {
+        let center = cleanup.len() / 2;
+        assert!(
+            cleanup
+                .iter()
+                .zip(cleanup.iter().rev())
+                .all(|(left, right)| left.to_bits() == right.to_bits())
+        );
+        assert_eq!(cleanup[center].to_bits(), 0.5_f64.to_bits());
+        for (index, coefficient) in cleanup.iter().enumerate().step_by(2) {
+            if index != center {
+                assert_eq!(coefficient.to_bits(), 0.0_f64.to_bits());
+            }
+        }
+        assert!((compensated_sum(cleanup.iter().copied()) - 1.0).abs() <= 2e-15);
+        assert!((compensated_sum(cleanup.iter().skip(1).step_by(2).copied()) - 0.5).abs() <= 2e-15);
+    }
+    for left in 3..assets.cleanups.len() {
+        for right in left + 1..assets.cleanups.len() {
+            assert_ne!(
+                assets.cleanups[left].as_ref(),
+                assets.cleanups[right].as_ref()
+            );
+        }
+    }
+}
+
+#[test]
+fn split_phase_v3_runtime_mapping_uses_frozen_coefficients_without_normalization() {
+    let assets = split_phase_v3_assets();
+    let (phase0, phase1, prepad0, prepad1) =
+        frozen_character_polyphase_pair(FrozenFilterVersion::V3);
+    assert_eq!(prepad0, Some(SPLIT_PHASE_V3_PHASE0_PREPAD));
+    assert_eq!(prepad1, Some(SPLIT_PHASE_V3_PHASE1_PREPAD));
+    assert_eq!(phase0.len(), 131_073);
+    assert_eq!(phase1.len(), 131_073);
+    assert!((compensated_sum(phase0.iter().copied()) - 1.0).abs() <= 4e-15);
+    assert!((compensated_sum(phase1.iter().copied()) - 1.0).abs() <= 4e-15);
+    assert_eq!(phase1[0].to_bits(), 0.0_f64.to_bits());
+    for index in 0..131_072 {
+        assert_eq!(
+            phase0[131_072 - index].to_bits(),
+            (2.0 * assets.character[2 * index]).to_bits()
+        );
+        assert_eq!(
+            phase1[131_072 - index].to_bits(),
+            (2.0 * assets.character[2 * index + 1]).to_bits()
+        );
+    }
+    assert_eq!(
+        phase0[0].to_bits(),
+        (2.0 * assets.character[262_144]).to_bits()
+    );
+
+    for stage_index in 1..=7u8 {
+        let branch = frozen_cleanup_odd_branch(FrozenFilterVersion::V3, stage_index);
+        let canonical = &assets.cleanups[usize::from(stage_index) - 1];
+        assert_eq!(branch.len(), canonical.len() / 2 + 1);
+        assert_eq!(branch[0].to_bits(), 0.0_f64.to_bits());
+        assert!((compensated_sum(branch.iter().copied()) - 1.0).abs() <= 4e-15);
+        for odd_index in 0..canonical.len() / 2 {
+            assert_eq!(
+                branch[branch.len() - 1 - odd_index].to_bits(),
+                (2.0 * canonical[2 * odd_index + 1]).to_bits()
+            );
+        }
+    }
+
+    let character_spec =
+        build_integer_stage_plan(44_100, 88_200, FilterType::SplitPhase128kV3, 1_000.0)
+            .expect("Split Phase V3 2x plan")
+            .stages
+            .remove(0);
+    let (decimation, prepad) = build_decimation_coefficients(&character_spec);
+    assert_eq!(prepad, SPLIT_PHASE_V3_DECIMATION_PREPAD);
+    assert!(
+        decimation
+            .iter()
+            .zip(assets.character.iter().rev())
+            .all(|(actual, expected)| actual.to_bits() == expected.to_bits())
+    );
+}
+
+#[test]
+fn split_phase_v3_rational_tables_are_selected_only_for_frozen_ratios() {
+    let assets = split_phase_v3_assets();
+    for (source_rate, target_rate, expected) in [
+        (44_100, 48_000, &assets.rational_tables.phase_147_160),
+        (48_000, 44_100, &assets.rational_tables.phase_160_147),
+    ] {
+        let resampler = SincResampler::new(FilterType::SplitPhase128kV3, source_rate, target_rate);
+        let ResamplerPath::Rational(rational) = &resampler.path else {
+            panic!("expected frozen exact-rational path");
+        };
+        assert!(Arc::ptr_eq(&rational.coefficients, expected));
+        assert!(resampler.runtime_info().phase_profile_preserved);
+        let row_taps = 2 * rational.half_width + 1;
+        for row in rational.coefficients.chunks_exact(row_taps) {
+            assert!((compensated_sum(row.iter().copied()) - 1.0).abs() <= 2e-15);
+        }
+    }
+
+    let unsupported = SincResampler::new(FilterType::SplitPhase128kV3, 96_000, 44_100);
+    let ResamplerPath::Rational(rational) = &unsupported.path else {
+        panic!("expected generic exact-rational fallback");
+    };
+    assert_eq!((rational.step_num, rational.phase_den), (320, 147));
+    assert!(!unsupported.runtime_info().phase_profile_preserved);
+    assert!(!Arc::ptr_eq(
+        &rational.coefficients,
+        &assets.rational_tables.phase_160_147
+    ));
+}
+
+#[test]
+fn split_phase_v4_rational_tables_are_selected_only_for_frozen_ratios() {
+    let assets = split_phase_v4_assets();
+    for (source_rate, target_rate, expected) in [
+        (44_100, 48_000, &assets.rational_tables.phase_147_160),
+        (48_000, 44_100, &assets.rational_tables.phase_160_147),
+    ] {
+        let resampler = SincResampler::new(FilterType::SplitPhase128kV4, source_rate, target_rate);
+        let ResamplerPath::Rational(rational) = &resampler.path else {
+            panic!("expected frozen exact-rational path");
+        };
+        assert!(Arc::ptr_eq(&rational.coefficients, expected));
+        assert!(resampler.runtime_info().phase_profile_preserved);
+        let row_taps = 2 * rational.half_width + 1;
+        for row in rational.coefficients.chunks_exact(row_taps) {
+            assert!((compensated_sum(row.iter().copied()) - 1.0).abs() <= 2e-15);
+        }
+    }
+
+    let unsupported = SincResampler::new(FilterType::SplitPhase128kV4, 96_000, 44_100);
+    let ResamplerPath::Rational(rational) = &unsupported.path else {
+        panic!("expected generic exact-rational fallback");
+    };
+    assert!(!unsupported.runtime_info().phase_profile_preserved);
+    assert!(!Arc::ptr_eq(
+        &rational.coefficients,
+        &assets.rational_tables.phase_160_147
+    ));
+}
+
+#[test]
+fn split_phase_v3_partitioned_runtime_rejects_the_2x_image_below_140_db() {
+    const FRAMES: usize = 147_456;
+    const ANALYSIS_FRAMES: usize = 16_384;
+    let input_omega = PI / 2.0;
+    let left = (0..FRAMES)
+        .map(|index| (input_omega * index as f64).cos())
+        .collect::<Vec<_>>();
+    let right = (0..FRAMES)
+        .map(|index| (input_omega * index as f64).sin())
+        .collect::<Vec<_>>();
+    let mut resampler = SincResampler::new(FilterType::SplitPhase128kV3, 44_100, 88_200);
+    let mut output = Vec::new();
+    for start in (0..FRAMES).step_by(4_093) {
+        let end = (start + 4_093).min(FRAMES);
+        resampler.input(&left[start..end], &right[start..end]);
+        resampler.process(&mut output);
+    }
+
+    let output_frames = output.len() / 2;
+    assert!(output_frames >= ANALYSIS_FRAMES);
+    let start = output_frames - ANALYSIS_FRAMES;
+    let desired_omega = input_omega / 2.0;
+    let image_omega = desired_omega + PI;
+    let mut desired = Complex64::new(0.0, 0.0);
+    let mut image = Complex64::new(0.0, 0.0);
+    for (local_index, frame) in output
+        .chunks_exact(2)
+        .skip(start)
+        .take(ANALYSIS_FRAMES)
+        .enumerate()
+    {
+        let sample = Complex64::new(frame[0], frame[1]);
+        desired += sample * Complex64::from_polar(1.0, -desired_omega * local_index as f64);
+        image += sample * Complex64::from_polar(1.0, -image_omega * local_index as f64);
+    }
+    let desired_amplitude = desired.norm() / ANALYSIS_FRAMES as f64;
+    let image_amplitude = image.norm() / ANALYSIS_FRAMES as f64;
+    let image_db = 20.0 * (image_amplitude / desired_amplitude).max(1.0e-300).log10();
+    assert!(
+        desired_amplitude > 0.99,
+        "desired amplitude {desired_amplitude}"
+    );
+    assert!(image_db <= -140.0, "runtime image peak was {image_db} dB");
+}
+
+#[test]
+fn frozen_split_phase_partitioned_runtime_rejects_2x_image_and_alias_below_145_db() {
+    const INTERPOLATION_FRAMES: usize = 147_456;
+    const DECIMATION_FRAMES: usize = 327_680;
+    const ANALYSIS_FRAMES: usize = 16_384;
+
+    fn run_tone(
+        filter: FilterType,
+        source_rate: u32,
+        target_rate: u32,
+        frames: usize,
+        omega: f64,
+    ) -> Vec<f64> {
+        let left = (0..frames)
+            .map(|index| (omega * index as f64).cos())
+            .collect::<Vec<_>>();
+        let right = (0..frames)
+            .map(|index| (omega * index as f64).sin())
+            .collect::<Vec<_>>();
+        let mut resampler = SincResampler::new(filter, source_rate, target_rate);
+        let mut output = Vec::new();
+        for start in (0..frames).step_by(4_093) {
+            let end = (start + 4_093).min(frames);
+            resampler.input(&left[start..end], &right[start..end]);
+            resampler.process(&mut output);
+        }
+        output
+    }
+
+    fn tone_amplitude(output: &[f64], omega: f64) -> f64 {
+        let output_frames = output.len() / 2;
+        assert!(output_frames >= ANALYSIS_FRAMES);
+        let start = output_frames - ANALYSIS_FRAMES;
+        let mut accumulator = Complex64::new(0.0, 0.0);
+        for (local_index, frame) in output
+            .chunks_exact(2)
+            .skip(start)
+            .take(ANALYSIS_FRAMES)
+            .enumerate()
+        {
+            let sample = Complex64::new(frame[0], frame[1]);
+            accumulator += sample * Complex64::from_polar(1.0, -omega * local_index as f64);
+        }
+        accumulator.norm() / ANALYSIS_FRAMES as f64
+    }
+
+    for (filter, label) in [
+        (FilterType::SplitPhase128kV4, "SPLIT_PHASE_V4_RUNTIME"),
+        (FilterType::SplitPhase128kE2v3, "SPLIT_PHASE_E2V3_RUNTIME"),
+    ] {
+        let input_omega = PI / 2.0;
+        let interpolated = run_tone(filter, 44_100, 88_200, INTERPOLATION_FRAMES, input_omega);
+        let desired_omega = input_omega / 2.0;
+        let desired = tone_amplitude(&interpolated, desired_omega);
+        let image = tone_amplitude(&interpolated, desired_omega + PI);
+        let image_db = 20.0 * (image / desired).max(1.0e-300).log10();
+        assert!(
+            desired > 0.99,
+            "{label} desired interpolation amplitude {desired}"
+        );
+        assert!(
+            image_db <= -145.0,
+            "{label} runtime image peak was {image_db} dB"
+        );
+
+        // -pi/4 and 3pi/4 both map to -pi/2 after decimation. The latter is
+        // the independently exercised reverse alias branch.
+        let desired_input = run_tone(filter, 88_200, 44_100, DECIMATION_FRAMES, -PI / 4.0);
+        let alias_input = run_tone(filter, 88_200, 44_100, DECIMATION_FRAMES, 3.0 * PI / 4.0);
+        let output_omega = -PI / 2.0;
+        let desired = tone_amplitude(&desired_input, output_omega);
+        let alias_amplitude = tone_amplitude(&alias_input, output_omega);
+        let alias_db = 20.0 * (alias_amplitude / desired).max(1.0e-300).log10();
+        assert!(
+            desired > 0.99,
+            "{label} desired decimation amplitude {desired}"
+        );
+        assert!(
+            alias_db <= -145.0,
+            "{label} runtime alias peak was {alias_db} dB"
+        );
+        println!("{label} image_db={image_db:.12} alias_db={alias_db:.12}");
+    }
+}
+
+#[test]
+fn frozen_split_phase_rational_runtime_rejects_image_and_reverse_alias_below_145_db() {
+    fn run_tone(
+        filter: FilterType,
+        source_rate: u32,
+        target_rate: u32,
+        frames: usize,
+        frequency_hz: f64,
+    ) -> Vec<f64> {
+        let omega = 2.0 * PI * frequency_hz / source_rate as f64;
+        let left = (0..frames)
+            .map(|index| (omega * index as f64).cos())
+            .collect::<Vec<_>>();
+        let right = (0..frames)
+            .map(|index| (omega * index as f64).sin())
+            .collect::<Vec<_>>();
+        let mut resampler = SincResampler::new(filter, source_rate, target_rate);
+        let mut output = Vec::new();
+        for start in (0..frames).step_by(997) {
+            let end = (start + 997).min(frames);
+            resampler.input(&left[start..end], &right[start..end]);
+            resampler.process(&mut output);
+        }
+        output
+    }
+
+    fn tone_amplitude(output: &[f64], target_rate: u32, frequency_hz: f64) -> f64 {
+        let analysis_frames = target_rate as usize;
+        let output_frames = output.len() / 2;
+        assert!(output_frames >= analysis_frames);
+        let omega = 2.0 * PI * frequency_hz / target_rate as f64;
+        let mut accumulator = Complex64::new(0.0, 0.0);
+        for (local_index, frame) in output
+            .chunks_exact(2)
+            .skip(output_frames - analysis_frames)
+            .take(analysis_frames)
+            .enumerate()
+        {
+            accumulator += Complex64::new(frame[0], frame[1])
+                * Complex64::from_polar(1.0, -omega * local_index as f64);
+        }
+        accumulator.norm() / analysis_frames as f64
+    }
+
+    for (filter, label) in [
+        (
+            FilterType::SplitPhase128kV4,
+            "SPLIT_PHASE_V4_RATIONAL_RUNTIME",
+        ),
+        (
+            FilterType::SplitPhase128kE2v3,
+            "SPLIT_PHASE_E2V3_RATIONAL_RUNTIME",
+        ),
+    ] {
+        let upsampled = run_tone(filter, 44_100, 48_000, 88_200, 20_000.0);
+        let desired_up = tone_amplitude(&upsampled, 48_000, 20_000.0);
+        // The first 44.1 kHz periodic image at -24.1 kHz wraps to +23.9 kHz
+        // in the 48 kHz output's discrete-frequency interval.
+        let image_up = tone_amplitude(&upsampled, 48_000, 23_900.0);
+        let image_db = 20.0 * (image_up / desired_up).max(1.0e-300).log10();
+        assert!(
+            desired_up > 0.99,
+            "{label} rational desired amplitude {desired_up}"
+        );
+        assert!(
+            image_db <= -145.0,
+            "{label} rational runtime image was {image_db} dB"
+        );
+
+        // +23.9 kHz and -20.2 kHz differ by the 44.1 kHz output rate, so
+        // they exercise the desired and reverse-alias terms independently.
+        let desired_down_output = run_tone(filter, 48_000, 44_100, 96_000, -20_200.0);
+        let alias_down_output = run_tone(filter, 48_000, 44_100, 96_000, 23_900.0);
+        let desired_down = tone_amplitude(&desired_down_output, 44_100, -20_200.0);
+        let alias_down = tone_amplitude(&alias_down_output, 44_100, -20_200.0);
+        let alias_db = 20.0 * (alias_down / desired_down).max(1.0e-300).log10();
+        assert!(
+            desired_down > 0.01,
+            "{label} rational desired transition amplitude {desired_down}"
+        );
+        assert!(
+            alias_db <= -145.0,
+            "{label} rational runtime alias was {alias_db} dB"
+        );
+        println!("{label} image_db={image_db:.12} alias_db={alias_db:.12}");
+    }
+}
+
+#[test]
 fn split_phase_polyphase_pair_preserves_branch_dc() {
     let (phase0, phase1, prepad0, prepad1) =
         build_character_polyphase_pair(256, 23.12088, 0.465333, PhaseMode::SplitPhase128k);
@@ -2718,12 +3653,102 @@ fn split_phase_polyphase_pair_preserves_branch_dc() {
 }
 
 #[test]
+fn split_phase_v2_polyphase_pair_preserves_branch_dc() {
+    let (phase0, phase1, prepad0, prepad1) =
+        build_character_polyphase_pair(256, 23.12088, 0.465333, PhaseMode::SplitPhase128kV2);
+    let dc0: f64 = phase0.iter().sum();
+    let dc1: f64 = phase1.iter().sum();
+    assert!((dc0 - 1.0).abs() < 1e-9, "phase0 DC gain {dc0}");
+    assert!((dc1 - 1.0).abs() < 1e-9, "phase1 DC gain {dc1}");
+    assert!(prepad0.is_some());
+    assert!(prepad1.is_some());
+}
+
+#[test]
+fn split_phase_v2_integrates_group_delay_and_closes_to_minimum_phase() {
+    let fft_len = 4096usize;
+    let params = SplitPhaseParams {
+        low_blend_floor: SPLIT128K_PRODUCTION_BLEND_FLOOR,
+        ..SplitPhaseParams::default()
+    };
+    let minimum_phase = (0..=fft_len / 2)
+        .map(|k| {
+            let x = k as f64;
+            -0.004 * x - 1.5e-6 * x * x + 2.0e-10 * x * x * x
+        })
+        .collect::<Vec<_>>();
+    let target = split_phase_v2_from_unwrapped_minimum(&minimum_phase, fft_len, params);
+    let lo_bin =
+        ((params.split_f_lo * fft_len as f64).round() as usize).clamp(1, minimum_phase.len() - 2);
+    let join_bin =
+        ((params.split_f_hi * fft_len as f64 + 0.5).ceil() as usize).min(minimum_phase.len() - 1);
+
+    let reference_increment = minimum_phase[lo_bin] / lo_bin as f64;
+    for k in 0..=lo_bin {
+        let expected = (1.0 - params.low_blend_floor) * reference_increment * k as f64
+            + params.low_blend_floor * minimum_phase[k];
+        assert!(
+            (target[k] - expected).abs() < 1.0e-14,
+            "low-frequency identity changed at bin {k}"
+        );
+    }
+
+    for k in join_bin..minimum_phase.len() {
+        assert_eq!(
+            target[k], minimum_phase[k],
+            "target did not close at bin {k}"
+        );
+    }
+
+    let mut inferred_correction: Option<f64> = None;
+    for k in (lo_bin + 1)..join_bin {
+        let freq_mid = (k as f64 - 0.5) / fft_len as f64;
+        let weight = split_phase_v2_blend_weight(freq_mid, params);
+        let closure_shape = split_phase_v2_closure_bump(freq_mid, params);
+        if closure_shape < 1.0e-5 {
+            continue;
+        }
+        let target_increment = target[k] - target[k - 1];
+        let minimum_increment = minimum_phase[k] - minimum_phase[k - 1];
+        let base_increment = (1.0 - weight) * reference_increment + weight * minimum_increment;
+        let correction = (target_increment - base_increment) / closure_shape;
+        if let Some(expected) = inferred_correction {
+            assert!(
+                (correction - expected).abs() < 1.0e-9,
+                "phase increments do not share one smooth closure correction: {correction} vs {expected}"
+            );
+        } else {
+            inferred_correction = Some(correction);
+        }
+    }
+
+    assert_eq!(
+        split_phase_v2_blend_weight(params.split_f_lo, params),
+        params.low_blend_floor
+    );
+    assert_eq!(split_phase_v2_blend_weight(params.split_f_hi, params), 1.0);
+    assert_eq!(split_phase_v2_closure_bump(params.split_f_lo, params), 0.0);
+    assert_eq!(split_phase_v2_closure_bump(params.split_f_hi, params), 0.0);
+}
+
+#[test]
 fn split_phase_impulse_fades_to_zero_at_truncation() {
     let proto = build_full_rate_2x_prototype(64, 23.12088, 0.465333);
     let split = split_phase_impulse_with_params(&proto, split128k_phase_params());
     assert!(
         split.last().unwrap().abs() < 1e-18,
         "split-phase tail should fade to zero"
+    );
+}
+
+#[test]
+fn split_phase_v2_impulse_fades_to_zero_at_truncation() {
+    let proto = build_full_rate_2x_prototype(64, 23.12088, 0.465333);
+    let split = split_phase_v2_impulse_with_params(&proto, split128k_phase_params());
+    assert!(split.iter().all(|sample| sample.is_finite()));
+    assert!(
+        split.last().unwrap().abs() < 1e-18,
+        "Split Phase V2 tail should fade to zero"
     );
 }
 
@@ -2796,6 +3821,42 @@ fn split128k_kernel_keeps_split_phase_shape() {
         split_peak < proto.len() / 8,
         "Split128k impulse peak at {split_peak} of {} is not front-loaded",
         proto.len()
+    );
+}
+
+#[test]
+fn split128k_v2_kernel_preserves_magnitude_and_has_a_smooth_transition() {
+    let half_width = 8_192usize;
+    let proto = build_full_rate_2x_prototype(half_width, 23.12088, 0.465333);
+    let split = split_phase_v2_impulse_with_params(&proto, split128k_phase_params());
+
+    for &freq in &[0.0_f64, 0.025, 0.05, 0.10, 0.15, 0.20, 0.2268] {
+        let linear_db = full_rate_magnitude_db(&proto, freq);
+        let split_db = full_rate_magnitude_db(&split, freq);
+        assert!(
+            (linear_db - split_db).abs() < 0.03,
+            "Split Phase V2 magnitude mismatch at f={freq}: linear={linear_db} dB, split={split_db} dB"
+        );
+    }
+    for &freq in &[0.235_f64, 0.25, 0.27, 0.30, 0.35, 0.45] {
+        let stop_db = full_rate_magnitude_db(&split, freq);
+        assert!(
+            stop_db < -185.0,
+            "Split Phase V2 stopband at f={freq} must stay below -185 dB, got {stop_db} dB"
+        );
+    }
+
+    let transition = group_delay_samples(&split, SPLIT_PHASE_BLEND_F_LO, SPLIT_PHASE_BLEND_F_HI);
+    let max_adjacent_step = transition.windows(2).fold(0.0_f64, |maximum, pair| {
+        maximum.max((pair[1] - pair[0]).abs())
+    });
+    assert!(
+        max_adjacent_step < 4.0,
+        "Split Phase V2 transition group delay has an adjacent step of {max_adjacent_step} samples"
+    );
+    assert!(
+        dominant_impulse_index(&split) < proto.len() / 8,
+        "Split Phase V2 impulse is not front-loaded"
     );
 }
 

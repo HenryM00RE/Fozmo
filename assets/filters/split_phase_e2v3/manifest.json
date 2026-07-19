@@ -1,0 +1,94 @@
+{
+  "format_version": 1,
+  "identity": "SplitPhase128kV5-E2v3-audio-high-resolution-experimental",
+  "runtime_name": "SplitPhase128kE2v3",
+  "stable_id": 37,
+  "experimental": true,
+  "production_promoted": false,
+  "accepted_full_pipeline": true,
+  "endianness": "little",
+  "scalar": "IEEE-754 binary64",
+  "source": {
+    "e2v3_report_sha256": "8b44d60a03640a9b049e820b3b13e96f51266e1f269fb3c0e212ad3ba6612d1e",
+    "winner_result_sha256": "1746b3e6929042d3961b75b57e6da271ade075599f414ea143f42c9034149376",
+    "pareto_improvement_count": 3
+  },
+  "alignment": {
+    "full_rate_origin": 2530,
+    "phase0_prepad": 129807,
+    "phase1_prepad": 129807,
+    "decimation_prepad": 259614
+  },
+  "files": {
+    "character": {
+      "file": "character_full_rate.f64le",
+      "coefficient_count": 262145,
+      "byte_length": 2097160,
+      "sha256": "6fffcf7322e3d170e3160c3527772cdc78894e34d21d22bba16b279574d6b0cb"
+    },
+    "cleanups": [
+      {
+        "file": "cleanup_stage_1.f64le",
+        "coefficient_count": 509,
+        "byte_length": 4072,
+        "sha256": "55bd3926117717b80b4b318cc45afe01c524a0e63ed86487fafdd2a8b771d0ca"
+      },
+      {
+        "file": "cleanup_stage_2.f64le",
+        "coefficient_count": 253,
+        "byte_length": 2024,
+        "sha256": "bbf2ae79f755f8ac900375915e3f32e3bf174a4e1ee43c329e7f1e1c6adbc7eb"
+      },
+      {
+        "file": "cleanup_stage_3.f64le",
+        "coefficient_count": 125,
+        "byte_length": 1000,
+        "sha256": "7c729685ad9e5d7b906102dbf5f04e43d04553c1603ffd4b5419931286629cce"
+      },
+      {
+        "file": "cleanup_stage_4.f64le",
+        "coefficient_count": 61,
+        "byte_length": 488,
+        "sha256": "99960da2cc15896ac5e6536506ebb2c4b5c86d0a92de538b576a3084a774d7a3"
+      },
+      {
+        "file": "cleanup_stage_5.f64le",
+        "coefficient_count": 61,
+        "byte_length": 488,
+        "sha256": "d2750ce9c152349d84a27eae6cba42a565634c0c3789e17039cf845e773c6f8b"
+      },
+      {
+        "file": "cleanup_stage_6.f64le",
+        "coefficient_count": 61,
+        "byte_length": 488,
+        "sha256": "25b760182a9b6db96093146c08e734c9ae6c59c203b86bf84eb14ab24d868fb3"
+      },
+      {
+        "file": "cleanup_stage_7.f64le",
+        "coefficient_count": 61,
+        "byte_length": 488,
+        "sha256": "e2d0ec6b97e8d87bfa8c7f75b6392c44b4e7c2a7ade0b8371a84ba7580f6c0f7"
+      }
+    ],
+    "rational_147_160": {
+      "file": "rational_147_160.f64le",
+      "coefficient_count": 164000,
+      "byte_length": 1312000,
+      "sha256": "f45046de28e7d9503c0dccb5ea2899acacdeb0fcca943f11f610d8bf6ce4dc2f"
+    },
+    "rational_160_147": {
+      "file": "rational_160_147.f64le",
+      "coefficient_count": 301203,
+      "byte_length": 2409624,
+      "sha256": "61e61100da7863faa6eb0505b8ee84224b1dd9da00f386432424899f034dab59"
+    }
+  },
+  "audition_metrics": {
+    "pre_energy_before_dominant_peak_db": -8.692453722201977,
+    "step_response_overshoot": 0.11697717152688925,
+    "group_delay_curvature_max_abs_samples_per_ln_hz_squared": 16989.01911736792,
+    "worst_interpolation_image_db": -167.28706395266212,
+    "worst_independent_decimation_alias_db": -167.28706468114945,
+    "worst_complex_passband_error": 9.81669352100974e-10
+  }
+}

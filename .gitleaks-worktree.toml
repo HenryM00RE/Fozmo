@@ -5,7 +5,11 @@ useDefault = true
 
 [[allowlists]]
 description = "Known non-secret DSP filter identifiers"
-regexes = ['''^SincExtreme32k$''']
+regexes = [
+  '''^SincExtreme32k$''',
+  '''^SplitPhase128kV3$''',
+  '''^SplitPhase128kV4$''',
+]
 
 [[allowlists]]
 description = "Exclude only reviewed local paths that Git ignores and the Git database."

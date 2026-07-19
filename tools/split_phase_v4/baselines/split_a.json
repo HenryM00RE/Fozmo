@@ -1,0 +1,27 @@
+{
+  "identity": "Split128k",
+  "coefficient_sha256": "f577854dd7bb4c6ef213e953f7978b50c24b00ccf41fabb35f86ae0f8e0bd998",
+  "metrics": {
+    "metric_definition_version": 1,
+    "logical_origin": 4274,
+    "dominant_peak_index": 4274,
+    "pre_energy_before_exported_logical_origin_db": -5.701107013869828,
+    "pre_energy_before_dominant_peak_db": -5.701107013869828,
+    "bandlimited_3_14khz_pre_peak_energy_db": -4.444456550156039,
+    "bandlimited_14_20khz_pre_peak_energy_db": -13.80396414034798,
+    "post_peak_0_100us_energy_db": -5.5272255366436704,
+    "post_peak_100_500us_energy_db": -7.12915927672856,
+    "step_response_overshoot": 0.23391138170963544,
+    "grid": {
+      "coordinate": "ln(f/Hz)",
+      "minimum_hz": 20.0,
+      "maximum_hz": 20000.0,
+      "points": 4096
+    },
+    "group_delay_slope_max_abs_samples_per_ln_hz": 8940.766041688155,
+    "group_delay_curvature_max_abs_samples_per_ln_hz_squared": 602504.5561209992,
+    "worst_interpolation_image_db": -212.16250603999399,
+    "worst_independent_decimation_alias_db": -215.63144919299862,
+    "worst_complex_passband_error": 1.4945961511875354e-06
+  }
+}

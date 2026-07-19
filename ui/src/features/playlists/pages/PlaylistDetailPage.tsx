@@ -593,7 +593,7 @@ export function PlaylistDetailPage({
           ariaLabelledBy="playlist-settings-title"
           onClose={closeSettings}
         >
-          <div className="playlist-confirm-panel">
+          <div className="playlist-confirm-panel app-modal-surface">
             <header className="playlist-confirm-head">
               <div>
                 <div className="section-label">Playlist settings</div>
@@ -667,7 +667,7 @@ export function PlaylistDetailPage({
           if (!settingsBusy) setDeleteConfirmOpen(false);
         }}
       >
-        <div className="playlist-confirm-panel">
+        <div className="playlist-confirm-panel app-modal-surface">
           <header className="playlist-confirm-head">
             <div>
               <div className="section-label">Delete playlist</div>

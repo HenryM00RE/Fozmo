@@ -16,7 +16,9 @@ type Failure = {
 };
 
 type MockBackendOptions = {
+  albumBrowse?: JsonRecord;
   status?: JsonRecord;
+  trackBrowse?: JsonRecord;
   zoneStatus?: JsonRecord;
   zoneStatusDelayMs?: number;
   zones?: JsonRecord[];
@@ -41,7 +43,7 @@ const defaultZone = {
   },
   dsp_profile: {
     upsampling_enabled: true,
-    filter_type: 'Split128k',
+    filter_type: 'SplitPhase128kE2v3',
     target_rate: 176400,
     dither_mode: 'Auto'
   },
@@ -100,8 +102,8 @@ export const fixtures = {
     transport_pending: 'none',
     upsampling_enabled: true,
     exclusive: true,
-    filter_type: 'Split128k',
-    active_filter_type: 'Split128k',
+    filter_type: 'SplitPhase128kE2v3',
+    active_filter_type: 'SplitPhase128kE2v3',
     dither_mode: 'Auto',
     output_mode: 'Pcm',
     active_output_mode: 'Pcm',
@@ -303,8 +305,22 @@ export const fixtures = {
 
 export async function installMockBackend(page: Page, options: MockBackendOptions = {}) {
   const status = { ...fixtures.status, ...(options.status || {}) };
+  const albumBrowse = options.albumBrowse || {
+    items: [],
+    total: 0,
+    limit: 50,
+    offset: 0,
+    has_more: false
+  };
+  const trackBrowse = options.trackBrowse || {
+    items: [],
+    total: 0,
+    limit: 50,
+    offset: 0,
+    has_more: false
+  };
   let zoneStatus = { ...status, ...(options.zoneStatus || {}) };
-  const zones = options.zones || [defaultZone];
+  const zones = (options.zones || [defaultZone]).map((zone) => ({ ...zone }));
   const queueState = options.queueState || fixtures.queueState;
   const qobuzStatus = options.qobuzStatus || fixtures.qobuzLoggedOut;
   const qobuzHome = options.qobuzHome || fixtures.qobuzHome;
@@ -458,6 +474,12 @@ export async function installMockBackend(page: Page, options: MockBackendOptions
         { name: 'M83', album_count: 1, track_count: 3, play_count: 0, listened_secs: 0 }
       ]);
     }
+    if (method === 'GET' && path === '/api/library/browse/albums') {
+      return json(route, albumBrowse);
+    }
+    if (method === 'GET' && path === '/api/library/browse/tracks') {
+      return json(route, trackBrowse);
+    }
     if (method === 'GET' && path.startsWith('/api/library/browse/')) {
       return json(route, { items: [], total: 0, limit: 50, offset: 0, has_more: false });
     }
@@ -518,6 +540,13 @@ export async function installMockBackend(page: Page, options: MockBackendOptions
       return json(route, { revoked: 1 });
     }
     if (method === 'POST' && path === '/api/config') return json(route, { ok: true });
+    const zoneSettingsMatch = path.match(/^\/api\/zones\/([^/]+)\/settings$/);
+    if (method === 'POST' && zoneSettingsMatch) {
+      const zoneId = decodeURIComponent(zoneSettingsMatch[1]);
+      const zone = zones.find((candidate) => candidate.id === zoneId);
+      if (zone && body && typeof body === 'object') Object.assign(zone, body);
+      return json(route, zone || {});
+    }
     if (method === 'POST' && path.endsWith('/config')) return json(route, status);
     if (method === 'GET' && path.endsWith('/status')) {
       if (options.zoneStatusDelayMs) {

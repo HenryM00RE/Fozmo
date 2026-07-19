@@ -24,7 +24,9 @@ use self::stream::StreamUrl;
 #[allow(unused_imports)]
 pub use self::stream::{QobuzStreamHandle, QobuzStreamSource};
 #[cfg(test)]
-use self::stream::{qobuz_stream_display_name, should_retry_cd_after_download_error};
+use self::stream::{
+    qobuz_stream_display_name, should_retry_cd_after_download_error, validate_qobuz_stream_url,
+};
 use auth::{BundleTokens, PendingOAuthState, UserSession, load_session};
 
 /// Keychain account string naming this cache dir's stored session; exposed so
@@ -76,6 +78,7 @@ const QOBUZ_HOME_SECTION_FILTER_SCAN_MAX: u32 = 500;
 
 type ArtistDetailCache = Arc<RwLock<HashMap<u64, (Instant, Arc<QobuzArtistDetail>)>>>;
 type ProxyStreamUrlCache = Arc<RwLock<HashMap<(u64, Option<u32>), (Instant, StreamUrl)>>>;
+type ProgressiveStreamHttpClient = stream_download::http::reqwest::Client;
 
 pub struct QobuzService {
     http: Client,
@@ -83,6 +86,10 @@ pub struct QobuzService {
     /// they use a connect-bounded client without the API client's total
     /// request deadline.
     stream_http: Client,
+    /// `stream-download` uses a different reqwest major version. Keep its
+    /// client explicit so progressive playback cannot follow an unvalidated
+    /// redirect destination.
+    progressive_stream_http: ProgressiveStreamHttpClient,
     cover_http: Client,
     cache_dir: PathBuf,
     session_account: String,
@@ -125,6 +132,24 @@ pub struct QobuzService {
     proxy_stream_url_cache: ProxyStreamUrlCache,
 }
 
+fn build_qobuz_stream_http_client() -> Result<Client, String> {
+    Client::builder()
+        .user_agent(USER_AGENT)
+        .redirect(Policy::none())
+        .connect_timeout(QOBUZ_CONNECT_TIMEOUT)
+        .build()
+        .map_err(|e| format!("create Qobuz stream HTTP client: {e}"))
+}
+
+fn build_qobuz_progressive_stream_http_client() -> Result<ProgressiveStreamHttpClient, String> {
+    ProgressiveStreamHttpClient::builder()
+        .user_agent(USER_AGENT)
+        .redirect(stream_download::http::reqwest::redirect::Policy::none())
+        .connect_timeout(QOBUZ_CONNECT_TIMEOUT)
+        .build()
+        .map_err(|e| format!("create Qobuz progressive stream HTTP client: {e}"))
+}
+
 impl QobuzService {
     #[allow(dead_code)]
     pub fn new(cache_dir: PathBuf, secrets: Arc<dyn SecretsStore>) -> Result<Self, String> {
@@ -150,11 +175,8 @@ impl QobuzService {
             .timeout(Duration::from_secs(10))
             .build()
             .map_err(|e| format!("create Qobuz cover HTTP client: {e}"))?;
-        let stream_http = Client::builder()
-            .user_agent(USER_AGENT)
-            .connect_timeout(QOBUZ_CONNECT_TIMEOUT)
-            .build()
-            .map_err(|e| format!("create Qobuz stream HTTP client: {e}"))?;
+        let stream_http = build_qobuz_stream_http_client()?;
+        let progressive_stream_http = build_qobuz_progressive_stream_http_client()?;
 
         let session = load_session(&cache_dir, secrets.as_ref(), &session_account);
 
@@ -166,6 +188,7 @@ impl QobuzService {
         Ok(Self {
             http,
             stream_http,
+            progressive_stream_http,
             cover_http,
             cache_dir,
             session_account,
@@ -971,6 +994,134 @@ mod tests {
                 "expected {url} to be rejected"
             );
         }
+    }
+
+    #[test]
+    fn qobuz_stream_url_validation_allows_verified_playback_hosts() {
+        for url in [
+            "https://streaming.qobuz.com/file?token=signed",
+            "https://streaming2.qobuz.com/file?token=signed",
+            "https://streaming-qobuz-sec.akamaized.net/file?token=signed",
+            "https://streaming-qobuz-std.akamaized.net/file?token=signed",
+        ] {
+            assert!(
+                validate_qobuz_stream_url(url).is_ok(),
+                "expected {url} to be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn qobuz_stream_url_validation_rejects_ssrf_and_lookalike_targets() {
+        for url in [
+            "http://streaming.qobuz.com/file",
+            "https://user:pass@streaming.qobuz.com/file",
+            "https://streaming.qobuz.com:444/file",
+            "https://127.0.0.1/private",
+            "https://10.0.0.1/private",
+            "https://169.254.169.254/latest/meta-data",
+            "https://[::1]/private",
+            "https://[fe80::1]/private",
+            "https://localhost/private",
+            "https://qobuz.com.evil.test/file",
+            "https://streaming.qobuz.com.evil.test/file",
+            "https://streamingfoo.qobuz.com/file",
+            "https://streaming42.qobuz.com/file",
+            "https://unrelated.akamaized.net/file",
+            "https://streaming-qobuz-sec.akamaized.net.evil.test/file",
+            "https://streaming-qobuz-std.akamaized.net.evil.test/file",
+        ] {
+            assert!(
+                validate_qobuz_stream_url(url).is_err(),
+                "expected {url} to be rejected"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn cached_loopback_stream_url_is_evicted_without_fetching_or_returning_a_body() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let secrets: Arc<dyn SecretsStore> = Arc::new(crate::secrets::MemorySecretsStore::new());
+        let service =
+            QobuzService::new(temp_qobuz_cache_dir("stream-ssrf-cache"), secrets).unwrap();
+        let cache_key = (42, None);
+        service.proxy_stream_url_cache.write().await.insert(
+            cache_key,
+            (
+                Instant::now(),
+                StreamUrl {
+                    url: format!("https://{address}/internal"),
+                    requested_format_id: 6,
+                    format_id: 6,
+                    mime_type: "audio/flac".to_string(),
+                    sampling_rate: Some(44.1),
+                    bit_depth: Some(16),
+                },
+            ),
+        );
+
+        let result = service.proxy_bytes_with_format(42, None, None).await;
+
+        assert!(result.is_err());
+        assert!(
+            !service
+                .proxy_stream_url_cache
+                .read()
+                .await
+                .contains_key(&cache_key)
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), listener.accept())
+                .await
+                .is_err(),
+            "the rejected loopback URL must never be requested"
+        );
+    }
+
+    #[tokio::test]
+    async fn qobuz_stream_clients_do_not_follow_redirects() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let internal = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let internal_address = internal.local_addr().unwrap();
+        let redirects = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let redirect_address = redirects.local_addr().unwrap();
+        let redirect_task = tokio::spawn(async move {
+            for _ in 0..2 {
+                let (mut socket, _) = redirects.accept().await.unwrap();
+                let mut request = [0_u8; 1024];
+                let _ = socket.read(&mut request).await;
+                let response = format!(
+                    "HTTP/1.1 302 Found\r\nLocation: http://{internal_address}/secret\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                );
+                socket.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        let redirect_url = format!("http://{redirect_address}/redirect");
+
+        let stream_response = build_qobuz_stream_http_client()
+            .unwrap()
+            .get(&redirect_url)
+            .send()
+            .await
+            .unwrap();
+        let progressive_response = build_qobuz_progressive_stream_http_client()
+            .unwrap()
+            .get(&redirect_url)
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(stream_response.status().as_u16(), 302);
+        assert_eq!(progressive_response.status().as_u16(), 302);
+        redirect_task.await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), internal.accept())
+                .await
+                .is_err(),
+            "neither Qobuz stream client may fetch the redirect destination"
+        );
     }
 
     #[test]

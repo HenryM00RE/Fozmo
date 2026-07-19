@@ -1,0 +1,57 @@
+[identity]
+name = "SplitPhase128kV4"
+display_name = "Split Phase D"
+stable_id = 36
+seed = 128004
+
+[reference]
+source_rate_hz = 44100.0
+split_lo_hz = 3000.0
+split_hi_hz = 14000.0
+pass_edge_hz = 20000.0
+stop_edge_hz = 22050.0
+
+[support]
+character_branch_taps = 131073
+cleanup_branch_taps = [255, 127, 63, 31, 31, 31, 31]
+coarse_radius = 4096
+coarse_step = 64
+fine_radius = 128
+fine_step = 2
+edge_measure_samples = 2048
+
+[magnitude_sdp]
+initial_order = 512
+orders = [512, 768, 1024]
+solver = "SCS"
+verification_fft_len = 8388608
+passband_amplitude_ripple = 1.0e-7
+stopband_amplitude_db = -125.0
+maximum_exchange_rounds = 10
+
+[group_delay]
+spline_degree = 5
+initial_control_values = 24
+maximum_control_values = 40
+frequency_coordinate = "log"
+exact_phase_closure = true
+
+[optimization]
+dtype = "float64"
+lawson_iterations = 40
+outer_cycles = 12
+working_fft_len = 1048576
+
+[certification]
+fft_len = 33554432
+mp_points_80bit = 1000
+mp_points_160bit = 64
+passband_ripple_db = 1.0e-7
+complex_error = 8.0e-9
+design_stopband_db = -160.0
+runtime_stopband_db = -145.0
+lowband_delay_error_samples = 1.0e-5
+highband_delay_error_samples = 1.0e-4
+realized_join_phase_error_rad = 2.0e-9
+transition_delay_overshoot_samples = 0.05
+edge_energy_db = -215.0

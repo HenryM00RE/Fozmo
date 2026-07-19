@@ -199,7 +199,11 @@ fn apply_playback_settings_to_player(
         eq: settings.eq.clone(),
     });
     player.set_dither_mode(DitherPreference::Auto.as_id());
-    player.set_headroom_db(settings.headroom_db.unwrap_or(DEFAULT_HEADROOM_DB));
+    player.set_headroom_db(if upsampling_enabled {
+        settings.headroom_db.unwrap_or(DEFAULT_HEADROOM_DB)
+    } else {
+        0.0
+    });
 
     if let Some(v) = settings.volume {
         player.set_volume(v);

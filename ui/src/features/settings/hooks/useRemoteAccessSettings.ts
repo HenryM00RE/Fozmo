@@ -8,6 +8,8 @@ import type {
 } from '../../../shared/types';
 
 const localOnlyMessage = 'Remote Access settings can only be changed on the Host Device.';
+const linkCodeUnavailableMessage =
+  'Remote link codes require the Host Device or an authenticated LAN controller.';
 
 function unavailableMessage(error: unknown, fallback: string) {
   if (error instanceof ApiError && [401, 403, 404].includes(error.status)) {
@@ -20,7 +22,7 @@ function nowUnixSecs() {
   return Math.floor(Date.now() / 1000);
 }
 
-export function useRemoteAccessSettings(canManage = false, canGenerateLinkCode = canManage) {
+export function useRemoteAccessSettings(canManage = false) {
   const [settings, setSettings] = useState<RemoteAccessSettingsDto | null>(null);
   const [status, setStatus] = useState<RemoteAccessStatus | null>(null);
   const [sessions, setSessions] = useState<RemoteSessionMetadataDto[]>([]);
@@ -131,22 +133,28 @@ export function useRemoteAccessSettings(canManage = false, canGenerateLinkCode =
   }, []);
 
   const generateLinkCode = useCallback(async (): Promise<RemoteLinkCodeResponse | null> => {
-    if (!canGenerateLinkCode) {
-      setError(localOnlyMessage);
+    if (status?.link_code_issuance === 'unavailable' || !status?.link_code_issuance) {
+      setError(linkCodeUnavailableMessage);
       return null;
     }
     try {
       const response = await endpoints.createRemoteLinkCode();
-      setLinkCode(response.code);
+      const code = String(response.code || '').trim();
+      if (!code || response.expires_at_unix_secs <= nowUnixSecs()) {
+        setError('Remote link code response was unusable. Generate a new code on the Host Device.');
+        return null;
+      }
+      setLinkCode(code);
       setLinkCodeExpiresAt(response.expires_at_unix_secs);
       setLinkUrlHint(response.url_hint || null);
       setTick(nowUnixSecs());
+      setError('');
       return response;
     } catch (linkError) {
       setError(unavailableMessage(linkError, 'Remote link code could not be created.'));
       return null;
     }
-  }, [canGenerateLinkCode]);
+  }, [status?.link_code_issuance]);
 
   const revokeSession = useCallback(
     async (id: string) => {

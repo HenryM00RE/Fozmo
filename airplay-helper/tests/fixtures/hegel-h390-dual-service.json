@@ -1,0 +1,43 @@
+{
+  "observed_date": "2026-07-19",
+  "receiver": "Hegel H390",
+  "services": [
+    {
+      "service_type": "_raop._tcp.local.",
+      "instance": "001122334455@Hegel Receiver",
+      "host": "hegel-receiver.local.",
+      "address": "192.0.2.10",
+      "port": 7000,
+      "txt": {
+        "cn": "0,1",
+        "da": "true",
+        "et": "0,4",
+        "ft": "0x445F8A00,0x1C340",
+        "fv": "p20.p5123",
+        "md": "0,1,2",
+        "am": "H390",
+        "sf": "0x4",
+        "tp": "UDP",
+        "vn": "65537",
+        "vs": "366.0"
+      }
+    },
+    {
+      "service_type": "_airplay._tcp.local.",
+      "instance": "Hegel Receiver",
+      "host": "hegel-receiver.local.",
+      "address": "192.0.2.10",
+      "port": 7000,
+      "txt": {
+        "acl": "0",
+        "deviceid": "00:11:22:33:44:55",
+        "features": "0x445F8A00,0x1C340",
+        "flags": "0x4",
+        "model": "H390",
+        "manufacturer": "Hegel",
+        "protovers": "1.1",
+        "srcvers": "366.0"
+      }
+    }
+  ]
+}

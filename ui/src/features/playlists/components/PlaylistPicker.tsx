@@ -59,14 +59,14 @@ export function PlaylistPicker({
 
   return (
     <div
-      className="playlist-picker-backdrop is-open"
+      className="playlist-picker-backdrop app-modal-backdrop is-open"
       role="dialog"
       aria-modal="true"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="playlist-picker-panel">
+      <div className="playlist-picker-panel app-modal-surface">
         <header className="playlist-picker-head">
           <div className="playlist-picker-title-wrap">
             {primaryItem ? (

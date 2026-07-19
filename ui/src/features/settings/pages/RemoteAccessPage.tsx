@@ -70,12 +70,32 @@ function copyText(value: string, setMessage: (message: string) => void, label: s
     .catch(() => setMessage(`${label} could not be copied.`));
 }
 
+export function remoteLinkGenerationAccess(
+  issuance: unknown,
+  { hostDevice, remoteSurface }: { hostDevice: boolean; remoteSurface: boolean }
+) {
+  if (issuance === 'host_local' || issuance === 'authenticated_lan') {
+    return { allowed: true, reason: '' };
+  }
+  if (remoteSurface) {
+    return {
+      allowed: false,
+      reason: 'Generate a link code on the Host Device or an authenticated LAN controller.'
+    };
+  }
+  if (hostDevice && !issuance) {
+    return { allowed: false, reason: 'Checking link-code capability…' };
+  }
+  return {
+    allowed: false,
+    reason:
+      'Pair this LAN browser with the Host Device before generating a Remote Access link code.'
+  };
+}
+
 export function RemoteAccessPage({ appStatus }: { appStatus: JsonRecord }) {
   const remoteSurface = appStatus.surface === 'remote';
   const canManage = !remoteSurface && isHostDeviceBrowser();
-  // Authenticated LAN controllers may issue link codes, even though listener
-  // configuration remains restricted to a browser on the host device.
-  const canGenerateLinkCode = !remoteSurface;
   const readOnlySurface = !canManage;
   const {
     activeSessionsCount,
@@ -95,7 +115,7 @@ export function RemoteAccessPage({ appStatus }: { appStatus: JsonRecord }) {
     setPort,
     settings,
     status
-  } = useRemoteAccessSettings(canManage, canGenerateLinkCode);
+  } = useRemoteAccessSettings(canManage);
   const [message, setMessage] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState('');
 
@@ -110,6 +130,12 @@ export function RemoteAccessPage({ appStatus }: { appStatus: JsonRecord }) {
   const validPort = Number.isInteger(port) && port > 0 && port <= 65535;
   const hostPrompt = cleanHost(externalHost) ? '' : 'Enter an external host before using the URL.';
   const remoteAccessEnabled = settings?.enabled ?? status?.enabled ?? false;
+  const linkCodeIssuance = status?.link_code_issuance;
+  const linkCodeAccess = remoteLinkGenerationAccess(linkCodeIssuance, {
+    hostDevice: canManage,
+    remoteSurface
+  });
+  const canGenerateLinkCode = linkCodeAccess.allowed;
   const linkDisabled =
     !canGenerateLinkCode ||
     !remoteAccessEnabled ||
@@ -117,12 +143,15 @@ export function RemoteAccessPage({ appStatus }: { appStatus: JsonRecord }) {
     linkCodeSecondsRemaining === 0;
   const generateDisabled = !canGenerateLinkCode || !remoteAccessEnabled || !status?.running;
   const generateReason = !canGenerateLinkCode
-    ? 'Generate a link code from the local or LAN app.'
+    ? linkCodeAccess.reason
     : !remoteAccessEnabled
       ? 'Remote Access is off.'
       : !status?.running
         ? 'Remote listener is not running.'
-        : hostPrompt || 'Ready to link a device.';
+        : hostPrompt ||
+          (linkCodeIssuance === 'authenticated_lan'
+            ? 'Authenticated LAN controller. Ready to link a remote device.'
+            : 'Ready to link a remote device.');
   const accessStateLabel = status?.enabled
     ? 'On'
     : status
@@ -166,6 +195,7 @@ export function RemoteAccessPage({ appStatus }: { appStatus: JsonRecord }) {
   };
 
   const createLinkCode = async () => {
+    setMessage('');
     const response = await generateLinkCode();
     if (response) setMessage('Link code created.');
   };

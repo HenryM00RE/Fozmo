@@ -7,6 +7,7 @@ import { SignalPopover } from './components/SignalPopover';
 import { VolumeControl } from './components/VolumeControl';
 import { ZonePicker } from './components/ZonePicker';
 import { useInterpolatedPosition } from './hooks/useInterpolatedPosition';
+import { usePersistentSeekPosition } from './hooks/usePersistentSeekPosition';
 import { playbackChromeTrackModel, signalTriggerLabel } from './model/playbackChromeModel';
 import type { PlaybackChromeState } from './model/playbackChromeState';
 import { usePlaybackControlSnapshot } from './model/playbackControlStore';
@@ -33,8 +34,13 @@ export function PlaybackChromeView({ onOpenArtist, playbackChrome }: PlaybackChr
     zones
   } = playbackChrome;
   const { connection } = usePlaybackSnapshot();
-  const { pendingArtSrc, playbackLoading } = usePlaybackControlSnapshot();
-  const playbackPosition = useInterpolatedPosition(status as PlaybackStatus);
+  const { pendingArtSrc, playbackLoading, transportPending } = usePlaybackControlSnapshot();
+  const interpolatedPosition = useInterpolatedPosition(status as PlaybackStatus);
+  const playbackPosition = usePersistentSeekPosition(
+    status as PlaybackStatus,
+    interpolatedPosition,
+    transportPending
+  );
   const {
     currentAlbum,
     currentAlbumTarget,

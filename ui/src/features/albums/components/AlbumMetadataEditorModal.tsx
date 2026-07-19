@@ -281,7 +281,7 @@ export function AlbumMetadataEditorModal({
       onClose={onClose}
     >
       <section
-        className="album-metadata-editor-panel"
+        className="album-metadata-editor-panel app-modal-surface"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="metadata-assigner-head">

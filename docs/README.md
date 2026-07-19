@@ -7,7 +7,8 @@ Current product documentation, architecture notes, operating guides, and release
 - [Architecture](architecture.md): Current application shape and target ownership boundaries.
 - [Code Quality](code-quality.md): Clippy allow policy, frontend API facade policy, and verification expectations.
 - [DSP](dsp.md): Parametric EQ, upsampling filters, DSD modulators, tuned headroom, and M4 performance.
-- [Public PCM-to-DSD Measurements](dsd-public-quality.md): Canonical 21-cell Split128k production-path scores, optional Linear Phase diagnostics, reconstruction profiles, metrics, provenance, completeness, and structural gates.
+- [Split Phase DSD Measurements](Measurements.md): Score-free DSD64, DSD128, stress, idle, and hi-res results for 7th Order and 7th Order Search.
+- [Public PCM-to-DSD Measurements](dsd-public-quality.md): Canonical 28-cell Split Phase E2v3 production-path scores, optional Linear Phase diagnostics, reconstruction profiles, metrics, provenance, completeness, and structural gates.
 - [Audio Pipeline](audio-pipeline.md): Decode, DSP, DSD, output, and sink routing notes.
 - [Local Data](local-data.md): Runtime settings, library data, cleanup, and release checks.
 - [Generated Assets](generated-assets.md): Frontend build artifact policy and release checks.

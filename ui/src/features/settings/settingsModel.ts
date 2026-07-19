@@ -121,8 +121,8 @@ export async function loadSettingsSupportData(): Promise<SettingsSupportData> {
 
 export const filterOptions = [
   ['LinearPhase128k', 'Linear Phase'],
-  ['MinimumPhaseCompact128kV2', 'Minimum Phase'],
-  ['Split128k', 'Split Phase'],
+  ['MinimumPhaseCompact128k', 'Minimum Phase'],
+  ['SplitPhase128kE2v3', 'Split Phase'],
   ['SmoothPhase128k', 'Smooth Phase']
 ] as const;
 
@@ -148,25 +148,42 @@ const legacyMinimumFilterIds = [
   'MinimumPhase128k',
   'MinimumPhase128kV2',
   'MinimumPhase128kV3',
-  'MinimumPhase128kV4',
-  'MinimumPhaseCompact128k'
+  'MinimumPhase128kV4'
+] as const;
+
+const hiddenFilterIds = [
+  'MinimumPhaseCompact128kV2',
+  'Split128k',
+  'Split128kV2',
+  'SplitPhase128kV3',
+  'SplitPhase128kV4'
 ] as const;
 
 const visibleFilterIds = new Set<string>(filterOptions.map(([value]) => value));
 export const knownFilterIds = new Set<string>([
   ...filterOptions.map(([value]) => value),
+  ...hiddenFilterIds,
   ...legacyFilterIds,
   ...legacyMinimumFilterIds
 ]);
 
 export function visibleFilterType(name: unknown) {
-  const key = stringValue(name, 'Split128k');
+  const key = stringValue(name, 'SplitPhase128kE2v3');
   if (key === 'SincExtreme32k') return 'LinearPhase128k';
+  if (key === 'MinimumPhaseCompact128kV2') return 'MinimumPhaseCompact128k';
+  if (
+    key === 'Split128k' ||
+    key === 'Split128kV2' ||
+    key === 'SplitPhase128kV3' ||
+    key === 'SplitPhase128kV4'
+  )
+    return 'SplitPhase128kE2v3';
   if (legacyMinimumFilterIds.includes(key as (typeof legacyMinimumFilterIds)[number]))
-    return 'MinimumPhaseCompact128kV2';
-  if (legacyFilterIds.includes(key as (typeof legacyFilterIds)[number])) return 'Split128k';
+    return 'MinimumPhaseCompact128k';
+  if (legacyFilterIds.includes(key as (typeof legacyFilterIds)[number]))
+    return 'SplitPhase128kE2v3';
   if (visibleFilterIds.has(key)) return key;
-  return 'Split128k';
+  return 'SplitPhase128kE2v3';
 }
 
 const knownDsdModulatorIds = new Set<string>(dsdModulatorOptions.map(([value]) => value));
@@ -191,6 +208,14 @@ export function headroomAfterDsdModulatorChange(currentHeadroomDb: number, modul
   return currentHeadroomDb;
 }
 
+export function headroomAfterUpsamplingChange(
+  currentHeadroomDb: number,
+  enabled: boolean,
+  modulator: string
+) {
+  return enabled ? headroomAfterDsdModulatorChange(currentHeadroomDb, modulator) : 0;
+}
+
 export function headroomLockedForDsdModulator(modulator: string) {
   return modulator === 'Standard' || modulator === 'EcBeam2';
 }
@@ -203,8 +228,13 @@ export function ecBeam2FilterSupported(filterType: unknown) {
   return (
     filterType === 'Minimum16k' ||
     filterType === 'LinearPhase128k' ||
+    filterType === 'MinimumPhaseCompact128k' ||
     filterType === 'MinimumPhaseCompact128kV2' ||
     filterType === 'Split128k' ||
+    filterType === 'Split128kV2' ||
+    filterType === 'SplitPhase128kV3' ||
+    filterType === 'SplitPhase128kV4' ||
+    filterType === 'SplitPhase128kE2v3' ||
     filterType === 'SmoothPhase128k'
   );
 }
@@ -383,12 +413,12 @@ export function zoneSupportsDopDsd(zone: ZoneProfile | null | undefined) {
 export const dsdSourceRates = [44100, 48000, 88200, 96000, 176400, 192000] as const;
 
 export const dsdDefaultRules = [
-  { source_rate: 44100, filter_type: 'Split128k', output_mode: 'Dsd128' },
-  { source_rate: 48000, filter_type: 'Split128k', output_mode: 'Dsd128' },
-  { source_rate: 88200, filter_type: 'Split128k', output_mode: 'Dsd128' },
-  { source_rate: 96000, filter_type: 'Split128k', output_mode: 'Dsd128' },
-  { source_rate: 176400, filter_type: 'Split128k', output_mode: 'Dsd128' },
-  { source_rate: 192000, filter_type: 'Split128k', output_mode: 'Dsd128' }
+  { source_rate: 44100, filter_type: 'SplitPhase128kE2v3', output_mode: 'Dsd128' },
+  { source_rate: 48000, filter_type: 'SplitPhase128kE2v3', output_mode: 'Dsd128' },
+  { source_rate: 88200, filter_type: 'SplitPhase128kE2v3', output_mode: 'Dsd128' },
+  { source_rate: 96000, filter_type: 'SplitPhase128kE2v3', output_mode: 'Dsd128' },
+  { source_rate: 176400, filter_type: 'SplitPhase128kE2v3', output_mode: 'Dsd128' },
+  { source_rate: 192000, filter_type: 'SplitPhase128kE2v3', output_mode: 'Dsd128' }
 ] as const;
 
 export const eqBandTypes = [
@@ -667,7 +697,7 @@ export function compactFilterName(name: unknown) {
     MinimumPhase128kV2: 'Minimum Phase 128k 2',
     MinimumPhase128kV3: 'Minimum Phase 128k 3',
     MinimumPhase128kV4: 'Minimum Phase 128k 4',
-    MinimumPhaseCompact128k: 'Minimum Phase Compact',
+    MinimumPhaseCompact128k: 'Minimum Phase',
     MinimumPhaseCompact128kV2: 'Minimum Phase',
     SmoothPhase128k: 'Smooth Phase',
     Perfect: 'Split Phase',
@@ -675,6 +705,10 @@ export function compactFilterName(name: unknown) {
     Split16kDsd128: 'Split Phase',
     Split32k: 'Split Phase',
     Split128k: 'Split Phase',
+    Split128kV2: 'Split Phase',
+    SplitPhase128kV3: 'Split Phase',
+    SplitPhase128kV4: 'Split Phase',
+    SplitPhase128kE2v3: 'Split Phase',
     IntegratedPhase128k: 'Integrated Phase 1',
     IntegratedPhase128kV2: 'Integrated Phase 2',
     IntegratedPhase128kV3: 'Integrated Phase 3',
@@ -825,7 +859,7 @@ export function upnpDsdCapabilityWarning(zone: ZoneProfile, value: string) {
 export function configFromStatus(status: JsonRecord) {
   const filterType = stringValue(
     status.filter_type,
-    stringValue(status.active_filter_type, 'Split128k')
+    stringValue(status.active_filter_type, 'SplitPhase128kE2v3')
   );
   return {
     upsamplingEnabled: boolValue(status.upsampling_enabled, false),

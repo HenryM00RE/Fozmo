@@ -198,7 +198,10 @@ export function ProfilesSettingsPage({
         onClose={closeEditor}
       >
         {editingProfile ? (
-          <section className="profile-settings-panel" aria-labelledby="profile-settings-title">
+          <section
+            className="profile-settings-panel app-modal-surface"
+            aria-labelledby="profile-settings-title"
+          >
             <header className="profile-settings-head">
               <div className="profile-settings-identity">
                 <ProfilePicture
@@ -335,7 +338,10 @@ export function ProfilesSettingsPage({
         }}
       >
         {editingProfile ? (
-          <section className="profile-delete-panel" aria-labelledby="profile-delete-title">
+          <section
+            className="profile-delete-panel app-modal-surface"
+            aria-labelledby="profile-delete-title"
+          >
             <header className="profile-delete-head">
               <h2 id="profile-delete-title">Delete profile?</h2>
             </header>

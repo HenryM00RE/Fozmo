@@ -49,16 +49,31 @@ The CLI is intentionally narrow:
 ```text
 --out PATH
 --modulator Standard,EcDepth2,EcBeam,EcBeam2
+--filter Split128k|SplitPhase128kE2v3
+--rates 64,128,256
 --check
 --include-linear-reference
 ```
 
-`Split128k` is hard-coded as the canonical product filter. The default four
-modulators form the complete matrix. Narrower modulator selections are useful
-for investigation, but always produce `matrix_complete: false`. With
-`--check`, an incomplete matrix returns a failure status even when every
-attempted cell is structurally healthy. A partial run must never be described
-as a canonical pass.
+`SplitPhase128kE2v3` is the canonical product filter exposed as Split Phase.
+The retired `Split128k` implementation remains available only as a non-scoring
+historical comparison. The default three rates and four modulators form the
+complete matrix. Narrower rate or modulator selections and every retired-filter
+selection are useful for investigation, but always produce
+`matrix_complete: false`. With `--check`, an incomplete matrix returns a
+failure status even when every attempted cell is structurally healthy. A
+partial run must never be described as a canonical pass.
+
+For example, a focused Split Phase check across DSD64 and DSD128 is:
+
+```sh
+RUSTFLAGS="-C target-cpu=native" \
+cargo run --locked --release --bin dsd_public_quality -- \
+  --out target/dsd-public-quality-e2v3-dsd64-dsd128 \
+  --filter SplitPhase128kE2v3 \
+  --rates 64,128 \
+  --modulator Standard,EcBeam2
+```
 
 `--include-linear-reference` adds the legacy modulators' 21 cells using
 `SincExtreme32k` as an explicitly non-scoring diagnostic. EcBeam2 does not
@@ -72,8 +87,8 @@ sounds better than another.
 
 ## Fixed production matrix
 
-The canonical v5 result contains 28 production cells, all using Fozmo's
-declared default Split Phase path (`Split128k`). It evaluates the configured
+The canonical v6 result contains 28 production cells, all using Fozmo's
+declared default Split Phase path (`SplitPhase128kE2v3`). It evaluates the configured
 product chain rather than claiming to isolate an abstract modulator algorithm.
 
 | Scenario | Conversion | Cells | Purpose |
@@ -116,13 +131,13 @@ instead preserves each path's rated source peak. The distinct level-matched
 stress fixture compensates headroom so all four modulators see the same
 effective peak. Rated and matched stress results are intentionally not merged.
 
-## Split128k production-path score
+## Split Phase E2v3 production-path score
 
-The score is named `dsd-public-production-score-v2` and must be described as:
+The score is named `dsd-public-production-score-v3` and must be described as:
 
-> Fozmo PCM-to-DSD production-path score using Split128k
+> Fozmo PCM-to-DSD production-path score using Split Phase E2v3
 
-It evaluates synthetic PCM through the Split128k production upsampler, the
+It evaluates synthetic PCM through the Split Phase E2v3 production upsampler, the
 selected modulator and its production policy, native DSD, and the fixed
 measurement decoder. Scores are emitted only when all 28 canonical cells
 complete with zero canonical structural failures.
@@ -152,8 +167,8 @@ mute/restart residual levels and recovery time. Hi-res combines carrier gain
 with residual and spurs in the 0-20 kHz and 20-80 kHz bands. Exact inner
 weights are serialized in `score_policy.categories`.
 
-The v2 policy retains the reviewed Split128k category anchors while adding
-EcBeam2 as a normal DSD64/DSD128/DSD256 scoring candidate. A category receives
+The v3 policy retains the reviewed historical Split128k category anchors while
+scoring the promoted Split Phase E2v3 path. A category receives
 100 normalized points at or above its anchor; each average decibel below the
 anchor removes one normalized point, clamped to 0-100, before the category
 weight is applied. Relative-error rejection terms are capped at 100 dB so
@@ -315,7 +330,7 @@ failure.
 The JSON always records diagnostics. With `--check`, any of the following
 returns a non-zero status:
 
-- the selected matrix is not the complete canonical 28-cell Split128k production matrix;
+- the selected matrix is not the complete canonical 28-cell Split Phase E2v3 production matrix;
 - the executable is not a binary-bound release/native build or its runtime
   source snapshot differs from its build snapshot;
 - source samples are non-finite or exceed full scale;

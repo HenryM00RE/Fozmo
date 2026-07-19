@@ -21,7 +21,10 @@ import {
  * server-side in the stream itself.
  */
 
-const STATUS_REPORT_INTERVAL_MS = 500;
+const PLAYING_STATUS_REPORT_INTERVAL_MS = 1_000;
+const PAUSED_STATUS_REPORT_INTERVAL_MS = 2_500;
+const IDLE_STATUS_REPORT_INTERVAL_MS = 5_000;
+const HIDDEN_IDLE_STATUS_REPORT_INTERVAL_MS = 15_000;
 const SERVER_ACTIVITY_STALE_MS = 15_000;
 const RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000];
 const MAX_CONSECUTIVE_STREAM_ERRORS = 3;
@@ -778,14 +781,38 @@ function updateMediaSessionPosition(position: number, duration: number) {
 
 function startReporting() {
   stopReporting();
-  reportTimer = window.setInterval(reportNow, STATUS_REPORT_INTERVAL_MS);
+  scheduleNextReport();
+}
+
+function scheduleNextReport() {
+  if (reportTimer !== null) window.clearTimeout(reportTimer);
+  reportTimer = window.setTimeout(
+    () => {
+      reportTimer = null;
+      reportNow();
+      scheduleNextReport();
+    },
+    browserZoneReportIntervalMs(playState, document.visibilityState)
+  );
 }
 
 function stopReporting() {
   if (reportTimer !== null) {
-    window.clearInterval(reportTimer);
+    window.clearTimeout(reportTimer);
     reportTimer = null;
   }
+}
+
+export function browserZoneReportIntervalMs(
+  state: PlayState,
+  visibilityState: DocumentVisibilityState
+) {
+  if (visibilityState === 'hidden' && state === 'Stopped') {
+    return HIDDEN_IDLE_STATUS_REPORT_INTERVAL_MS;
+  }
+  if (state === 'Playing' || state === 'Starting') return PLAYING_STATUS_REPORT_INTERVAL_MS;
+  if (state === 'Paused') return PAUSED_STATUS_REPORT_INTERVAL_MS;
+  return IDLE_STATUS_REPORT_INTERVAL_MS;
 }
 
 function socketLooksDead(socket: WebSocket) {

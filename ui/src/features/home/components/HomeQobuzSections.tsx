@@ -18,6 +18,7 @@ import type {
 import { AlbumCoverPlayButton } from '../../../shared/ui/AlbumCoverPlayButton';
 import { Icon } from '../../../shared/ui/Icon';
 import { SelectMenu } from '../../../shared/ui/SelectMenu';
+import { useLongPressSelection } from '../../../shared/ui/useLongPressSelection';
 import { PlaylistCover } from '../../playlists/components/PlaylistCover';
 import { QobuzPlaylistArtwork } from '../../qobuz/components/QobuzPlaylistArtwork';
 import {
@@ -1192,14 +1193,15 @@ function HomeQobuzAlbum({
   const title = titleOf(album);
   const selectionAlbum = qobuzSelectionAlbum(album);
   const open = () => (selectionActive ? onToggleSelection(selectionAlbum) : onOpen(albumId));
+  const longPressSelection = useLongPressSelection({
+    onSelect: onToggleSelection,
+    resolveSelection: () => selectionAlbum
+  });
   return (
     <article
+      {...longPressSelection}
       className={`album-card home-qobuz-card${selectionActive ? ' is-selection-mode' : ''}${selected ? ' is-selected' : ''}`}
       onClick={open}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        onToggleSelection(selectionAlbum);
-      }}
     >
       <div className="album-cover home-qobuz-card-cover">
         {art ? <img alt="" src={art} loading="lazy" /> : artFallback()}

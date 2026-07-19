@@ -2,6 +2,7 @@ import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from 
 import { isBrowserZone } from '../../../shared/lib/browserZone';
 import type { JsonRecord, ZoneProfile } from '../../../shared/types';
 import { Icon } from '../../../shared/ui/Icon';
+import { Modal } from '../../../shared/ui/Modal';
 import { SelectMenu } from '../../../shared/ui/SelectMenu';
 import {
   type OutputIconId,
@@ -233,7 +234,11 @@ export function ZonesSettingsPage({
                       <div className="zone-output-actions">
                         <button
                           className={
-                            enabled ? 'zone-output-icon-action' : 'zone-output-action primary'
+                            enabled
+                              ? isBrowserZone(zone)
+                                ? 'zone-output-action secondary zone-browser-stream-action'
+                                : 'zone-output-icon-action'
+                              : 'zone-output-action primary'
                           }
                           type="button"
                           title={
@@ -251,7 +256,11 @@ export function ZonesSettingsPage({
                           }
                         >
                           {enabled ? (
-                            <Icon path="M9.67 4.14a2.34 2.34 0 0 1 4.66 0 2.34 2.34 0 0 0 3.32 1.91 2.34 2.34 0 0 1 2.33 4.03 2.34 2.34 0 0 0 0 3.84 2.34 2.34 0 0 1-2.33 4.03 2.34 2.34 0 0 0-3.32 1.91 2.34 2.34 0 0 1-4.66 0 2.34 2.34 0 0 0-3.32-1.91 2.34 2.34 0 0 1-2.33-4.03 2.34 2.34 0 0 0 0-3.84 2.34 2.34 0 0 1 2.33-4.03 2.34 2.34 0 0 0 3.32-1.91ZM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" />
+                            isBrowserZone(zone) ? (
+                              <span>Stream settings</span>
+                            ) : (
+                              <Icon path="M9.67 4.14a2.34 2.34 0 0 1 4.66 0 2.34 2.34 0 0 0 3.32 1.91 2.34 2.34 0 0 1 2.33 4.03 2.34 2.34 0 0 0 0 3.84 2.34 2.34 0 0 1-2.33 4.03 2.34 2.34 0 0 0-3.32 1.91 2.34 2.34 0 0 1-4.66 0 2.34 2.34 0 0 0-3.32-1.91 2.34 2.34 0 0 1-2.33-4.03 2.34 2.34 0 0 0 0-3.84 2.34 2.34 0 0 1 2.33-4.03 2.34 2.34 0 0 0 3.32-1.91ZM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" />
+                            )
                           ) : (
                             <span>Enable</span>
                           )}
@@ -266,16 +275,13 @@ export function ZonesSettingsPage({
         ))}
       </div>
       {settingsZone ? (
-        <div
-          className="zone-settings-backdrop is-open"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="zone-settings-title"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setSettingsZoneId(null);
-          }}
+        <Modal
+          open
+          className="zone-settings-backdrop app-modal-backdrop is-open"
+          ariaLabelledBy="zone-settings-title"
+          onClose={() => setSettingsZoneId(null)}
         >
-          <div className="zone-settings-panel">
+          <div className="zone-settings-panel app-modal-surface">
             <header className="zone-settings-head">
               <div className="zone-settings-identity">
                 <div className="zone-output-logo-picker-wrap" ref={iconPickerRef}>
@@ -551,7 +557,7 @@ export function ZonesSettingsPage({
               zones={zones}
             />
           ) : null}
-        </div>
+        </Modal>
       ) : null}
     </section>
   );
@@ -630,16 +636,13 @@ function ZoneHegelSettingsModal({
   const inputOptions = hegelInputOptions(draft.model);
 
   return (
-    <div
-      className="zone-settings-backdrop zone-hegel-settings-backdrop is-open"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="zone-hegel-settings-title"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+    <Modal
+      open
+      className="zone-settings-backdrop zone-hegel-settings-backdrop app-modal-backdrop is-open"
+      ariaLabelledBy="zone-hegel-settings-title"
+      onClose={onClose}
     >
-      <div className="zone-settings-panel zone-hegel-settings-panel">
+      <div className="zone-settings-panel zone-hegel-settings-panel app-modal-surface">
         <header className="zone-settings-head">
           <div className="zone-settings-identity zone-hegel-settings-identity">
             <div>
@@ -854,6 +857,6 @@ function ZoneHegelSettingsModal({
           </footer>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

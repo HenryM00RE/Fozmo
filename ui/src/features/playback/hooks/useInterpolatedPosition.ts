@@ -3,6 +3,8 @@ import type { PlaybackStatus } from '../model/playbackStore';
 
 const SOFT_CORRECTION_SECONDS = 0.18;
 const HARD_CORRECTION_SECONDS = 1.25;
+const DESKTOP_POSITION_UPDATE_MS = 250;
+const TOUCH_POSITION_UPDATE_MS = 1_000;
 
 interface PositionAnchor {
   trackKey: string;
@@ -29,6 +31,12 @@ function projectedPosition(anchor: PositionAnchor, now: number) {
 
 function clampPosition(position: number, duration: number) {
   return Math.max(0, duration > 0 ? Math.min(duration, position) : position);
+}
+
+function positionUpdateIntervalMs() {
+  return window.matchMedia?.('(hover: none), (pointer: coarse)').matches
+    ? TOUCH_POSITION_UPDATE_MS
+    : DESKTOP_POSITION_UPDATE_MS;
 }
 
 export function useInterpolatedPosition(status: PlaybackStatus, isScrubbing = false) {
@@ -111,14 +119,36 @@ export function useInterpolatedPosition(status: PlaybackStatus, isScrubbing = fa
       return undefined;
     }
 
-    let rafId = 0;
+    let timerId = 0;
+    const updateInterval = positionUpdateIntervalMs();
+    const stopTimer = () => {
+      if (timerId) window.clearTimeout(timerId);
+      timerId = 0;
+    };
+    const schedule = () => {
+      stopTimer();
+      if (document.visibilityState === 'hidden') return;
+      timerId = window.setTimeout(tick, updateInterval);
+    };
     const tick = () => {
       update();
-      rafId = window.requestAnimationFrame(tick);
+      schedule();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        stopTimer();
+        return;
+      }
+      update();
+      schedule();
     };
 
-    rafId = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(rafId);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    schedule();
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      stopTimer();
+    };
   }, [duration, isScrubbing, playing, status.state, trackKey]);
 
   return clampPosition(position, duration);

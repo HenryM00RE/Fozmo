@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ZoneProfile } from '../../shared/types';
 import {
   canSyncPlaybackDspConfigFromStatus,
+  compactFilterName,
   configFromStatus,
   defaultDsdOutputModeForZone,
   dsdModulatorOptions,
@@ -12,6 +13,7 @@ import {
   formatOutputPcmRate,
   groupedSettingsZones,
   headroomAfterDsdModulatorChange,
+  headroomAfterUpsamplingChange,
   headroomLockedForDsdModulator,
   isHostDeviceBrowser,
   isiPenaltyAfterDsdModulatorChange,
@@ -36,20 +38,28 @@ describe('resampling filter choices', () => {
   it('exposes only the supported filter choices and collapses hidden filters', () => {
     expect(filterOptions).toEqual([
       ['LinearPhase128k', 'Linear Phase'],
-      ['MinimumPhaseCompact128kV2', 'Minimum Phase'],
-      ['Split128k', 'Split Phase'],
+      ['MinimumPhaseCompact128k', 'Minimum Phase'],
+      ['SplitPhase128kE2v3', 'Split Phase'],
       ['SmoothPhase128k', 'Smooth Phase']
     ]);
-    expect(visibleFilterType('IntegratedPhase128k')).toBe('Split128k');
+    expect(visibleFilterType('IntegratedPhase128k')).toBe('SplitPhase128kE2v3');
     expect(visibleFilterType('SincExtreme32k')).toBe('LinearPhase128k');
     expect(visibleFilterType('LinearPhase128k')).toBe('LinearPhase128k');
-    expect(visibleFilterType('Minimum16k')).toBe('MinimumPhaseCompact128kV2');
-    expect(visibleFilterType('MinimumPhase128k')).toBe('MinimumPhaseCompact128kV2');
-    expect(visibleFilterType('MinimumPhaseCompact128k')).toBe('MinimumPhaseCompact128kV2');
-    expect(visibleFilterType('MinimumPhaseCompact128kV2')).toBe('MinimumPhaseCompact128kV2');
+    expect(visibleFilterType('Minimum16k')).toBe('MinimumPhaseCompact128k');
+    expect(visibleFilterType('MinimumPhase128k')).toBe('MinimumPhaseCompact128k');
+    expect(visibleFilterType('MinimumPhaseCompact128k')).toBe('MinimumPhaseCompact128k');
+    expect(visibleFilterType('MinimumPhaseCompact128kV2')).toBe('MinimumPhaseCompact128k');
+    expect(visibleFilterType('Split128k')).toBe('SplitPhase128kE2v3');
+    expect(visibleFilterType('Split128kV2')).toBe('SplitPhase128kE2v3');
+    expect(visibleFilterType('SplitPhase128kV3')).toBe('SplitPhase128kE2v3');
+    expect(visibleFilterType('SplitPhase128kV4')).toBe('SplitPhase128kE2v3');
+    expect(visibleFilterType('SplitPhase128kE2v3')).toBe('SplitPhase128kE2v3');
     expect(visibleFilterType('SmoothPhase128k')).toBe('SmoothPhase128k');
-    expect(visibleFilterType('unknown-filter')).toBe('Split128k');
-    expect(visibleFilterType('Split16k')).toBe('Split128k');
+    expect(visibleFilterType('unknown-filter')).toBe('SplitPhase128kE2v3');
+    expect(visibleFilterType('Split16k')).toBe('SplitPhase128kE2v3');
+    expect(compactFilterName('MinimumPhaseCompact128k')).toBe('Minimum Phase');
+    expect(compactFilterName('Split128kV2')).toBe('Split Phase');
+    expect(compactFilterName('SplitPhase128kE2v3')).toBe('Split Phase');
   });
 });
 
@@ -94,6 +104,9 @@ describe('DSD modulator choices', () => {
     expect(headroomAfterDsdModulatorChange(-2, 'Standard')).toBe(-4);
     expect(headroomAfterDsdModulatorChange(-4, 'EcBeam2')).toBe(-2);
     expect(headroomAfterDsdModulatorChange(-6, 'Standard')).toBe(-4);
+    expect(headroomAfterUpsamplingChange(-2, false, 'EcBeam2')).toBe(0);
+    expect(headroomAfterUpsamplingChange(0, true, 'EcBeam2')).toBe(-2);
+    expect(headroomAfterUpsamplingChange(0, true, 'Standard')).toBe(-4);
     expect(headroomLockedForDsdModulator('EcBeam2')).toBe(true);
     expect(headroomLockedForDsdModulator('Standard')).toBe(true);
     expect(isiPenaltyAfterDsdModulatorChange(0.01, 'EcBeam2')).toBe(0);
@@ -139,8 +152,13 @@ describe('DSD modulator choices', () => {
     ).toBe(true);
     expect(ecBeam2SelectableForDsdConfig('Pcm', 'Split128k', false, [])).toBe(false);
     expect(ecBeam2FilterSupported('Minimum16k')).toBe(true);
+    expect(ecBeam2FilterSupported('MinimumPhaseCompact128k')).toBe(true);
     expect(ecBeam2FilterSupported('MinimumPhaseCompact128kV2')).toBe(true);
     expect(ecBeam2FilterSupported('Split128k')).toBe(true);
+    expect(ecBeam2FilterSupported('Split128kV2')).toBe(true);
+    expect(ecBeam2FilterSupported('SplitPhase128kV3')).toBe(true);
+    expect(ecBeam2FilterSupported('SplitPhase128kV4')).toBe(true);
+    expect(ecBeam2FilterSupported('SplitPhase128kE2v3')).toBe(true);
     expect(ecBeam2FilterSupported('SmoothPhase128k')).toBe(true);
     expect(ecBeam2FilterSupported('LinearPhase128k')).toBe(true);
     expect(ecBeam2FilterSupported('SincExtreme32k')).toBe(false);

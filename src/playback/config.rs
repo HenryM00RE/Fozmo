@@ -157,7 +157,7 @@ fn validate_ecbeam2_playback_config(
     }
     if !ecbeam2_filter_supported(filter_type) {
         return Err(PlaybackError::bad_request(
-            "7th Order Search supports only the four selectable 128k filters",
+            "7th Order Search supports only the supported production 128k filters",
         ));
     }
 
@@ -198,7 +198,7 @@ fn validate_ecbeam2_playback_config(
         })
     {
         return Err(PlaybackError::bad_request(
-            "7th Order Search requires every enabled DSD rule to use one of the four selectable 128k filters",
+            "7th Order Search requires every enabled DSD rule to use a supported production 128k filter",
         ));
     }
     Ok(())
@@ -284,7 +284,7 @@ pub(crate) fn playback_config_for_zone(
             settings.dsd_isi_penalty.unwrap_or(fallback.dsd_isi_penalty)
         },
         dsd_rules,
-        headroom_db: if dsp_unavailable {
+        headroom_db: if dsp_unavailable || !upsampling_enabled {
             0.0
         } else {
             match dsd_modulator {
@@ -379,12 +379,15 @@ pub(crate) fn update_playback_config_for_zone(
     if !update.headroom_db.is_finite() {
         return Err(PlaybackError::bad_request("Invalid headroom attenuation"));
     }
-    let headroom_db =
-        if !dsp_unavailable && (dsd_modulator == DsdModulator::Standard || legacy_ecbeam) {
-            DEFAULT_HEADROOM_DB
-        } else {
-            update.headroom_db.clamp(-24.0, 0.0)
-        };
+    let headroom_db = if dsp_unavailable || !update.upsampling_enabled {
+        0.0
+    } else if dsd_modulator == DsdModulator::Standard || legacy_ecbeam {
+        DEFAULT_HEADROOM_DB
+    } else if dsd_modulator == DsdModulator::EcBeam2 {
+        -2.0
+    } else {
+        update.headroom_db.clamp(-24.0, 0.0)
+    };
     if !update.dsd_isi_penalty.is_finite() {
         return Err(PlaybackError::bad_request("Invalid DSD ISI penalty"));
     }
@@ -600,13 +603,13 @@ mod tests {
     }
 
     #[test]
-    fn playback_config_defaults_to_measured_headroom() {
+    fn playback_config_defaults_to_zero_headroom_while_upsampling_is_disabled() {
         let state = crate::playback::test_support::app_state("default-headroom");
         let zone_id = state.zones().active_zone_id();
 
         let config = playback_config_for_zone(&state, &zone_id, &state.zones().active_player());
 
-        assert_eq!(config.headroom_db, DEFAULT_HEADROOM_DB);
+        assert_eq!(config.headroom_db, 0.0);
     }
 
     #[test]
@@ -672,6 +675,7 @@ mod tests {
         state
             .settings()
             .update_playback_for_zone(&zone_id, |settings| {
+                settings.upsampling_enabled = Some(true);
                 settings.dsd_modulator = Some("EcBeam".to_string());
                 settings.headroom_db = Some(-2.0);
             })
@@ -708,6 +712,35 @@ mod tests {
         assert_eq!(settings.dsd_modulator.as_deref(), Some("EcBeam2"));
         assert_eq!(settings.dsd_isi_penalty, Some(0.0));
         assert_eq!(settings.headroom_db, Some(-2.0));
+    }
+
+    #[test]
+    fn enabling_ecbeam2_restores_its_tuned_headroom_from_zero() {
+        let state = crate::playback::test_support::app_state("reenable-ecbeam2-headroom");
+        let update = PlaybackConfigUpdate {
+            filter_type: "Split128k".to_string(),
+            target_rate: 0,
+            target_bit_depth: 24,
+            upsampling_enabled: true,
+            exclusive: true,
+            output_mode: Some("Dsd64".to_string()),
+            dsd_modulator: Some("EcBeam2".to_string()),
+            dsd_isi_penalty: 0.0,
+            dsd_rules_enabled: false,
+            dsd_rules: Vec::new(),
+            headroom_db: 0.0,
+            dsp_buffer_ms: 0,
+        };
+
+        update_active_playback_config(&state, update).expect("ECB2 config should update");
+
+        let zone_id = state.zones().active_zone_id();
+        let settings = state.settings().playback_for_zone(&zone_id);
+        assert_eq!(settings.headroom_db, Some(-2.0));
+        assert_eq!(
+            state.zones().active_player().snapshot().config.headroom_db,
+            -2.0
+        );
     }
 
     #[test]
@@ -795,7 +828,7 @@ mod tests {
             update_active_playback_config(&state, update)
                 .expect_err("SincExtreme32k must not be persisted for EcBeam2")
                 .message(),
-            "7th Order Search supports only the four selectable 128k filters"
+            "7th Order Search supports only the supported production 128k filters"
         );
     }
 
@@ -805,6 +838,45 @@ mod tests {
             validate_ecbeam2_playback_config(
                 DsdModulator::EcBeam2,
                 FilterType::Split128k,
+                true,
+                OutputMode::Dsd64,
+                false,
+                &[],
+                0.0,
+                -2.0,
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_ecbeam2_playback_config(
+                DsdModulator::EcBeam2,
+                FilterType::SplitPhase128kV3,
+                true,
+                OutputMode::Dsd64,
+                false,
+                &[],
+                0.0,
+                -2.0,
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_ecbeam2_playback_config(
+                DsdModulator::EcBeam2,
+                FilterType::SplitPhase128kV4,
+                true,
+                OutputMode::Dsd64,
+                false,
+                &[],
+                0.0,
+                -2.0,
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_ecbeam2_playback_config(
+                DsdModulator::EcBeam2,
+                FilterType::SplitPhase128kE2v3,
                 true,
                 OutputMode::Dsd64,
                 false,
@@ -866,7 +938,7 @@ mod tests {
             )
             .expect_err("SincExtreme32k must be rejected")
             .message(),
-            "7th Order Search supports only the four selectable 128k filters"
+            "7th Order Search supports only the supported production 128k filters"
         );
         assert!(
             validate_ecbeam2_playback_config(
@@ -1063,7 +1135,7 @@ mod tests {
             )
             .expect_err("enabled SincExtreme32k rule must be rejected")
             .message(),
-            "7th Order Search requires every enabled DSD rule to use one of the four selectable 128k filters"
+            "7th Order Search requires every enabled DSD rule to use a supported production 128k filter"
         );
         assert!(
             validate_ecbeam2_playback_config(
@@ -1082,7 +1154,7 @@ mod tests {
     }
 
     #[test]
-    fn disabling_upsampling_preserves_requested_dsp_settings() {
+    fn disabling_upsampling_zeroes_headroom_while_preserving_other_requested_dsp_settings() {
         let state = crate::playback::test_support::app_state("disable-preserves-dsp-settings");
         let update = PlaybackConfigUpdate {
             filter_type: "Minimum16k".to_string(),
@@ -1114,7 +1186,11 @@ mod tests {
         assert_eq!(settings.dither_mode.as_deref(), Some("Auto"));
         assert!(settings.dsd_rules_enabled);
         assert_eq!(settings.dsd_rules.len(), 1);
-        assert_eq!(settings.headroom_db, Some(DEFAULT_HEADROOM_DB));
+        assert_eq!(settings.headroom_db, Some(0.0));
+        assert_eq!(
+            state.zones().active_player().snapshot().config.headroom_db,
+            0.0
+        );
         assert_eq!(state.zones().active_player().output_mode(), OutputMode::Pcm);
     }
 

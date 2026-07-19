@@ -27,6 +27,14 @@ use tracing::{error, info, warn};
 
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoteLinkCodeIssuance {
+    HostLocal,
+    AuthenticatedLan,
+    Unavailable,
+}
+
 /// Controller status as reported through the LAN settings API. The listener
 /// state only ever changes through `apply()`, which is reachable from
 /// persisted settings at startup and the LAN-only settings endpoint.
@@ -42,6 +50,10 @@ pub struct RemoteAccessStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
     pub active_remote_sessions: usize,
+    /// Request-scoped authority to issue an internet-facing Remote Access
+    /// link code. Route handlers replace this conservative default using the
+    /// actual peer and control-session credentials on each response.
+    pub link_code_issuance: RemoteLinkCodeIssuance,
 }
 
 impl RemoteAccessStatus {
@@ -54,6 +66,7 @@ impl RemoteAccessStatus {
             cert_fingerprint_sha256: None,
             last_error,
             active_remote_sessions: 0,
+            link_code_issuance: RemoteLinkCodeIssuance::Unavailable,
         }
     }
 }
@@ -147,6 +160,7 @@ impl RemoteAccessController {
                     cert_fingerprint_sha256: Some(fingerprint),
                     last_error: None,
                     active_remote_sessions: 0,
+                    link_code_issuance: RemoteLinkCodeIssuance::Unavailable,
                 };
                 *self.inner.status.lock().unwrap() = status;
                 info!(
@@ -941,6 +955,33 @@ mod tests {
         assert_eq!(
             json.get("surface").and_then(|value| value.as_str()),
             Some("remote")
+        );
+    }
+
+    #[tokio::test]
+    async fn remote_browser_cannot_issue_link_codes() {
+        let state = app_state("remote-link-code-capability");
+        let cookie = remote_cookie(&state);
+        let app = remote_app(&state);
+
+        let response = app
+            .oneshot(remote_request(
+                Method::GET,
+                "/api/remote/status",
+                Some(&cookie),
+                None,
+                None,
+            ))
+            .await
+            .expect("router should respond");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(
+            json.get("link_code_issuance")
+                .and_then(|value| value.as_str()),
+            Some("unavailable")
         );
     }
 

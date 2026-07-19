@@ -17,6 +17,7 @@ import { PlayNextIcon } from '../../shared/ui/PlayNextIcon';
 import { SelectMenu } from '../../shared/ui/SelectMenu';
 import { SetupNotice } from '../../shared/ui/SetupNotice';
 import { useActionMenuScrollLock } from '../../shared/ui/useActionMenuScrollLock';
+import { useLongPressSelection } from '../../shared/ui/useLongPressSelection';
 import {
   type AlbumSelectionItem,
   albumTrackSelectionKeyForQueueItem
@@ -446,8 +447,16 @@ function TrackList({
   selectedKeys: Set<string>;
   selectionActive: boolean;
 }) {
+  const longPressSelection = useLongPressSelection({
+    onSelect: onToggleSelection,
+    resolveSelection: (target, currentTarget) => {
+      const row = target.closest<HTMLElement>('[data-album-track-selection-key]');
+      if (!row || !currentTarget.contains(row)) return null;
+      return row.dataset.albumTrackSelectionKey || null;
+    }
+  });
   return (
-    <ul className="file-list song-list">
+    <ul className="file-list song-list" {...longPressSelection}>
       {tracks.map((track, index) => {
         const absoluteIndex = pageStart + index;
         const title = titleOf(track, stripFileExtension(track.file_name));
@@ -469,11 +478,6 @@ function TrackList({
             key={String(track.id || track.track_id || track.file_name || index)}
             data-album-track-selection-key={selectionKey}
             onClick={playOrSelect}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              if (selectionKey) onToggleSelection(selectionKey);
-            }}
           >
             <span className="track-row-hover-surface" aria-hidden="true" />
             <div className="album-track-index songs-track-art-cell">

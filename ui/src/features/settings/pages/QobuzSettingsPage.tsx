@@ -209,7 +209,7 @@ function QobuzServiceModal({
       onClose={onClose}
     >
       <section
-        className="metadata-assigner-panel service-settings-panel"
+        className="metadata-assigner-panel service-settings-panel app-modal-surface"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="metadata-assigner-head">
@@ -289,7 +289,7 @@ function LastFmServiceModal({
       onClose={onClose}
     >
       <section
-        className="metadata-assigner-panel service-settings-panel"
+        className="metadata-assigner-panel service-settings-panel app-modal-surface"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="metadata-assigner-head">

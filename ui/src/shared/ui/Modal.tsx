@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, useLayoutEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 export function Modal({
   ariaLabel,
@@ -15,10 +16,19 @@ export function Modal({
   onClose: () => void;
   open: boolean;
 }) {
+  const [portalHost, setPortalHost] = useState<Element | null>(() =>
+    typeof document === 'undefined' ? null : document.querySelector('.react-app')
+  );
+
+  useLayoutEffect(() => {
+    if (!open || portalHost) return;
+    setPortalHost(document.querySelector('.react-app'));
+  }, [open, portalHost]);
+
   if (!open) return null;
-  return (
+  const modal = (
     <div
-      className={`modal-backdrop${className ? ` ${className}` : ''}`}
+      className={`modal-backdrop app-modal-backdrop${className ? ` ${className}` : ''}`}
       role="dialog"
       aria-modal="true"
       aria-label={ariaLabel}
@@ -30,4 +40,6 @@ export function Modal({
       {children}
     </div>
   );
+
+  return portalHost ? createPortal(modal, portalHost) : modal;
 }

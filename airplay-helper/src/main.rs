@@ -157,10 +157,11 @@ fn play(
         InputFormat::Wav => feed_wav(&path, &mut producer, &alive)?,
         InputFormat::PcmS16le => feed_raw_pcm(&path, &mut producer, &alive)?,
     }
-    // Allow the transport's small ring to drain before Drop disconnects it.
+    // Drain the PCM ring and any transport-owned tail before Drop disconnects it.
     while !producer.is_empty() && alive.load(Ordering::Relaxed) {
         thread::sleep(Duration::from_millis(10));
     }
+    session.drain_buffered_tail();
     drop(session);
     Ok(())
 }
