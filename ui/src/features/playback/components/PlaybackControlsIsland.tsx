@@ -1,5 +1,5 @@
-import type { CSSProperties } from 'react';
-import { useEffect, useId, useMemo, useState } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { formatTime } from '../../../shared/lib/format';
 import { ShuffleIcon } from '../../../shared/ui/ShuffleIcon';
 import { useNowPlayingQueueSnapshot } from '../model/nowPlayingQueueStore';
@@ -160,6 +160,7 @@ export function PlaybackControlsIsland({
   const [scrubValue, setScrubValue] = useState(position);
   const [optimisticSeek, setOptimisticSeek] = useState<OptimisticSeek | null>(null);
   const [optimisticFrame, setOptimisticFrame] = useState(0);
+  const activeSeekPointerRef = useRef<number | null>(null);
   const optimisticPosition = useMemo(() => {
     if (!optimisticSeek || optimisticSeek.trackKey !== trackKey) return null;
     if (optimisticSeek.state !== 'Playing' || duration <= 0) return optimisticSeek.seconds;
@@ -298,6 +299,20 @@ export function PlaybackControlsIsland({
     getPlaybackControlActions().seek?.(clamped);
   };
 
+  const seekValueAtPointer = (event: ReactPointerEvent<HTMLInputElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    if (bounds.width <= 0) return scrubValue;
+    const progress = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+    return progress * (duration || 100);
+  };
+
+  const releaseSeekPointer = (event: ReactPointerEvent<HTMLInputElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    activeSeekPointerRef.current = null;
+  };
+
   return (
     <section className="react-playback-controls" aria-label="Playback controls">
       <div className="react-transport-controls">
@@ -387,12 +402,35 @@ export function PlaybackControlsIsland({
               setIsScrubbing(false);
               commitSeek(Number(event.currentTarget.value) || 0);
             }}
-            onPointerDown={() => setIsScrubbing(true)}
-            onPointerUp={(event) => {
-              setIsScrubbing(false);
-              commitSeek(Number(event.currentTarget.value) || 0);
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              activeSeekPointerRef.current = event.pointerId;
+              try {
+                event.currentTarget.setPointerCapture(event.pointerId);
+              } catch {
+                // Synthetic events do not always represent an active browser pointer.
+              }
+              setIsScrubbing(true);
+              setScrubValue(seekValueAtPointer(event));
             }}
-            onPointerCancel={() => setIsScrubbing(false)}
+            onPointerMove={(event) => {
+              if (activeSeekPointerRef.current !== event.pointerId) return;
+              setScrubValue(seekValueAtPointer(event));
+              event.preventDefault();
+            }}
+            onPointerUp={(event) => {
+              if (activeSeekPointerRef.current !== event.pointerId) return;
+              const value = seekValueAtPointer(event);
+              releaseSeekPointer(event);
+              setIsScrubbing(false);
+              commitSeek(value);
+            }}
+            onPointerCancel={(event) => {
+              if (activeSeekPointerRef.current !== event.pointerId) return;
+              releaseSeekPointer(event);
+              setIsScrubbing(false);
+              setScrubValue(optimisticPosition ?? position);
+            }}
           />
         </div>
         <span>{formatTime(duration)}</span>

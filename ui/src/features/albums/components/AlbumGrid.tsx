@@ -290,6 +290,7 @@ const AlbumCard = memo(function AlbumCard({
             sizes="(max-width: 760px) 33vw, (max-width: 1200px) 20vw, 180px"
             width="256"
             height="256"
+            draggable={false}
             loading={imagePriority ? 'eager' : 'lazy'}
             decoding="async"
             fetchPriority={imagePriority ? 'high' : 'low'}

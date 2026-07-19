@@ -26,6 +26,7 @@ export function useLongPressSelection<T>({
   const onSelectRef = useRef(onSelect);
   const resolveSelectionRef = useRef(resolveSelection);
   const pendingRef = useRef<PendingLongPress<T> | null>(null);
+  const completedPointerIdRef = useRef<number | null>(null);
   const timerRef = useRef<number | null>(null);
   const suppressActivationUntilRef = useRef(0);
   onSelectRef.current = onSelect;
@@ -55,6 +56,7 @@ export function useLongPressSelection<T>({
       if (selection === null) return;
 
       cancelPending();
+      completedPointerIdRef.current = null;
       pendingRef.current = {
         pointerId: event.pointerId,
         selection,
@@ -67,7 +69,10 @@ export function useLongPressSelection<T>({
         window.removeEventListener('scroll', cancelPending, true);
         timerRef.current = null;
         pendingRef.current = null;
-        if (pending) select(pending.selection, true);
+        if (pending) {
+          completedPointerIdRef.current = pending.pointerId;
+          select(pending.selection, true);
+        }
       }, LONG_PRESS_DELAY_MS);
     },
     [cancelPending, enabled, select]
@@ -90,6 +95,10 @@ export function useLongPressSelection<T>({
   const onPointerEnd = useCallback<PointerEventHandler<HTMLElement>>(
     (event) => {
       if (pendingRef.current?.pointerId === event.pointerId) cancelPending();
+      if (completedPointerIdRef.current === event.pointerId) {
+        completedPointerIdRef.current = null;
+        suppressActivationUntilRef.current = Date.now() + POST_LONG_PRESS_SUPPRESSION_MS;
+      }
     },
     [cancelPending]
   );
@@ -100,11 +109,18 @@ export function useLongPressSelection<T>({
       const selection = resolveSelectionRef.current(event.target, event.currentTarget);
       if (selection === null) return;
 
-      const contextMenuCompletedTouchHold = pendingRef.current !== null;
+      const pendingPointerId = pendingRef.current?.pointerId ?? null;
+      const contextMenuCompletedTouchHold = pendingPointerId !== null;
       event.preventDefault();
       event.stopPropagation();
       cancelPending();
-      if (Date.now() < suppressActivationUntilRef.current) return;
+      if (
+        completedPointerIdRef.current !== null ||
+        Date.now() < suppressActivationUntilRef.current
+      ) {
+        return;
+      }
+      if (pendingPointerId !== null) completedPointerIdRef.current = pendingPointerId;
       select(selection, contextMenuCompletedTouchHold);
     },
     [cancelPending, enabled, select]

@@ -43,9 +43,31 @@ async function expectMobileModalGeometry(page: Page, dialog: Locator) {
   expect(bounds.y).toBeLessThanOrEqual(32);
   expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height + 1);
   await expect(surface).toHaveCSS('overflow-y', 'auto');
+  await expect(dialog).toHaveCSS('position', 'fixed');
+  await expect
+    .poll(() =>
+      dialog.evaluate((element) => window.getComputedStyle(element).backdropFilter)
+    )
+    .toContain('blur(8px)');
+  const modalLayer = await dialog.evaluate((element) => {
+    const miniPlayer = document.querySelector('.mobile-mini-player');
+    const topBar = document.querySelector('.mobile-top-bar');
+    const zIndex = (target: Element | null) =>
+      target ? Number(window.getComputedStyle(target).zIndex) || 0 : 0;
+    return {
+      backdropFilter: window.getComputedStyle(element).backdropFilter,
+      isAppLevel: element.parentElement?.matches('.react-app') ?? false,
+      miniPlayerZIndex: zIndex(miniPlayer),
+      modalZIndex: zIndex(element),
+      topBarZIndex: zIndex(topBar)
+    };
+  });
+  expect(modalLayer.isAppLevel).toBe(true);
+  expect(modalLayer.modalZIndex).toBeGreaterThan(modalLayer.miniPlayerZIndex);
+  expect(modalLayer.modalZIndex).toBeGreaterThan(modalLayer.topBarZIndex);
 }
 
-async function longPress(page: Page, target: Locator) {
+async function longPress(page: Page, target: Locator, holdDurationMs = 550) {
   const bounds = await target.boundingBox();
   if (!bounds) throw new Error('Expected the long-press target to have layout bounds');
   const pointer = {
@@ -58,8 +80,14 @@ async function longPress(page: Page, target: Locator) {
   };
 
   await target.dispatchEvent('pointerdown', pointer);
-  await page.waitForTimeout(550);
+  await page.waitForTimeout(holdDurationMs);
   await target.dispatchEvent('pointerup', { ...pointer, buttons: 0 });
+  await target.dispatchEvent('click', {
+    button: 0,
+    clientX: pointer.clientX,
+    clientY: pointer.clientY,
+    detail: 1
+  });
 }
 
 test('mobile shell exposes its primary navigation and now-playing controls @smoke', async ({
@@ -136,7 +164,91 @@ test('this browser can save and reopen its private stream settings on mobile', a
   await expect(page.getByRole('button', { name: 'Opus bitrate' })).toContainText('320 kbps');
 });
 
+test('a mobile seek survives closing and reopening now playing', async ({ isMobile, page }) => {
+  test.skip(!isMobile, 'This seek persistence check only applies to the mobile project.');
+  await page.route('**/styles.css*', (route) =>
+    route.fulfill({ path: legacyStylesPath, contentType: 'text/css' })
+  );
+  const backend = await installMockBackend(page);
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open now playing' }).click();
+  let sheet = page.locator('.mobile-now-playing-sheet');
+  await expect(sheet).toBeVisible();
+  const playerSurfaces = await page.evaluate(() => {
+    const miniPlayer = document.querySelector('.mobile-mini-player');
+    const expandedPlayer = document.querySelector('.mobile-now-playing-sheet');
+    if (!miniPlayer || !expandedPlayer) return null;
+    const expandedStyle = window.getComputedStyle(expandedPlayer);
+    return {
+      expandedBackground: expandedStyle.backgroundColor,
+      expandedOpeningAnimation: expandedStyle.animationName,
+      miniBackground: window.getComputedStyle(miniPlayer).backgroundColor
+    };
+  });
+  if (!playerSurfaces) throw new Error('Expected both mobile player surfaces');
+  expect(playerSurfaces.expandedBackground).toBe(playerSurfaces.miniBackground);
+  expect(playerSurfaces.expandedOpeningAnimation).toBe('mobile-sheet-open');
+  await sheet.getByRole('button', { name: 'Queue', exact: true }).click();
+  const queueHeaderBackground = await sheet
+    .locator('.now-playing-queue-header')
+    .evaluate((element) => window.getComputedStyle(element).backgroundColor);
+  expect(queueHeaderBackground).toBe(playerSurfaces.expandedBackground);
+  await sheet.getByRole('button', { name: 'Now Playing', exact: true }).click();
+  const seek = sheet.getByRole('slider', { name: 'Seek' });
+  const seekBounds = await seek.boundingBox();
+  if (!seekBounds) throw new Error('Expected the mobile seek control to have layout bounds');
+  expect(seekBounds.height).toBeGreaterThanOrEqual(44);
+  const seekPointer = {
+    bubbles: true,
+    button: 0,
+    buttons: 1,
+    clientY: seekBounds.y + seekBounds.height / 2,
+    isPrimary: true,
+    pointerId: 7,
+    pointerType: 'touch'
+  };
+  await seek.dispatchEvent('pointerdown', {
+    ...seekPointer,
+    clientX: seekBounds.x + seekBounds.width * 0.25
+  });
+  await seek.dispatchEvent('pointermove', {
+    ...seekPointer,
+    clientX: seekBounds.x + seekBounds.width * 0.7
+  });
+  await seek.dispatchEvent('pointerup', {
+    ...seekPointer,
+    buttons: 0,
+    clientX: seekBounds.x + seekBounds.width * 0.7
+  });
+  await waitForApiCall(page, backend.calls, (call) => call.path.endsWith('/seek'));
+  await expect
+    .poll(async () => Number(await seek.inputValue()))
+    .toBeGreaterThanOrEqual(Number(await seek.getAttribute('max')) * 0.69);
+  const seekShell = seek.locator('..');
+  await expect(seekShell).toHaveClass(/is-loading/);
+  await expect(seekShell).toHaveCSS('animation-name', 'none');
+  await expect(seekShell).toHaveCSS('filter', 'none');
+
+  await sheet.getByRole('button', { name: 'Close now playing' }).click();
+  await expect(sheet).toHaveClass(/is-closing/);
+  expect(await sheet.evaluate((element) => window.getComputedStyle(element).transitionDuration)).toBe(
+    '0.32s, 0.16s'
+  );
+  expect(await sheet.evaluate((element) => window.getComputedStyle(element).transitionDelay)).toBe(
+    '0s, 0.14s'
+  );
+  await expect(sheet).toHaveCount(0);
+  await page.getByRole('button', { name: 'Open now playing' }).click();
+  sheet = page.locator('.mobile-now-playing-sheet');
+  await expect(sheet).toBeVisible();
+  await expect
+    .poll(async () => Number(await sheet.getByRole('slider', { name: 'Seek' }).inputValue()))
+    .toBeGreaterThanOrEqual(150);
+});
+
 test('a mobile long press selects songs and albums with compact top-bar actions', async ({
+  browserName,
   isMobile,
   page
 }) => {
@@ -151,6 +263,7 @@ test('a mobile long press selects songs and albums with compact top-bar actions'
           id: 1,
           title: 'Hurry Up, We Are Dreaming',
           album_artist: 'M83',
+          image_url: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=',
           track_count: 3,
           confidence: 100,
           match_status: 'matched'
@@ -193,7 +306,23 @@ test('a mobile long press selects songs and albums with compact top-bar actions'
     hasText: 'Hurry Up, We Are Dreaming'
   });
   await expect(album).toBeVisible();
-  await longPress(page, album);
+  await expect(album.locator('.album-cover-play')).toHaveCSS('display', 'none');
+  if (browserName === 'webkit') {
+    const image = album.locator('.album-cover img');
+    await expect(image).toHaveAttribute('draggable', 'false');
+    const safariImageBehavior = await image.evaluate((element) => {
+      const style = window.getComputedStyle(element);
+      return {
+        userDrag: style.getPropertyValue('-webkit-user-drag'),
+        userSelect: style.webkitUserSelect
+      };
+    });
+    expect(safariImageBehavior).toEqual({
+      userDrag: 'none',
+      userSelect: 'none'
+    });
+  }
+  await longPress(page, album, 1_500);
 
   await expect(album).toHaveClass(/is-selected/);
   const topBar = page.locator('.mobile-top-bar');
@@ -230,6 +359,12 @@ test('a mobile long press selects songs and albums with compact top-bar actions'
   await expect(selectionMenu).toBeVisible();
   const selectionMenuBounds = await selectionMenu.boundingBox();
   if (!selectionMenuBounds) throw new Error('Expected the selection menu to have layout bounds');
+  const selectionMenuMaterial = await selectionMenu.evaluate((element) => ({
+    backdropFilter: window.getComputedStyle(element).backdropFilter,
+    overlay: window.getComputedStyle(element, '::before').backgroundImage
+  }));
+  expect(selectionMenuMaterial.backdropFilter).toContain('blur(30px)');
+  expect(selectionMenuMaterial.overlay).toContain('linear-gradient');
   expect(selectionMenuBounds.x).toBeGreaterThanOrEqual(8);
   expect(selectionMenuBounds.x + selectionMenuBounds.width).toBeLessThanOrEqual(
     (await page.evaluate(() => window.innerWidth)) - 8

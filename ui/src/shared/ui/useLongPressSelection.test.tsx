@@ -44,6 +44,28 @@ describe('useLongPressSelection', () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
+  it('suppresses the release click even when the hold outlasts the initial suppression window', () => {
+    const onOpen = vi.fn();
+    const onSelect = vi.fn();
+    render(<LongPressHarness onOpen={onOpen} onSelect={onSelect} />);
+    const item = screen.getByRole('button', { name: 'Selectable item' });
+
+    fireEvent.pointerDown(item, {
+      button: 0,
+      clientX: 20,
+      clientY: 30,
+      pointerId: 6,
+      pointerType: 'touch'
+    });
+    vi.advanceTimersByTime(1_500);
+    fireEvent.contextMenu(item);
+    fireEvent.pointerUp(item, { pointerId: 6, pointerType: 'touch' });
+    fireEvent.click(item);
+
+    expect(onSelect).toHaveBeenCalledOnce();
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
   it('cancels the hold when touch movement indicates scrolling', () => {
     const onSelect = vi.fn();
     render(<LongPressHarness onOpen={vi.fn()} onSelect={onSelect} />);

@@ -2,6 +2,7 @@ import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from 
 import { isBrowserZone } from '../../../shared/lib/browserZone';
 import type { JsonRecord, ZoneProfile } from '../../../shared/types';
 import { Icon } from '../../../shared/ui/Icon';
+import { Modal } from '../../../shared/ui/Modal';
 import { SelectMenu } from '../../../shared/ui/SelectMenu';
 import {
   type OutputIconId,
@@ -274,14 +275,11 @@ export function ZonesSettingsPage({
         ))}
       </div>
       {settingsZone ? (
-        <div
+        <Modal
+          open
           className="zone-settings-backdrop app-modal-backdrop is-open"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="zone-settings-title"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setSettingsZoneId(null);
-          }}
+          ariaLabelledBy="zone-settings-title"
+          onClose={() => setSettingsZoneId(null)}
         >
           <div className="zone-settings-panel app-modal-surface">
             <header className="zone-settings-head">
@@ -559,7 +557,7 @@ export function ZonesSettingsPage({
               zones={zones}
             />
           ) : null}
-        </div>
+        </Modal>
       ) : null}
     </section>
   );
@@ -638,14 +636,11 @@ function ZoneHegelSettingsModal({
   const inputOptions = hegelInputOptions(draft.model);
 
   return (
-    <div
+    <Modal
+      open
       className="zone-settings-backdrop zone-hegel-settings-backdrop app-modal-backdrop is-open"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="zone-hegel-settings-title"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+      ariaLabelledBy="zone-hegel-settings-title"
+      onClose={onClose}
     >
       <div className="zone-settings-panel zone-hegel-settings-panel app-modal-surface">
         <header className="zone-settings-head">
@@ -862,6 +857,6 @@ function ZoneHegelSettingsModal({
           </footer>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

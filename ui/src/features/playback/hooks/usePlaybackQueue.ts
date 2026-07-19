@@ -632,9 +632,13 @@ export function usePlaybackQueue({
       clearTransportPending('play');
       clearTransportPending('next');
       clearTransportPending('previous');
-      if (status.transport_pending !== 'seeking') clearTransportPending('seek');
       clearTransportPending('auto-advance');
-    } else if (status.state === 'Paused' || status.state === 'Stopped') {
+    } else if (status.state === 'Paused') {
+      clearTransportPending('play');
+      clearTransportPending('next');
+      clearTransportPending('previous');
+      clearTransportPending('auto-advance');
+    } else if (status.state === 'Stopped') {
       clearTransportPending();
     }
   }, [status.current_source, status.file_name, status.state, status.transport_pending]);

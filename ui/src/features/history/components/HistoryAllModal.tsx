@@ -1,4 +1,3 @@
-import { createPortal } from 'react-dom';
 import type { JsonRecord } from '../../../shared/types';
 import { Icon } from '../../../shared/ui/Icon';
 import { Modal } from '../../../shared/ui/Modal';
@@ -29,9 +28,7 @@ export function HistoryAllModal({
   title
 }: HistoryAllModalProps) {
   const modalTitleId = 'history-all-modal-title';
-  const portalHost = typeof document === 'undefined' ? null : document.querySelector('.react-app');
-
-  const modal = (
+  return (
     <Modal open className="history-all-backdrop" ariaLabelledBy={modalTitleId} onClose={onClose}>
       <div className="history-all-panel app-modal-surface">
         <div className="history-all-head">
@@ -72,8 +69,6 @@ export function HistoryAllModal({
       </div>
     </Modal>
   );
-
-  return portalHost ? createPortal(modal, portalHost) : modal;
 }
 
 function HistoryAllRow({
