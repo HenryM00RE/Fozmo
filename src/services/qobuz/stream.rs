@@ -48,6 +48,12 @@ pub(super) fn validate_qobuz_stream_url(raw_url: &str) -> Result<reqwest::Url, S
         .trim_end_matches('.')
         .to_ascii_lowercase();
     if !trusted_qobuz_stream_host(&host) {
+        warn!(
+            event = "stream_url_host_rejected",
+            service = "qobuz",
+            qobuz_stream_host = %host,
+            "Qobuz stream URL host is not trusted"
+        );
         return Err("Qobuz stream URL host is not trusted".to_string());
     }
     Ok(parsed)
@@ -56,7 +62,10 @@ pub(super) fn validate_qobuz_stream_url(raw_url: &str) -> Result<reqwest::Url, S
 fn trusted_qobuz_stream_host(host: &str) -> bool {
     matches!(
         host,
-        "streaming.qobuz.com" | "streaming2.qobuz.com" | "streaming-qobuz-sec.akamaized.net"
+        "streaming.qobuz.com"
+            | "streaming2.qobuz.com"
+            | "streaming-qobuz-sec.akamaized.net"
+            | "streaming-qobuz-std.akamaized.net"
     )
 }
 

@@ -1002,6 +1002,7 @@ mod tests {
             "https://streaming.qobuz.com/file?token=signed",
             "https://streaming2.qobuz.com/file?token=signed",
             "https://streaming-qobuz-sec.akamaized.net/file?token=signed",
+            "https://streaming-qobuz-std.akamaized.net/file?token=signed",
         ] {
             assert!(
                 validate_qobuz_stream_url(url).is_ok(),
@@ -1028,6 +1029,7 @@ mod tests {
             "https://streaming42.qobuz.com/file",
             "https://unrelated.akamaized.net/file",
             "https://streaming-qobuz-sec.akamaized.net.evil.test/file",
+            "https://streaming-qobuz-std.akamaized.net.evil.test/file",
         ] {
             assert!(
                 validate_qobuz_stream_url(url).is_err(),
