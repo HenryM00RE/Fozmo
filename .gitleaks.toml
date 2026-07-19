@@ -5,4 +5,8 @@ useDefault = true
 
 [allowlist]
 description = "Known non-secret DSP filter identifiers"
-regexes = ['''^SincExtreme32k$''']
+regexes = [
+  '''^SincExtreme32k$''',
+  '''^SplitPhase128kV3$''',
+  '''^SplitPhase128kV4$''',
+]
