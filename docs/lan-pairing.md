@@ -25,13 +25,14 @@ the advertised core URL can serve trusted-network clients.
 Browser WebSocket upgrades, including `/api/ws` and `/api/agent/ws`, validate
 `Origin` against the same loopback, active LAN address, accepted `.local`, and
 configured public origins used by CORS. Originless upgrades remain available
-for non-browser clients; native agents still require their explicit agent
-authentication independently of this browser-origin check.
+for non-browser clients. Native agents from loopback or a private/link-local
+LAN can register without a pairing token; peers outside those ranges need an
+explicit agent credential.
 
 Filesystem-sensitive routes retain their own local/cross-site checks, stream
 routes require a same-origin browser request or scoped stream credential, and
-remote agents still use explicit agent tokens. Keep LAN mode on trusted private
-networks.
+native agents receive a connection-scoped stream credential over their
+WebSocket. Keep LAN mode on trusted private networks.
 
 The core rejects unknown `Host` headers to reduce DNS-rebinding exposure. It
 accepts loopback names, the current Mac `.local` and OS-reported hostnames, and
@@ -198,7 +199,12 @@ Start an agent and point it at a LAN core:
 cargo run --release -- --agent --core-url=http://192.168.1.42:3001
 ```
 
-Supply a token explicitly:
+No pairing token is needed for a native agent on the local machine or private
+LAN. After registration, the core sends the agent a memory-only stream
+credential over the WebSocket and revokes it on disconnect.
+
+An explicit agent token remains available for compatibility or authenticated
+connections from outside the private LAN:
 
 ```sh
 FOZMO_AGENT_TOKEN=replace-me cargo run --release -- --agent --core-url=http://192.168.1.42:3001
@@ -210,11 +216,8 @@ Create an agent token from the core machine:
 curl -X POST http://127.0.0.1:3001/api/agents/token
 ```
 
-If no token is supplied, the agent attempts to request one from the core
-through `/api/agents/token`. Token issuance is local-only; for a separate LAN
-agent, create the token from the core machine and pass it to the agent
-explicitly. `FOZMO_PAIRING_TOKEN` and `--token` remain deprecated aliases
-during the staged migration.
+`FOZMO_PAIRING_TOKEN` and `--token` remain deprecated aliases during the
+staged migration.
 
 Music folder management and library rescans are also local-only unless the
 request includes a control-scoped credential. This keeps LAN peers and

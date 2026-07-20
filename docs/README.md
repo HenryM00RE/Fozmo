@@ -12,7 +12,7 @@ Current product documentation, architecture notes, operating guides, and release
 - [Audio Pipeline](audio-pipeline.md): Decode, DSP, DSD, output, and sink routing notes.
 - [Local Data](local-data.md): Runtime settings, library data, cleanup, and release checks.
 - [Generated Assets](generated-assets.md): Frontend build artifact policy and release checks.
-- [LAN Mode And Optional Pairing](lan-pairing.md): trusted-LAN startup, optional pairing, agent tokens, and release checks.
+- [LAN Mode And Optional Pairing](lan-pairing.md): trusted-LAN startup, browser pairing, native-agent stream sessions, and release checks.
 - [Remote Access](remote-access.md): Manual port forwarding, remote sessions, TLS fingerprint verification, and remote-device revocation.
 - [Platform Support](platform-support.md): Current platform expectations, caveats, and smoke-test requirements.
 - [macOS Dev Signing](macos-dev-signing.md): Keychain prompt consolidation and the one-time stable dev code-signing setup.

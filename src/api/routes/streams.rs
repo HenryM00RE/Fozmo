@@ -2218,6 +2218,27 @@ mod tests {
             StatusCode::OK
         );
 
+        let agent_stream_session = state.pairing().create_agent_stream_session();
+        assert_eq!(
+            stream_status(
+                &app,
+                stream_request(&uri, None, Some(&agent_stream_session), None)
+            )
+            .await,
+            StatusCode::OK
+        );
+        state
+            .pairing()
+            .revoke_agent_stream_session(&agent_stream_session);
+        assert_eq!(
+            stream_status(
+                &app,
+                stream_request(&uri, None, Some(&agent_stream_session), None)
+            )
+            .await,
+            StatusCode::FORBIDDEN
+        );
+
         let _ = std::fs::remove_file(path);
     }
 

@@ -32,6 +32,12 @@ pub enum CoreToAgentCommand {
     SetPlaybackConfig {
         playback_config: PlaybackConfig,
     },
+    /// Short-lived stream credential issued over the native agent socket.
+    /// It removes the need to provision a pairing token on a LAN agent while
+    /// keeping the media routes unavailable to unrelated LAN clients.
+    AuthorizeStreams {
+        token: String,
+    },
     /// Browser-agent liveness marker. It deliberately carries no state and is
     /// sent only to browser agents served by the matching web bundle.
     Heartbeat,
@@ -139,5 +145,17 @@ mod tests {
     fn heartbeat_uses_stable_wire_name() {
         let value = serde_json::to_value(CoreToAgentCommand::Heartbeat).unwrap();
         assert_eq!(value, serde_json::json!({ "type": "heartbeat" }));
+    }
+
+    #[test]
+    fn stream_authorization_uses_stable_wire_name() {
+        let value = serde_json::to_value(CoreToAgentCommand::AuthorizeStreams {
+            token: "session-token".to_string(),
+        })
+        .unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({ "type": "authorize_streams", "token": "session-token" })
+        );
     }
 }

@@ -47,6 +47,10 @@ export function zoneAvailableForCapabilities(zone: ZoneProfile, capabilities: Bu
   const protocol = String(zone.protocol || '');
   const backend = String(zone.backend || '');
   const deviceName = String(zone.device_name || '');
+  // Remote agents advertise the capabilities of their own build and host.
+  // Applying the core's build flags here hides valid outputs such as a
+  // Windows agent's ASIO devices when the core itself was built on Linux.
+  if (protocol === 'remote_agent') return true;
   if (protocol === 'airplay2') return capabilities.airplay2;
   if (protocol === 'sonos_upnp' || backend === 'sonos') return capabilities.sonos;
   if (protocol === 'upnp_av_renderer' || backend === 'upnp') return capabilities.upnp;

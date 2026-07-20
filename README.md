@@ -191,16 +191,15 @@ fallback. Internet-facing Remote Access remains separately authenticated.
 Then start an agent and point it at the core/server:
 
 ```sh
-FOZMO_AGENT_TOKEN=<agent-token> cargo run --locked --release -- --agent --core-url=http://<server-address>:3001
+cargo run --locked --release -- --agent --core-url=http://<server-address>:3001
 ```
 
-Create the agent token on the core machine with:
-
-```sh
-curl -X POST http://127.0.0.1:3001/api/agents/token
-```
-
-Replace `<server-address>` with the IP address or hostname of the machine running the core/server. LAN mode binds to the network and should only be used on a trusted private network.
+Native agents connecting from the local machine or private LAN do not need a
+pairing token. The core gives each connected agent a memory-only stream
+credential and revokes it when the agent disconnects. Replace
+`<server-address>` with the IP address or hostname of the machine running the
+core/server. LAN mode binds to the network and should only be used on a trusted
+private network.
 
 On Windows, ASIO support is a build-time feature:
 
