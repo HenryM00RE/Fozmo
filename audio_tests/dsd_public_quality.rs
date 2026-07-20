@@ -1,5 +1,7 @@
 #[path = "dsd_public/analysis.rs"]
 mod analysis;
+#[path = "dsd_public/external_product.rs"]
+mod external_product;
 #[path = "dsd_public/signals.rs"]
 mod signals;
 
@@ -104,6 +106,22 @@ struct Cli {
     /// Return a non-zero status when any structural hard gate fails.
     #[arg(long)]
     check: bool,
+
+    /// Add an unnamed external product's EC DSD128 path as diagnostic cells.
+    #[arg(long)]
+    external_upsampler: Option<PathBuf>,
+
+    /// External-product interpolation preset used before its EC modulator.
+    #[arg(long, default_value = "megaextreme")]
+    external_preset: String,
+}
+
+struct ExternalProductConfig {
+    executable: PathBuf,
+    preset: String,
+    work_dir: PathBuf,
+    source_bit_offset: isize,
+    modulator_input_peak: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -504,6 +522,7 @@ struct RenderedCell {
     full_fixture_density: [WholeDensityMetrics; 2],
     health: HealthReport,
     hard_failures: Vec<String>,
+    source_bit_offset: Option<isize>,
 }
 
 fn main() -> ExitCode {
@@ -539,6 +558,23 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
     let selected_filter = parse_filter(&cli.filter)?;
     let selected_rates = parse_rates(&cli.rates)?;
     validate_tuning_options(&cli, &selected, &selected_rates)?;
+    if cli.external_upsampler.is_some()
+        && (!selected_rates.contains(&DsdRate::Dsd128)
+            || !selected.contains(&DsdModulator::EcBeam2))
+    {
+        return Err("--external-upsampler requires --rates 128 and EcBeam2 in --modulator".into());
+    }
+    let external_config = cli
+        .external_upsampler
+        .clone()
+        .map(|executable| {
+            prepare_external_product_config(
+                executable,
+                cli.external_preset.clone(),
+                cli.out.join("external-product-exchange"),
+            )
+        })
+        .transpose()?;
     let mut matrix = build_matrix(
         &selected,
         cli.include_linear_reference,
@@ -565,7 +601,7 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
         }
     }
     let attempted_production_cell_count = matrix.iter().filter(|cell| !cell.diagnostic).count();
-    let attempted_diagnostic_cell_count = matrix.iter().filter(|cell| cell.diagnostic).count();
+    let mut attempted_diagnostic_cell_count = matrix.iter().filter(|cell| cell.diagnostic).count();
     let mut cells = Vec::with_capacity(matrix.len());
     let mut execution_failures = Vec::new();
     let mut production_execution_failure_count = 0;
@@ -599,6 +635,64 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
                 ));
             }
         }
+    }
+
+    if let Some(config) = &external_config {
+        let mut scenarios = vec![
+            Scenario::LevelSweep,
+            Scenario::IdleTinySignal,
+            Scenario::HighFrequencyRatedStress,
+            Scenario::HighFrequencyMatchedStress,
+        ];
+        if cli.level_probe_dbfs.is_some() {
+            scenarios.retain(|scenario| *scenario == Scenario::LevelSweep);
+        }
+        if scenarios.contains(&Scenario::IdleTinySignal) {
+            let idle_reference = CellSpec {
+                scenario: Scenario::IdleTinySignal,
+                source_rate: signals::SOURCE_RATE_44K1_HZ,
+                dsd_rate: DsdRate::Dsd128,
+                modulator: DsdModulator::EcBeam2,
+                filter: selected_filter,
+                diagnostic: true,
+            };
+            attempted_diagnostic_cell_count += 1;
+            match run_cell(idle_reference, None, None) {
+                Ok(cell) => cells.push(cell),
+                Err(error) => {
+                    diagnostic_execution_failure_count += 1;
+                    execution_failures.push(format!("diagnostic DSD128 EcBeam2 idle: {error}"));
+                }
+            }
+        }
+        for scenario in scenarios {
+            attempted_diagnostic_cell_count += 1;
+            let spec = CellSpec {
+                scenario,
+                source_rate: signals::SOURCE_RATE_44K1_HZ,
+                dsd_rate: DsdRate::Dsd128,
+                modulator: DsdModulator::EcBeam2,
+                filter: selected_filter,
+                diagnostic: true,
+            };
+            eprintln!(
+                "[external] {} ExternalProduct:{} DSD128 ExternalProductEcInferred",
+                scenario.as_name(),
+                config.preset
+            );
+            match run_external_product_cell(spec, cli.level_probe_dbfs, config) {
+                Ok(cell) => cells.push(cell),
+                Err(error) => {
+                    diagnostic_execution_failure_count += 1;
+                    execution_failures.push(format!(
+                        "diagnostic {} ExternalProduct:{} DSD128 ExternalProductEcInferred: {error}",
+                        scenario.as_name(),
+                        config.preset
+                    ));
+                }
+            }
+        }
+        selected_filters.push(format!("ExternalProduct:{}", config.preset));
     }
 
     let successful_production_cell_count = cells.iter().filter(|cell| !cell.diagnostic).count();
@@ -692,6 +786,11 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
         selected_modulators: selected
             .iter()
             .map(|modulator| modulator.as_name().to_string())
+            .chain(
+                external_config
+                    .is_some()
+                    .then(|| "ExternalProductEcInferred".to_string()),
+            )
             .collect(),
         selected_filters,
         include_linear_reference: cli.include_linear_reference,
@@ -1521,8 +1620,28 @@ fn run_cell(
 ) -> Result<CellReport, String> {
     let headroom_db = headroom_db(spec.modulator);
     let filter = spec.filter;
-    let filter_guard_frames = filter_guard_frames(filter);
-    let signal = match spec.scenario {
+    let signal = signal_for_spec(spec, headroom_db, level_probe_dbfs)?;
+    if signal.sample_rate_hz != spec.source_rate {
+        return Err("fixture source rate does not match matrix".to_string());
+    }
+    let profile = profile_for(spec.scenario);
+    let rendered = render_signal(
+        &signal,
+        spec.dsd_rate,
+        spec.modulator,
+        filter,
+        coeffs_override,
+    )?;
+    finish_cell(spec, headroom_db, signal, rendered, profile, None)
+}
+
+fn signal_for_spec(
+    spec: CellSpec,
+    headroom_db: f64,
+    level_probe_dbfs: Option<f64>,
+) -> Result<signals::StereoSignal, String> {
+    let filter_guard_frames = filter_guard_frames(spec.filter);
+    match spec.scenario {
         Scenario::LevelSweep => match level_probe_dbfs {
             Some(level) => signals::coherent_level_probe(headroom_db, filter_guard_frames, level),
             None => signals::coherent_level_sweep(headroom_db, filter_guard_frames),
@@ -1536,18 +1655,17 @@ fn run_cell(
         }
         Scenario::HiresReconstruction => signals::hires_multitone(headroom_db, filter_guard_frames),
     }
-    .map_err(|error| error.to_string())?;
-    if signal.sample_rate_hz != spec.source_rate {
-        return Err("fixture source rate does not match matrix".to_string());
-    }
-    let profile = profile_for(spec.scenario);
-    let rendered = render_signal(
-        &signal,
-        spec.dsd_rate,
-        spec.modulator,
-        filter,
-        coeffs_override,
-    )?;
+    .map_err(|error| error.to_string())
+}
+
+fn finish_cell(
+    spec: CellSpec,
+    headroom_db: f64,
+    signal: signals::StereoSignal,
+    rendered: RenderedCell,
+    profile: ReconstructionProfile,
+    external_labels: Option<(&str, &str)>,
+) -> Result<CellReport, String> {
     let mut hard_failures = rendered.hard_failures.clone();
     let (measurements, mut structural_summary) = match spec.scenario {
         Scenario::LevelSweep => {
@@ -1564,15 +1682,27 @@ fn run_cell(
     structural_summary.health_pass = hard_failures.is_empty();
     Ok(CellReport {
         scenario: spec.scenario.as_name().to_string(),
-        modulator: spec.modulator.as_name().to_string(),
+        modulator: external_labels
+            .map(|labels| labels.0.to_string())
+            .unwrap_or_else(|| spec.modulator.as_name().to_string()),
         diagnostic: spec.diagnostic,
-        comparison_class: comparison_class(spec),
+        comparison_class: if external_labels.is_some() {
+            if spec.scenario == Scenario::HighFrequencyRatedStress {
+                "external_vendor_rated_input"
+            } else {
+                "external_vendor_level_matched"
+            }
+        } else {
+            comparison_class(spec)
+        },
         level_matched_across_modulators: !matches!(
             spec.scenario,
             Scenario::HighFrequencyRatedStress
         ),
-        production_default_filter: filter == DEFAULT_FILTER_TYPE,
-        filter: filter.as_name().to_string(),
+        production_default_filter: external_labels.is_none() && spec.filter == DEFAULT_FILTER_TYPE,
+        filter: external_labels
+            .map(|labels| labels.1.to_string())
+            .unwrap_or_else(|| spec.filter.as_name().to_string()),
         headroom_db,
         source_rate: signal.sample_rate_hz,
         dsd_rate: dsd_rate_name(spec.dsd_rate).to_string(),
@@ -1713,7 +1843,208 @@ fn render_signal(
         full_fixture_density,
         health,
         hard_failures,
+        source_bit_offset: None,
     })
+}
+
+fn prepare_external_product_config(
+    executable: PathBuf,
+    preset: String,
+    work_dir: PathBuf,
+) -> Result<ExternalProductConfig, String> {
+    if !executable.is_file() {
+        return Err(format!(
+            "external-product upsampler does not exist: {}",
+            executable.display()
+        ));
+    }
+    fs::create_dir_all(&work_dir).map_err(|error| error.to_string())?;
+    let frames = 16_384usize;
+    let impulse_index = 4_096usize;
+    let mut impulse = vec![0.0; frames];
+    impulse[impulse_index] = 0.25;
+    let input = work_dir.join("alignment-impulse-f32.wav");
+    external_product::write_stereo_float_wav(&input, 44_100, &impulse, &impulse, 1.0)
+        .map_err(|error| format!("could not write external-product alignment WAV: {error}"))?;
+    let first = external_product::render_ec_dsd128(
+        &executable,
+        &preset,
+        &input,
+        &work_dir.join("alignment-impulse-a.dsf"),
+    )?;
+    let second = external_product::render_ec_dsd128(
+        &executable,
+        &preset,
+        &input,
+        &work_dir.join("alignment-impulse-b.dsf"),
+    )?;
+    if first.left_msb != second.left_msb || first.right_msb != second.right_msb {
+        return Err("external-product EC alignment renders were not deterministic".into());
+    }
+    let decimation = first.wire_rate / AUDIO_BAND.output_rate;
+    let usable_bits = first.sample_count / decimation as usize * decimation as usize;
+    let (left, _) = analysis::reconstruct_stereo_window(
+        &first.left_msb,
+        &first.right_msb,
+        first.wire_rate,
+        0..usable_bits,
+        AUDIO_BAND,
+        1.0,
+    )?;
+    let peak = left
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.abs().total_cmp(&b.abs()))
+        .map(|(index, _)| index)
+        .ok_or_else(|| "external-product alignment reconstruction was empty")?;
+    let source_bit = impulse_index
+        .checked_mul((first.wire_rate / 44_100) as usize)
+        .ok_or_else(|| "external-product alignment source index overflowed")?;
+    let rendered_bit = peak
+        .checked_mul(decimation as usize)
+        .ok_or_else(|| "external-product alignment output index overflowed")?;
+    let source_bit_offset = isize::try_from(rendered_bit)
+        .and_then(|rendered| isize::try_from(source_bit).map(|source| rendered - source))
+        .map_err(|_| "external-product alignment offset does not fit isize")?;
+    if source_bit_offset < 0 {
+        return Err(format!(
+            "external-product alignment unexpectedly preceded the source by {source_bit_offset} bits"
+        ));
+    }
+    let tone_frames = 44_100usize;
+    let tone_amplitude = 0.1;
+    let tone = (0..tone_frames)
+        .map(|index| {
+            tone_amplitude * (std::f64::consts::TAU * 1_000.0 * index as f64 / 44_100.0).sin()
+        })
+        .collect::<Vec<_>>();
+    let tone_input = work_dir.join("gain-calibration-1khz-f32.wav");
+    external_product::write_stereo_float_wav(&tone_input, 44_100, &tone, &tone, 1.0).map_err(
+        |error| format!("could not write external-product gain-calibration WAV: {error}"),
+    )?;
+    let tone_render = external_product::render_ec_dsd128(
+        &executable,
+        &preset,
+        &tone_input,
+        &work_dir.join("gain-calibration-1khz.dsf"),
+    )?;
+    let ratio = (tone_render.wire_rate / 44_100) as usize;
+    let start = 11_025usize
+        .checked_mul(ratio)
+        .and_then(|value| value.checked_add_signed(source_bit_offset))
+        .ok_or_else(|| "external-product gain-calibration start overflowed")?;
+    let end = 33_075usize
+        .checked_mul(ratio)
+        .and_then(|value| value.checked_add_signed(source_bit_offset))
+        .ok_or_else(|| "external-product gain-calibration end overflowed")?;
+    let (tone_left, _) = analysis::reconstruct_stereo_window(
+        &tone_render.left_msb,
+        &tone_render.right_msb,
+        tone_render.wire_rate,
+        start..end,
+        AUDIO_BAND,
+        1.0,
+    )?;
+    let carrier = analysis::measure_windowed_carrier(
+        &tone_left,
+        AUDIO_BAND.output_rate,
+        "external_product_gain_calibration",
+        1_000.0,
+        tone_amplitude,
+    )?;
+    let modulator_input_peak = 10.0f64.powf(carrier.gain_error_db / 20.0);
+    if !(0.5..=1.0).contains(&modulator_input_peak) {
+        return Err(format!(
+            "external-product measured gain calibration {modulator_input_peak:.9} was outside 0.5..1.0"
+        ));
+    }
+    Ok(ExternalProductConfig {
+        executable,
+        preset,
+        work_dir,
+        source_bit_offset,
+        modulator_input_peak,
+    })
+}
+
+fn run_external_product_cell(
+    spec: CellSpec,
+    level_probe_dbfs: Option<f64>,
+    config: &ExternalProductConfig,
+) -> Result<CellReport, String> {
+    if spec.dsd_rate != DsdRate::Dsd128 || spec.source_rate != 44_100 {
+        return Err("external-product comparison supports only 44.1 kHz to DSD128".into());
+    }
+    let headroom_db = headroom_db(DsdModulator::EcBeam2);
+    let signal = signal_for_spec(spec, headroom_db, level_probe_dbfs)?;
+    let id = format!("{}-external-product-ec", spec.scenario.as_name());
+    let input = config.work_dir.join(format!("{id}.wav"));
+    let output = config.work_dir.join(format!("{id}.dsf"));
+    let input_gain = 10.0f64.powf(headroom_db / 20.0);
+    external_product::write_stereo_float_wav(
+        &input,
+        signal.sample_rate_hz,
+        &signal.left,
+        &signal.right,
+        input_gain,
+    )
+    .map_err(|error| format!("could not write external-product fixture WAV: {error}"))?;
+    let external =
+        external_product::render_ec_dsd128(&config.executable, &config.preset, &input, &output)?;
+    let left = external.left_msb;
+    let right = external.right_msb;
+    let full_fixture_density = [whole_density_metrics(&left), whole_density_metrics(&right)];
+    let mut hard_failures = Vec::new();
+    for (channel, density) in ["left", "right"].into_iter().zip(full_fixture_density) {
+        if !density.density.is_finite() || density.deviation > DENSITY_LIMIT {
+            hard_failures.push(format!(
+                "whole-fixture {channel} bit-density deviation {:.9} exceeded {:.6}",
+                density.deviation, DENSITY_LIMIT
+            ));
+        }
+    }
+    let native_dsd_sha256 = [sha256_bytes(&left), sha256_bytes(&right)];
+    let bytes = [left.len(), right.len()];
+    let rendered = RenderedCell {
+        left,
+        right,
+        native_bytes_before_idle: bytes,
+        native_bytes_after_idle: bytes,
+        expected_bits: signal.frames().saturating_mul(128),
+        wire_rate: external.wire_rate,
+        filter: spec.filter,
+        modulator_input_peak: config.modulator_input_peak,
+        render_seconds: external.elapsed_seconds,
+        renderer_configuration: RendererConfiguration {
+            production_policy_version: "external-product-v1-ec-selector-enabled",
+            coefficient_table:
+                "External product order-7 EF H_inf=1.4; EC identity inferred from vendor selector"
+                    .into(),
+            coefficient_osr: 128,
+            coefficient_obg: 1.4,
+            coefficient_input_peak: config.modulator_input_peak,
+            lookahead_depth: 0,
+            isi_penalty: 0.0,
+            chunk_source_frames: signal.frames(),
+            seeds_hex: ["not exposed".into(), "not exposed".into()],
+        },
+        native_dsd_sha256,
+        full_fixture_density,
+        health: HealthReport::default(),
+        hard_failures,
+        source_bit_offset: Some(config.source_bit_offset),
+    };
+    finish_cell(
+        spec,
+        headroom_db,
+        signal,
+        rendered,
+        AUDIO_BAND,
+        Some((
+            "ExternalProductEcInferred",
+            &format!("ExternalProduct:{}", config.preset),
+        )),
+    )
 }
 
 fn collect_health(renderer: &DsdRenderer) -> HealthReport {
@@ -1831,12 +2162,8 @@ fn analyze_level_sweep(
         let source_range = signal
             .range(carrier.analysis_ranges[0])
             .ok_or_else(|| "level carrier references a missing range".to_string())?;
-        let bits = source_to_bit_range(
-            rendered.filter,
-            source_range.frames(),
-            signal.sample_rate_hz,
-            rendered.wire_rate,
-        )?;
+        let bits =
+            rendered_source_to_bit_range(rendered, source_range.frames(), signal.sample_rate_hz)?;
         let (left, right) = analysis::reconstruct_stereo_window(
             &rendered.left,
             &rendered.right,
@@ -1910,12 +2237,8 @@ fn analyze_idle(
         let source_range = signal
             .range(range_name)
             .ok_or_else(|| format!("idle fixture is missing {range_name}"))?;
-        let bits = source_to_bit_range(
-            rendered.filter,
-            source_range.frames(),
-            signal.sample_rate_hz,
-            rendered.wire_rate,
-        )?;
+        let bits =
+            rendered_source_to_bit_range(rendered, source_range.frames(), signal.sample_rate_hz)?;
         let (left, right) = analysis::reconstruct_stereo_window(
             &rendered.left,
             &rendered.right,
@@ -2063,25 +2386,13 @@ fn analyze_stress(
     let clean_mute_range = signal
         .range(clean_mute_range_name)
         .ok_or_else(|| "stress fixture is missing its clean mute range".to_string())?;
-    let steady_bits = source_to_bit_range(
-        rendered.filter,
-        steady_range.frames(),
-        signal.sample_rate_hz,
-        rendered.wire_rate,
-    )?;
+    let steady_bits =
+        rendered_source_to_bit_range(rendered, steady_range.frames(), signal.sample_rate_hz)?;
     let transition_source = mute_range.start..recovery_range.end;
-    let transition_bits = source_to_bit_range(
-        rendered.filter,
-        transition_source,
-        signal.sample_rate_hz,
-        rendered.wire_rate,
-    )?;
-    let clean_mute_bits = source_to_bit_range(
-        rendered.filter,
-        clean_mute_range.frames(),
-        signal.sample_rate_hz,
-        rendered.wire_rate,
-    )?;
+    let transition_bits =
+        rendered_source_to_bit_range(rendered, transition_source, signal.sample_rate_hz)?;
+    let clean_mute_bits =
+        rendered_source_to_bit_range(rendered, clean_mute_range.frames(), signal.sample_rate_hz)?;
     let (steady_left, steady_right) = analysis::reconstruct_stereo_window(
         &rendered.left,
         &rendered.right,
@@ -2342,12 +2653,8 @@ fn analyze_hires(
     let source_range = signal
         .range(signals::HIRES_ANALYSIS_RANGE)
         .ok_or_else(|| "hi-res fixture is missing its analysis range".to_string())?;
-    let bits = source_to_bit_range(
-        rendered.filter,
-        source_range.frames(),
-        signal.sample_rate_hz,
-        rendered.wire_rate,
-    )?;
+    let bits =
+        rendered_source_to_bit_range(rendered, source_range.frames(), signal.sample_rate_hz)?;
     let (left, right) = analysis::reconstruct_stereo_window(
         &rendered.left,
         &rendered.right,
@@ -2436,6 +2743,39 @@ fn gate_channel(
             "{section} {channel} reconstructed peak {:.9} exceeded {:.3}",
             reconstructed_peak, RECONSTRUCTED_PEAK_LIMIT
         ));
+    }
+}
+
+fn rendered_source_to_bit_range(
+    rendered: &RenderedCell,
+    source: std::ops::Range<usize>,
+    source_rate: u32,
+) -> Result<std::ops::Range<usize>, String> {
+    if let Some(offset) = rendered.source_bit_offset {
+        let ratio = usize::try_from(rendered.wire_rate / source_rate)
+            .map_err(|_| "external source/DSD ratio does not fit usize")?;
+        if rendered.wire_rate % source_rate != 0 {
+            return Err("external source rate is not an integer divisor of DSD rate".into());
+        }
+        let start = source
+            .start
+            .checked_mul(ratio)
+            .and_then(|value| value.checked_add_signed(offset))
+            .ok_or_else(|| "external source-to-bit start overflowed")?;
+        let end = source
+            .end
+            .checked_mul(ratio)
+            .and_then(|value| value.checked_add_signed(offset))
+            .ok_or_else(|| "external source-to-bit end overflowed")?;
+        if start >= end || end > rendered.left.len().saturating_mul(8) {
+            return Err(format!(
+                "external source-to-bit range {start}..{end} exceeds {} bits",
+                rendered.left.len().saturating_mul(8)
+            ));
+        }
+        Ok(start..end)
+    } else {
+        source_to_bit_range(rendered.filter, source, source_rate, rendered.wire_rate)
     }
 }
 

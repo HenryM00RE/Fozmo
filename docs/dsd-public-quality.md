@@ -56,6 +56,8 @@ The CLI is intentionally narrow:
 --hires-only
 --standard-obg OBG
 --level-probe-dbfs LEVEL
+--external-upsampler PATH
+--external-preset PRESET
 ```
 
 `SplitPhase128kE2v3` is the canonical product filter exposed as Split Phase.
@@ -88,6 +90,40 @@ cargo run --locked --release --bin dsd_public_quality -- \
 support that filter, so no diagnostic EcBeam2 cell is invented. Diagnostic
 cells cannot make the canonical matrix complete or incomplete, affect scores,
 or affect the canonical `--check` result.
+
+## External-product EC DSD128 diagnostic
+
+`--external-upsampler` adds an unnamed external-product DSD128 diagnostic
+alongside ECBeam2. It requires `--rates 128` and `EcBeam2` in `--modulator`.
+The adapter writes the canonical fixtures as stereo float32 WAV, invokes the
+offline executable with its undocumented EC selector, validates a
+native stereo 5.6448 MHz DSF, reverses its LSB-first bytes to the bench's
+canonical MSB-first representation, and analyzes those bits with the same
+reconstruction and metrics as Fozmo.
+
+```powershell
+$env:RUSTFLAGS = "-C target-cpu=native"
+cargo run --locked --release --bin dsd_public_quality -- `
+  --out target/external-product-ec-vs-ecbeam2-dsd128 `
+  --modulator EcBeam2 `
+  --rates 128 `
+  --external-upsampler "C:\path\to\upsampler.exe" `
+  --external-preset megaextreme
+```
+
+Before running cells, the adapter renders an impulse twice to require native
+payload determinism and to measure the external product's source-to-bit timing offset. A
+separate settled 1 kHz render measures its fixed input calibration; the raw
+calibration is recorded as `coefficient_input_peak` and applied using the same
+decoder convention as Fozmo's declared modulator input peak.
+
+The external identity is reported as `ExternalProductEcInferred`: enabling its
+vendor-specific selector changes only the deterministic DSD payload, while the
+disabled selector matches the default, but the CLI does not print an explicit EC
+confirmation. The external product also exposes no internal reset/clamp/limiter telemetry,
+so external structural health covers observable file, density, reconstruction,
+and transition gates only. External cells are always diagnostic and cannot
+affect canonical completeness, scores, or `--check`.
 
 `--check` otherwise gates structural invariants. The presentation score is not
 a quality gate, and a structural `PASS` is not a claim that one modulator

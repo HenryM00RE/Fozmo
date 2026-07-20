@@ -82,3 +82,44 @@ below the deepest reported -120 dB timing threshold.
 Generated results belong under `target/` or `audio_tests/out/` and are not
 committed as a product quality baseline unless a separate review establishes a
 stable comparison contract.
+
+## External-product static-filter comparison
+
+`external_filter_bench` runs an external product's offline `upsampler.exe`
+against all four Fozmo production filters. The configured static set contains
+one linear-phase, one hybrid-phase, and one minimum-phase preset. Adaptive
+presets are deliberately excluded from this ranking.
+
+On Windows PowerShell, run:
+
+```powershell
+cargo run --locked --release --bin external_filter_bench -- `
+  --external-dir "C:\path\to\External-Upsampler" `
+  --out target/external-filter-comparison
+```
+
+The runner generates one canonical signed-PCM24 stimulus set and sends those
+encoded files to both engines at 44.1 to 176.4 kHz. Tone I/Q components are
+rendered as separate dual-mono files so stereo-linked processing cannot
+confound the envelope. External presets are rejected if the CLI reports its
+silent unknown-preset fallback. Silence and impulse repeats detect
+non-determinism; a same-length silence control is subtracted before analysis.
+
+The external CLI does not expose a floating-point output or a no-dither switch
+and reports one-LSB TPDF for PCM24 output. Its silence controls were digital
+zero in the validation run, but the -120 dB decay result remains sensitive to
+the PCM24 quantization floor. The JSON report preserves this limitation. Batch
+elapsed time is diagnostic only: it does not isolate startup, steady-state CPU,
+or peak memory.
+
+The static report also measures magnitude response relative to normalized DC:
+5/10/15/18/20 kHz gain, passband ripple, upper-band gain through source
+Nyquist, cutoff landmarks, transition width to the first -100 dB crossing, and
+both broad-stopband and first-image rejection. A first -100 dB crossing does
+not assert that the rest of the stopband remains below -100 dB; use the
+rejection columns for that question.
+
+This is not yet the complete Pareto comparison. Controlled runtime/memory,
+adaptive adversarial stimuli, and native 1-bit DSD capture must be reported
+separately. In particular, adaptive presets must not be inserted into the
+static-filter ranking.

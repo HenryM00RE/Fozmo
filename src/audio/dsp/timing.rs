@@ -30,6 +30,29 @@ pub struct GroupDelayPoint {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct MagnitudeResponseMetrics {
+    pub gain_5khz_db_dc: f64,
+    pub gain_10khz_db_dc: f64,
+    pub gain_15khz_db_dc: f64,
+    pub gain_18khz_db_dc: f64,
+    pub gain_20khz_db_dc: f64,
+    pub gain_20_5khz_db_dc: f64,
+    pub gain_21khz_db_dc: f64,
+    pub gain_21_5khz_db_dc: f64,
+    pub gain_22khz_db_dc: f64,
+    pub gain_22_05khz_db_dc: f64,
+    pub passband_ripple_20hz_18khz_db: f64,
+    pub passband_ripple_20hz_20khz_db: f64,
+    pub bandwidth_minus_0_1_db_hz: Option<f64>,
+    pub bandwidth_minus_1_db_hz: Option<f64>,
+    pub bandwidth_minus_3_db_hz: Option<f64>,
+    pub bandwidth_minus_6_db_hz: Option<f64>,
+    pub transition_minus_0_1_to_minus_100_db_hz: Option<f64>,
+    pub stopband_rejection_24_1khz_to_nyquist_db: f64,
+    pub first_image_rejection_24_1khz_to_64_1khz_db: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct PacketTimingMetrics {
     pub frequency_hz: f64,
     pub cycles: f64,
@@ -180,6 +203,83 @@ pub fn group_delay_curve(
             })
         })
         .collect()
+}
+
+pub fn magnitude_response_metrics(response: &[f64], output_rate: f64) -> MagnitudeResponseMetrics {
+    assert!(!response.is_empty());
+    assert!(output_rate > 0.0);
+    let fft_len = response.len().next_power_of_two().max(1024);
+    let mut planner = RealFftPlanner::<f64>::new();
+    let fft = planner.plan_fft_forward(fft_len);
+    let mut input = fft.make_input_vec();
+    input[..response.len()].copy_from_slice(response);
+    let mut spectrum = fft.make_output_vec();
+    fft.process(&mut input, &mut spectrum)
+        .expect("real FFT dimensions should match");
+    let dc = spectrum[0].norm().max(f64::MIN_POSITIVE);
+    let bin_hz = output_rate / fft_len as f64;
+    let magnitude_db: Vec<f64> = spectrum
+        .iter()
+        .map(|value| amplitude_ratio_db(value.norm(), dc))
+        .collect();
+    let gain = |frequency: f64| -> f64 {
+        let index = (frequency / bin_hz).round() as usize;
+        magnitude_db[index.min(magnitude_db.len() - 1)]
+    };
+    let ripple = |low: f64, high: f64| -> f64 {
+        let first = (low / bin_hz).ceil() as usize;
+        let last = ((high / bin_hz).floor() as usize).min(magnitude_db.len() - 1);
+        let band = &magnitude_db[first.min(last)..=last];
+        band.iter().copied().fold(f64::NEG_INFINITY, f64::max)
+            - band.iter().copied().fold(f64::INFINITY, f64::min)
+    };
+    let crossing = |threshold: f64| -> Option<f64> {
+        let first = (10_000.0 / bin_hz).floor() as usize;
+        (first + 1..magnitude_db.len()).find_map(|index| {
+            let before = magnitude_db[index - 1];
+            let after = magnitude_db[index];
+            if before > threshold && after <= threshold {
+                let fraction = (threshold - before) / (after - before);
+                Some((index as f64 - 1.0 + fraction) * bin_hz)
+            } else {
+                None
+            }
+        })
+    };
+    let rejection = |low: f64, high: f64| -> f64 {
+        let first = (low / bin_hz).ceil() as usize;
+        let last = ((high / bin_hz).floor() as usize).min(magnitude_db.len() - 1);
+        -magnitude_db[first.min(last)..=last]
+            .iter()
+            .copied()
+            .fold(f64::NEG_INFINITY, f64::max)
+    };
+    let edge_0_1 = crossing(-0.1);
+    let edge_100 = crossing(-100.0);
+
+    MagnitudeResponseMetrics {
+        gain_5khz_db_dc: gain(5_000.0),
+        gain_10khz_db_dc: gain(10_000.0),
+        gain_15khz_db_dc: gain(15_000.0),
+        gain_18khz_db_dc: gain(18_000.0),
+        gain_20khz_db_dc: gain(20_000.0),
+        gain_20_5khz_db_dc: gain(20_500.0),
+        gain_21khz_db_dc: gain(21_000.0),
+        gain_21_5khz_db_dc: gain(21_500.0),
+        gain_22khz_db_dc: gain(22_000.0),
+        gain_22_05khz_db_dc: gain(22_050.0),
+        passband_ripple_20hz_18khz_db: ripple(20.0, 18_000.0),
+        passband_ripple_20hz_20khz_db: ripple(20.0, 20_000.0),
+        bandwidth_minus_0_1_db_hz: edge_0_1,
+        bandwidth_minus_1_db_hz: crossing(-1.0),
+        bandwidth_minus_3_db_hz: crossing(-3.0),
+        bandwidth_minus_6_db_hz: crossing(-6.0),
+        transition_minus_0_1_to_minus_100_db_hz: edge_0_1
+            .zip(edge_100)
+            .map(|(start, stop)| stop - start),
+        stopband_rejection_24_1khz_to_nyquist_db: rejection(24_100.0, output_rate * 0.5),
+        first_image_rejection_24_1khz_to_64_1khz_db: rejection(24_100.0, 64_100.0),
+    }
 }
 
 pub fn analyze_quadrature_packet(
@@ -365,14 +465,14 @@ fn main_lobe(response: &[f64], peak: usize) -> MainLobe {
     let peak_sign = response[peak].signum();
     let mut left = 0.0;
     for index in (1..=peak).rev() {
-        if response[index - 1].signum() != peak_sign {
+        if response[index - 1] == 0.0 || response[index - 1].signum() != peak_sign {
             left = interpolated_zero(index - 1, response[index - 1], index, response[index]);
             break;
         }
     }
     let mut right = response.len().saturating_sub(1) as f64;
     for index in peak..response.len().saturating_sub(1) {
-        if response[index + 1].signum() != peak_sign {
+        if response[index + 1] == 0.0 || response[index + 1].signum() != peak_sign {
             right = interpolated_zero(index, response[index], index + 1, response[index + 1]);
             break;
         }
@@ -465,12 +565,29 @@ mod tests {
     }
 
     #[test]
+    fn digital_zero_bounds_a_causal_main_lobe() {
+        let metrics = analyze_impulse(&[0.0, 0.0, 0.5, 1.0, 0.5, 0.0, -0.1], 1_000.0);
+        assert!((metrics.main_lobe_width_us - 4_000.0).abs() < 1e-12);
+        assert_eq!(metrics.maximum_pre_ringing_lobe_db_peak, -300.0);
+        assert_eq!(metrics.maximum_post_ringing_lobe_db_peak, -20.0);
+    }
+
+    #[test]
     fn group_delay_of_delayed_unit_impulse_matches_peak() {
         let mut impulse = vec![0.0; 256];
         impulse[37] = 1.0;
         let point = group_delay_curve(&impulse, 48_000.0, 37, &[10_000.0]).remove(0);
         assert!((point.absolute_group_delay_ms - 37.0 / 48_000.0 * 1000.0).abs() < 1e-9);
         assert!(point.group_delay_relative_to_peak_ms.abs() < 1e-9);
+    }
+
+    #[test]
+    fn unit_impulse_has_flat_magnitude_response() {
+        let metrics = magnitude_response_metrics(&[1.0], 176_400.0);
+        assert!(metrics.gain_20khz_db_dc.abs() < 1e-12);
+        assert!(metrics.passband_ripple_20hz_20khz_db.abs() < 1e-12);
+        assert!(metrics.bandwidth_minus_3_db_hz.is_none());
+        assert!(metrics.first_image_rejection_24_1khz_to_64_1khz_db.abs() < 1e-12);
     }
 
     #[test]
