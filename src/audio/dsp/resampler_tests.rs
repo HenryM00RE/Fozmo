@@ -3074,6 +3074,24 @@ fn planner_routes_split_phase_e2v3_to_its_experimental_bundle() {
 }
 
 #[test]
+fn planner_extends_split_phase_e2v3_to_512x_with_terminal_cleanup() {
+    let plan =
+        build_integer_stage_plan(44_100, 22_579_200, FilterType::SplitPhase128kE2v3, 1_000.0)
+            .expect("Split Phase E2v3 512x plan");
+    assert_eq!(plan.stages.len(), 9);
+    assert!(matches!(
+        plan.stages[8],
+        StageSpec::CleanupHalfband2x {
+            coefficient_source: CleanupCoefficientSource::Frozen {
+                version: FrozenFilterVersion::E2v3,
+                stage_index: 7,
+            },
+            ..
+        }
+    ));
+}
+
+#[test]
 fn split_phase_v4_generated_constants_match_embedded_assets() {
     let assets = split_phase_v4_assets();
     assert_eq!(

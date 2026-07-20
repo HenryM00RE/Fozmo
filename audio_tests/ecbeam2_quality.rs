@@ -551,6 +551,9 @@ fn sweep_rate_from_dsd_rate(rate: DsdRate) -> Ec2SweepRate {
         DsdRate::Dsd64 => Ec2SweepRate::Dsd64,
         DsdRate::Dsd128 => Ec2SweepRate::Dsd128,
         DsdRate::Dsd256 => Ec2SweepRate::Dsd256,
+        DsdRate::Dsd512 | DsdRate::Dsd1024 => {
+            unreachable!("ECBeam2 research has no DSD512/1024 rate")
+        }
     }
 }
 
@@ -694,6 +697,9 @@ fn set_ec_beam_terminal_weight_for_dsd_rate(
         DsdRate::Dsd64 => config.with_dsd64_ec_beam_terminal_weight(weight),
         DsdRate::Dsd128 => config.with_dsd128_ec_beam_terminal_weight(weight),
         DsdRate::Dsd256 => config.with_dsd256_ec_beam_terminal_weight(weight),
+        DsdRate::Dsd512 | DsdRate::Dsd1024 => {
+            Err("ECBeam research supports only DSD64/128/256".to_string())
+        }
     }
 }
 
@@ -706,6 +712,9 @@ fn set_ec_beam_alternation_weight_for_dsd_rate(
         DsdRate::Dsd64 => config.with_dsd64_ec_beam_alternation_weight(weight),
         DsdRate::Dsd128 => config.with_dsd128_ec_beam_alternation_weight(weight),
         DsdRate::Dsd256 => config.with_dsd256_ec_beam_alternation_weight(weight),
+        DsdRate::Dsd512 | DsdRate::Dsd1024 => {
+            Err("ECBeam research supports only DSD64/128/256".to_string())
+        }
     }
 }
 
@@ -718,6 +727,9 @@ fn set_ec_beam_alternation_rank_weight_for_dsd_rate(
         DsdRate::Dsd64 => config.with_dsd64_ec_beam_alternation_rank_weight(weight),
         DsdRate::Dsd128 => config.with_dsd128_ec_beam_alternation_rank_weight(weight),
         DsdRate::Dsd256 => config.with_dsd256_ec_beam_alternation_rank_weight(weight),
+        DsdRate::Dsd512 | DsdRate::Dsd1024 => {
+            Err("ECBeam research supports only DSD64/128/256".to_string())
+        }
     }
 }
 
@@ -730,6 +742,9 @@ fn set_ec_beam_alternation_threshold_for_dsd_rate(
         DsdRate::Dsd64 => config.with_dsd64_ec_beam_alternation_threshold(threshold),
         DsdRate::Dsd128 => config.with_dsd128_ec_beam_alternation_threshold(threshold),
         DsdRate::Dsd256 => config.with_dsd256_ec_beam_alternation_threshold(threshold),
+        DsdRate::Dsd512 | DsdRate::Dsd1024 => {
+            Err("ECBeam research supports only DSD64/128/256".to_string())
+        }
     }
 }
 
@@ -742,6 +757,9 @@ fn set_ec_beam_periodicity_weight_for_dsd_rate(
         DsdRate::Dsd64 => config.with_dsd64_ec_beam_periodicity_weight(weight),
         DsdRate::Dsd128 => config.with_dsd128_ec_beam_periodicity_weight(weight),
         DsdRate::Dsd256 => config.with_dsd256_ec_beam_periodicity_weight(weight),
+        DsdRate::Dsd512 | DsdRate::Dsd1024 => {
+            Err("ECBeam research supports only DSD64/128/256".to_string())
+        }
     }
 }
 
@@ -754,6 +772,9 @@ fn set_ec_beam_periodicity_lags_for_dsd_rate(
         DsdRate::Dsd64 => config.with_dsd64_ec_beam_periodicity_lags(lags),
         DsdRate::Dsd128 => config.with_dsd128_ec_beam_periodicity_lags(lags),
         DsdRate::Dsd256 => config.with_dsd256_ec_beam_periodicity_lags(lags),
+        DsdRate::Dsd512 | DsdRate::Dsd1024 => {
+            Err("ECBeam research supports only DSD64/128/256".to_string())
+        }
     }
 }
 
@@ -766,6 +787,9 @@ fn set_ec_beam_periodicity_window_for_dsd_rate(
         DsdRate::Dsd64 => config.with_dsd64_ec_beam_periodicity_window(window),
         DsdRate::Dsd128 => config.with_dsd128_ec_beam_periodicity_window(window),
         DsdRate::Dsd256 => config.with_dsd256_ec_beam_periodicity_window(window),
+        DsdRate::Dsd512 | DsdRate::Dsd1024 => {
+            Err("ECBeam research supports only DSD64/128/256".to_string())
+        }
     }
 }
 
@@ -778,6 +802,9 @@ fn set_ec_beam_filtered_error_weight_for_dsd_rate(
         DsdRate::Dsd64 => config.with_dsd64_ec_beam_filtered_error_weight(weight),
         DsdRate::Dsd128 => config.with_dsd128_ec_beam_filtered_error_weight(weight),
         DsdRate::Dsd256 => config.with_dsd256_ec_beam_filtered_error_weight(weight),
+        DsdRate::Dsd512 | DsdRate::Dsd1024 => {
+            Err("ECBeam research supports only DSD64/128/256".to_string())
+        }
     }
 }
 
@@ -790,6 +817,9 @@ fn set_ec_beam_filtered_error_rank_weight_for_dsd_rate(
         DsdRate::Dsd64 => config.with_dsd64_ec_beam_filtered_error_rank_weight(weight),
         DsdRate::Dsd128 => config.with_dsd128_ec_beam_filtered_error_rank_weight(weight),
         DsdRate::Dsd256 => config.with_dsd256_ec_beam_filtered_error_rank_weight(weight),
+        DsdRate::Dsd512 | DsdRate::Dsd1024 => {
+            Err("ECBeam research supports only DSD64/128/256".to_string())
+        }
     }
 }
 
@@ -802,6 +832,9 @@ fn set_ec_beam_reconstruction_error_weight_for_dsd_rate(
         DsdRate::Dsd64 => config.with_dsd64_ec_beam_reconstruction_error_weight(weight),
         DsdRate::Dsd128 => config.with_dsd128_ec_beam_reconstruction_error_weight(weight),
         DsdRate::Dsd256 => config.with_dsd256_ec_beam_reconstruction_error_weight(weight),
+        DsdRate::Dsd512 | DsdRate::Dsd1024 => {
+            Err("ECBeam research supports only DSD64/128/256".to_string())
+        }
     }
 }
 
@@ -814,6 +847,9 @@ fn set_ec_beam_pressure_deadzone_for_dsd_rate(
         DsdRate::Dsd64 => config.with_dsd64_ec_beam_pressure_deadzone(deadzone),
         DsdRate::Dsd128 => config.with_dsd128_ec_beam_pressure_deadzone(deadzone),
         DsdRate::Dsd256 => config.with_dsd256_ec_beam_pressure_deadzone(deadzone),
+        DsdRate::Dsd512 | DsdRate::Dsd1024 => {
+            Err("ECBeam research supports only DSD64/128/256".to_string())
+        }
     }
 }
 
@@ -826,6 +862,9 @@ fn set_ec_beam_metric_diagnostics_for_dsd_rate(
         DsdRate::Dsd64 => config.with_dsd64_ec_beam_metric_diagnostics(enabled),
         DsdRate::Dsd128 => config.with_dsd128_ec_beam_metric_diagnostics(enabled),
         DsdRate::Dsd256 => config.with_dsd256_ec_beam_metric_diagnostics(enabled),
+        DsdRate::Dsd512 | DsdRate::Dsd1024 => {
+            unreachable!("ECBeam research has no DSD512/1024 rate")
+        }
     }
 }
 
@@ -844,7 +883,7 @@ fn set_ec_beam_auxiliary_metric_scales_for_dsd_rate(
             dc_accum_scale,
             dc_rank_scale,
         ),
-        DsdRate::Dsd128 | DsdRate::Dsd256 => {
+        DsdRate::Dsd128 | DsdRate::Dsd256 | DsdRate::Dsd512 | DsdRate::Dsd1024 => {
             Err("beam auxiliary metric scales are only wired for DSD64".to_string())
         }
     }

@@ -15,6 +15,11 @@ use analysis::{
 };
 use clap::Parser;
 use fozmo::audio::dsd::delta_sigma::DsdModulator;
+use fozmo::audio::dsd::dsd_coeffs::{
+    CRFB_OSR512_OBG120, CRFB_OSR512_OBG130, CRFB_OSR512_OBG140, CRFB_OSR512_OBG145,
+    CRFB_OSR512_OBG150, CRFB_OSR512_OBG160, CRFB_OSR1024_OBG140, CRFB_OSR1024_OBG150,
+    CRFB_OSR1024_OBG160, ModulatorCoeffs,
+};
 use fozmo::audio::dsd::dsd_render::{
     DSD_PRODUCTION_POLICY_VERSION, DsdRate, DsdRenderer, dsd_source_window_to_modulator_samples,
 };
@@ -68,7 +73,7 @@ struct Cli {
     #[arg(long, default_value = "SplitPhase128kE2v3")]
     filter: String,
 
-    /// Comma-separated DSD rates to exercise: 64, 128, and/or 256.
+    /// Comma-separated DSD rates to exercise. DSD512/1024 are Standard-only diagnostics.
     #[arg(long, default_value = "64,128,256")]
     rates: String,
 
@@ -83,6 +88,18 @@ struct Cli {
     /// Run only DSD256 cells.
     #[arg(long)]
     dsd256_only: bool,
+
+    /// Run only hi-res reconstruction cells from the selected rates.
+    #[arg(long)]
+    hires_only: bool,
+
+    /// Measurement-only Standard coefficient OBG override (DSD512 also supports 1.45).
+    #[arg(long)]
+    standard_obg: Option<f64>,
+
+    /// Run only one coherent level section (-6, -20, -60, or -100 dBFS).
+    #[arg(long)]
+    level_probe_dbfs: Option<f64>,
 
     /// Return a non-zero status when any structural hard gate fails.
     #[arg(long)]
@@ -521,6 +538,7 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
     let selected = parse_modulators(&cli.modulator)?;
     let selected_filter = parse_filter(&cli.filter)?;
     let selected_rates = parse_rates(&cli.rates)?;
+    validate_tuning_options(&cli, &selected, &selected_rates)?;
     let mut matrix = build_matrix(
         &selected,
         cli.include_linear_reference,
@@ -532,6 +550,12 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
     }
     if cli.dsd256_only {
         matrix.retain(|cell| cell.dsd_rate == DsdRate::Dsd256);
+    }
+    if cli.hires_only {
+        matrix.retain(|cell| cell.scenario == Scenario::HiresReconstruction);
+    }
+    if cli.level_probe_dbfs.is_some() {
+        matrix.retain(|cell| cell.scenario == Scenario::LevelSweep);
     }
     let mut selected_filters = Vec::new();
     for cell in &matrix {
@@ -556,7 +580,8 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
             dsd_rate_name(spec.dsd_rate),
             spec.modulator.as_name()
         );
-        match run_cell(spec) {
+        let coeffs_override = standard_coeffs_override(spec, cli.standard_obg)?;
+        match run_cell(spec, cli.level_probe_dbfs, coeffs_override) {
             Ok(cell) => cells.push(cell),
             Err(error) => {
                 if spec.diagnostic {
@@ -831,9 +856,11 @@ fn parse_rates(value: &str) -> Result<Vec<DsdRate>, String> {
             "64" | "dsd64" => DsdRate::Dsd64,
             "128" | "dsd128" => DsdRate::Dsd128,
             "256" | "dsd256" => DsdRate::Dsd256,
+            "512" | "dsd512" => DsdRate::Dsd512,
+            "1024" | "dsd1024" => DsdRate::Dsd1024,
             _ => {
                 return Err(format!(
-                    "unsupported DSD rate {token}; use 64, 128, and/or 256"
+                    "unsupported DSD rate {token}; use 64, 128, 256, 512, and/or 1024"
                 ));
             }
         };
@@ -845,6 +872,60 @@ fn parse_rates(value: &str) -> Result<Vec<DsdRate>, String> {
         return Err("--rates must select at least one DSD rate".to_string());
     }
     Ok(rates)
+}
+
+fn validate_tuning_options(
+    cli: &Cli,
+    modulators: &[DsdModulator],
+    rates: &[DsdRate],
+) -> Result<(), String> {
+    if cli.standard_obg.is_some()
+        && (modulators != [DsdModulator::Standard]
+            || rates
+                .iter()
+                .any(|rate| !matches!(rate, DsdRate::Dsd512 | DsdRate::Dsd1024)))
+    {
+        return Err("--standard-obg requires Standard only and DSD512 and/or DSD1024".to_string());
+    }
+    if let Some(level) = cli.level_probe_dbfs
+        && !signals::LEVEL_SWEEP_EFFECTIVE_DBFS
+            .iter()
+            .any(|candidate| (candidate - level).abs() < 1.0e-12)
+    {
+        return Err("--level-probe-dbfs must be -6, -20, -60, or -100".to_string());
+    }
+    if cli.hires_only && cli.level_probe_dbfs.is_some() {
+        return Err("--hires-only and --level-probe-dbfs cannot be combined".to_string());
+    }
+    Ok(())
+}
+
+fn standard_coeffs_override(
+    spec: CellSpec,
+    obg: Option<f64>,
+) -> Result<Option<&'static ModulatorCoeffs>, String> {
+    let Some(obg) = obg else {
+        return Ok(None);
+    };
+    let matches = |candidate: f64| (candidate - obg).abs() < 1.0e-12;
+    let coeffs = match spec.dsd_rate {
+        DsdRate::Dsd512 if matches(1.20) => &CRFB_OSR512_OBG120,
+        DsdRate::Dsd512 if matches(1.30) => &CRFB_OSR512_OBG130,
+        DsdRate::Dsd512 if matches(1.40) => &CRFB_OSR512_OBG140,
+        DsdRate::Dsd512 if matches(1.45) => &CRFB_OSR512_OBG145,
+        DsdRate::Dsd512 if matches(1.50) => &CRFB_OSR512_OBG150,
+        DsdRate::Dsd512 if matches(1.60) => &CRFB_OSR512_OBG160,
+        DsdRate::Dsd1024 if matches(1.40) => &CRFB_OSR1024_OBG140,
+        DsdRate::Dsd1024 if matches(1.50) => &CRFB_OSR1024_OBG150,
+        DsdRate::Dsd1024 if matches(1.60) => &CRFB_OSR1024_OBG160,
+        _ => {
+            return Err(format!(
+                "no measurement Standard OBG {obg:.3} table for {}",
+                dsd_rate_name(spec.dsd_rate)
+            ));
+        }
+    };
+    Ok(Some(coeffs))
 }
 
 fn build_matrix(
@@ -914,6 +995,29 @@ fn build_matrix(
                     modulator,
                     filter,
                     diagnostic,
+                });
+            }
+        }
+        for dsd_rate in [DsdRate::Dsd512, DsdRate::Dsd1024]
+            .into_iter()
+            .filter(|rate| rates.contains(rate))
+        {
+            if selected.contains(&DsdModulator::Standard) {
+                matrix.push(CellSpec {
+                    scenario: Scenario::LevelSweep,
+                    source_rate: signals::SOURCE_RATE_44K1_HZ,
+                    dsd_rate,
+                    modulator: DsdModulator::Standard,
+                    filter,
+                    diagnostic: true,
+                });
+                matrix.push(CellSpec {
+                    scenario: Scenario::HiresReconstruction,
+                    source_rate: signals::SOURCE_RATE_176K4_HZ,
+                    dsd_rate,
+                    modulator: DsdModulator::Standard,
+                    filter,
+                    diagnostic: true,
                 });
             }
         }
@@ -1410,12 +1514,19 @@ fn average(values: impl IntoIterator<Item = f64>, label: &str) -> Result<f64, St
     Ok(values.iter().sum::<f64>() / values.len() as f64)
 }
 
-fn run_cell(spec: CellSpec) -> Result<CellReport, String> {
+fn run_cell(
+    spec: CellSpec,
+    level_probe_dbfs: Option<f64>,
+    coeffs_override: Option<&'static ModulatorCoeffs>,
+) -> Result<CellReport, String> {
     let headroom_db = headroom_db(spec.modulator);
     let filter = spec.filter;
     let filter_guard_frames = filter_guard_frames(filter);
     let signal = match spec.scenario {
-        Scenario::LevelSweep => signals::coherent_level_sweep(headroom_db, filter_guard_frames),
+        Scenario::LevelSweep => match level_probe_dbfs {
+            Some(level) => signals::coherent_level_probe(headroom_db, filter_guard_frames, level),
+            None => signals::coherent_level_sweep(headroom_db, filter_guard_frames),
+        },
         Scenario::IdleTinySignal => signals::idle_tiny_signal(headroom_db, filter_guard_frames),
         Scenario::HighFrequencyRatedStress => {
             signals::high_frequency_stress(headroom_db, filter_guard_frames)
@@ -1430,7 +1541,13 @@ fn run_cell(spec: CellSpec) -> Result<CellReport, String> {
         return Err("fixture source rate does not match matrix".to_string());
     }
     let profile = profile_for(spec.scenario);
-    let rendered = render_signal(&signal, spec.dsd_rate, spec.modulator, filter)?;
+    let rendered = render_signal(
+        &signal,
+        spec.dsd_rate,
+        spec.modulator,
+        filter,
+        coeffs_override,
+    )?;
     let mut hard_failures = rendered.hard_failures.clone();
     let (measurements, mut structural_summary) = match spec.scenario {
         Scenario::LevelSweep => {
@@ -1488,6 +1605,7 @@ fn render_signal(
     dsd_rate: DsdRate,
     modulator: DsdModulator,
     filter: FilterType,
+    coeffs_override: Option<&'static ModulatorCoeffs>,
 ) -> Result<RenderedCell, String> {
     signal.validate().map_err(|error| error.to_string())?;
     analysis::validate_finite(&signal.left, "left source")?;
@@ -1504,9 +1622,14 @@ fn render_signal(
         return Err("fixed matrix unexpectedly produced a partial native byte".to_string());
     }
     let expected_bytes = expected_bits / 8;
-    let mut renderer =
-        DsdRenderer::new_with_dsd_modulator(filter, signal.sample_rate_hz, dsd_rate, modulator)
-            .map_err(str::to_string)?;
+    let mut renderer = DsdRenderer::new_with_dsd_modulator_and_coeffs(
+        filter,
+        signal.sample_rate_hz,
+        dsd_rate,
+        modulator,
+        coeffs_override,
+    )
+    .map_err(str::to_string)?;
     renderer.set_native_order(NativeDsdOrder::MsbFirst);
     let input_gain = 10.0f64.powf(signal.headroom_db / 20.0);
     let mut left = Vec::with_capacity(expected_bytes);
@@ -2383,6 +2506,8 @@ fn dsd_rate_name(rate: DsdRate) -> &'static str {
         DsdRate::Dsd64 => "DSD64",
         DsdRate::Dsd128 => "DSD128",
         DsdRate::Dsd256 => "DSD256",
+        DsdRate::Dsd512 => "DSD512",
+        DsdRate::Dsd1024 => "DSD1024",
     }
 }
 
@@ -3040,6 +3165,39 @@ mod tests {
     }
 
     #[test]
+    fn high_rate_matrix_is_standard_only_and_diagnostic() {
+        let matrix = build_matrix(
+            &[
+                DsdModulator::Standard,
+                DsdModulator::EcDepth2,
+                DsdModulator::EcBeam,
+                DsdModulator::EcBeam2,
+            ],
+            false,
+            DEFAULT_FILTER_TYPE,
+            &[DsdRate::Dsd512, DsdRate::Dsd1024],
+        );
+        assert_eq!(matrix.len(), 4);
+        assert!(
+            matrix
+                .iter()
+                .all(|cell| { cell.modulator == DsdModulator::Standard && cell.diagnostic })
+        );
+        for rate in [DsdRate::Dsd512, DsdRate::Dsd1024] {
+            assert!(
+                matrix
+                    .iter()
+                    .any(|cell| { cell.dsd_rate == rate && cell.scenario == Scenario::LevelSweep })
+            );
+            assert!(matrix.iter().any(|cell| {
+                cell.dsd_rate == rate
+                    && cell.scenario == Scenario::HiresReconstruction
+                    && cell.source_rate == signals::SOURCE_RATE_176K4_HZ
+            }));
+        }
+    }
+
+    #[test]
     fn rate_comparison_adds_a_noncanonical_dsd128_hires_cell_per_selected_modulator() {
         let selected = [DsdModulator::Standard, DsdModulator::EcBeam2];
         let mut matrix = build_matrix(
@@ -3079,8 +3237,13 @@ mod tests {
         );
         assert!(parse_filter("Linear").is_err());
         assert_eq!(
-            parse_rates("64,128").unwrap(),
-            vec![DsdRate::Dsd64, DsdRate::Dsd128]
+            parse_rates("64,128,512,1024").unwrap(),
+            vec![
+                DsdRate::Dsd64,
+                DsdRate::Dsd128,
+                DsdRate::Dsd512,
+                DsdRate::Dsd1024,
+            ]
         );
         assert!(parse_rates("").is_err());
         assert!(
@@ -3096,6 +3259,38 @@ mod tests {
         assert!(Cli::try_parse_from(["dsd_public_quality", "--include-linear-reference"]).is_ok());
         assert!(Cli::try_parse_from(["dsd_public_quality", "--include-rate-comparison"]).is_ok());
         assert!(Cli::try_parse_from(["dsd_public_quality", "--dsd256-only"]).is_ok());
+        assert!(Cli::try_parse_from(["dsd_public_quality", "--hires-only"]).is_ok());
+        assert!(
+            Cli::try_parse_from([
+                "dsd_public_quality",
+                "--rates",
+                "512",
+                "--modulator",
+                "Standard",
+                "--standard-obg",
+                "1.5",
+                "--level-probe-dbfs=-60",
+            ])
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn dsd512_standard_tuning_tables_are_explicit() {
+        let spec = CellSpec {
+            scenario: Scenario::LevelSweep,
+            source_rate: signals::SOURCE_RATE_44K1_HZ,
+            dsd_rate: DsdRate::Dsd512,
+            modulator: DsdModulator::Standard,
+            filter: DEFAULT_FILTER_TYPE,
+            diagnostic: true,
+        };
+        for obg in [1.20, 1.30, 1.40, 1.45, 1.50, 1.60] {
+            let selected = standard_coeffs_override(spec, Some(obg)).unwrap().unwrap();
+            assert_eq!(selected.osr, 512);
+            assert!((selected.obg - obg).abs() < 1.0e-12);
+        }
+        assert!(standard_coeffs_override(spec, Some(1.55)).is_err());
     }
 
     #[test]

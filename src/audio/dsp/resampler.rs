@@ -864,7 +864,7 @@ impl SincResampler {
     ) -> Self {
         let planned_path = integer_ratio(source_rate, target_rate)
             .and_then(|ratio| {
-                if ratio.is_power_of_two() && ratio > 1 && ratio <= 256 {
+                if ratio.is_power_of_two() && ratio > 1 && ratio <= 512 {
                     build_integer_stage_plan(
                         source_rate,
                         target_rate,
@@ -1185,7 +1185,7 @@ pub fn build_integer_stage_plan(
         return Err(StagePlanError::InvalidRate);
     }
     let ratio = integer_ratio(source_rate, target_rate).ok_or(StagePlanError::NonIntegerRatio)?;
-    if !ratio.is_power_of_two() || !(2..=256).contains(&ratio) {
+    if !ratio.is_power_of_two() || !(2..=512).contains(&ratio) {
         return Err(StagePlanError::UnsupportedIntegerRatio(ratio));
     }
 
@@ -1474,7 +1474,12 @@ fn cleanup_stage_spec(stage_idx: usize, family: FilterType) -> StageSpec {
         coefficient_source: if let Some(version) = family.frozen_filter_version() {
             CleanupCoefficientSource::Frozen {
                 version,
-                stage_index: stage_idx as u8,
+                // Frozen bundles were certified through 256x (seven cleanup
+                // stages). At 512x, reuse the terminal halfband: the audio
+                // band occupies half its former normalized width, so this is
+                // a conservative extension of the certified response rather
+                // than a looser procedural fallback.
+                stage_index: stage_idx.min(7) as u8,
             }
         } else {
             CleanupCoefficientSource::Procedural

@@ -68,6 +68,16 @@ fn linear128k_renders_every_selectable_modulator() {
 }
 
 #[test]
+fn standard_modulator_renders_measurement_only_high_rates() {
+    for rate in [DsdRate::Dsd512, DsdRate::Dsd1024] {
+        let (left, right) =
+            render_native_bits(DsdModulator::Standard, FilterType::Minimum16k, rate);
+        assert!(!left.is_empty(), "{rate:?} produced no DSD");
+        assert_eq!(left.len(), right.len(), "{rate:?} channel lengths");
+    }
+}
+
+#[test]
 fn stale_persisted_modulator_aliases_normalize_to_standard() {
     for name in [
         "EcDepth1",

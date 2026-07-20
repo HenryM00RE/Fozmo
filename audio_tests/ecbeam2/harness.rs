@@ -1216,6 +1216,9 @@ impl DsdExperimentConfig {
                 ..DsdExperimentTweaks::default()
             },
             (DsdRate::Dsd256, _) => self.dsd256_tweaks,
+            (DsdRate::Dsd512 | DsdRate::Dsd1024, _) => {
+                unreachable!("ECBeam2 harness has no DSD512/1024 matrix")
+            }
         };
         if dsd_modulator.is_adaptive() {
             tweaks.ec4a_decision_trace_window_bits = self.ec4a_decision_trace_window_bits;
@@ -13622,6 +13625,8 @@ fn dsd_rate_name(rate: DsdRate) -> &'static str {
         DsdRate::Dsd64 => "DSD64",
         DsdRate::Dsd128 => "DSD128",
         DsdRate::Dsd256 => "DSD256",
+        DsdRate::Dsd512 => "DSD512",
+        DsdRate::Dsd1024 => "DSD1024",
     }
 }
 

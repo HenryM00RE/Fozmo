@@ -11,6 +11,7 @@ use fozmo::audio::dsd::dsd_coeffs::{
 use fozmo::audio::dsd::dsd_render::{DSD64_EC_BEAM_A1_PRESSURE_STAGE_WEIGHTS, DsdRate};
 
 const AUDIO_SECONDS: f64 = 1.0;
+const HIGH_RATE_AUDIO_SECONDS: f64 = 0.25;
 const WARMUP_PASSES: usize = 2;
 const MEASURED_PASSES: usize = 5;
 
@@ -108,6 +109,26 @@ fn main() {
         BenchCase {
             name: "Standard DSD256",
             dsd_rate: DsdRate::Dsd256,
+            modulator: DsdModulator::Standard,
+            ec2_policy: None,
+            beam: None,
+            beam_dither_scale: None,
+            coeffs_override: None,
+            a1_beam: false,
+        },
+        BenchCase {
+            name: "Standard DSD512",
+            dsd_rate: DsdRate::Dsd512,
+            modulator: DsdModulator::Standard,
+            ec2_policy: None,
+            beam: None,
+            beam_dither_scale: None,
+            coeffs_override: None,
+            a1_beam: false,
+        },
+        BenchCase {
+            name: "Standard DSD1024",
+            dsd_rate: DsdRate::Dsd1024,
             modulator: DsdModulator::Standard,
             ec2_policy: None,
             beam: None,
@@ -264,6 +285,9 @@ fn main() {
 
     println!("DSD modulator benchmark");
     println!("  input: {AUDIO_SECONDS:.1}s synthetic DSD-rate mono stream");
+    println!(
+        "  DSD512/1024 input: {HIGH_RATE_AUDIO_SECONDS:.2}s (core percentage normalized to real time)"
+    );
     if let Some(filter) = &case_filter {
         println!("  case filter: {filter}");
     }
@@ -282,9 +306,15 @@ fn main() {
         }
         let coeffs = case
             .coeffs_override
-            .unwrap_or_else(|| case.dsd_rate.coeffs_for_mode(case.modulator.mode()));
+            .or_else(|| case.dsd_rate.coeffs_for_mode(case.modulator.mode()))
+            .expect("benchmark case has a calibrated coefficient table");
         let wire_rate = case.dsd_rate.wire_rate_44k_family();
-        let input = make_input(wire_rate as usize, coeffs.input_peak);
+        let audio_seconds = if matches!(case.dsd_rate, DsdRate::Dsd512 | DsdRate::Dsd1024) {
+            HIGH_RATE_AUDIO_SECONDS
+        } else {
+            AUDIO_SECONDS
+        };
+        let input = make_input(wire_rate as usize, audio_seconds, coeffs.input_peak);
         for pass in 0..WARMUP_PASSES {
             black_box(run_case(&case, &input, 0xC0DE + pass as u64));
         }
@@ -302,7 +332,7 @@ fn main() {
 
         let result = best.expect("measured passes should produce a result");
         let ns_per_sample = result.elapsed.as_nanos() as f64 / result.samples as f64;
-        let core_percent = result.elapsed.as_secs_f64() / AUDIO_SECONDS * 100.0;
+        let core_percent = result.elapsed.as_secs_f64() / audio_seconds * 100.0;
         println!(
             "{:<18} {:>12} {:>14.2} {:>11.2}% {:>11.2}% {:>11} {:>8} {:>8}",
             case.name,
@@ -340,7 +370,7 @@ fn main() {
         let wire_rate = case.dsd_rate.wire_rate_44k_family();
         let input_peak = EcBeam2BenchmarkModulator::input_peak(wire_rate)
             .expect("qualified EcBeam2 playback wire rate");
-        let input = make_input(wire_rate as usize, input_peak);
+        let input = make_input(wire_rate as usize, AUDIO_SECONDS, input_peak);
         for pass in 0..WARMUP_PASSES {
             black_box(run_ecbeam2_case(&case, &input, 0xC0DE + pass as u64));
         }
@@ -398,7 +428,8 @@ fn run_ecbeam2_case(case: &EcBeam2BenchCase, input: &[f64], seed: u64) -> BenchR
 fn run_case(case: &BenchCase, input: &[f64], seed: u64) -> BenchResult {
     let coeffs = case
         .coeffs_override
-        .unwrap_or_else(|| case.dsd_rate.coeffs_for_mode(case.modulator.mode()));
+        .or_else(|| case.dsd_rate.coeffs_for_mode(case.modulator.mode()))
+        .expect("benchmark case has a calibrated coefficient table");
     let mut modulator = CrfbModulator::new_with_mode(coeffs, seed, case.modulator.mode())
         .expect("calibrated coefficients");
     modulator.set_lookahead_depth(case.modulator.lookahead_depth());
@@ -473,8 +504,8 @@ fn production_ec2_weights(pressure_weight: f64) -> Ec2PolicyWeights {
     }
 }
 
-fn make_input(wire_rate: usize, input_peak: f64) -> Vec<f64> {
-    let samples = (wire_rate as f64 * AUDIO_SECONDS).round() as usize;
+fn make_input(wire_rate: usize, audio_seconds: f64, input_peak: f64) -> Vec<f64> {
+    let samples = (wire_rate as f64 * audio_seconds).round() as usize;
     let mut input = Vec::with_capacity(samples);
     for i in 0..samples {
         let t = i as f64 / wire_rate as f64;

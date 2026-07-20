@@ -50,9 +50,12 @@ The CLI is intentionally narrow:
 --out PATH
 --modulator Standard,EcDepth2,EcBeam,EcBeam2
 --filter Split128k|SplitPhase128kE2v3
---rates 64,128,256
+--rates 64,128,256,512,1024
 --check
 --include-linear-reference
+--hires-only
+--standard-obg OBG
+--level-probe-dbfs LEVEL
 ```
 
 `SplitPhase128kE2v3` is the canonical product filter exposed as Split Phase.
@@ -63,6 +66,11 @@ selection are useful for investigation, but always produce
 `matrix_complete: false`. With `--check`, an incomplete matrix returns a
 failure status even when every attempted cell is structurally healthy. A
 partial run must never be described as a canonical pass.
+
+DSD512 and DSD1024 selections are non-scoring Standard-only diagnostics.
+`--standard-obg` selects a checked-in high-rate Standard candidate table, and
+`--level-probe-dbfs` restricts a tuning run to one declared coherent level.
+Neither option changes the canonical matrix or application UI.
 
 For example, a focused Split Phase check across DSD64 and DSD128 is:
 
