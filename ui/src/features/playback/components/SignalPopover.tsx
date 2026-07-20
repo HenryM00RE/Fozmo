@@ -124,6 +124,7 @@ export function SignalPopover({
   sourceProvider?: string;
 }) {
   const [eqConfig, setEqConfig] = useState<JsonRecord | null>(null);
+  const activeZoneId = stringValue(status.active_zone_id);
   const playbackActive = status.state === 'Playing' || status.state === 'Paused';
   const hasActiveStream = playbackActive && Boolean(status.file_name || status.current_source);
   const sourceRate = formatSignalRate(status.source_rate, status.source_bits);
@@ -247,8 +248,8 @@ export function SignalPopover({
 
   useEffect(() => {
     let cancelled = false;
-    endpoints
-      .eq()
+    const configRequest = activeZoneId ? endpoints.zoneEq(activeZoneId) : endpoints.eq();
+    configRequest
       .then((config) => {
         if (!cancelled) setEqConfig(config);
       })
@@ -256,7 +257,7 @@ export function SignalPopover({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [activeZoneId]);
 
   const browserSignal =
     status.browser_stream_signal && typeof status.browser_stream_signal === 'object'

@@ -509,25 +509,42 @@ impl BeamErrorProfile {
             p[0] + 1,
             p[0],
         );
-        let state_vectors: [__m256d; MAX_BEAM_ERROR_PROFILE_STATES] =
-            core::array::from_fn(|stage| {
-                let packed = unsafe { _mm256_loadu_si256(states[stage].as_ptr().cast()) };
-                _mm256_castsi256_pd(_mm256_permutevar8x32_epi32(packed, permutation))
-            });
+        let mut dot0 = _mm256_setzero_pd();
+        let mut dot1 = _mm256_setzero_pd();
+        let mut dot2 = _mm256_setzero_pd();
+        let mut dot3 = _mm256_setzero_pd();
+        let mut dot4 = _mm256_setzero_pd();
+        let mut dot5 = _mm256_setzero_pd();
+        for stage in 0..MAX_BEAM_ERROR_PROFILE_STATES {
+            let packed = unsafe { _mm256_loadu_si256(states[stage].as_ptr().cast()) };
+            let state = _mm256_castsi256_pd(_mm256_permutevar8x32_epi32(packed, permutation));
+            dot0 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[0][stage]), dot0);
+            dot1 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[1][stage]), dot1);
+            dot2 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[2][stage]), dot2);
+            dot3 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[3][stage]), dot3);
+            dot4 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[4][stage]), dot4);
+            dot5 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[5][stage]), dot5);
+        }
         let error = unsafe { _mm256_loadu_pd(errors.as_ptr()) };
         let sign = _mm256_set1_pd(-0.0);
         let max = _mm256_set1_pd(f64::MAX);
         let mut finite = _mm256_castsi256_pd(_mm256_set1_epi64x(-1));
-        for row in 0..MAX_BEAM_ERROR_PROFILE_STATES {
-            let mut dot = _mm256_setzero_pd();
-            for (stage, state) in state_vectors.iter().copied().enumerate() {
-                dot = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[row][stage]), dot);
-            }
-            let value = _mm256_fmadd_pd(error, _mm256_set1_pd(self.b[row]), dot);
-            unsafe { _mm256_storeu_pd(next[row].as_mut_ptr(), value) };
-            let absolute = _mm256_andnot_pd(sign, value);
-            finite = _mm256_and_pd(finite, _mm256_cmp_pd::<_CMP_LE_OQ>(absolute, max));
+        macro_rules! store_row {
+            ($row:expr, $dot:expr) => {{
+                let value = _mm256_fmadd_pd(error, _mm256_set1_pd(self.b[$row]), $dot);
+                unsafe { _mm256_storeu_pd(next[$row].as_mut_ptr(), value) };
+                finite = _mm256_and_pd(
+                    finite,
+                    _mm256_cmp_pd::<_CMP_LE_OQ>(_mm256_andnot_pd(sign, value), max),
+                );
+            }};
         }
+        store_row!(0, dot0);
+        store_row!(1, dot1);
+        store_row!(2, dot2);
+        store_row!(3, dot3);
+        store_row!(4, dot4);
+        store_row!(5, dot5);
         let finite_mask = _mm256_movemask_pd(finite);
         core::array::from_fn(|lane| finite_mask & (1 << lane) != 0)
     }

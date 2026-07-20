@@ -176,7 +176,7 @@ fn internal_response(e: String) -> axum::response::Response {
 mod tests {
     use super::*;
     use crate::audio::player::{PlaybackState, TrackCover};
-    use crate::playback::test_support::{app_state, app_state_with_pairing};
+    use crate::playback::test_support::{agent_capabilities, app_state, app_state_with_pairing};
     use crate::settings::HegelSettings;
     use crate::zones::local_device_zone_id;
     use axum::{
@@ -334,6 +334,43 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body.get("surface").and_then(Value::as_str), Some("local"));
+    }
+
+    #[tokio::test]
+    async fn active_eq_route_reads_remote_agent_zone_settings() {
+        let state = app_state("active-eq-remote-agent");
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        state.zones().register_agent(
+            "agent-1".to_string(),
+            "Studio PC".to_string(),
+            agent_capabilities("Agent DAC"),
+            tx,
+        );
+        let zone_id = state
+            .zones()
+            .list_zones()
+            .into_iter()
+            .find(|zone| zone.agent_name.as_deref() == Some("Studio PC"))
+            .expect("remote agent zone should be registered")
+            .id;
+        state.zones().select_zone(&zone_id).unwrap();
+        state
+            .settings()
+            .update_playback_for_zone(&zone_id, |settings| {
+                settings.eq = Some(crate::audio::eq::EqConfig {
+                    enabled: true,
+                    preamp_db: -2.5,
+                    ..crate::audio::eq::EqConfig::default()
+                });
+            })
+            .unwrap();
+        let app = create_router().with_state(state);
+
+        let (status, eq) = request_json(app, Method::GET, "/api/eq", None).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(eq.get("enabled").and_then(Value::as_bool), Some(true));
+        assert_eq!(eq.get("preamp_db").and_then(Value::as_f64), Some(-2.5));
     }
 
     #[tokio::test]
