@@ -9,8 +9,8 @@ use crate::playback::service::{
 use crate::protocol::{AgentCapabilities, AgentToCoreMessage};
 use axum::{
     Extension, Router,
-    extract::State,
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
+    extract::{ConnectInfo, State},
     http::StatusCode,
     response::IntoResponse,
     routing::get,
@@ -18,6 +18,7 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use std::net::{IpAddr, SocketAddr};
 use tokio::sync::mpsc;
 use tokio::time::{Duration, MissedTickBehavior};
 use tracing::{info, warn};
@@ -41,6 +42,7 @@ async fn agent_ws_handler(
     State(state): State<AppState>,
     trusted_origins: Option<Extension<TrustedWebOrigins>>,
     headers: axum::http::HeaderMap,
+    peer: Option<ConnectInfo<SocketAddr>>,
 ) -> impl IntoResponse {
     if !websocket_origin_allowed(
         &headers,
@@ -69,8 +71,26 @@ async fn agent_ws_handler(
         );
         return (StatusCode::UNAUTHORIZED, "Pairing token required").into_response();
     }
-    ws.on_upgrade(move |socket| handle_agent_socket(socket, state, header_authenticated))
-        .into_response()
+    let unauthenticated_lan_agent = peer
+        .map(|ConnectInfo(peer)| native_agent_ip_allowed(peer.ip()))
+        // In-process routers do not carry ConnectInfo. Production listeners do.
+        .unwrap_or(true);
+    ws.on_upgrade(move |socket| {
+        handle_agent_socket(
+            socket,
+            state,
+            header_authenticated,
+            unauthenticated_lan_agent,
+        )
+    })
+    .into_response()
+}
+
+fn native_agent_ip_allowed(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => ip.is_loopback() || ip.is_private() || ip.is_link_local(),
+        IpAddr::V6(ip) => ip.is_loopback() || ip.is_unique_local() || ip.is_unicast_link_local(),
+    }
 }
 
 async fn browser_agent_ws_handler(
@@ -96,7 +116,12 @@ async fn browser_agent_ws_handler(
         .into_response()
 }
 
-async fn handle_agent_socket(socket: WebSocket, state: AppState, header_authenticated: bool) {
+async fn handle_agent_socket(
+    socket: WebSocket,
+    state: AppState,
+    header_authenticated: bool,
+    unauthenticated_lan_agent: bool,
+) {
     let (ws_tx, mut ws_rx) = socket.split();
     let Some(first) = read_text_message(&mut ws_rx).await else {
         warn!(
@@ -136,13 +161,13 @@ async fn handle_agent_socket(socket: WebSocket, state: AppState, header_authenti
         };
         next
     } else {
-        if state.pairing().auth_required() && !header_authenticated {
+        if !header_authenticated && !unauthenticated_lan_agent {
             warn!(
                 event = "agent_ws_auth",
                 status = "error",
                 error_kind = "auth",
                 auth_source = "missing",
-                "Agent WebSocket authentication missing"
+                "Native agent outside the LAN requires authentication"
             );
             return;
         }
@@ -253,6 +278,15 @@ async fn run_agent_socket(
     );
     let browser = capabilities.browser;
     let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
+    let stream_session_token = if browser {
+        None
+    } else {
+        let token = state.pairing().create_agent_stream_session();
+        let _ = cmd_tx.send(crate::protocol::CoreToAgentCommand::AuthorizeStreams {
+            token: token.clone(),
+        });
+        Some(token)
+    };
     let connection_id =
         register_remote_agent_playback_zones(&state, agent_id.clone(), name, capabilities, cmd_tx);
 
@@ -310,6 +344,9 @@ async fn run_agent_socket(
 
     writer.abort();
     unregister_remote_agent_playback_zones(&state, &agent_id, connection_id);
+    if let Some(token) = stream_session_token {
+        state.pairing().revoke_agent_stream_session(&token);
+    }
     info!(
         event = "agent_ws_disconnect",
         agent_ref, "Agent disconnected"
@@ -349,13 +386,14 @@ struct AgentWebSocketAuthMessage {
 
 #[cfg(test)]
 mod tests {
-    use super::{agent_log_ref, normalized_browser_agent_id};
+    use super::{agent_log_ref, native_agent_ip_allowed, normalized_browser_agent_id};
     use crate::app::state::AppState;
     use crate::playback::test_support::{app_state, app_state_with_pairing};
     use crate::protocol::ZoneProfile;
     use axum::{Router, middleware};
     use futures_util::{SinkExt, StreamExt};
     use serde_json::{Value, json};
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     use std::time::Duration;
     use tokio_tungstenite::connect_async;
     use tokio_tungstenite::tungstenite::Message as WsMessage;
@@ -382,6 +420,24 @@ mod tests {
         assert_eq!(reference, agent_log_ref(capability));
     }
 
+    #[test]
+    fn native_agents_without_credentials_are_lan_only() {
+        assert!(native_agent_ip_allowed(IpAddr::V4(Ipv4Addr::LOCALHOST)));
+        assert!(native_agent_ip_allowed(IpAddr::V4(Ipv4Addr::new(
+            192, 168, 1, 50
+        ))));
+        assert!(native_agent_ip_allowed(IpAddr::V6(Ipv6Addr::LOCALHOST)));
+        assert!(native_agent_ip_allowed(IpAddr::V6(
+            "fd00::50".parse().unwrap()
+        )));
+        assert!(!native_agent_ip_allowed(IpAddr::V4(Ipv4Addr::new(
+            203, 0, 113, 50
+        ))));
+        assert!(!native_agent_ip_allowed(IpAddr::V6(
+            "2001:db8::50".parse().unwrap()
+        )));
+    }
+
     #[tokio::test]
     async fn authenticated_native_agent_upgrade_may_omit_browser_origin() {
         let state = app_state_with_pairing("native-agent-originless", true, false);
@@ -403,6 +459,63 @@ mod tests {
         let (mut socket, _) = connect_async(request).await.unwrap();
 
         socket.close(None).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn lan_native_agent_gets_session_stream_access_without_pairing_token() {
+        let state = app_state_with_pairing("native-agent-session-stream", true, false);
+        let app = super::routes().with_state(state.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let (mut socket, _) = connect_async(format!("ws://{address}/api/agent/ws"))
+            .await
+            .expect("LAN native agent should connect without a pairing token");
+        socket
+            .send(WsMessage::Text(
+                json!({
+                    "type": "register",
+                    "agent_id": "agent-lan-session-test",
+                    "name": "LAN Agent",
+                    "capabilities": {
+                        "output_devices": ["Speakers"],
+                        "output_device_capabilities": [],
+                        "max_sample_rate": 192000,
+                        "max_bit_depth": 32,
+                        "exclusive_supported": true,
+                        "supports_dsd128": false,
+                        "supports_dsd256": false,
+                        "browser": false
+                    }
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+
+        let command = tokio::time::timeout(Duration::from_secs(5), socket.next())
+            .await
+            .expect("core should issue stream authorization")
+            .expect("socket should stay open")
+            .expect("authorization frame should be readable");
+        let command: Value = serde_json::from_str(command.to_text().unwrap()).unwrap();
+        assert_eq!(command["type"], "authorize_streams");
+        let stream_token = command["token"].as_str().unwrap().to_string();
+        assert!(state.pairing().verify_stream_token(Some(&stream_token)));
+        assert!(!state.pairing().verify_control_token(Some(&stream_token)));
+
+        socket.close(None).await.unwrap();
+        for _ in 0..50 {
+            if !state.pairing().verify_stream_token(Some(&stream_token)) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("agent stream session should be revoked on disconnect");
     }
 
     fn lan_style_router(state: &AppState) -> Router {

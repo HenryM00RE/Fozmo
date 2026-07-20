@@ -17,7 +17,6 @@ use md5::Digest;
 use rand::RngCore;
 use reqwest::header::{CONTENT_LENGTH, CONTENT_RANGE, HeaderMap, HeaderValue, RANGE};
 use reqwest::{Client, StatusCode, Url};
-use serde::Deserialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::{self, Read, Seek, SeekFrom};
@@ -92,12 +91,6 @@ struct AgentStreamSource {
     range_bytes: u64,
     next_block: Option<AgentRangeBlock>,
     prefetch: Option<AgentRangePrefetch>,
-}
-
-#[derive(Debug, Deserialize)]
-struct PairingStartResponse {
-    token: String,
-    auth_required: bool,
 }
 
 impl Read for AgentStreamSource {
@@ -556,63 +549,6 @@ fn agent_platform_label() -> &'static str {
     }
 }
 
-async fn request_agent_token(http: &Client, core_url: &str) -> Result<Option<String>, String> {
-    let url = format!("{}/api/agents/token", core_url.trim_end_matches('/'));
-    let response = http
-        .post(&url)
-        .send()
-        .await
-        .map_err(|e| format!("request {url}: {e}"))?;
-    if !response.status().is_success() {
-        return Err(format!("request {url}: HTTP {}", response.status()));
-    }
-    let pairing = response
-        .json::<PairingStartResponse>()
-        .await
-        .map_err(|e| format!("parse pairing response: {e}"))?;
-    let token = pairing.token.trim().to_string();
-    if token.is_empty() {
-        return Ok(None);
-    }
-    if pairing.auth_required {
-        println!("Received agent token from core.");
-    }
-    Ok(Some(token))
-}
-
-fn agent_token_help(core_url: &str) -> String {
-    if core_url_is_loopback(core_url) {
-        "create an agent token from the core with POST /api/agents/token or pass --agent-token=<token>"
-            .to_string()
-    } else {
-        format!(
-            "LAN agent token issuance is local-only; on the core machine run `curl -X POST {}/api/agents/token`, then start this agent with FOZMO_AGENT_TOKEN=<token> or --agent-token=<token>",
-            loopback_core_url_for_help(core_url)
-        )
-    }
-}
-
-fn core_url_is_loopback(core_url: &str) -> bool {
-    reqwest::Url::parse(core_url)
-        .ok()
-        .and_then(|url| url.host_str().map(str::to_string))
-        .is_some_and(|host| {
-            host.eq_ignore_ascii_case("localhost")
-                || host == "::1"
-                || host
-                    .parse::<std::net::IpAddr>()
-                    .is_ok_and(|addr| addr.is_loopback())
-        })
-}
-
-fn loopback_core_url_for_help(core_url: &str) -> String {
-    let Ok(mut url) = reqwest::Url::parse(core_url) else {
-        return "http://127.0.0.1:3000".to_string();
-    };
-    let _ = url.set_host(Some("127.0.0.1"));
-    url.to_string().trim_end_matches('/').to_string()
-}
-
 pub async fn run_agent() -> Result<(), Box<dyn std::error::Error>> {
     let core_url = resolve_core_url();
     let explicit_agent_token = std::env::var(identity::env_key("AGENT_TOKEN"))
@@ -652,21 +588,6 @@ pub async fn run_agent() -> Result<(), Box<dyn std::error::Error>> {
         })
         .unwrap_or_else(hostname_fallback);
     let http = Client::new();
-    if token.trim().is_empty() {
-        match request_agent_token(&http, &core_url).await {
-            Ok(Some(agent_token)) => token = agent_token,
-            Ok(None) => {}
-            Err(e) => eprintln!(
-                "agent: automatic agent token request failed: {e}; {}",
-                agent_token_help(&core_url)
-            ),
-        }
-    }
-    if token.trim().is_empty() {
-        eprintln!(
-            "agent: no agent token configured; the core may accept the websocket, but media range requests from a LAN agent will be rejected with HTTP 403"
-        );
-    }
     let agent_id = stable_agent_id(&agent_name);
     let ws_url = agent_ws_url(&core_url)?;
 
@@ -777,7 +698,7 @@ pub async fn run_agent() -> Result<(), Box<dyn std::error::Error>> {
                             cmd,
                             &player,
                             &http,
-                            token.clone(),
+                            &mut token,
                             &runtime,
                             &core_url,
                         ).await,
@@ -799,7 +720,7 @@ async fn handle_command(
     cmd: CoreToAgentCommand,
     player: &Arc<Player>,
     http: &Client,
-    token: String,
+    token: &mut String,
     runtime: &Arc<Mutex<AgentRuntimeState>>,
     core_url: &str,
 ) {
@@ -810,6 +731,7 @@ async fn handle_command(
             playback_config,
             stream_base_url,
         } => {
+            let token = token.clone();
             let stream_base_url = reachable_stream_base_url(&stream_base_url, core_url);
             apply_playback_config(player, playback_config);
             let play_epoch = player.reserve_playback_change();
@@ -852,6 +774,7 @@ async fn handle_command(
             source_ref,
             stream_base_url,
         } => {
+            let token = token.clone();
             let stream_base_url = reachable_stream_base_url(&stream_base_url, core_url);
             let http = http.clone();
             let runtime = Arc::clone(runtime);
@@ -893,6 +816,12 @@ async fn handle_command(
         }
         CoreToAgentCommand::SetPlaybackConfig { playback_config } => {
             apply_playback_config(player, playback_config);
+        }
+        CoreToAgentCommand::AuthorizeStreams {
+            token: stream_token,
+        } => {
+            *token = stream_token;
+            println!("Agent media streaming authorized by core.");
         }
         CoreToAgentCommand::Heartbeat => {}
     }
@@ -1741,10 +1670,7 @@ fn hostname_fallback() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        agent_source_matches_player_file, agent_token_help, core_url_is_loopback,
-        loopback_core_url_for_help, normalize_agent_id, reachable_stream_base_url,
-    };
+    use super::{agent_source_matches_player_file, normalize_agent_id, reachable_stream_base_url};
     use crate::protocol::SourceRef;
 
     #[test]
@@ -1770,20 +1696,6 @@ mod tests {
         let base = reachable_stream_base_url("http://10.0.0.50:9090", "http://10.0.0.12:3000");
 
         assert_eq!(base, "http://10.0.0.50:9090");
-    }
-
-    #[test]
-    fn agent_token_help_explains_lan_local_only_issuance() {
-        assert!(!core_url_is_loopback("http://192.168.1.30:3001"));
-        assert!(core_url_is_loopback("http://127.0.0.1:3001"));
-        assert_eq!(
-            loopback_core_url_for_help("http://192.168.1.30:3001"),
-            "http://127.0.0.1:3001"
-        );
-        assert!(
-            agent_token_help("http://192.168.1.30:3001")
-                .contains("LAN agent token issuance is local-only")
-        );
     }
 
     #[test]

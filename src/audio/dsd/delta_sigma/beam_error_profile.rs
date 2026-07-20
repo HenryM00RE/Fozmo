@@ -318,6 +318,47 @@ impl BeamErrorProfile {
         })
     }
 
+    /// Four independent profile-state dot products in one AVX2 vector. The
+    /// FMA chain retains the scalar stage order in every lane.
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2,fma")]
+    #[inline]
+    unsafe fn state_dot4_x86(
+        coefficients: &BeamErrorProfileState,
+        states: &[[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
+    ) -> [f64; 4] {
+        use core::arch::x86_64::*;
+        let mut dot = _mm256_setzero_pd();
+        for stage in 0..MAX_BEAM_ERROR_PROFILE_STATES {
+            dot = _mm256_fmadd_pd(
+                unsafe { _mm256_loadu_pd(states[stage].as_ptr()) },
+                _mm256_set1_pd(coefficients[stage]),
+                dot,
+            );
+        }
+        let mut result = [0.0; 4];
+        unsafe { _mm256_storeu_pd(result.as_mut_ptr(), dot) };
+        result
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2,fma")]
+    #[inline]
+    pub(crate) unsafe fn tail_adjusted_energy_increment_pair4_x86(
+        &self,
+        states: &[[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
+        input: f64,
+    ) -> [[f64; 4]; 2] {
+        let linear = unsafe { Self::state_dot4_x86(&self.h, states) };
+        let errors = [1.0 - input, -1.0 - input];
+        core::array::from_fn(|sign| {
+            core::array::from_fn(|lane| {
+                let error = errors[sign];
+                (2.0 * error).mul_add(linear[lane], self.q * error * error)
+            })
+        })
+    }
+
     #[cfg(target_arch = "aarch64")]
     #[inline(always)]
     pub(crate) fn output_pair4(
@@ -440,6 +481,55 @@ impl BeamErrorProfile {
             }
         }
         finite
+    }
+
+    /// AVX2 survivor transition using an in-register four-lane permutation
+    /// instead of four scalar gathers per profile stage.
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2,fma")]
+    #[allow(clippy::needless_range_loop)]
+    #[inline]
+    pub(crate) unsafe fn next_state4_selected_x86(
+        &self,
+        states: &[[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
+        parent_indices: [usize; 4],
+        errors: [f64; 4],
+        next: &mut [[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
+    ) -> [bool; 4] {
+        use core::arch::x86_64::*;
+        debug_assert!(parent_indices.into_iter().all(|parent| parent < 4));
+        let p = parent_indices.map(|parent| (parent * 2) as i32);
+        let permutation = _mm256_set_epi32(
+            p[3] + 1,
+            p[3],
+            p[2] + 1,
+            p[2],
+            p[1] + 1,
+            p[1],
+            p[0] + 1,
+            p[0],
+        );
+        let state_vectors: [__m256d; MAX_BEAM_ERROR_PROFILE_STATES] =
+            core::array::from_fn(|stage| {
+                let packed = unsafe { _mm256_loadu_si256(states[stage].as_ptr().cast()) };
+                _mm256_castsi256_pd(_mm256_permutevar8x32_epi32(packed, permutation))
+            });
+        let error = unsafe { _mm256_loadu_pd(errors.as_ptr()) };
+        let sign = _mm256_set1_pd(-0.0);
+        let max = _mm256_set1_pd(f64::MAX);
+        let mut finite = _mm256_castsi256_pd(_mm256_set1_epi64x(-1));
+        for row in 0..MAX_BEAM_ERROR_PROFILE_STATES {
+            let mut dot = _mm256_setzero_pd();
+            for (stage, state) in state_vectors.iter().copied().enumerate() {
+                dot = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[row][stage]), dot);
+            }
+            let value = _mm256_fmadd_pd(error, _mm256_set1_pd(self.b[row]), dot);
+            unsafe { _mm256_storeu_pd(next[row].as_mut_ptr(), value) };
+            let absolute = _mm256_andnot_pd(sign, value);
+            finite = _mm256_and_pd(finite, _mm256_cmp_pd::<_CMP_LE_OQ>(absolute, max));
+        }
+        let finite_mask = _mm256_movemask_pd(finite);
+        core::array::from_fn(|lane| finite_mask & (1 << lane) != 0)
     }
 
     /// Advance one profile by pairing independent output rows in NEON lanes.

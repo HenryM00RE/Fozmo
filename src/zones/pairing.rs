@@ -5,7 +5,7 @@ use crate::settings::{
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rand::{RngCore, rngs::OsRng};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -37,6 +37,9 @@ pub struct PairingManager {
     /// Runtime-only usage timestamps. They are folded into the next explicit
     /// durable mutation, but authentication traffic never persists them.
     last_used: Arc<Mutex<HashMap<String, u64>>>,
+    /// Stream credentials delivered over currently connected native-agent
+    /// sockets. They are deliberately memory-only and revoked on disconnect.
+    agent_stream_sessions: Arc<RwLock<HashSet<String>>>,
     auth_required: bool,
     token_ttl_secs: u64,
     allow_query_token_auth: bool,
@@ -56,6 +59,7 @@ impl PairingManager {
             records_key,
             records: Arc::new(RwLock::new(None)),
             last_used: Arc::new(Mutex::new(HashMap::new())),
+            agent_stream_sessions: Arc::new(RwLock::new(HashSet::new())),
             auth_required,
             token_ttl_secs: token_ttl_secs.max(1),
             allow_query_token_auth,
@@ -107,6 +111,21 @@ impl PairingManager {
             None,
             None,
         )
+    }
+
+    pub fn create_agent_stream_session(&self) -> String {
+        let token = random_url_token(32);
+        self.agent_stream_sessions
+            .write()
+            .unwrap()
+            .insert(token_hash(&token));
+        token
+    }
+
+    pub fn revoke_agent_stream_session(&self, token: &str) {
+        if let Some(hash) = normalized_token_hash(Some(token)) {
+            self.agent_stream_sessions.write().unwrap().remove(&hash);
+        }
     }
 
     /// High-entropy single-use code exchanged on the remote listener for a
@@ -339,6 +358,16 @@ impl PairingManager {
     }
 
     pub fn verify_stream_token(&self, token: Option<&str>) -> bool {
+        if let Some(hash) = normalized_token_hash(token)
+            && self
+                .agent_stream_sessions
+                .read()
+                .unwrap()
+                .iter()
+                .any(|known| constant_time_eq(known.as_bytes(), hash.as_bytes()))
+        {
+            return true;
+        }
         self.verify_token_scope(token, SCOPE_STREAM_READ)
     }
 
@@ -916,6 +945,25 @@ mod tests {
         // SecretsStore::put (and therefore without a keychain write).
         let runtime_last_used = pairing.last_used.lock().unwrap();
         assert!(runtime_last_used.get(&record.id).is_some());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn agent_stream_sessions_are_memory_only_and_revocable() {
+        let path = temp_settings_path("agent-stream-session");
+        let (settings, secrets, pairing) = pairing(&path, true);
+        let before = stored_records(settings.as_ref(), secrets.as_ref());
+
+        let token = pairing.create_agent_stream_session();
+        assert!(pairing.verify_stream_token(Some(&token)));
+        assert!(!pairing.verify_agent_token(Some(&token)));
+        assert_eq!(
+            serde_json::to_value(stored_records(settings.as_ref(), secrets.as_ref())).unwrap(),
+            serde_json::to_value(before).unwrap()
+        );
+
+        pairing.revoke_agent_stream_session(&token);
+        assert!(!pairing.verify_stream_token(Some(&token)));
         let _ = std::fs::remove_file(path);
     }
 

@@ -21,7 +21,7 @@ const ECBEAM2_MAX_CHILDREN: usize = 2 * ECBEAM2_MAX_WIDTH;
 const ECBEAM2_EXACT_MAX_HORIZON: usize = 16;
 const ERROR_EMA_SECONDS: f64 = 0.010;
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
 enum SimdSteadyStep {
     NotHandled,
     Handled,
@@ -30,7 +30,7 @@ enum SimdSteadyStep {
     Emitted(u8),
 }
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
 #[inline(always)]
 fn ecbeam2_child_index(index: u8) -> usize {
     let index = index as usize;
@@ -42,7 +42,7 @@ fn ecbeam2_child_index(index: u8) -> usize {
     index
 }
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
 #[inline(always)]
 fn insert_ecbeam2_top4(
     index: u8,
@@ -70,7 +70,7 @@ fn insert_ecbeam2_top4(
     *len = (*len + 1).min(ECBEAM2_WIDTH);
 }
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
 #[inline(always)]
 fn sort_ecbeam2_four(
     order: &mut [u8; ECBEAM2_WIDTH],
@@ -928,55 +928,55 @@ pub(crate) struct EcBeam2Modulator {
     parents: [[EcBeam2Path; ECBEAM2_MAX_WIDTH]; 2],
     parents_bank: usize,
     parents_len: usize,
-    /// Stage-major raw survivor state for the AArch64 M4 kernel. Raw space is
+    /// Stage-major raw survivor state for the architecture-specific M4 kernel. Raw space is
     /// retained deliberately: every normalization and materialization keeps
     /// the same rounding boundary as the frozen production scalar implementation.
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_raw_state: [[[f64; ECBEAM2_WIDTH]; 8]; 2],
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_base_norm: [[f64; ECBEAM2_WIDTH]; 8],
     /// Conservative per-stage certificate boundary. If every normalized base
     /// is inside this boundary, both feedback signs are exactly known to stay
     /// finite and within the hard state limit.
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_both_sign_safe_abs_base: [f64; 8],
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_y: [f64; ECBEAM2_WIDTH],
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_reconstruction_state: [[[f64; ECBEAM2_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES]; 2],
     /// Eight generations of already-computed survivor reconstruction states
     /// and their ancestry. This makes the state after the oldest committed
     /// decision available without replaying a fifth dense profile transition.
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_reconstruction_history:
         [[[f64; ECBEAM2_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES]; ECBEAM2_HORIZON],
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_reconstruction_parent: [[u8; ECBEAM2_WIDTH]; ECBEAM2_HORIZON],
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_reconstruction_generation: usize,
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_reconstruction_history_depth: usize,
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_ultrasonic_state: [[[f64; ECBEAM2_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES]; 2],
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_metric: [[f64; ECBEAM2_WIDTH]; 2],
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_prev_v: [[f64; ECBEAM2_WIDTH]; 2],
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_bits: [[u8; ECBEAM2_WIDTH]; 2],
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_reconstruction_increment: [[f64; ECBEAM2_WIDTH]; 2],
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_ultrasonic_output: [[f64; ECBEAM2_WIDTH]; 2],
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_maximum_overflow: [[f64; ECBEAM2_WIDTH]; 2],
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_squared_overflow: [[f64; ECBEAM2_WIDTH]; 2],
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_candidate_finite: [[bool; ECBEAM2_WIDTH]; 2],
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_candidate_metric: [[f64; ECBEAM2_WIDTH]; 2],
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_state_valid: bool,
     #[cfg(test)]
     force_scalar_path: bool,
@@ -1102,7 +1102,7 @@ impl EcBeam2Modulator {
         }
     }
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     #[inline(always)]
     fn simd_m4n8_eligible(&self) -> bool {
         if cfg!(feature = "ecbeam2_observer") {
@@ -1110,6 +1110,12 @@ impl EcBeam2Modulator {
         }
         #[cfg(test)]
         if self.force_scalar_path {
+            return false;
+        }
+        #[cfg(target_arch = "x86_64")]
+        if !(std::arch::is_x86_feature_detected!("avx2")
+            && std::arch::is_x86_feature_detected!("fma"))
+        {
             return false;
         }
         let q_path = self.config.quantizer_regularizer.to_bits();
@@ -1133,7 +1139,7 @@ impl EcBeam2Modulator {
             && self.config.diagnostic_window.is_none()
     }
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     #[inline(always)]
     fn ensure_simd_raw_state(&mut self) {
         if self.simd_state_valid {
@@ -1158,7 +1164,7 @@ impl EcBeam2Modulator {
         self.simd_state_valid = true;
     }
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     #[inline(always)]
     fn sync_simd_paths(&mut self) {
         if !self.simd_state_valid {
@@ -1189,7 +1195,7 @@ impl EcBeam2Modulator {
         }
     }
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     #[inline(always)]
     fn record_simd_reconstruction_generation(
         &mut self,
@@ -1211,7 +1217,7 @@ impl EcBeam2Modulator {
             (self.simd_reconstruction_history_depth + 1).min(ECBEAM2_HORIZON);
     }
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     #[inline(always)]
     fn committed_reconstruction_from_simd_ancestry(&mut self) -> bool {
         if self.simd_reconstruction_history_depth < ECBEAM2_HORIZON {
@@ -1388,6 +1394,130 @@ impl EcBeam2Modulator {
         all_signs_certified
     }
 
+    /// Compute the four sparse CRFB parents in one 256-bit vector. Zen 4/5
+    /// executes these four independent f64 lanes without the pairwise loop
+    /// needed by NEON, while preserving the scalar FMA order lane by lane.
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2,fma")]
+    #[allow(clippy::needless_range_loop)]
+    #[inline]
+    unsafe fn prepare_simd_frontier_core_x86<const TRACK_CERTIFICATE: bool>(
+        &mut self,
+        u: f64,
+    ) -> bool {
+        use core::arch::x86_64::*;
+
+        self.ensure_simd_raw_state();
+        let bank = self.parents_bank;
+        let load_normalized = |stage: usize| {
+            _mm256_mul_pd(
+                unsafe { _mm256_loadu_pd(self.simd_raw_state[bank][stage].as_ptr()) },
+                _mm256_set1_pd(self.core.inverse_state_limit[stage]),
+            )
+        };
+        let s0 = load_normalized(0);
+        let s1 = load_normalized(1);
+        let s2 = load_normalized(2);
+        let s3 = load_normalized(3);
+        let s4 = load_normalized(4);
+        let s5 = load_normalized(5);
+        let s6 = load_normalized(6);
+        let splat = _mm256_set1_pd;
+        let input = splat(u);
+        let row0_product = _mm256_mul_pd(s0, splat(self.core.a_rows_norm[0][0]));
+        let b0 = _mm256_fmadd_pd(input, splat(self.core.bu_norm[0]), row0_product);
+        let mut b1 = _mm256_mul_pd(s0, splat(self.core.a_rows_norm[1][0]));
+        b1 = _mm256_fmadd_pd(s1, splat(self.core.a_rows_norm[1][1]), b1);
+        b1 = _mm256_fmadd_pd(s2, splat(self.core.a_rows_norm[1][2]), b1);
+        b1 = _mm256_fmadd_pd(input, splat(self.core.bu_norm[1]), b1);
+        let mut b2 = _mm256_mul_pd(s0, splat(self.core.a_rows_norm[2][0]));
+        b2 = _mm256_fmadd_pd(s1, splat(self.core.a_rows_norm[2][1]), b2);
+        b2 = _mm256_fmadd_pd(s2, splat(self.core.a_rows_norm[2][2]), b2);
+        b2 = _mm256_fmadd_pd(input, splat(self.core.bu_norm[2]), b2);
+        let mut b3 = _mm256_mul_pd(s2, splat(self.core.a_rows_norm[3][2]));
+        b3 = _mm256_fmadd_pd(s3, splat(self.core.a_rows_norm[3][3]), b3);
+        b3 = _mm256_fmadd_pd(s4, splat(self.core.a_rows_norm[3][4]), b3);
+        b3 = _mm256_fmadd_pd(input, splat(self.core.bu_norm[3]), b3);
+        let mut b4 = _mm256_mul_pd(s2, splat(self.core.a_rows_norm[4][2]));
+        b4 = _mm256_fmadd_pd(s3, splat(self.core.a_rows_norm[4][3]), b4);
+        b4 = _mm256_fmadd_pd(s4, splat(self.core.a_rows_norm[4][4]), b4);
+        b4 = _mm256_fmadd_pd(input, splat(self.core.bu_norm[4]), b4);
+        let mut b5 = _mm256_mul_pd(s4, splat(self.core.a_rows_norm[5][4]));
+        b5 = _mm256_fmadd_pd(s5, splat(self.core.a_rows_norm[5][5]), b5);
+        b5 = _mm256_fmadd_pd(s6, splat(self.core.a_rows_norm[5][6]), b5);
+        b5 = _mm256_fmadd_pd(input, splat(self.core.bu_norm[5]), b5);
+        let mut b6 = _mm256_mul_pd(s4, splat(self.core.a_rows_norm[6][4]));
+        b6 = _mm256_fmadd_pd(s5, splat(self.core.a_rows_norm[6][5]), b6);
+        b6 = _mm256_fmadd_pd(s6, splat(self.core.a_rows_norm[6][6]), b6);
+        b6 = _mm256_fmadd_pd(input, splat(self.core.bu_norm[6]), b6);
+        let bases = [b0, b1, b2, b3, b4, b5, b6];
+
+        let sign_mask = splat(-0.0);
+        let mut both_signs_safe = _mm256_set1_epi64x(-1);
+        for (stage, base) in bases.iter().copied().enumerate() {
+            unsafe { _mm256_storeu_pd(self.simd_base_norm[stage].as_mut_ptr(), base) };
+            let absolute = _mm256_andnot_pd(sign_mask, base);
+            let safe = _mm256_cmp_pd::<_CMP_LE_OQ>(
+                absolute,
+                splat(self.simd_both_sign_safe_abs_base[stage]),
+            );
+            both_signs_safe = _mm256_and_si256(both_signs_safe, _mm256_castpd_si256(safe));
+        }
+        self.simd_base_norm[7] = [0.0; ECBEAM2_WIDTH];
+        let y = _mm256_fmadd_pd(
+            input,
+            splat(self.core.coeffs.d1),
+            _mm256_mul_pd(s6, splat(self.core.c_row_norm[6])),
+        );
+        unsafe { _mm256_storeu_pd(self.simd_y.as_mut_ptr(), y) };
+
+        let certified_mask = _mm256_movemask_pd(_mm256_castsi256_pd(both_signs_safe));
+        let all_signs_certified = certified_mask == 0b1111;
+        if all_signs_certified {
+            self.simd_maximum_overflow = [[0.0; ECBEAM2_WIDTH]; 2];
+            self.simd_candidate_finite = [[true; ECBEAM2_WIDTH]; 2];
+        } else {
+            let zero = _mm256_setzero_pd();
+            let max_finite = splat(f64::MAX);
+            for (sign, v) in [1.0, -1.0].into_iter().enumerate() {
+                let mut maximum = zero;
+                let mut finite_mask = 0b1111;
+                for (stage, base) in bases.iter().copied().enumerate() {
+                    let candidate =
+                        _mm256_fmadd_pd(splat(v), splat(self.core.bv_norm[stage]), base);
+                    let absolute = _mm256_andnot_pd(sign_mask, candidate);
+                    finite_mask &=
+                        _mm256_movemask_pd(_mm256_cmp_pd::<_CMP_LE_OQ>(absolute, max_finite));
+                    maximum = _mm256_max_pd(maximum, _mm256_sub_pd(absolute, splat(1.0)));
+                }
+                unsafe { _mm256_storeu_pd(self.simd_maximum_overflow[sign].as_mut_ptr(), maximum) };
+                self.simd_candidate_finite[sign] =
+                    core::array::from_fn(|lane| finite_mask & (1 << lane) != 0);
+            }
+        }
+
+        self.simd_reconstruction_increment = unsafe {
+            self.reconstruction_profile
+                .tail_adjusted_energy_increment_pair4_x86(&self.simd_reconstruction_state[bank], u)
+        };
+        for (sign, v) in [1.0, -1.0].into_iter().enumerate() {
+            for lane in 0..ECBEAM2_WIDTH {
+                let quantizer_error_squared = (self.simd_y[lane] - v).powi(2);
+                let quantizer_path_increment =
+                    self.config.quantizer_regularizer * quantizer_error_squared;
+                let mut path_increment = self.simd_reconstruction_increment[sign][lane]
+                    / self.objective_scales.reconstruction_abs_p95;
+                path_increment += 0.0;
+                path_increment += 0.0;
+                path_increment += quantizer_path_increment;
+                let metric = self.simd_metric[bank][lane] + path_increment;
+                self.simd_candidate_metric[sign][lane] = metric;
+                self.simd_candidate_finite[sign][lane] &= metric.is_finite();
+            }
+        }
+        !TRACK_CERTIFICATE || all_signs_certified
+    }
+
     /// Non-inlined entry retained for DSD64 and the exact recovery hierarchy.
     /// DSD128 steady playback calls the always-inlined body above so frontier
     /// preparation and selection form one optimizer-visible kernel.
@@ -1514,7 +1644,7 @@ impl EcBeam2Modulator {
         let mut core = CrfbModulator::new_with_mode(coeffs, seed, ModulatorMode::Ec)?;
         core.set_dither_scale(0.0);
         core.set_isi_penalty(0.0);
-        #[cfg(target_arch = "aarch64")]
+        #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
         let simd_both_sign_safe_abs_base = core
             .bv_norm
             .map(|feedback| ((1.0 - 16.0 * f64::EPSILON) - feedback.abs()).next_down());
@@ -1531,46 +1661,46 @@ impl EcBeam2Modulator {
             parents: [[EcBeam2Path::INERT; ECBEAM2_MAX_WIDTH]; 2],
             parents_bank: 0,
             parents_len: 1,
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_raw_state: [[[0.0; ECBEAM2_WIDTH]; 8]; 2],
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_base_norm: [[0.0; ECBEAM2_WIDTH]; 8],
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_both_sign_safe_abs_base,
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_y: [0.0; ECBEAM2_WIDTH],
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_reconstruction_state: [[[0.0; ECBEAM2_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES]; 2],
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_reconstruction_history: [[[0.0; ECBEAM2_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES];
                 ECBEAM2_HORIZON],
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_reconstruction_parent: [[0; ECBEAM2_WIDTH]; ECBEAM2_HORIZON],
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_reconstruction_generation: 0,
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_reconstruction_history_depth: 0,
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_ultrasonic_state: [[[0.0; ECBEAM2_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES]; 2],
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_metric: [[0.0; ECBEAM2_WIDTH]; 2],
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_prev_v: [[1.0; ECBEAM2_WIDTH]; 2],
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_bits: [[0; ECBEAM2_WIDTH]; 2],
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_reconstruction_increment: [[0.0; ECBEAM2_WIDTH]; 2],
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_ultrasonic_output: [[0.0; ECBEAM2_WIDTH]; 2],
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_maximum_overflow: [[0.0; ECBEAM2_WIDTH]; 2],
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_squared_overflow: [[0.0; ECBEAM2_WIDTH]; 2],
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_candidate_finite: [[true; ECBEAM2_WIDTH]; 2],
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_candidate_metric: [[0.0; ECBEAM2_WIDTH]; 2],
-            #[cfg(target_arch = "aarch64")]
+            #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_state_valid: false,
             #[cfg(test)]
             force_scalar_path: false,
@@ -1637,6 +1767,17 @@ impl EcBeam2Modulator {
                     self.process_sample_simd::<false>(u, out_bits);
                 }
             }
+            debug_assert_eq!(
+                out_bits.len() - starting_output_len + self.buffered,
+                input.len() + starting_buffered
+            );
+            return;
+        }
+        #[cfg(target_arch = "x86_64")]
+        if self.simd_m4n8_eligible() {
+            // SAFETY: eligibility performs runtime AVX2/FMA detection before
+            // entering the target-feature kernel.
+            unsafe { self.process_into_bits_x86_steady(input, out_bits) };
             debug_assert_eq!(
                 out_bits.len() - starting_output_len + self.buffered,
                 input.len() + starting_buffered
@@ -1734,11 +1875,80 @@ impl EcBeam2Modulator {
         self.diagnostics.committed_sequence = committed_sequence;
     }
 
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2,fma")]
+    #[inline(never)]
+    unsafe fn process_into_bits_x86_steady(&mut self, input: &[f64], out_bits: &mut Vec<u8>) {
+        out_bits.reserve(input.len());
+        let mut segment_start = out_bits.len();
+        let mut written = 0usize;
+        let mut output_ptr = out_bits.as_mut_ptr();
+        let mut committed_samples = self.diagnostics.committed_samples;
+        let mut positive_bits = self.diagnostics.positive_bits;
+        let mut committed_sequence = self.diagnostics.committed_sequence;
+
+        for (index, &u) in input.iter().enumerate() {
+            let step = if u.is_finite() && u.abs() <= 2.0 {
+                unsafe { self.try_process_feasible_m4_x86(u) }
+            } else {
+                SimdSteadyStep::NotHandled
+            };
+            match step {
+                SimdSteadyStep::Handled => {}
+                SimdSteadyStep::Emitted(bit) => {
+                    debug_assert!(segment_start + written < out_bits.capacity());
+                    unsafe { output_ptr.add(segment_start + written).write(bit) };
+                    written += 1;
+                    committed_samples = committed_samples.wrapping_add(1);
+                    positive_bits = positive_bits.wrapping_add(u64::from(bit == 1));
+                    committed_sequence = committed_sequence.wrapping_add(1);
+                }
+                slow => {
+                    unsafe { out_bits.set_len(segment_start + written) };
+                    self.diagnostics.committed_samples = committed_samples;
+                    self.diagnostics.positive_bits = positive_bits;
+                    self.diagnostics.committed_sequence = committed_sequence;
+
+                    match slow {
+                        SimdSteadyStep::RecoverNonfinite => {
+                            self.recover_nonfinite_frontier(u, out_bits);
+                        }
+                        SimdSteadyStep::CommitSlow => self.commit_oldest_simd(out_bits),
+                        SimdSteadyStep::NotHandled => {
+                            // Re-enter through the scalar behavior oracle for
+                            // warm-up, overloads, or a narrow frontier. The
+                            // current SIMD bank is synchronized first; scratch
+                            // written by the failed attempt is not authoritative.
+                            self.sync_simd_paths();
+                            self.simd_state_valid = false;
+                            self.simd_reconstruction_history_depth = 0;
+                            self.process_sample(u, out_bits);
+                        }
+                        SimdSteadyStep::Handled | SimdSteadyStep::Emitted(_) => unreachable!(),
+                    }
+
+                    committed_samples = self.diagnostics.committed_samples;
+                    positive_bits = self.diagnostics.positive_bits;
+                    committed_sequence = self.diagnostics.committed_sequence;
+                    out_bits.reserve(input.len() - index - 1);
+                    segment_start = out_bits.len();
+                    written = 0;
+                    output_ptr = out_bits.as_mut_ptr();
+                }
+            }
+        }
+
+        unsafe { out_bits.set_len(segment_start + written) };
+        self.diagnostics.committed_samples = committed_samples;
+        self.diagnostics.positive_bits = positive_bits;
+        self.diagnostics.committed_sequence = committed_sequence;
+    }
+
     pub(crate) fn flush_into_bits(&mut self, out_bits: &mut Vec<u8>) {
         if self.buffered == 0 {
             return;
         }
-        #[cfg(target_arch = "aarch64")]
+        #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
         self.sync_simd_paths();
         let starting_output_len = out_bits.len();
         let starting_buffered = self.buffered;
@@ -2172,7 +2382,7 @@ impl EcBeam2Modulator {
     }
 
     fn reseed_from_core(&mut self) {
-        #[cfg(target_arch = "aarch64")]
+        #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
         {
             self.simd_state_valid = false;
             self.simd_reconstruction_history_depth = 0;
@@ -2195,7 +2405,7 @@ impl EcBeam2Modulator {
     /// horizon comparison begin from precisely the same CRFB, profile, EMA,
     /// and previous-output state. This is oracle tooling only.
     fn reseed_for_oracle(&mut self, start: EcBeam2Path) {
-        #[cfg(target_arch = "aarch64")]
+        #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
         {
             self.simd_state_valid = false;
             self.simd_reconstruction_history_depth = 0;
@@ -2231,7 +2441,7 @@ impl EcBeam2Modulator {
     /// partially materialized frontier active.
     fn recover_nonfinite_frontier(&mut self, u: f64, out_bits: &mut Vec<u8>) {
         debug_assert!(u.is_finite());
-        #[cfg(target_arch = "aarch64")]
+        #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
         self.sync_simd_paths();
         self.emit_buffered_best(out_bits);
         self.core.hard_reset();
@@ -2471,6 +2681,239 @@ impl EcBeam2Modulator {
                     );
                 }
             }
+        }
+        self.record_simd_reconstruction_generation(materialize_bank, selected_parents);
+        let mut minimum_metric = child_metric[ecbeam2_child_index(order[0])];
+        for slot in 1..ECBEAM2_WIDTH {
+            minimum_metric = minimum_metric.min(child_metric[ecbeam2_child_index(order[slot])]);
+        }
+        for slot in 0..ECBEAM2_WIDTH {
+            let child = ecbeam2_child_index(order[slot]);
+            self.simd_metric[materialize_bank][slot] = child_metric[child] - minimum_metric;
+            self.simd_bits[materialize_bank][slot] = child_bits[child];
+        }
+
+        self.parents_bank = materialize_bank;
+        self.parents_len = ECBEAM2_WIDTH;
+        self.push_buffered_input(u);
+        if committing {
+            let parent_bank = self.parents_bank;
+            let bit = (self.simd_bits[parent_bank][0] >> (ECBEAM2_HORIZON - 1)) & 1;
+            if self.committed_reconstruction_from_simd_ancestry() {
+                self.remove_oldest_buffered_input();
+                SimdSteadyStep::Emitted(bit)
+            } else {
+                SimdSteadyStep::CommitSlow
+            }
+        } else {
+            SimdSteadyStep::Handled
+        }
+    }
+
+    /// AVX2/FMA version of the fixed playback kernel. Only production M4/N8
+    /// reaches this entry; exceptional inputs and incomplete frontiers return
+    /// to the scalar behavior oracle in the block driver.
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2,fma")]
+    #[allow(clippy::needless_range_loop)]
+    #[inline]
+    unsafe fn try_process_feasible_m4_x86(&mut self, u: f64) -> SimdSteadyStep {
+        use core::arch::x86_64::*;
+
+        let all_signs_certified = unsafe { self.prepare_simd_frontier_core_x86::<true>(u) };
+        if self.parents_len != ECBEAM2_WIDTH {
+            return SimdSteadyStep::NotHandled;
+        }
+
+        const CHILDREN: usize = 2 * ECBEAM2_WIDTH;
+        let parent_bank = self.parents_bank;
+        let mut child_metric = [0.0; CHILDREN];
+        let mut child_bits = [0u8; CHILDREN];
+        let mut child_feasible = [false; CHILDREN];
+        for parent in 0..ECBEAM2_WIDTH {
+            let parent_bits = self.simd_bits[parent_bank][parent];
+            let positive = 2 * parent;
+            child_metric[positive] = self.simd_candidate_metric[0][parent];
+            child_metric[positive + 1] = self.simd_candidate_metric[1][parent];
+            child_bits[positive] = (parent_bits << 1) | 1;
+            child_bits[positive + 1] = parent_bits << 1;
+            child_feasible[positive] = self.simd_candidate_finite[0][parent]
+                && self.simd_maximum_overflow[0][parent] == 0.0;
+            child_feasible[positive + 1] = self.simd_candidate_finite[1][parent]
+                && self.simd_maximum_overflow[1][parent] == 0.0;
+        }
+
+        let committing = self.buffered + 1 == ECBEAM2_HORIZON;
+        let mut order = [0u8; ECBEAM2_WIDTH];
+        let mut order_len = 0usize;
+        let all_children_feasible = all_signs_certified
+            && self.simd_candidate_finite[0]
+                .into_iter()
+                .all(|finite| finite)
+            && self.simd_candidate_finite[1]
+                .into_iter()
+                .all(|finite| finite);
+        if committing && all_children_feasible {
+            let before = |left: usize, right: usize| {
+                child_metric[left] < child_metric[right]
+                    || (child_metric[left] == child_metric[right]
+                        && child_bits[left] > child_bits[right])
+            };
+            let mut best_by_parent = [0u8; ECBEAM2_WIDTH];
+            for parent in 0..ECBEAM2_WIDTH {
+                let positive = 2 * parent;
+                best_by_parent[parent] = if before(positive, positive + 1) {
+                    positive as u8
+                } else {
+                    (positive + 1) as u8
+                };
+            }
+            let mut best = best_by_parent[0] as usize;
+            for &candidate in &best_by_parent[1..] {
+                let candidate = candidate as usize;
+                if before(candidate, best) {
+                    best = candidate;
+                }
+            }
+            let chosen_root = (child_bits[best] >> (ECBEAM2_HORIZON - 1)) & 1;
+            let mut compatible_parents = [0u8; ECBEAM2_WIDTH];
+            let mut compatible_len = 0usize;
+            for parent in 0..ECBEAM2_WIDTH {
+                let parent_root =
+                    (self.simd_bits[parent_bank][parent] >> (ECBEAM2_HORIZON - 2)) & 1;
+                if parent_root == chosen_root {
+                    compatible_parents[compatible_len] = parent as u8;
+                    compatible_len += 1;
+                }
+            }
+            if compatible_len == 2 {
+                let first = 2 * compatible_parents[0];
+                let second = 2 * compatible_parents[1];
+                order = [first, first + 1, second, second + 1];
+                sort_ecbeam2_four(&mut order, &child_metric, &child_bits);
+                order_len = ECBEAM2_WIDTH;
+            } else {
+                for &parent in &compatible_parents[..compatible_len] {
+                    for index in [2 * parent, 2 * parent + 1] {
+                        insert_ecbeam2_top4(
+                            index,
+                            &child_metric,
+                            &child_bits,
+                            &mut order,
+                            &mut order_len,
+                        );
+                    }
+                }
+            }
+        } else if committing {
+            let Some(mut best) = child_feasible.iter().position(|&feasible| feasible) else {
+                return SimdSteadyStep::NotHandled;
+            };
+            for index in best + 1..CHILDREN {
+                if child_feasible[index]
+                    && (child_metric[index] < child_metric[best]
+                        || (child_metric[index] == child_metric[best]
+                            && child_bits[index] > child_bits[best]))
+                {
+                    best = index;
+                }
+            }
+            let chosen_root = (child_bits[best] >> (ECBEAM2_HORIZON - 1)) & 1;
+            for index in 0..CHILDREN {
+                if child_feasible[index]
+                    && ((child_bits[index] >> (ECBEAM2_HORIZON - 1)) & 1) == chosen_root
+                {
+                    insert_ecbeam2_top4(
+                        index as u8,
+                        &child_metric,
+                        &child_bits,
+                        &mut order,
+                        &mut order_len,
+                    );
+                }
+            }
+        } else {
+            for index in 0..CHILDREN {
+                if child_feasible[index] {
+                    insert_ecbeam2_top4(
+                        index as u8,
+                        &child_metric,
+                        &child_bits,
+                        &mut order,
+                        &mut order_len,
+                    );
+                }
+            }
+        }
+        if order_len != ECBEAM2_WIDTH {
+            return SimdSteadyStep::NotHandled;
+        }
+
+        self.consecutive_constraint_escapes = 0;
+        self.consecutive_state_repairs = 0;
+
+        let materialize_bank = parent_bank ^ 1;
+        let mut selected_parents = [0usize; ECBEAM2_WIDTH];
+        let mut selected_v = [0.0; ECBEAM2_WIDTH];
+        let mut errors = [0.0; ECBEAM2_WIDTH];
+        for slot in 0..ECBEAM2_WIDTH {
+            let child = ecbeam2_child_index(order[slot]);
+            let parent = child >> 1;
+            let v = if child & 1 == 0 { 1.0 } else { -1.0 };
+            selected_parents[slot] = parent;
+            selected_v[slot] = v;
+            errors[slot] = v - u;
+        }
+
+        let reconstruction_profile = &self.reconstruction_profile;
+        let reconstruction_finite = if parent_bank == 0 {
+            let (source, destination) = self.simd_reconstruction_state.split_at_mut(1);
+            unsafe {
+                reconstruction_profile.next_state4_selected_x86(
+                    &source[0],
+                    selected_parents,
+                    errors,
+                    &mut destination[0],
+                )
+            }
+        } else {
+            let (destination, source) = self.simd_reconstruction_state.split_at_mut(1);
+            unsafe {
+                reconstruction_profile.next_state4_selected_x86(
+                    &source[0],
+                    selected_parents,
+                    errors,
+                    &mut destination[0],
+                )
+            }
+        };
+        if !reconstruction_finite.into_iter().all(|finite| finite) {
+            return SimdSteadyStep::RecoverNonfinite;
+        }
+
+        let p = selected_parents.map(|parent| (parent * 2) as i32);
+        let permutation = _mm256_set_epi32(
+            p[3] + 1,
+            p[3],
+            p[2] + 1,
+            p[2],
+            p[1] + 1,
+            p[1],
+            p[0] + 1,
+            p[0],
+        );
+        let selected_v = unsafe { _mm256_loadu_pd(selected_v.as_ptr()) };
+        for stage in 0..8 {
+            let packed = unsafe { _mm256_loadu_si256(self.simd_base_norm[stage].as_ptr().cast()) };
+            let base = _mm256_castsi256_pd(_mm256_permutevar8x32_epi32(packed, permutation));
+            let raw_base = _mm256_mul_pd(base, _mm256_set1_pd(self.core.state_limit8[stage]));
+            let state = _mm256_fmadd_pd(selected_v, _mm256_set1_pd(self.core.bv[stage]), raw_base);
+            unsafe {
+                _mm256_storeu_pd(
+                    self.simd_raw_state[materialize_bank][stage].as_mut_ptr(),
+                    state,
+                )
+            };
         }
         self.record_simd_reconstruction_generation(materialize_bank, selected_parents);
         let mut minimum_metric = child_metric[ecbeam2_child_index(order[0])];
@@ -2776,7 +3219,7 @@ impl EcBeam2Modulator {
     /// Commit an already root-conditioned lean SIMD frontier. The selector
     /// guarantees every retained path has the chosen oldest bit, so replaying
     /// the scalar root filter would only update read-only pruning telemetry.
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     #[inline(always)]
     fn commit_oldest_simd(&mut self, out_bits: &mut Vec<u8>) {
         let parent_bank = self.parents_bank;
@@ -2796,7 +3239,7 @@ impl EcBeam2Modulator {
         self.remove_oldest_buffered_input();
     }
 
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     #[inline(always)]
     fn commit_bit_simd_lean(&mut self, bit: u8, out_bits: &mut Vec<u8>) {
         debug_assert!(self.simd_m4n8_eligible());
@@ -4205,7 +4648,7 @@ mod tests {
     }
 
     #[test]
-    fn ecbeam2_full_lean_scalar_and_neon_are_bit_exact() {
+    fn ecbeam2_full_lean_scalar_and_native_simd_are_bit_exact() {
         fn assert_bits(reference: &[u8], candidate: &[u8], context: &str) {
             if let Some(index) = reference
                 .iter()
@@ -4319,20 +4762,30 @@ mod tests {
         }
 
         let cases = [
-            (&CRFB_OSR64_OBG164, 2_822_400, 0x8168_c3e9_364c_ace3, 1635),
-            (&CRFB_OSR64_OBG164, 3_072_000, 0x70f1_1281_770d_c9ad, 1635),
+            (
+                &CRFB_OSR64_OBG164,
+                2_822_400,
+                Some((0x8168_c3e9_364c_ace3, 1635)),
+            ),
+            (
+                &CRFB_OSR64_OBG164,
+                3_072_000,
+                Some((0x70f1_1281_770d_c9ad, 1635)),
+            ),
+            (ecbeam2_dsd64_production_coefficients(), 2_822_400, None),
+            (ecbeam2_dsd64_production_coefficients(), 3_072_000, None),
             (
                 ecbeam2_dsd128_production_coefficients(),
                 5_644_800,
-                0xdef1_df05_0202_6094,
-                1635,
+                Some((0xdef1_df05_0202_6094, 1635)),
             ),
             (
                 ecbeam2_dsd128_production_coefficients(),
                 6_144_000,
-                0xee56_43a6_2831_ff48,
-                1635,
+                Some((0xee56_43a6_2831_ff48, 1635)),
             ),
+            (ecbeam2_dsd256_production_coefficients(), 11_289_600, None),
+            (ecbeam2_dsd256_production_coefficients(), 12_288_000, None),
         ];
         let config = ecbeam2_production_config();
         let mut input = vec![0.0; 3072];
@@ -4367,7 +4820,7 @@ mod tests {
         input[700] = 3.0;
         input[2221] = f64::INFINITY;
 
-        for (coefficients, wire_rate, reference_digest, reference_positive_bits) in cases {
+        for (coefficients, wire_rate, frozen_reference) in cases {
             let mut full =
                 EcBeam2Modulator::new(coefficients, 0xB17_EA7, wire_rate, config).unwrap();
             let mut lean_scalar = EcBeam2Modulator::new_with_diagnostics(
@@ -4379,7 +4832,7 @@ mod tests {
             )
             .unwrap();
             lean_scalar.force_scalar_path = true;
-            let mut lean_neon = EcBeam2Modulator::new_with_diagnostics(
+            let mut lean_simd = EcBeam2Modulator::new_with_diagnostics(
                 coefficients,
                 0xB17_EA7,
                 wire_rate,
@@ -4388,10 +4841,16 @@ mod tests {
             )
             .unwrap();
             #[cfg(all(target_arch = "aarch64", not(feature = "ecbeam2_observer")))]
-            assert!(lean_neon.simd_m4n8_eligible(), "wire rate {wire_rate}");
+            assert!(lean_simd.simd_m4n8_eligible(), "wire rate {wire_rate}");
+            #[cfg(all(target_arch = "x86_64", not(feature = "ecbeam2_observer")))]
+            if std::arch::is_x86_feature_detected!("avx2")
+                && std::arch::is_x86_feature_detected!("fma")
+            {
+                assert!(lean_simd.simd_m4n8_eligible(), "wire rate {wire_rate}");
+            }
             let mut full_bits = Vec::new();
             let mut lean_scalar_bits = Vec::new();
-            let mut lean_neon_bits = Vec::new();
+            let mut lean_simd_bits = Vec::new();
             let chunks = [1usize, 3, 7, 8, 1024];
             let mut offset = 0usize;
             let mut chunk_index = 0usize;
@@ -4399,64 +4858,67 @@ mod tests {
                 let end = (offset + chunks[chunk_index % chunks.len()]).min(input.len());
                 full.process_into_bits(&input[offset..end], &mut full_bits);
                 lean_scalar.process_into_bits(&input[offset..end], &mut lean_scalar_bits);
-                lean_neon.process_into_bits(&input[offset..end], &mut lean_neon_bits);
+                lean_simd.process_into_bits(&input[offset..end], &mut lean_simd_bits);
                 let scalar_context = format!("wire rate {wire_rate}, input {end}, lean scalar");
-                let neon_context = format!("wire rate {wire_rate}, input {end}, lean NEON");
+                let simd_context = format!("wire rate {wire_rate}, input {end}, lean native SIMD");
                 assert_bits(&full_bits, &lean_scalar_bits, &scalar_context);
-                assert_bits(&full_bits, &lean_neon_bits, &neon_context);
+                assert_bits(&full_bits, &lean_simd_bits, &simd_context);
                 assert_decision_state(&full, &lean_scalar, &scalar_context);
-                #[cfg(target_arch = "aarch64")]
-                lean_neon.sync_simd_paths();
-                assert_decision_state(&full, &lean_neon, &neon_context);
+                #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
+                lean_simd.sync_simd_paths();
+                assert_decision_state(&full, &lean_simd, &simd_context);
                 offset = end;
                 chunk_index += 1;
             }
             full.flush_into_bits(&mut full_bits);
             lean_scalar.flush_into_bits(&mut lean_scalar_bits);
-            lean_neon.flush_into_bits(&mut lean_neon_bits);
+            lean_simd.flush_into_bits(&mut lean_simd_bits);
             let scalar_context = format!("wire rate {wire_rate}, flushed, lean scalar");
-            let neon_context = format!("wire rate {wire_rate}, flushed, lean NEON");
+            let simd_context = format!("wire rate {wire_rate}, flushed, lean native SIMD");
             assert_bits(&full_bits, &lean_scalar_bits, &scalar_context);
-            assert_bits(&full_bits, &lean_neon_bits, &neon_context);
+            assert_bits(&full_bits, &lean_simd_bits, &simd_context);
             assert_final_state(&full, &lean_scalar, &scalar_context);
-            assert_final_state(&full, &lean_neon, &neon_context);
+            assert_final_state(&full, &lean_simd, &simd_context);
             assert_eq!(
                 full_bits.len(),
                 input.len(),
                 "wire rate {wire_rate}, bit count"
             );
-            assert_eq!(
-                packed_digest(&full_bits),
-                reference_digest,
-                "wire rate {wire_rate}, frozen packed reference digest"
-            );
-            assert_eq!(
-                full_bits.iter().map(|&bit| u64::from(bit)).sum::<u64>(),
-                reference_positive_bits,
-                "wire rate {wire_rate}, frozen positive-bit count"
-            );
+            if let Some((reference_digest, reference_positive_bits)) = frozen_reference {
+                assert_eq!(
+                    packed_digest(&full_bits),
+                    reference_digest,
+                    "wire rate {wire_rate}, frozen packed reference digest"
+                );
+                assert_eq!(
+                    full_bits.iter().map(|&bit| u64::from(bit)).sum::<u64>(),
+                    reference_positive_bits,
+                    "wire rate {wire_rate}, frozen positive-bit count"
+                );
+            }
 
             for tail in 0..=7 {
                 full.reset();
                 lean_scalar.reset();
-                lean_neon.reset();
+                lean_simd.reset();
                 full_bits.clear();
                 lean_scalar_bits.clear();
-                lean_neon_bits.clear();
+                lean_simd_bits.clear();
                 full.process_into_bits(&input[..tail], &mut full_bits);
                 lean_scalar.process_into_bits(&input[..tail], &mut lean_scalar_bits);
-                lean_neon.process_into_bits(&input[..tail], &mut lean_neon_bits);
+                lean_simd.process_into_bits(&input[..tail], &mut lean_simd_bits);
                 full.flush_into_bits(&mut full_bits);
                 lean_scalar.flush_into_bits(&mut lean_scalar_bits);
-                lean_neon.flush_into_bits(&mut lean_neon_bits);
+                lean_simd.flush_into_bits(&mut lean_simd_bits);
                 let scalar_context =
                     format!("wire rate {wire_rate}, flush tail {tail}, lean scalar");
-                let neon_context = format!("wire rate {wire_rate}, flush tail {tail}, lean NEON");
+                let simd_context =
+                    format!("wire rate {wire_rate}, flush tail {tail}, lean native SIMD");
                 assert_eq!(full_bits.len(), tail, "{scalar_context}");
                 assert_bits(&full_bits, &lean_scalar_bits, &scalar_context);
-                assert_bits(&full_bits, &lean_neon_bits, &neon_context);
+                assert_bits(&full_bits, &lean_simd_bits, &simd_context);
                 assert_final_state(&full, &lean_scalar, &scalar_context);
-                assert_final_state(&full, &lean_neon, &neon_context);
+                assert_final_state(&full, &lean_simd, &simd_context);
             }
         }
     }
