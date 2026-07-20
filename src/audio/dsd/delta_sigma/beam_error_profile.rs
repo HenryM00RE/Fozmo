@@ -549,6 +549,63 @@ impl BeamErrorProfile {
         core::array::from_fn(|lane| finite_mask & (1 << lane) != 0)
     }
 
+    /// AVX-512VL survivor transition retaining four-lane AVX arithmetic while
+    /// using native 64-bit lane indices and mask-returning comparisons.
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2,fma,avx512f,avx512vl")]
+    #[allow(clippy::needless_range_loop)]
+    #[inline]
+    pub(crate) unsafe fn next_state4_selected_x86_avx512vl(
+        &self,
+        states: &[[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
+        parent_indices: [usize; 4],
+        errors: [f64; 4],
+        next: &mut [[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
+    ) -> [bool; 4] {
+        use core::arch::x86_64::*;
+        debug_assert!(parent_indices.into_iter().all(|parent| parent < 4));
+        let permutation = _mm256_set_epi64x(
+            parent_indices[3] as i64,
+            parent_indices[2] as i64,
+            parent_indices[1] as i64,
+            parent_indices[0] as i64,
+        );
+        let mut dot0 = _mm256_setzero_pd();
+        let mut dot1 = _mm256_setzero_pd();
+        let mut dot2 = _mm256_setzero_pd();
+        let mut dot3 = _mm256_setzero_pd();
+        let mut dot4 = _mm256_setzero_pd();
+        let mut dot5 = _mm256_setzero_pd();
+        for stage in 0..MAX_BEAM_ERROR_PROFILE_STATES {
+            let packed = unsafe { _mm256_loadu_pd(states[stage].as_ptr()) };
+            let state = _mm256_permutexvar_pd(permutation, packed);
+            dot0 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[0][stage]), dot0);
+            dot1 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[1][stage]), dot1);
+            dot2 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[2][stage]), dot2);
+            dot3 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[3][stage]), dot3);
+            dot4 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[4][stage]), dot4);
+            dot5 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[5][stage]), dot5);
+        }
+        let error = unsafe { _mm256_loadu_pd(errors.as_ptr()) };
+        let sign = _mm256_set1_pd(-0.0);
+        let max = _mm256_set1_pd(f64::MAX);
+        let mut finite_mask = 0b1111u8;
+        macro_rules! store_row {
+            ($row:expr, $dot:expr) => {{
+                let value = _mm256_fmadd_pd(error, _mm256_set1_pd(self.b[$row]), $dot);
+                unsafe { _mm256_storeu_pd(next[$row].as_mut_ptr(), value) };
+                finite_mask &= _mm256_cmp_pd_mask::<_CMP_LE_OQ>(_mm256_andnot_pd(sign, value), max);
+            }};
+        }
+        store_row!(0, dot0);
+        store_row!(1, dot1);
+        store_row!(2, dot2);
+        store_row!(3, dot3);
+        store_row!(4, dot4);
+        store_row!(5, dot5);
+        core::array::from_fn(|lane| finite_mask & (1 << lane) != 0)
+    }
+
     /// Advance one profile by pairing independent output rows in NEON lanes.
     /// Each lane accumulates stages in the same order as `next_state`, so this
     /// is an exact scheduling change rather than an algebraic rewrite.

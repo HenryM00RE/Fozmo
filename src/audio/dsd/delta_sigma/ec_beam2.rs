@@ -42,6 +42,17 @@ fn ecbeam2_child_index(index: u8) -> usize {
     index
 }
 
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512vl")]
+#[inline]
+unsafe fn ordered_le_mask_x86_avx512vl(
+    left: core::arch::x86_64::__m256d,
+    right: core::arch::x86_64::__m256d,
+) -> u8 {
+    use core::arch::x86_64::*;
+    _mm256_cmp_pd_mask::<_CMP_LE_OQ>(left, right)
+}
+
 #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
 #[inline(always)]
 fn insert_ecbeam2_top4(
@@ -980,6 +991,8 @@ pub(crate) struct EcBeam2Modulator {
     simd_state_valid: bool,
     #[cfg(test)]
     force_scalar_path: bool,
+    #[cfg(all(test, target_arch = "x86_64"))]
+    force_avx2_path: bool,
     survivor_initial_fill_complete: bool,
     buffered: usize,
     input_buffer: [f64; ECBEAM2_HORIZON],
@@ -1411,7 +1424,10 @@ impl EcBeam2Modulator {
     #[target_feature(enable = "avx2,fma")]
     #[allow(clippy::needless_range_loop)]
     #[inline]
-    unsafe fn prepare_simd_frontier_core_x86<const TRACK_CERTIFICATE: bool>(
+    unsafe fn prepare_simd_frontier_core_x86<
+        const TRACK_CERTIFICATE: bool,
+        const AVX512VL: bool,
+    >(
         &mut self,
         u: f64,
     ) -> bool {
@@ -1464,14 +1480,18 @@ impl EcBeam2Modulator {
 
         let sign_mask = splat(-0.0);
         let mut both_signs_safe = _mm256_set1_epi64x(-1);
+        let mut avx512_certified_mask = 0b1111u8;
         for (stage, base) in bases.iter().copied().enumerate() {
             unsafe { _mm256_storeu_pd(self.simd_base_norm[stage].as_mut_ptr(), base) };
             let absolute = _mm256_andnot_pd(sign_mask, base);
-            let safe = _mm256_cmp_pd::<_CMP_LE_OQ>(
-                absolute,
-                splat(self.simd_both_sign_safe_abs_base[stage]),
-            );
-            both_signs_safe = _mm256_and_si256(both_signs_safe, _mm256_castpd_si256(safe));
+            let boundary = splat(self.simd_both_sign_safe_abs_base[stage]);
+            if AVX512VL {
+                avx512_certified_mask &=
+                    unsafe { ordered_le_mask_x86_avx512vl(absolute, boundary) };
+            } else {
+                let safe = _mm256_cmp_pd::<_CMP_LE_OQ>(absolute, boundary);
+                both_signs_safe = _mm256_and_si256(both_signs_safe, _mm256_castpd_si256(safe));
+            }
         }
         self.simd_base_norm[7] = [0.0; ECBEAM2_WIDTH];
         let y = _mm256_fmadd_pd(
@@ -1481,7 +1501,11 @@ impl EcBeam2Modulator {
         );
         unsafe { _mm256_storeu_pd(self.simd_y.as_mut_ptr(), y) };
 
-        let certified_mask = _mm256_movemask_pd(_mm256_castsi256_pd(both_signs_safe));
+        let certified_mask = if AVX512VL {
+            avx512_certified_mask
+        } else {
+            _mm256_movemask_pd(_mm256_castsi256_pd(both_signs_safe)) as u8
+        };
         let all_signs_certified = certified_mask == 0b1111;
         if !all_signs_certified {
             let zero = _mm256_setzero_pd();
@@ -1493,8 +1517,11 @@ impl EcBeam2Modulator {
                     let candidate =
                         _mm256_fmadd_pd(splat(v), splat(self.core.bv_norm[stage]), base);
                     let absolute = _mm256_andnot_pd(sign_mask, candidate);
-                    finite_mask &=
-                        _mm256_movemask_pd(_mm256_cmp_pd::<_CMP_LE_OQ>(absolute, max_finite));
+                    finite_mask &= if AVX512VL {
+                        unsafe { ordered_le_mask_x86_avx512vl(absolute, max_finite) }
+                    } else {
+                        _mm256_movemask_pd(_mm256_cmp_pd::<_CMP_LE_OQ>(absolute, max_finite)) as u8
+                    };
                     maximum = _mm256_max_pd(maximum, _mm256_sub_pd(absolute, splat(1.0)));
                 }
                 unsafe { _mm256_storeu_pd(self.simd_maximum_overflow[sign].as_mut_ptr(), maximum) };
@@ -1730,6 +1757,8 @@ impl EcBeam2Modulator {
             simd_state_valid: false,
             #[cfg(test)]
             force_scalar_path: false,
+            #[cfg(all(test, target_arch = "x86_64"))]
+            force_avx2_path: false,
             survivor_initial_fill_complete: false,
             buffered: 0,
             input_buffer: [0.0; ECBEAM2_HORIZON],
@@ -1801,9 +1830,17 @@ impl EcBeam2Modulator {
         }
         #[cfg(target_arch = "x86_64")]
         if self.simd_m4n8_eligible() {
-            // SAFETY: eligibility performs runtime AVX2/FMA detection before
-            // entering the target-feature kernel.
-            unsafe { self.process_into_bits_x86_steady(input, out_bits) };
+            // SAFETY: eligibility performs runtime AVX2/FMA detection. The
+            // AVX-512VL specialization receives its own runtime feature gate.
+            let use_avx512vl = std::arch::is_x86_feature_detected!("avx512f")
+                && std::arch::is_x86_feature_detected!("avx512vl");
+            #[cfg(test)]
+            let use_avx512vl = use_avx512vl && !self.force_avx2_path;
+            if use_avx512vl {
+                unsafe { self.process_into_bits_x86_steady::<true>(input, out_bits) };
+            } else {
+                unsafe { self.process_into_bits_x86_steady::<false>(input, out_bits) };
+            }
             debug_assert_eq!(
                 out_bits.len() - starting_output_len + self.buffered,
                 input.len() + starting_buffered
@@ -1924,7 +1961,11 @@ impl EcBeam2Modulator {
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "avx2,fma")]
     #[inline(never)]
-    unsafe fn process_into_bits_x86_steady(&mut self, input: &[f64], out_bits: &mut Vec<u8>) {
+    unsafe fn process_into_bits_x86_steady<const AVX512VL: bool>(
+        &mut self,
+        input: &[f64],
+        out_bits: &mut Vec<u8>,
+    ) {
         out_bits.reserve(input.len());
         let mut segment_start = out_bits.len();
         let mut written = 0usize;
@@ -1935,7 +1976,7 @@ impl EcBeam2Modulator {
 
         for (index, &u) in input.iter().enumerate() {
             let step = if u.is_finite() && u.abs() <= 2.0 {
-                unsafe { self.try_process_feasible_m4_x86(u) }
+                unsafe { self.try_process_feasible_m4_x86::<AVX512VL>(u) }
             } else {
                 SimdSteadyStep::NotHandled
             };
@@ -2745,13 +2786,54 @@ impl EcBeam2Modulator {
     /// reaches this entry; exceptional inputs and incomplete frontiers return
     /// to the scalar behavior oracle in the block driver.
     #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2,fma,avx512f,avx512vl")]
+    #[inline]
+    unsafe fn materialize_selected_crfb_x86_avx512vl(
+        &mut self,
+        materialize_bank: usize,
+        selected_parents: [usize; ECBEAM2_WIDTH],
+        selected_v: [f64; ECBEAM2_WIDTH],
+    ) {
+        use core::arch::x86_64::*;
+
+        debug_assert!(
+            selected_parents
+                .into_iter()
+                .all(|parent| parent < ECBEAM2_WIDTH)
+        );
+        let permutation = _mm256_set_epi64x(
+            selected_parents[3] as i64,
+            selected_parents[2] as i64,
+            selected_parents[1] as i64,
+            selected_parents[0] as i64,
+        );
+        let selected_v = unsafe { _mm256_loadu_pd(selected_v.as_ptr()) };
+        for stage in 0..8 {
+            let packed = unsafe { _mm256_loadu_pd(self.simd_base_norm[stage].as_ptr()) };
+            let base = _mm256_permutexvar_pd(permutation, packed);
+            let raw_base = _mm256_mul_pd(base, _mm256_set1_pd(self.core.state_limit8[stage]));
+            let state = _mm256_fmadd_pd(selected_v, _mm256_set1_pd(self.core.bv[stage]), raw_base);
+            unsafe {
+                _mm256_storeu_pd(
+                    self.simd_raw_state[materialize_bank][stage].as_mut_ptr(),
+                    state,
+                )
+            };
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "avx2,fma")]
     #[allow(clippy::needless_range_loop)]
     #[inline]
-    unsafe fn try_process_feasible_m4_x86(&mut self, u: f64) -> SimdSteadyStep {
+    unsafe fn try_process_feasible_m4_x86<const AVX512VL: bool>(
+        &mut self,
+        u: f64,
+    ) -> SimdSteadyStep {
         use core::arch::x86_64::*;
 
-        let all_children_feasible = unsafe { self.prepare_simd_frontier_core_x86::<true>(u) };
+        let all_children_feasible =
+            unsafe { self.prepare_simd_frontier_core_x86::<true, AVX512VL>(u) };
         if self.parents_len != ECBEAM2_WIDTH {
             return SimdSteadyStep::NotHandled;
         }
@@ -2897,52 +2979,86 @@ impl EcBeam2Modulator {
         let reconstruction_profile = &self.reconstruction_profile;
         let reconstruction_finite = if parent_bank == 0 {
             let (source, destination) = self.simd_reconstruction_state.split_at_mut(1);
-            unsafe {
-                reconstruction_profile.next_state4_selected_x86(
-                    &source[0],
-                    selected_parents,
-                    errors,
-                    &mut destination[0],
-                )
+            if AVX512VL {
+                unsafe {
+                    reconstruction_profile.next_state4_selected_x86_avx512vl(
+                        &source[0],
+                        selected_parents,
+                        errors,
+                        &mut destination[0],
+                    )
+                }
+            } else {
+                unsafe {
+                    reconstruction_profile.next_state4_selected_x86(
+                        &source[0],
+                        selected_parents,
+                        errors,
+                        &mut destination[0],
+                    )
+                }
             }
         } else {
             let (destination, source) = self.simd_reconstruction_state.split_at_mut(1);
-            unsafe {
-                reconstruction_profile.next_state4_selected_x86(
-                    &source[0],
-                    selected_parents,
-                    errors,
-                    &mut destination[0],
-                )
+            if AVX512VL {
+                unsafe {
+                    reconstruction_profile.next_state4_selected_x86_avx512vl(
+                        &source[0],
+                        selected_parents,
+                        errors,
+                        &mut destination[0],
+                    )
+                }
+            } else {
+                unsafe {
+                    reconstruction_profile.next_state4_selected_x86(
+                        &source[0],
+                        selected_parents,
+                        errors,
+                        &mut destination[0],
+                    )
+                }
             }
         };
         if !reconstruction_finite.into_iter().all(|finite| finite) {
             return SimdSteadyStep::RecoverNonfinite;
         }
 
-        let p = selected_parents.map(|parent| (parent * 2) as i32);
-        let permutation = _mm256_set_epi32(
-            p[3] + 1,
-            p[3],
-            p[2] + 1,
-            p[2],
-            p[1] + 1,
-            p[1],
-            p[0] + 1,
-            p[0],
-        );
-        let selected_v = unsafe { _mm256_loadu_pd(selected_v.as_ptr()) };
-        for stage in 0..8 {
-            let packed = unsafe { _mm256_loadu_si256(self.simd_base_norm[stage].as_ptr().cast()) };
-            let base = _mm256_castsi256_pd(_mm256_permutevar8x32_epi32(packed, permutation));
-            let raw_base = _mm256_mul_pd(base, _mm256_set1_pd(self.core.state_limit8[stage]));
-            let state = _mm256_fmadd_pd(selected_v, _mm256_set1_pd(self.core.bv[stage]), raw_base);
+        if AVX512VL {
             unsafe {
-                _mm256_storeu_pd(
-                    self.simd_raw_state[materialize_bank][stage].as_mut_ptr(),
-                    state,
+                self.materialize_selected_crfb_x86_avx512vl(
+                    materialize_bank,
+                    selected_parents,
+                    selected_v,
                 )
             };
+        } else {
+            let p = selected_parents.map(|parent| (parent * 2) as i32);
+            let permutation = _mm256_set_epi32(
+                p[3] + 1,
+                p[3],
+                p[2] + 1,
+                p[2],
+                p[1] + 1,
+                p[1],
+                p[0] + 1,
+                p[0],
+            );
+            let selected_v = unsafe { _mm256_loadu_pd(selected_v.as_ptr()) };
+            for stage in 0..8 {
+                let packed =
+                    unsafe { _mm256_loadu_si256(self.simd_base_norm[stage].as_ptr().cast()) };
+                let base = _mm256_castsi256_pd(_mm256_permutevar8x32_epi32(packed, permutation));
+                let raw_base = _mm256_mul_pd(base, _mm256_set1_pd(self.core.state_limit8[stage]));
+                let state =
+                    _mm256_fmadd_pd(selected_v, _mm256_set1_pd(self.core.bv[stage]), raw_base);
+                unsafe {
+                    _mm256_storeu_pd(
+                        self.simd_raw_state[materialize_bank][stage].as_mut_ptr(),
+                        state,
+                    )
+                };
+            }
         }
         self.record_simd_reconstruction_generation(materialize_bank, selected_parents);
         let mut minimum_metric = child_metric[ecbeam2_child_index(order[0])];
@@ -4311,26 +4427,97 @@ mod tests {
         {
             return;
         }
-        let mut modulator = EcBeam2Modulator::new_with_diagnostics(
-            ecbeam2_dsd128_production_coefficients(),
-            0xCE47_1F1C_A7E,
-            DSD128_44K_FAMILY_WIRE_RATE,
-            EcBeam2ExperimentConfig::default(),
-            false,
-        )
-        .unwrap();
-        modulator.ensure_simd_raw_state();
-        let bank = modulator.parents_bank;
-        modulator.simd_metric[bank] = [f64::INFINITY; ECBEAM2_WIDTH];
-        modulator.simd_maximum_overflow = [[1.0; ECBEAM2_WIDTH]; 2];
-        modulator.simd_candidate_finite = [[true; ECBEAM2_WIDTH]; 2];
+        let prepared = || {
+            let mut modulator = EcBeam2Modulator::new_with_diagnostics(
+                ecbeam2_dsd128_production_coefficients(),
+                0xCE47_1F1C_A7E,
+                DSD128_44K_FAMILY_WIRE_RATE,
+                EcBeam2ExperimentConfig::default(),
+                false,
+            )
+            .unwrap();
+            modulator.ensure_simd_raw_state();
+            let bank = modulator.parents_bank;
+            modulator.simd_metric[bank] = [f64::INFINITY; ECBEAM2_WIDTH];
+            modulator.simd_maximum_overflow = [[1.0; ECBEAM2_WIDTH]; 2];
+            modulator.simd_candidate_finite = [[true; ECBEAM2_WIDTH]; 2];
+            modulator
+        };
+        let mut avx2 = prepared();
+        let avx2_feasible = unsafe { avx2.prepare_simd_frontier_core_x86::<true, false>(0.0) };
+        assert!(!avx2_feasible);
+        assert_eq!(avx2.simd_maximum_overflow, [[0.0; ECBEAM2_WIDTH]; 2]);
+        assert_eq!(avx2.simd_candidate_finite, [[false; ECBEAM2_WIDTH]; 2]);
 
-        let all_children_feasible =
-            unsafe { modulator.prepare_simd_frontier_core_x86::<true>(0.0) };
+        if std::arch::is_x86_feature_detected!("avx512f")
+            && std::arch::is_x86_feature_detected!("avx512vl")
+        {
+            let mut avx512vl = prepared();
+            let avx512vl_feasible =
+                unsafe { avx512vl.prepare_simd_frontier_core_x86::<true, true>(0.0) };
+            assert!(!avx512vl_feasible);
+            assert_eq!(avx512vl.simd_maximum_overflow, avx2.simd_maximum_overflow);
+            assert_eq!(avx512vl.simd_candidate_finite, avx2.simd_candidate_finite);
+            assert_eq!(avx512vl.simd_candidate_metric, avx2.simd_candidate_metric);
+        }
+    }
 
-        assert!(!all_children_feasible);
-        assert_eq!(modulator.simd_maximum_overflow, [[0.0; ECBEAM2_WIDTH]; 2]);
-        assert_eq!(modulator.simd_candidate_finite, [[false; ECBEAM2_WIDTH]; 2]);
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn ecbeam2_avx512vl_and_avx2_paths_are_bit_exact() {
+        if !(std::arch::is_x86_feature_detected!("avx512f")
+            && std::arch::is_x86_feature_detected!("avx512vl"))
+        {
+            return;
+        }
+        let new_modulator = || {
+            EcBeam2Modulator::new_with_diagnostics(
+                ecbeam2_dsd128_production_coefficients(),
+                0xA512_A2B1_7E57,
+                DSD128_44K_FAMILY_WIRE_RATE,
+                EcBeam2ExperimentConfig::default(),
+                false,
+            )
+            .unwrap()
+        };
+        let mut avx2 = new_modulator();
+        avx2.force_avx2_path = true;
+        let mut avx512vl = new_modulator();
+        let mut input: Vec<f64> = (0..4096)
+            .map(|index| {
+                let phase = index as f64;
+                0.31 * (phase * 0.037).sin()
+                    + 0.13 * (phase * 0.113).cos()
+                    + 0.04 * (phase * 0.731).sin()
+            })
+            .collect();
+        input[701] = 3.0;
+        input[1703] = f64::NAN;
+        input[3001] = f64::INFINITY;
+        let mut avx2_bits = Vec::new();
+        let mut avx512vl_bits = Vec::new();
+        for chunk in input.chunks(37) {
+            avx2.process_into_bits(chunk, &mut avx2_bits);
+            avx512vl.process_into_bits(chunk, &mut avx512vl_bits);
+            assert_eq!(avx512vl_bits, avx2_bits);
+        }
+        avx2.flush_into_bits(&mut avx2_bits);
+        avx512vl.flush_into_bits(&mut avx512vl_bits);
+        avx2.sync_simd_paths();
+        avx512vl.sync_simd_paths();
+
+        assert_eq!(avx512vl_bits, avx2_bits);
+        assert_eq!(avx512vl.core.state, avx2.core.state);
+        assert_eq!(avx512vl.core.prev_v, avx2.core.prev_v);
+        assert_eq!(
+            avx512vl.committed_reconstruction_state,
+            avx2.committed_reconstruction_state
+        );
+        assert_eq!(
+            &avx512vl.parents[avx512vl.parents_bank][..avx512vl.parents_len],
+            &avx2.parents[avx2.parents_bank][..avx2.parents_len]
+        );
+        assert_eq!(avx512vl.diagnostics, avx2.diagnostics);
     }
 
     #[cfg(target_arch = "aarch64")]
