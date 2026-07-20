@@ -74,9 +74,16 @@ Performance depends on the song and its source sample rate, along with the proce
 RUSTFLAGS="-C target-cpu=native" cargo run --release --bin resampler_bench
 RUSTFLAGS="-C target-cpu=native" cargo run --release --bin dsd_renderer_bench
 RUSTFLAGS="-C target-cpu=native" cargo run --release --bin dsd_modulator_bench
+RUSTFLAGS="-C target-cpu=native" cargo run --locked --release --bin filter_timing_bench
 ```
 
 If playback cannot keep up, try a lower DSD rate or a lighter modulator. PCM is also there as the safer option when a DAC or output path does not handle DSD reliably.
+
+The [production filter timing bench](filter-timing-bench.md) is a quality
+measurement rather than a throughput benchmark. It compares impulse and step
+behavior, windowed 5-20 kHz tone packets, energy asymmetry, decay, and group
+delay for the four selectable reconstruction filters under one controlled
+integer-upsampling setup.
 
 ## Testing so far
 

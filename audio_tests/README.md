@@ -98,6 +98,21 @@ tools/dsd-perf-mac.sh
 
 Generated output belongs under `audio_tests/out/`, which is ignored by Git.
 
+## Production filter timing
+
+The reconstruction-filter timing bench measures the exact production runtime
+with impulse, direct-step, and 5-20 kHz windowed-tone-packet probes:
+
+```sh
+RUSTFLAGS="-C target-cpu=native" \
+cargo run --locked --release --bin filter_timing_bench
+```
+
+It writes Markdown, JSON, and a long-form group-delay CSV under
+`target/filter-timing` by default. See
+[the measurement contract](../docs/filter-timing-bench.md) for definitions and
+controls.
+
 ## Functional smoke coverage
 
 The lightweight integration test checks that all four production modulators
