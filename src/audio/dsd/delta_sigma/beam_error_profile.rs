@@ -326,7 +326,7 @@ impl BeamErrorProfile {
     unsafe fn state_dot4_x86(
         coefficients: &BeamErrorProfileState,
         states: &[[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
-    ) -> [f64; 4] {
+    ) -> core::arch::x86_64::__m256d {
         use core::arch::x86_64::*;
         let mut dot = _mm256_setzero_pd();
         for stage in 0..MAX_BEAM_ERROR_PROFILE_STATES {
@@ -336,9 +336,7 @@ impl BeamErrorProfile {
                 dot,
             );
         }
-        let mut result = [0.0; 4];
-        unsafe { _mm256_storeu_pd(result.as_mut_ptr(), dot) };
-        result
+        dot
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -349,14 +347,21 @@ impl BeamErrorProfile {
         states: &[[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
         input: f64,
     ) -> [[f64; 4]; 2] {
+        use core::arch::x86_64::*;
         let linear = unsafe { Self::state_dot4_x86(&self.h, states) };
         let errors = [1.0 - input, -1.0 - input];
-        core::array::from_fn(|sign| {
-            core::array::from_fn(|lane| {
-                let error = errors[sign];
-                (2.0 * error).mul_add(linear[lane], self.q * error * error)
-            })
-        })
+        let mut increments = [[0.0; 4]; 2];
+        for (sign, error) in errors.into_iter().enumerate() {
+            let twice_error = 2.0 * error;
+            let quadratic = self.q * error * error;
+            let increment = _mm256_fmadd_pd(
+                _mm256_set1_pd(twice_error),
+                linear,
+                _mm256_set1_pd(quadratic),
+            );
+            unsafe { _mm256_storeu_pd(increments[sign].as_mut_ptr(), increment) };
+        }
+        increments
     }
 
     #[cfg(target_arch = "aarch64")]
