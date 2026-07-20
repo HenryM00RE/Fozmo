@@ -115,9 +115,27 @@ impl AgentZoneBridge {
             return Err("Zone is disabled".to_string());
         }
         attach_agent_output_device(&mut cmd, agent.output_device.clone());
-        if let CoreToAgentCommand::PlaySource { queue, .. } = &cmd {
-            agent.queued_sources = queue.clone();
-            agent.prefetched_source = None;
+        match &cmd {
+            CoreToAgentCommand::PlaySource { queue, .. } => {
+                agent.queued_sources = queue.clone();
+                agent.prefetched_source = None;
+            }
+            CoreToAgentCommand::SetQueue { queue } => {
+                let keep_prefetch = agent
+                    .prefetched_source
+                    .as_ref()
+                    .is_some_and(|key| queue.first().is_some_and(|source| source.key() == *key));
+                agent.queued_sources = queue.clone();
+                if !keep_prefetch {
+                    agent.prefetched_source = None;
+                }
+            }
+            CoreToAgentCommand::SetLoopMode { .. } => {
+                // The native agent may need to move the prefetched stream into or
+                // out of the audio engine's gapless queue when repeat-one changes.
+                agent.prefetched_source = None;
+            }
+            _ => {}
         }
         Ok(AgentCommandDispatch {
             tx: agent.tx.clone(),
@@ -347,6 +365,87 @@ mod tests {
         assert!(matches!(
             rx.try_recv(),
             Ok(CoreToAgentCommand::PreFetch { source_ref, .. }) if source_ref.key() == third.key()
+        ));
+    }
+
+    #[test]
+    fn remote_queue_replacement_invalidates_stale_prefetch() {
+        let manager = ZoneManager::new(Arc::new(Player::new()), None);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        manager.register_agent(
+            "agent-queue-replace".to_string(),
+            "Queue Agent".to_string(),
+            AgentCapabilities {
+                output_devices: Vec::new(),
+                output_device_capabilities: Vec::new(),
+                max_sample_rate: 48_000,
+                max_bit_depth: 24,
+                exclusive_supported: false,
+                supports_dsd128: false,
+                supports_dsd256: false,
+                browser: false,
+            },
+            tx,
+        );
+        let first = qobuz_source_with_id(1);
+        let stale_next = qobuz_source_with_id(2);
+        let replacement = qobuz_source_with_id(3);
+        manager
+            .send_to_zone(
+                "agent-queue-replace",
+                CoreToAgentCommand::PlaySource {
+                    source_ref: first.clone(),
+                    queue: vec![stale_next],
+                    playback_config: playback_config(),
+                    stream_base_url: "http://core.test".to_string(),
+                },
+            )
+            .unwrap();
+        let _ = rx.try_recv();
+        manager.update_playback(
+            "agent-queue-replace",
+            AgentPlaybackState {
+                state: "Playing".to_string(),
+                current_source: Some(first.clone()),
+                position_secs: 171.0,
+                duration_secs: 180.0,
+                ..AgentPlaybackState::default()
+            },
+            "http://core.test",
+        );
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(CoreToAgentCommand::PreFetch { .. })
+        ));
+
+        manager
+            .send_to_zone(
+                "agent-queue-replace",
+                CoreToAgentCommand::SetQueue {
+                    queue: vec![replacement.clone()],
+                },
+            )
+            .unwrap();
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(CoreToAgentCommand::SetQueue { .. })
+        ));
+        manager.update_playback(
+            "agent-queue-replace",
+            AgentPlaybackState {
+                state: "Playing".to_string(),
+                current_source: Some(first),
+                position_secs: 172.0,
+                duration_secs: 180.0,
+                ..AgentPlaybackState::default()
+            },
+            "http://core.test",
+        );
+
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(CoreToAgentCommand::PreFetch { source_ref, .. })
+                if source_ref.key() == replacement.key()
         ));
     }
 
