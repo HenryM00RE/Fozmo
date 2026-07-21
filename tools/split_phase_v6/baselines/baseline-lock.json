@@ -42,6 +42,34 @@
     "e3_p3_dsd128_0900": {
       "path": "tools/split_phase_v6/baselines/e3-p3-dsd128-0900.json",
       "sha256": "f2d2f9574bda68351ede7ec8190dd99e2611fc504a495be8667739de9b746303"
+    },
+    "e3_p4_recovery_search": {
+      "path": "tools/split_phase_v6/baselines/e3-p4-recovery-search.json",
+      "sha256": "6ce93b96a18c5fc253eb0644ab48c262588d19d7609ebf080522135d68f95aef"
+    },
+    "e3_p4_0900_current_timing": {
+      "path": "tools/split_phase_v6/baselines/e3-p4-0900-current-timing.json",
+      "sha256": "9164b2e566a65f1fa9c054e609db2d377d0677acc8d95e1a7f4c281259514e89"
+    },
+    "e3_p4_2047_timing": {
+      "path": "tools/split_phase_v6/baselines/e3-p4-2047-timing.json",
+      "sha256": "1ba57d86ca1940720fd379c16ee8f1c68696a2984ff669a34ffe58af9f7748a2"
+    },
+    "e3_p4_0575_timing": {
+      "path": "tools/split_phase_v6/baselines/e3-p4-0575-timing.json",
+      "sha256": "b49e5ab49f9cef7d7ed767934168dfb9ca519347a7c11abd6809eb5fb16d25e1"
+    },
+    "e3_p4_2047_dsd128": {
+      "path": "tools/split_phase_v6/baselines/e3-p4-2047-dsd128.json",
+      "sha256": "516f71afc2fa711612186e27bcd9c4c90c40edc13c2b835aea139bd288ce510d"
+    },
+    "e3_p4_0575_dsd128": {
+      "path": "tools/split_phase_v6/baselines/e3-p4-0575-dsd128.json",
+      "sha256": "198dd24c306702c5478ed64384de2c4f955c34a954f6ee506eb2820df2646838"
+    },
+    "e3_p4_line0575_0500_dsd128": {
+      "path": "tools/split_phase_v6/baselines/e3-p4-line0575-0500-dsd128.json",
+      "sha256": "8a36e7f446b7eba471d80fda1e1ac55e3572085fe6b19555efa74e2319bc8b1f"
     }
   },
   "current_e3_asset": {
@@ -95,6 +123,7 @@
   "e3_frontier_search_sources": {
     "tools/split_phase_v6/e3_packet_phase_search.py": "bb67651b24bc16d4b3cd3d7709455385bca16d8784fa13d121f81445f7378edd",
     "tools/split_phase_v6/e3_phase_refine_search.py": "2237042c65a66324be4b939ba3fd106dacdb11a511dadf156c9a1b12ce2f3ce4",
+    "tools/split_phase_v6/e3_recovery_phase_search.py": "c27e7a76c8164c5e3d9849cee6fa42f68368f60240b49847e75623a73ac8d748",
     "tools/split_phase_v6/export_e3_experimental.py": "da36fe83d2890dcc06695314720c02ecbfd4813d8a1ee31797e37bdd455c014c"
   }
 }

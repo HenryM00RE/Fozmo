@@ -1,0 +1,2297 @@
+{
+  "schema_version": "dsd-public-quality-report-v4",
+  "measurement_version": "dsd-public-quality-v4",
+  "matrix_version": "dsd-public-matrix-28-v6",
+  "reconstruction_algorithm_version": "reconstruction-v2-sinc-runtime-context-bh-spurs-sine-dbfs",
+  "quality_policy": "the versioned production-path scores are comparative presentation only; --check requires the complete canonical Split Phase E2v3 matrix and enforces whole-render health plus scoped structural gates",
+  "dbfs_reference": "full-scale-sine: peak amplitude 1.0 and RMS 1/sqrt(2) are both 0 dBFS",
+  "sinad_definition": "declared carrier power divided by every other in-band component, including declared distortion products",
+  "unknown_spur_definition": "Blackman-Harris-4 integrated main-lobe power after joint least-squares removal of declared carriers/products and DC; lines unresolved from a declared frequency are absorbed by that fit",
+  "transition_definition": "zero-input transition, clean-center mute, and recovered-carrier-model restart residuals are separate; fixed-window RMS, waveform peak, and excess above settled program peak are also reported",
+  "rolling_density_window_seconds": 0.02,
+  "density_hard_gate_scope": "whole fixture plus idle silence, stress clean-mute, and declared DC sections; analyzed AC-section density remains diagnostic",
+  "stress_clean_mute_source_frames": 2048,
+  "spectral_policy": {
+    "analysis_frames": 65536,
+    "coherent_line_and_residual_window": "rectangular; fixtures are exact-bin coherent",
+    "coherent_line_integration_half_width_bins": 0,
+    "unexpected_spur_window": "declared-tone/DC residual with four-term Blackman-Harris",
+    "unexpected_spur_integration_half_width_bins": 6,
+    "unexpected_spur_window_nominal_enbw_bins": 2.0044
+  },
+  "check_requested": false,
+  "matrix_complete": false,
+  "provenance": {
+    "git_commit": "35604c233a2d9cf7a0cbf09e7ddccb07d141cfb3",
+    "working_tree_dirty": true,
+    "source_snapshot_sha256": "51815a3f2c05cd370690961789166af406c0296b3e5c20d40e1e144419511a73",
+    "rustc_version": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+    "target_os": "windows",
+    "target_arch": "x86_64",
+    "cpu_class": "AMD64 Family 26 Model 68 Stepping 0, AuthenticAMD",
+    "launch_rustflags": "-C target-cpu=native",
+    "build_provenance_schema": "fozmo-build-provenance-v1",
+    "build_profile": "release",
+    "build_opt_level": "3",
+    "build_debug_assertions": false,
+    "build_target": "x86_64-pc-windows-msvc",
+    "build_host": "x86_64-pc-windows-msvc",
+    "build_target_cpu": "native",
+    "build_native_cpu_requested": true,
+    "build_rustc_version": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+    "build_rustflags": "-C target-cpu=native",
+    "build_encoded_rustflags_hex": "2d431f7461726765742d6370753d6e6174697665",
+    "build_target_features": "adx,aes,avx,avx2,avx512bf16,avx512bitalg,avx512bw,avx512cd,avx512dq,avx512f,avx512ifma,avx512vbmi,avx512vbmi2,avx512vl,avx512vnni,avx512vp2intersect,avx512vpopcntdq,avxvnni,bmi1,bmi2,cmpxchg16b,f16c,fma,fxsr,gfni,lzcnt,movbe,pclmulqdq,popcnt,rdrand,rdseed,sha,sse,sse2,sse3,sse4.1,sse4.2,sse4a,ssse3,vaes,vpclmulqdq,xsave,xsavec,xsaveopt,xsaves",
+    "build_target_features_hex": "6164782c6165732c6176782c617678322c617678353132626631362c617678353132626974616c672c61767835313262772c61767835313263642c61767835313264712c617678353132662c61767835313269666d612c61767835313276626d692c61767835313276626d69322c617678353132766c2c617678353132766e6e692c617678353132767032696e746572736563742c61767835313276706f70636e7464712c617678766e6e692c626d69312c626d69322c636d70786368673136622c663136632c666d612c667873722c67666e692c6c7a636e742c6d6f7662652c70636c6d756c7164712c706f70636e742c726472616e642c7264736565642c7368612c7373652c737365322c737365332c737365342e312c737365342e322c73736534612c73737365332c766165732c7670636c6d756c7164712c78736176652c7873617665632c78736176656f70742c787361766573",
+    "build_cargo_features": "airplay-helper,default,experimental-dsd256,hegel,local-library,pcm-output,qobuz,sonos,upnp",
+    "build_git_commit": "35604c233a2d9cf7a0cbf09e7ddccb07d141cfb3",
+    "build_git_dirty": true,
+    "build_source_snapshot_schema": "fozmo-dsd-public-source-snapshot-v2",
+    "build_source_snapshot_sha256": "51815a3f2c05cd370690961789166af406c0296b3e5c20d40e1e144419511a73",
+    "runtime_source_matches_build": true,
+    "executable_sha256": "305b91403613179c66de919d14a123f589ae0b5b9907ade04ae56266c4a04121"
+  },
+  "canonical_production_cell_count": 28,
+  "attempted_production_cell_count": 6,
+  "successful_production_cell_count": 6,
+  "failed_production_cell_count": 0,
+  "attempted_diagnostic_cell_count": 0,
+  "successful_diagnostic_cell_count": 0,
+  "failed_diagnostic_cell_count": 0,
+  "filter_policies": [
+    {
+      "name": "Split128k",
+      "role": "retired_split_phase_reference",
+      "production_default": false
+    },
+    {
+      "name": "SincExtreme32k",
+      "role": "linear_phase_reference",
+      "production_default": false
+    },
+    {
+      "name": "SmoothPhase128k",
+      "role": "smooth_phase_production_option",
+      "production_default": false
+    },
+    {
+      "name": "SplitPhase128kE2v3",
+      "role": "production_default_split_phase",
+      "production_default": true
+    }
+  ],
+  "reconstruction_profiles": [
+    {
+      "id": "reconstruction-v1-audio-20k-24k",
+      "output_rate": 176400,
+      "pass_hz": 20000.0,
+      "stop_hz": 24000.0,
+      "passband_ripple_db": 0.0,
+      "declared_stopband_attenuation_db": 140.0
+    },
+    {
+      "id": "reconstruction-v1-hires-80k-96k",
+      "output_rate": 352800,
+      "pass_hz": 80000.0,
+      "stop_hz": 96000.0,
+      "passband_ripple_db": 0.0,
+      "declared_stopband_attenuation_db": 140.0
+    }
+  ],
+  "rated_headroom": [
+    {
+      "modulator": "Standard",
+      "headroom_db": -4.0
+    },
+    {
+      "modulator": "EcDepth2",
+      "headroom_db": -4.0
+    },
+    {
+      "modulator": "EcBeam",
+      "headroom_db": -2.0
+    },
+    {
+      "modulator": "EcBeam2",
+      "headroom_db": -2.0
+    }
+  ],
+  "selected_modulators": [
+    "Standard",
+    "EcBeam"
+  ],
+  "selected_filters": [
+    "SplitPhase128kE3"
+  ],
+  "include_linear_reference": false,
+  "dsd256_only": false,
+  "score_eligible": false,
+  "score_policy": {
+    "name": "dsd-public-production-score-v3",
+    "claim": "Fozmo PCM-to-DSD production-path score using Split Phase E2v3",
+    "canonical_filter": "SplitPhase128kE2v3",
+    "normalization": "each category has a frozen v1 quality-index anchor; normalized score = clamp(100 - max(0, anchor_db - measured_quality_index_db), 0, 100), so one average decibel below the anchor costs one category point before the published category weight is applied",
+    "anchor_basis": "historical best Split128k category quality index in the clean native 42-cell v2 research comparison at Git commit 82a4395db0e0d3f85a08a0b8a8e700940f78f1f7",
+    "eligibility": "scores are emitted only when all 28 canonical Split Phase E2v3 cells complete with zero canonical structural hard failures; optional Linear Phase cells never affect scores; every production modulator is scored at DSD64, DSD128, and DSD256",
+    "rated_stress_role": "DSD128 rated stress is a structural qualification gate only; only matched-effective-peak stress contributes ranking points",
+    "anchors": [
+      {
+        "rate": "DSD64",
+        "category": "coherent_level_sweep",
+        "quality_index_anchor_db": 117.39528334541912
+      },
+      {
+        "rate": "DSD64",
+        "category": "idle_tiny_signal",
+        "quality_index_anchor_db": 135.47616264419682
+      },
+      {
+        "rate": "DSD128",
+        "category": "coherent_level_sweep",
+        "quality_index_anchor_db": 153.63654506543645
+      },
+      {
+        "rate": "DSD128",
+        "category": "level_matched_stress_spectral_quality",
+        "quality_index_anchor_db": 174.82554905660854
+      },
+      {
+        "rate": "DSD128",
+        "category": "mute_restart_transition_quality",
+        "quality_index_anchor_db": 53.82320810543138
+      },
+      {
+        "rate": "DSD256",
+        "category": "coherent_level_sweep",
+        "quality_index_anchor_db": 159.27357793848665
+      },
+      {
+        "rate": "DSD256",
+        "category": "hires_reconstruction_through_70khz",
+        "quality_index_anchor_db": 151.11611727116446
+      }
+    ],
+    "categories": [
+      {
+        "rate": "DSD64",
+        "category": "coherent_level_sweep",
+        "maximum_points": 60.0,
+        "metric_formula": "mean over four levels and both channels of 45% SINAD + 20% negative unexpected-spur dBFS + 20% negative residual dBFS + 15% carrier-gain-error rejection capped at 100 dB"
+      },
+      {
+        "rate": "DSD64",
+        "category": "idle_tiny_signal",
+        "maximum_points": 40.0,
+        "metric_formula": "50% mean negative integrated-noise dBFS + 30% mean negative unexpected-spur dBFS + 10% mean relative DC-error rejection + 10% mean relative tiny-tone gain-error rejection; rejection terms are capped at 100 dB"
+      },
+      {
+        "rate": "DSD128",
+        "category": "coherent_level_sweep",
+        "maximum_points": 35.0,
+        "metric_formula": "mean over four levels and both channels of 45% SINAD + 20% negative unexpected-spur dBFS + 20% negative residual dBFS + 15% carrier-gain-error rejection capped at 100 dB"
+      },
+      {
+        "rate": "DSD128",
+        "category": "level_matched_stress_spectral_quality",
+        "maximum_points": 40.0,
+        "metric_formula": "mean over steady/recovery and both channels of 35% conventional SINAD + 15% mean carrier-gain-error rejection capped at 100 dB + 20% negative worst-declared-product dBFS + 15% negative product-excluded residual dBFS + 15% negative unexpected-spur dBFS"
+      },
+      {
+        "rate": "DSD128",
+        "category": "mute_restart_transition_quality",
+        "maximum_points": 25.0,
+        "metric_formula": "mean over channels of 10% negative zero-input peak dBFS + 15% negative clean-mute peak dBFS + 15% negative clean-mute RMS dBFS + 15% negative restart peak dBFS + 10/10/15% negative restart RMS at 1/10/50 ms + 10% negative 20log10(recovery_ms); absent recovery uses 1e9 ms"
+      },
+      {
+        "rate": "DSD256",
+        "category": "coherent_level_sweep",
+        "maximum_points": 35.0,
+        "metric_formula": "mean over four levels and both channels of 45% SINAD + 20% negative unexpected-spur dBFS + 20% negative residual dBFS + 15% carrier-gain-error rejection capped at 100 dB"
+      },
+      {
+        "rate": "DSD256",
+        "category": "hires_reconstruction_through_70khz",
+        "maximum_points": 65.0,
+        "metric_formula": "45% mean negative residual dBFS + 35% mean negative unexpected-spur dBFS across both channels and the 0-20 kHz and 20-80 kHz bands + 20% carrier-gain-error rejection capped at 100 dB through 70 kHz"
+      }
+    ]
+  },
+  "production_path_scores": [],
+  "cells": [
+    {
+      "scenario": "coherent_level_sweep",
+      "modulator": "Standard",
+      "diagnostic": false,
+      "comparison_class": "noncanonical",
+      "level_matched_across_modulators": true,
+      "production_default_filter": false,
+      "filter": "SplitPhase128kE3",
+      "headroom_db": -4.0,
+      "source_rate": 44100,
+      "dsd_rate": "DSD128",
+      "wire_rate": 5644800,
+      "source_frames": 1116160,
+      "filter_guard_source_frames": 131328,
+      "source_peak": 0.7943282347242815,
+      "effective_source_peak": 0.5011872336272722,
+      "modulator_input_peak": 0.45599999999999996,
+      "expected_bits_per_channel": 142868480,
+      "native_bytes_before_idle": [
+        17858560,
+        17858560
+      ],
+      "native_bytes_after_idle": [
+        17858560,
+        17858560
+      ],
+      "full_fixture_density": [
+        {
+          "bits": 142868480,
+          "density": 0.5000011409094575,
+          "deviation": 1.1409094574643674e-6
+        },
+        {
+          "bits": 142868480,
+          "density": 0.5000011409094575,
+          "deviation": 1.1409094574643674e-6
+        }
+      ],
+      "reconstruction_profile": "reconstruction-v1-audio-20k-24k",
+      "spectral_analysis_frames": 65536,
+      "spectral_bin_width_hz": 2.691650390625,
+      "render_seconds": 3.5991653,
+      "renderer_configuration": {
+        "production_policy_version": "dsd-production-policy-v4",
+        "coefficient_table": "CRFB7_STANDARD_OSR128",
+        "coefficient_osr": 128,
+        "coefficient_obg": 1.5,
+        "coefficient_input_peak": 0.45599999999999996,
+        "lookahead_depth": 1,
+        "isi_penalty": 0.0,
+        "chunk_source_frames": 1024,
+        "seeds_hex": [
+          "0xa5a5f00fdeadbeef",
+          "0xe99bc2d705f8d3e1"
+        ]
+      },
+      "source_pcm_sha256": "ff91220fd71260a9ed2fa8253c19ea608b12fc1449f39724757336b38e365c04",
+      "native_dsd_sha256": [
+        "dd15eca4a8a0a64274ef4d4f86f7937d360a4a55d9684172cae11ac13f728194",
+        "bd9d1f9f94c39fc906e0fda1a1bd99a99d2aa94835be60b8fa5666ae8d841869"
+      ],
+      "health": {
+        "stability_resets": 0,
+        "state_clamps": 0,
+        "limiter_peak_ratio_max": 0.5032799243927002,
+        "limiter_limited_events": 0,
+        "limiter_limited_samples": 0,
+        "truncation_events": 0,
+        "discarded_left_bits": 0,
+        "discarded_right_bits": 0,
+        "beam_clamps": 0,
+        "beam_speculative_clamps": 0,
+        "beam_committed_clamps": 0,
+        "beam_rejected_hard_limits": 0,
+        "beam_all_children_rejected": 0,
+        "ecbeam2_constraint_escapes": 0,
+        "ecbeam2_state_repairs": 0,
+        "ecbeam2_nonfinite_resets": 0,
+        "ecbeam2_observer_desynchronizations": 0,
+        "ecbeam2_invalid_input_substitutions": 0,
+        "ecbeam2_output_length_events": 0
+      },
+      "measurements": {
+        "kind": "level_sweep",
+        "segments": [
+          {
+            "name": "level_-6_dbfs",
+            "source_level_dbfs": -2.0,
+            "effective_level_dbfs": -6.000000000000001,
+            "actual_frequency_hz": 1001.2939453125,
+            "channels": [
+              {
+                "channel": "left",
+                "metrics": {
+                  "carrier": {
+                    "name": "level_-6_dbfs",
+                    "frequency_hz": 1001.2939453125,
+                    "expected_level_dbfs": -6.000000000000001,
+                    "measured_level_dbfs": -5.999999987603415,
+                    "gain_error_db": 1.2396585979956853e-8
+                  },
+                  "sinad_db": 175.57269873646726,
+                  "thd_db": -199.3985593178914,
+                  "residual_noise_dbfs": -181.59073303931103,
+                  "worst_nonharmonic_spur": {
+                    "frequency_hz": 19818.621826171875,
+                    "level_dbfs": -201.09257752004117
+                  },
+                  "reconstructed_dc": -6.576002332866213e-12
+                },
+                "density": {
+                  "density": 0.5,
+                  "deviation": 0.0,
+                  "rolling_max_deviation": 0.00015943877551022334,
+                  "rolling_window_bits": 112896
+                },
+                "reconstructed_peak": 0.5011872353213671
+              },
+              {
+                "channel": "right",
+                "metrics": {
+                  "carrier": {
+                    "name": "level_-6_dbfs",
+                    "frequency_hz": 1001.2939453125,
+                    "expected_level_dbfs": -6.000000000000001,
+                    "measured_level_dbfs": -5.999999987472266,
+                    "gain_error_db": 1.2527735293588194e-8
+                  },
+                  "sinad_db": 175.62351485459993,
+                  "thd_db": -200.62509505275835,
+                  "residual_noise_dbfs": -181.63726518810165,
+                  "worst_nonharmonic_spur": {
+                    "frequency_hz": 19110.7177734375,
+                    "level_dbfs": -199.55368166537798
+                  },
+                  "reconstructed_dc": -6.099476573130484e-12
+                },
+                "density": {
+                  "density": 0.4999995231628418,
+                  "deviation": 4.76837158203125e-7,
+                  "rolling_max_deviation": 0.00015943877551022334,
+                  "rolling_window_bits": 112896
+                },
+                "reconstructed_peak": 0.5011872361668799
+              }
+            ]
+          },
+          {
+            "name": "level_-20_dbfs",
+            "source_level_dbfs": -15.999999999999998,
+            "effective_level_dbfs": -20.0,
+            "actual_frequency_hz": 1001.2939453125,
+            "channels": [
+              {
+                "channel": "left",
+                "metrics": {
+                  "carrier": {
+                    "name": "level_-20_dbfs",
+                    "frequency_hz": 1001.2939453125,
+                    "expected_level_dbfs": -20.0,
+                    "measured_level_dbfs": -19.999999987295517,
+                    "gain_error_db": 1.2704482799108519e-8
+                  },
+                  "sinad_db": 162.9612059356321,
+                  "thd_db": -187.95197694984452,
+                  "residual_noise_dbfs": -182.9749905893467,
+                  "worst_nonharmonic_spur": {
+                    "frequency_hz": 19024.5849609375,
+                    "level_dbfs": -201.63215074214634
+                  },
+                  "reconstructed_dc": -6.237919779173806e-12
+                },
+                "density": {
+                  "density": 0.5,
+                  "deviation": 0.0,
+                  "rolling_max_deviation": 0.0000442885487528244,
+                  "rolling_window_bits": 112896
+                },
+                "reconstructed_peak": 0.10000000096601355
+              },
+              {
+                "channel": "right",
+                "metrics": {
+                  "carrier": {
+                    "name": "level_-20_dbfs",
+                    "frequency_hz": 1001.2939453125,
+                    "expected_level_dbfs": -20.0,
+                    "measured_level_dbfs": -19.999999987282607,
+                    "gain_error_db": 1.271739336061728e-8
+                  },
+                  "sinad_db": 162.95142679488947,
+                  "thd_db": -187.03332950064035,
+                  "residual_noise_dbfs": -182.96842657987617,
+                  "worst_nonharmonic_spur": {
+                    "frequency_hz": 19646.356201171875,
+                    "level_dbfs": -202.53918487240827
+                  },
+                  "reconstructed_dc": -5.41520892941377e-12
+                },
+                "density": {
+                  "density": 0.5,
+                  "deviation": 0.0,
+                  "rolling_max_deviation": 0.0000442885487528244,
+                  "rolling_window_bits": 112896
+                },
+                "reconstructed_peak": 0.10000000076757076
+              }
+            ]
+          },
+          {
+            "name": "level_-60_dbfs",
+            "source_level_dbfs": -56.0,
+            "effective_level_dbfs": -60.0,
+            "actual_frequency_hz": 1001.2939453125,
+            "channels": [
+              {
+                "channel": "left",
+                "metrics": {
+                  "carrier": {
+                    "name": "level_-60_dbfs",
+                    "frequency_hz": 1001.2939453125,
+                    "expected_level_dbfs": -60.0,
+                    "measured_level_dbfs": -59.99999962600092,
+                    "gain_error_db": 3.7399907881763284e-7
+                  },
+                  "sinad_db": 122.56297492518169,
+                  "thd_db": -132.64716556337956,
+                  "residual_noise_dbfs": -183.01129489732048,
+                  "worst_nonharmonic_spur": {
+                    "frequency_hz": 6007.763671875,
+                    "level_dbfs": -200.71417100325118
+                  },
+                  "reconstructed_dc": -6.185989155460134e-11
+                },
+                "density": {
+                  "density": 0.5000004768371582,
+                  "deviation": 4.76837158203125e-7,
+                  "rolling_max_deviation": 0.00001771541950112976,
+                  "rolling_window_bits": 112896
+                },
+                "reconstructed_peak": 0.001000000624480404
+              },
+              {
+                "channel": "right",
+                "metrics": {
+                  "carrier": {
+                    "name": "level_-60_dbfs",
+                    "frequency_hz": 1001.2939453125,
+                    "expected_level_dbfs": -60.0,
+                    "measured_level_dbfs": -59.99999955026878,
+                    "gain_error_db": 4.4973121759994683e-7
+                  },
+                  "sinad_db": 122.51060863727042,
+                  "thd_db": -132.09630640819333,
+                  "residual_noise_dbfs": -183.0167545183143,
+                  "worst_nonharmonic_spur": {
+                    "frequency_hz": 19754.022216796875,
+                    "level_dbfs": -202.94481389496644
+                  },
+                  "reconstructed_dc": -6.160342238270514e-11
+                },
+                "density": {
+                  "density": 0.5,
+                  "deviation": 0.0,
+                  "rolling_max_deviation": 0.00001771541950112976,
+                  "rolling_window_bits": 112896
+                },
+                "reconstructed_peak": 0.0010000013328203257
+              }
+            ]
+          },
+          {
+            "name": "level_-100_dbfs",
+            "source_level_dbfs": -96.0,
+            "effective_level_dbfs": -100.0,
+            "actual_frequency_hz": 1001.2939453125,
+            "channels": [
+              {
+                "channel": "left",
+                "metrics": {
+                  "carrier": {
+                    "name": "level_-100_dbfs",
+                    "frequency_hz": 1001.2939453125,
+                    "expected_level_dbfs": -100.0,
+                    "measured_level_dbfs": -100.0000082430359,
+                    "gain_error_db": -8.243035892974149e-6
+                  },
+                  "sinad_db": 82.12947085175819,
+                  "thd_db": -112.46425657198861,
+                  "residual_noise_dbfs": -182.13350169483564,
+                  "worst_nonharmonic_spur": {
+                    "frequency_hz": 18938.4521484375,
+                    "level_dbfs": -202.3597847457825
+                  },
+                  "reconstructed_dc": -2.254207174070072e-10
+                },
+                "density": {
+                  "density": 0.5000004768371582,
+                  "deviation": 4.76837158203125e-7,
+                  "rolling_max_deviation": 0.00001771541950112976,
+                  "rolling_window_bits": 112896
+                },
+                "reconstructed_peak": 0.00001000163819052182
+              },
+              {
+                "channel": "right",
+                "metrics": {
+                  "carrier": {
+                    "name": "level_-100_dbfs",
+                    "frequency_hz": 1001.2939453125,
+                    "expected_level_dbfs": -100.0,
+                    "measured_level_dbfs": -100.00000269676727,
+                    "gain_error_db": -2.696767268162148e-6
+                  },
+                  "sinad_db": 82.11805213191413,
+                  "thd_db": -114.73030725569919,
+                  "residual_noise_dbfs": -182.12043538149607,
+                  "worst_nonharmonic_spur": {
+                    "frequency_hz": 19358.349609375,
+                    "level_dbfs": -200.55078036134722
+                  },
+                  "reconstructed_dc": -2.2595117971078634e-10
+                },
+                "density": {
+                  "density": 0.5000004768371582,
+                  "deviation": 4.76837158203125e-7,
+                  "rolling_max_deviation": 0.00001771541950112976,
+                  "rolling_window_bits": 112896
+                },
+                "reconstructed_peak": 0.000010001765407848091
+              }
+            ]
+          }
+        ]
+      },
+      "structural_summary": {
+        "observed_max_density_deviation": 0.00015943877551022334,
+        "observed_max_reconstructed_peak": 0.5011872361668799,
+        "health_pass": true
+      },
+      "hard_failures": []
+    },
+    {
+      "scenario": "coherent_level_sweep",
+      "modulator": "EcBeam",
+      "diagnostic": false,
+      "comparison_class": "noncanonical",
+      "level_matched_across_modulators": true,
+      "production_default_filter": false,
+      "filter": "SplitPhase128kE3",
+      "headroom_db": -2.0,
+      "source_rate": 44100,
+      "dsd_rate": "DSD128",
+      "wire_rate": 5644800,
+      "source_frames": 1116160,
+      "filter_guard_source_frames": 131328,
+      "source_peak": 0.6309573444801932,
+      "effective_source_peak": 0.5011872336272722,
+      "modulator_input_peak": 0.589,
+      "expected_bits_per_channel": 142868480,
+      "native_bytes_before_idle": [
+        17858560,
+        17858560
+      ],
+      "native_bytes_after_idle": [
+        17858560,
+        17858560
+      ],
+      "full_fixture_density": [
+        {
+          "bits": 142868480,
+          "density": 0.50000146988335,
+          "deviation": 1.4698833500359498e-6
+        },
+        {
+          "bits": 142868480,
+          "density": 0.50000146988335,
+          "deviation": 1.4698833500359498e-6
+        }
+      ],
+      "reconstruction_profile": "reconstruction-v1-audio-20k-24k",
+      "spectral_analysis_frames": 65536,
+      "spectral_bin_width_hz": 2.691650390625,
+      "render_seconds": 15.3273591,
+      "renderer_configuration": {
+        "production_policy_version": "dsd-production-policy-v4",
+        "coefficient_table": "CRFB7_EC_OSR128",
+        "coefficient_osr": 128,
+        "coefficient_obg": 1.4,
+        "coefficient_input_peak": 0.589,
+        "lookahead_depth": 2,
+        "isi_penalty": 0.0,
+        "chunk_source_frames": 1024,
+        "seeds_hex": [
+          "0xa5a5f00fdeadbeef",
+          "0xe99bc2d705f8d3e1"
+        ]
+      },
+      "source_pcm_sha256": "8ce8101d2c53ae27d57dba1c07748b77c644561124f884e2f84c86d9aab9e4aa",
+      "native_dsd_sha256": [
+        "ea0662dfdd0a7df748a21f0975637dd8723297d9cc23ed41ff5e4518f7b4e854",
+        "ea0662dfdd0a7df748a21f0975637dd8723297d9cc23ed41ff5e4518f7b4e854"
+      ],
+      "health": {
+        "stability_resets": 0,
+        "state_clamps": 0,
+        "limiter_peak_ratio_max": 0.5032799243927002,
+        "limiter_limited_events": 0,
+        "limiter_limited_samples": 0,
+        "truncation_events": 0,
+        "discarded_left_bits": 0,
+        "discarded_right_bits": 0,
+        "beam_clamps": 206828,
+        "beam_speculative_clamps": 0,
+        "beam_committed_clamps": 0,
+        "beam_rejected_hard_limits": 0,
+        "beam_all_children_rejected": 0,
+        "ecbeam2_constraint_escapes": 0,
+        "ecbeam2_state_repairs": 0,
+        "ecbeam2_nonfinite_resets": 0,
+        "ecbeam2_observer_desynchronizations": 0,
+        "ecbeam2_invalid_input_substitutions": 0,
+        "ecbeam2_output_length_events": 0
+      },
+      "measurements": {
+        "kind": "level_sweep",
+        "segments": [
+          {
+            "name": "level_-6_dbfs",
+            "source_level_dbfs": -4.0,
+            "effective_level_dbfs": -6.000000000000001,
+            "actual_frequency_hz": 1001.2939453125,
+            "channels": [
+              {
+                "channel": "left",
+                "metrics": {
+                  "carrier": {
+                    "name": "level_-6_dbfs",
+                    "frequency_hz": 1001.2939453125,
+                    "expected_level_dbfs": -6.000000000000001,
+                    "measured_level_dbfs": -5.9999999878793275,
+                    "gain_error_db": 1.212067335387701e-8
+                  },
+                  "sinad_db": 168.01346763152705,
+                  "thd_db": -176.03525920413335,
+                  "residual_noise_dbfs": -174.75877929772676,
+                  "worst_nonharmonic_spur": {
+                    "frequency_hz": 7009.0576171875,
+                    "level_dbfs": -187.58992389810726
+                  },
+                  "reconstructed_dc": -1.9210460503029997e-13
+                },
+                "density": {
+                  "density": 0.5,
+                  "deviation": 0.0,
+                  "rolling_max_deviation": 0.00020372732426304774,
+                  "rolling_window_bits": 112896
+                },
+                "reconstructed_peak": 0.5011872362529444
+              },
+              {
+                "channel": "right",
+                "metrics": {
+                  "carrier": {
+                    "name": "level_-6_dbfs",
+                    "frequency_hz": 1001.2939453125,
+                    "expected_level_dbfs": -6.000000000000001,
+                    "measured_level_dbfs": -5.9999999878793275,
+                    "gain_error_db": 1.212067335387701e-8
+                  },
+                  "sinad_db": 168.01346763152705,
+                  "thd_db": -176.03525920413335,
+                  "residual_noise_dbfs": -174.75877929772676,
+                  "worst_nonharmonic_spur": {
+                    "frequency_hz": 7009.0576171875,
+                    "level_dbfs": -187.58992389810726
+                  },
+                  "reconstructed_dc": -1.9210460503029997e-13
+                },
+                "density": {
+                  "density": 0.5,
+                  "deviation": 0.0,
+                  "rolling_max_deviation": 0.00020372732426304774,
+                  "rolling_window_bits": 112896
+                },
+                "reconstructed_peak": 0.5011872362529444
+              }
+            ]
+          },
+          {
+            "name": "level_-20_dbfs",
+            "source_level_dbfs": -18.0,
+            "effective_level_dbfs": -20.0,
+            "actual_frequency_hz": 1001.2939453125,
+            "channels": [
+              {
+                "channel": "left",
+                "metrics": {
+                  "carrier": {
+                    "name": "level_-20_dbfs",
+                    "frequency_hz": 1001.2939453125,
+                    "expected_level_dbfs": -20.0,
+                    "measured_level_dbfs": -19.999999984473405,
+                    "gain_error_db": 1.552659512071841e-8
+                  },
+                  "sinad_db": 154.98574939116847,
+                  "thd_db": -171.8145880867851,
+                  "residual_noise_dbfs": -175.076834347957,
+                  "worst_nonharmonic_spur": {
+                    "frequency_hz": 19253.375244140625,
+                    "level_dbfs": -192.82061494781428
+                  },
+                  "reconstructed_dc": -3.515507128940942e-12
+                },
+                "density": {
+                  "density": 0.5,
+                  "deviation": 0.0,
+                  "rolling_max_deviation": 0.000053146258503389276,
+                  "rolling_window_bits": 112896
+                },
+                "reconstructed_peak": 0.10000000485096085
+              },
+              {
+                "channel": "right",
+                "metrics": {
+                  "carrier": {
+                    "name": "level_-20_dbfs",
+                    "frequency_hz": 1001.2939453125,
+                    "expected_level_dbfs": -20.0,
+                    "measured_level_dbfs": -19.999999984473405,
+                    "gain_error_db": 1.552659512071841e-8
+                  },
+                  "sinad_db": 154.98574939116847,
+                  "thd_db": -171.8145880867851,
+                  "residual_noise_dbfs": -175.076834347957,
+                  "worst_nonharmonic_spur": {
+                    "frequency_hz": 19253.375244140625,
+                    "level_dbfs": -192.82061494781428
+                  },
+                  "reconstructed_dc": -3.515507128940942e-12
+                },
+                "density": {
+                  "density": 0.5,
+                  "deviation": 0.0,
+                  "rolling_max_deviation": 0.000053146258503389276,
+                  "rolling_window_bits": 112896
+                },
+                "reconstructed_peak": 0.10000000485096085
+              }
+            ]
+          },
+          {
+            "name": "level_-60_dbfs",
+            "source_level_dbfs": -58.0,
+            "effective_level_dbfs": -60.0,
+            "actual_frequency_hz": 1001.2939453125,
+            "channels": [
+              {
+                "channel": "left",
+                "metrics": {
+                  "carrier": {
+                    "name": "level_-60_dbfs",
+                    "frequency_hz": 1001.2939453125,
+                    "expected_level_dbfs": -60.0,
+                    "measured_level_dbfs": -59.999999131319356,
+                    "gain_error_db": 8.686806438618078e-7
+                  },
+                  "sinad_db": 114.6381617945663,
+                  "thd_db": -125.0212103938025,
+                  "residual_noise_dbfs": -175.0551877120353,
+                  "worst_nonharmonic_spur": {
+                    "frequency_hz": 6007.763671875,
+                    "level_dbfs": -193.9971344068187
+                  },
+                  "reconstructed_dc": 2.1864243954417602e-11
+                },
+                "density": {
+                  "density": 0.5,
+                  "deviation": 0.0,
+                  "rolling_max_deviation": 0.00001771541950112976,
+                  "rolling_window_bits": 112896
+                },
+                "reconstructed_peak": 0.0010000033842413939
+              },
+              {
+                "channel": "right",
+                "metrics": {
+                  "carrier": {
+                    "name": "level_-60_dbfs",
+                    "frequency_hz": 1001.2939453125,
+                    "expected_level_dbfs": -60.0,
+                    "measured_level_dbfs": -59.999999131319356,
+                    "gain_error_db": 8.686806438618078e-7
+                  },
+                  "sinad_db": 114.6381617945663,
+                  "thd_db": -125.0212103938025,
+                  "residual_noise_dbfs": -175.0551877120353,
+                  "worst_nonharmonic_spur": {
+                    "frequency_hz": 6007.763671875,
+                    "level_dbfs": -193.9971344068187
+                  },
+                  "reconstructed_dc": 2.1864243954417602e-11
+                },
+                "density": {
+                  "density": 0.5,
+                  "deviation": 0.0,
+                  "rolling_max_deviation": 0.00001771541950112976,
+                  "rolling_window_bits": 112896
+                },
+                "reconstructed_peak": 0.0010000033842413939
+              }
+            ]
+          },
+          {
+            "name": "level_-100_dbfs",
+            "source_level_dbfs": -98.0,
+            "effective_level_dbfs": -100.0,
+            "actual_frequency_hz": 1001.2939453125,
+            "channels": [
+              {
+                "channel": "left",
+                "metrics": {
+                  "carrier": {
+                    "name": "level_-100_dbfs",
+                    "frequency_hz": 1001.2939453125,
+                    "expected_level_dbfs": -100.0,
+                    "measured_level_dbfs": -100.0000000421258,
+                    "gain_error_db": -4.212580506646191e-8
+                  },
+                  "sinad_db": 75.12612291905097,
+                  "thd_db": -110.36372904868185,
+                  "residual_noise_dbfs": -175.12742339638294,
+                  "worst_nonharmonic_spur": {
+                    "frequency_hz": 19075.726318359375,
+                    "level_dbfs": -194.36458385171284
+                  },
+                  "reconstructed_dc": 1.6506006178289688e-10
+                },
+                "density": {
+                  "density": 0.5,
+                  "deviation": 0.0,
+                  "rolling_max_deviation": 0.00001771541950112976,
+                  "rolling_window_bits": 112896
+                },
+                "reconstructed_peak": 0.000010004691858903456
+              },
+              {
+                "channel": "right",
+                "metrics": {
+                  "carrier": {
+                    "name": "level_-100_dbfs",
+                    "frequency_hz": 1001.2939453125,
+                    "expected_level_dbfs": -100.0,
+                    "measured_level_dbfs": -100.0000000421258,
+                    "gain_error_db": -4.212580506646191e-8
+                  },
+                  "sinad_db": 75.12612291905097,
+                  "thd_db": -110.36372904868185,
+                  "residual_noise_dbfs": -175.12742339638294,
+                  "worst_nonharmonic_spur": {
+                    "frequency_hz": 19075.726318359375,
+                    "level_dbfs": -194.36458385171284
+                  },
+                  "reconstructed_dc": 1.6506006178289688e-10
+                },
+                "density": {
+                  "density": 0.5,
+                  "deviation": 0.0,
+                  "rolling_max_deviation": 0.00001771541950112976,
+                  "rolling_window_bits": 112896
+                },
+                "reconstructed_peak": 0.000010004691858903456
+              }
+            ]
+          }
+        ]
+      },
+      "structural_summary": {
+        "observed_max_density_deviation": 0.00020372732426304774,
+        "observed_max_reconstructed_peak": 0.5011872362529444,
+        "health_pass": true
+      },
+      "hard_failures": []
+    },
+    {
+      "scenario": "high_frequency_rated_stress",
+      "modulator": "Standard",
+      "diagnostic": false,
+      "comparison_class": "noncanonical",
+      "level_matched_across_modulators": false,
+      "production_default_filter": false,
+      "filter": "SplitPhase128kE3",
+      "headroom_db": -4.0,
+      "source_rate": 44100,
+      "dsd_rate": "DSD128",
+      "wire_rate": 5644800,
+      "source_frames": 822784,
+      "filter_guard_source_frames": 131328,
+      "source_peak": 0.999,
+      "effective_source_peak": 0.6303263871357131,
+      "modulator_input_peak": 0.45599999999999996,
+      "expected_bits_per_channel": 105316352,
+      "native_bytes_before_idle": [
+        13164544,
+        13164544
+      ],
+      "native_bytes_after_idle": [
+        13164544,
+        13164544
+      ],
+      "full_fixture_density": [
+        {
+          "bits": 105316352,
+          "density": 0.5000000189904034,
+          "deviation": 1.8990403360952257e-8
+        },
+        {
+          "bits": 105316352,
+          "density": 0.500000028485605,
+          "deviation": 2.8485604985917234e-8
+        }
+      ],
+      "reconstruction_profile": "reconstruction-v1-audio-20k-24k",
+      "spectral_analysis_frames": 65536,
+      "spectral_bin_width_hz": 2.691650390625,
+      "render_seconds": 2.5793475,
+      "renderer_configuration": {
+        "production_policy_version": "dsd-production-policy-v4",
+        "coefficient_table": "CRFB7_STANDARD_OSR128",
+        "coefficient_osr": 128,
+        "coefficient_obg": 1.5,
+        "coefficient_input_peak": 0.45599999999999996,
+        "lookahead_depth": 1,
+        "isi_penalty": 0.0,
+        "chunk_source_frames": 1024,
+        "seeds_hex": [
+          "0xa5a5f00fdeadbeef",
+          "0xe99bc2d705f8d3e1"
+        ]
+      },
+      "source_pcm_sha256": "3e81c46ecc608b11ce4eba83ad4c0045a3ad4a7f71f0624e3b2f25905a0076e0",
+      "native_dsd_sha256": [
+        "09226cc5aba6f1212e1a08f2d0fab785777a4ae0ebe18aadc84c0835ed5cac7b",
+        "9df7209d3c5feebc711b4349c56089bcd7833d8f550e0b7e665464a46fafb478"
+      ],
+      "health": {
+        "stability_resets": 0,
+        "state_clamps": 0,
+        "limiter_peak_ratio_max": 0.6304818987846375,
+        "limiter_limited_events": 0,
+        "limiter_limited_samples": 0,
+        "truncation_events": 0,
+        "discarded_left_bits": 0,
+        "discarded_right_bits": 0,
+        "beam_clamps": 0,
+        "beam_speculative_clamps": 0,
+        "beam_committed_clamps": 0,
+        "beam_rejected_hard_limits": 0,
+        "beam_all_children_rejected": 0,
+        "ecbeam2_constraint_escapes": 0,
+        "ecbeam2_state_repairs": 0,
+        "ecbeam2_nonfinite_resets": 0,
+        "ecbeam2_observer_desynchronizations": 0,
+        "ecbeam2_invalid_input_substitutions": 0,
+        "ecbeam2_output_length_events": 0
+      },
+      "measurements": {
+        "kind": "high_frequency_stress",
+        "level_contract": "rated_source_peak",
+        "channels": [
+          {
+            "channel": "left",
+            "steady": {
+              "carriers": [
+                {
+                  "name": "stress_18khz",
+                  "frequency_hz": 17999.066162109375,
+                  "expected_level_dbfs": -10.027614072524951,
+                  "measured_level_dbfs": -10.027614063435156,
+                  "gain_error_db": 9.089795582895022e-9
+                },
+                {
+                  "name": "stress_19khz",
+                  "frequency_hz": 19000.360107421875,
+                  "expected_level_dbfs": -10.027614072524951,
+                  "measured_level_dbfs": -10.027614031707422,
+                  "gain_error_db": 4.081752891238466e-8
+                }
+              ],
+              "declared_products": [
+                {
+                  "name": "difference",
+                  "frequency_hz": 1001.2939453125,
+                  "level_dbfs": -227.22134620914304
+                },
+                {
+                  "name": "lower_imd",
+                  "frequency_hz": 16997.772216796875,
+                  "level_dbfs": -212.00716684731222
+                },
+                {
+                  "name": "upper_imd",
+                  "frequency_hz": 20001.654052734375,
+                  "level_dbfs": -209.60027624774696
+                }
+              ],
+              "sinad_db": 174.86038014778933,
+              "residual_excluding_declared_products_dbfs": -181.88938937045964,
+              "worst_declared_product": {
+                "name": "upper_imd",
+                "frequency_hz": 20001.654052734375,
+                "level_dbfs": -209.60027624774696
+              },
+              "worst_unexpected_spur": {
+                "frequency_hz": 18814.63623046875,
+                "level_dbfs": -201.11610922354663
+              }
+            },
+            "recovery": {
+              "carriers": [
+                {
+                  "name": "stress_18khz",
+                  "frequency_hz": 17999.066162109375,
+                  "expected_level_dbfs": -10.027614072524951,
+                  "measured_level_dbfs": -10.027614063969644,
+                  "gain_error_db": 8.55530757348788e-9
+                },
+                {
+                  "name": "stress_19khz",
+                  "frequency_hz": 19000.360107421875,
+                  "expected_level_dbfs": -10.027614072524951,
+                  "measured_level_dbfs": -10.027614032310234,
+                  "gain_error_db": 4.0214716889863666e-8
+                }
+              ],
+              "declared_products": [
+                {
+                  "name": "difference",
+                  "frequency_hz": 1001.2939453125,
+                  "level_dbfs": -233.34797367961545
+                },
+                {
+                  "name": "lower_imd",
+                  "frequency_hz": 16997.772216796875,
+                  "level_dbfs": -212.36953956277617
+                },
+                {
+                  "name": "upper_imd",
+                  "frequency_hz": 20001.654052734375,
+                  "level_dbfs": -206.5238049544525
+                }
+              ],
+              "sinad_db": 174.86768224723073,
+              "residual_excluding_declared_products_dbfs": -181.90387741103297,
+              "worst_declared_product": {
+                "name": "upper_imd",
+                "frequency_hz": 20001.654052734375,
+                "level_dbfs": -206.5238049544525
+              },
+              "worst_unexpected_spur": {
+                "frequency_hz": 18669.287109375,
+                "level_dbfs": -201.29629871238546
+              }
+            },
+            "settled_program_peak": 0.6304266791763037,
+            "transition_waveform_peak": 0.6304266798324455,
+            "transition_overshoot_above_settled": 6.561418075534675e-10,
+            "zero_input_transition_peak": 0.22813809311034242,
+            "zero_input_transition_peak_dbfs": -12.836043856381432,
+            "clean_mute_peak": 1.659623309881151e-9,
+            "clean_mute_peak_dbfs": -175.59980948021553,
+            "clean_mute_rms_dbfs": -185.31126760527292,
+            "restart_residual_peak": 0.8938698060685262,
+            "restart_residual_peak_dbfs": -0.9745146492176916,
+            "restart_residual_rms_1ms_dbfs": -9.676394516485582,
+            "restart_residual_rms_10ms_dbfs": -19.675612795105778,
+            "restart_residual_rms_50ms_dbfs": -26.66531283846369,
+            "transition_residual_peak": 0.8938698060685262,
+            "transition_residual_peak_dbfs": -0.9745146492176916,
+            "end_to_end_recovery_time_ms": 19.35374149659864,
+            "steady_density_analysis_range": "stress_steady_analysis",
+            "steady_density": {
+              "density": 0.5000004768371582,
+              "deviation": 4.76837158203125e-7,
+              "rolling_max_deviation": 0.00001771541950112976,
+              "rolling_window_bits": 112896
+            },
+            "clean_mute_density_analysis_range": "stress_clean_mute",
+            "clean_mute_density": {
+              "density": 0.5,
+              "deviation": 0.0,
+              "rolling_max_deviation": 8.85770975056488e-6,
+              "rolling_window_bits": 112896
+            },
+            "reconstructed_peak": 0.6304266798324455
+          },
+          {
+            "channel": "right",
+            "steady": {
+              "carriers": [
+                {
+                  "name": "stress_18khz",
+                  "frequency_hz": 17999.066162109375,
+                  "expected_level_dbfs": -10.027614072524951,
+                  "measured_level_dbfs": -10.027614063779373,
+                  "gain_error_db": 8.74557848362656e-9
+                },
+                {
+                  "name": "stress_19khz",
+                  "frequency_hz": 19000.360107421875,
+                  "expected_level_dbfs": -10.027614072524951,
+                  "measured_level_dbfs": -10.02761403239392,
+                  "gain_error_db": 4.013103094280268e-8
+                }
+              ],
+              "declared_products": [
+                {
+                  "name": "difference",
+                  "frequency_hz": 1001.2939453125,
+                  "level_dbfs": -230.74122219478255
+                },
+                {
+                  "name": "lower_imd",
+                  "frequency_hz": 16997.772216796875,
+                  "level_dbfs": -210.68277296301886
+                },
+                {
+                  "name": "upper_imd",
+                  "frequency_hz": 20001.654052734375,
+                  "level_dbfs": -205.86810175823516
+                }
+              ],
+              "sinad_db": 174.73122980444134,
+              "residual_excluding_declared_products_dbfs": -181.77102773533636,
+              "worst_declared_product": {
+                "name": "upper_imd",
+                "frequency_hz": 20001.654052734375,
+                "level_dbfs": -205.86810175823516
+              },
+              "worst_unexpected_spur": {
+                "frequency_hz": 19608.673095703125,
+                "level_dbfs": -201.52161728697786
+              }
+            },
+            "recovery": {
+              "carriers": [
+                {
+                  "name": "stress_18khz",
+                  "frequency_hz": 17999.066162109375,
+                  "expected_level_dbfs": -10.027614072524951,
+                  "measured_level_dbfs": -10.027614063925983,
+                  "gain_error_db": 8.598968648243499e-9
+                },
+                {
+                  "name": "stress_19khz",
+                  "frequency_hz": 19000.360107421875,
+                  "expected_level_dbfs": -10.027614072524951,
+                  "measured_level_dbfs": -10.027614032436336,
+                  "gain_error_db": 4.008861509419148e-8
+                }
+              ],
+              "declared_products": [
+                {
+                  "name": "difference",
+                  "frequency_hz": 1001.2939453125,
+                  "level_dbfs": -226.86855116849648
+                },
+                {
+                  "name": "lower_imd",
+                  "frequency_hz": 16997.772216796875,
+                  "level_dbfs": -213.17152158383536
+                },
+                {
+                  "name": "upper_imd",
+                  "frequency_hz": 20001.654052734375,
+                  "level_dbfs": -204.78149051760585
+                }
+              ],
+              "sinad_db": 174.94498881343387,
+              "residual_excluding_declared_products_dbfs": -181.9885011956181,
+              "worst_declared_product": {
+                "name": "upper_imd",
+                "frequency_hz": 20001.654052734375,
+                "level_dbfs": -204.78149051760585
+              },
+              "worst_unexpected_spur": {
+                "frequency_hz": 18532.012939453125,
+                "level_dbfs": -201.06146079463207
+              }
+            },
+            "settled_program_peak": 0.6304266790882792,
+            "transition_waveform_peak": 0.6304266807583615,
+            "transition_overshoot_above_settled": 1.6700822946802418e-9,
+            "zero_input_transition_peak": 0.22813809182097736,
+            "zero_input_transition_peak_dbfs": -12.83604390547136,
+            "clean_mute_peak": 1.8233078302537023e-9,
+            "clean_mute_peak_dbfs": -174.78280005866665,
+            "clean_mute_rms_dbfs": -185.38504925553127,
+            "restart_residual_peak": 0.8938698063700479,
+            "restart_residual_peak_dbfs": -0.9745146462877524,
+            "restart_residual_rms_1ms_dbfs": -9.67639451927411,
+            "restart_residual_rms_10ms_dbfs": -19.675612797637115,
+            "restart_residual_rms_50ms_dbfs": -26.665312840995014,
+            "transition_residual_peak": 0.8938698063700479,
+            "transition_residual_peak_dbfs": -0.9745146462877524,
+            "end_to_end_recovery_time_ms": 19.331065759637188,
+            "steady_density_analysis_range": "stress_steady_analysis",
+            "steady_density": {
+              "density": 0.5,
+              "deviation": 0.0,
+              "rolling_max_deviation": 0.00001771541950112976,
+              "rolling_window_bits": 112896
+            },
+            "clean_mute_density_analysis_range": "stress_clean_mute",
+            "clean_mute_density": {
+              "density": 0.5,
+              "deviation": 0.0,
+              "rolling_max_deviation": 8.85770975056488e-6,
+              "rolling_window_bits": 112896
+            },
+            "reconstructed_peak": 0.6304266807583615
+          }
+        ]
+      },
+      "structural_summary": {
+        "observed_max_density_deviation": 0.00001771541950112976,
+        "observed_max_reconstructed_peak": 0.6304266807583615,
+        "health_pass": true
+      },
+      "hard_failures": []
+    },
+    {
+      "scenario": "high_frequency_rated_stress",
+      "modulator": "EcBeam",
+      "diagnostic": false,
+      "comparison_class": "noncanonical",
+      "level_matched_across_modulators": false,
+      "production_default_filter": false,
+      "filter": "SplitPhase128kE3",
+      "headroom_db": -2.0,
+      "source_rate": 44100,
+      "dsd_rate": "DSD128",
+      "wire_rate": 5644800,
+      "source_frames": 822784,
+      "filter_guard_source_frames": 131328,
+      "source_peak": 0.999,
+      "effective_source_peak": 0.7935339064895572,
+      "modulator_input_peak": 0.589,
+      "expected_bits_per_channel": 105316352,
+      "native_bytes_before_idle": [
+        13164544,
+        13164544
+      ],
+      "native_bytes_after_idle": [
+        13164544,
+        13164544
+      ],
+      "full_fixture_density": [
+        {
+          "bits": 105316352,
+          "density": 0.5000000379808066,
+          "deviation": 3.798080661088221e-8
+        },
+        {
+          "bits": 105316352,
+          "density": 0.5000000379808066,
+          "deviation": 3.798080661088221e-8
+        }
+      ],
+      "reconstruction_profile": "reconstruction-v1-audio-20k-24k",
+      "spectral_analysis_frames": 65536,
+      "spectral_bin_width_hz": 2.691650390625,
+      "render_seconds": 11.8853008,
+      "renderer_configuration": {
+        "production_policy_version": "dsd-production-policy-v4",
+        "coefficient_table": "CRFB7_EC_OSR128",
+        "coefficient_osr": 128,
+        "coefficient_obg": 1.4,
+        "coefficient_input_peak": 0.589,
+        "lookahead_depth": 2,
+        "isi_penalty": 0.0,
+        "chunk_source_frames": 1024,
+        "seeds_hex": [
+          "0xa5a5f00fdeadbeef",
+          "0xe99bc2d705f8d3e1"
+        ]
+      },
+      "source_pcm_sha256": "1e7e14f137f9a527390d6f92d73bd97bd69b92671e76ee985a55e729b4aa2f92",
+      "native_dsd_sha256": [
+        "8388be1f2790f444c01993685d3ddcc4e0ac9628d852c139347abf84cf0a4f63",
+        "8388be1f2790f444c01993685d3ddcc4e0ac9628d852c139347abf84cf0a4f63"
+      ],
+      "health": {
+        "stability_resets": 0,
+        "state_clamps": 0,
+        "limiter_peak_ratio_max": 0.7937296628952026,
+        "limiter_limited_events": 0,
+        "limiter_limited_samples": 0,
+        "truncation_events": 0,
+        "discarded_left_bits": 0,
+        "discarded_right_bits": 0,
+        "beam_clamps": 209850,
+        "beam_speculative_clamps": 0,
+        "beam_committed_clamps": 0,
+        "beam_rejected_hard_limits": 0,
+        "beam_all_children_rejected": 0,
+        "ecbeam2_constraint_escapes": 0,
+        "ecbeam2_state_repairs": 0,
+        "ecbeam2_nonfinite_resets": 0,
+        "ecbeam2_observer_desynchronizations": 0,
+        "ecbeam2_invalid_input_substitutions": 0,
+        "ecbeam2_output_length_events": 0
+      },
+      "measurements": {
+        "kind": "high_frequency_stress",
+        "level_contract": "rated_source_peak",
+        "channels": [
+          {
+            "channel": "left",
+            "steady": {
+              "carriers": [
+                {
+                  "name": "stress_18khz",
+                  "frequency_hz": 17999.066162109375,
+                  "expected_level_dbfs": -8.02761407252495,
+                  "measured_level_dbfs": -8.027614096316956,
+                  "gain_error_db": -2.379200658708669e-8
+                },
+                {
+                  "name": "stress_19khz",
+                  "frequency_hz": 19000.360107421875,
+                  "expected_level_dbfs": -8.02761407252495,
+                  "measured_level_dbfs": -8.027614078653189,
+                  "gain_error_db": -6.128239249392209e-9
+                }
+              ],
+              "declared_products": [
+                {
+                  "name": "difference",
+                  "frequency_hz": 1001.2939453125,
+                  "level_dbfs": -217.89152953659598
+                },
+                {
+                  "name": "lower_imd",
+                  "frequency_hz": 16997.772216796875,
+                  "level_dbfs": -192.4325057386366
+                },
+                {
+                  "name": "upper_imd",
+                  "frequency_hz": 20001.654052734375,
+                  "level_dbfs": -183.99874583531533
+                }
+              ],
+              "sinad_db": 168.92981521434956,
+              "residual_excluding_declared_products_dbfs": -174.46804916127354,
+              "worst_declared_product": {
+                "name": "upper_imd",
+                "frequency_hz": 20001.654052734375,
+                "level_dbfs": -183.99874583531533
+              },
+              "worst_unexpected_spur": {
+                "frequency_hz": 13993.890380859375,
+                "level_dbfs": -190.00801396877324
+              }
+            },
+            "recovery": {
+              "carriers": [
+                {
+                  "name": "stress_18khz",
+                  "frequency_hz": 17999.066162109375,
+                  "expected_level_dbfs": -8.02761407252495,
+                  "measured_level_dbfs": -8.027614096491634,
+                  "gain_error_db": -2.3966684636889113e-8
+                },
+                {
+                  "name": "stress_19khz",
+                  "frequency_hz": 19000.360107421875,
+                  "expected_level_dbfs": -8.02761407252495,
+                  "measured_level_dbfs": -8.02761407873163,
+                  "gain_error_db": -6.2066813910632845e-9
+                }
+              ],
+              "declared_products": [
+                {
+                  "name": "difference",
+                  "frequency_hz": 1001.2939453125,
+                  "level_dbfs": -211.8393405653575
+                },
+                {
+                  "name": "lower_imd",
+                  "frequency_hz": 16997.772216796875,
+                  "level_dbfs": -192.6627965224426
+                },
+                {
+                  "name": "upper_imd",
+                  "frequency_hz": 20001.654052734375,
+                  "level_dbfs": -183.58799469753447
+                }
+              ],
+              "sinad_db": 168.92479243143862,
+              "residual_excluding_declared_products_dbfs": -174.50757279663637,
+              "worst_declared_product": {
+                "name": "upper_imd",
+                "frequency_hz": 20001.654052734375,
+                "level_dbfs": -183.58799469753447
+              },
+              "worst_unexpected_spur": {
+                "frequency_hz": 14004.656982421875,
+                "level_dbfs": -190.2643110230079
+              }
+            },
+            "settled_program_peak": 0.7936601622690009,
+            "transition_waveform_peak": 0.7936601639147032,
+            "transition_overshoot_above_settled": 1.6457022411486832e-9,
+            "zero_input_transition_peak": 0.28720884354589477,
+            "zero_input_transition_peak_dbfs": -10.836043834273594,
+            "clean_mute_peak": 6.63373536475305e-9,
+            "clean_mute_peak_dbfs": -163.56483714990878,
+            "clean_mute_rms_dbfs": -173.20578529618052,
+            "restart_residual_peak": 1.1253154096244544,
+            "restart_residual_peak_dbfs": 1.0254853193618068,
+            "restart_residual_rms_1ms_dbfs": -7.676394557509228,
+            "restart_residual_rms_10ms_dbfs": -17.675612835962394,
+            "restart_residual_rms_50ms_dbfs": -24.665312879320247,
+            "transition_residual_peak": 1.1253154096244544,
+            "transition_residual_peak_dbfs": 1.0254853193618068,
+            "end_to_end_recovery_time_ms": 21.33219954648526,
+            "steady_density_analysis_range": "stress_steady_analysis",
+            "steady_density": {
+              "density": 0.4999995231628418,
+              "deviation": 4.76837158203125e-7,
+              "rolling_max_deviation": 0.00001771541950112976,
+              "rolling_window_bits": 112896
+            },
+            "clean_mute_density_analysis_range": "stress_clean_mute",
+            "clean_mute_density": {
+              "density": 0.5,
+              "deviation": 0.0,
+              "rolling_max_deviation": 0.00001771541950112976,
+              "rolling_window_bits": 112896
+            },
+            "reconstructed_peak": 0.7936601639147032
+          },
+          {
+            "channel": "right",
+            "steady": {
+              "carriers": [
+                {
+                  "name": "stress_18khz",
+                  "frequency_hz": 17999.066162109375,
+                  "expected_level_dbfs": -8.02761407252495,
+                  "measured_level_dbfs": -8.027614096316956,
+                  "gain_error_db": -2.379200658708669e-8
+                },
+                {
+                  "name": "stress_19khz",
+                  "frequency_hz": 19000.360107421875,
+                  "expected_level_dbfs": -8.02761407252495,
+                  "measured_level_dbfs": -8.027614078653189,
+                  "gain_error_db": -6.128239249392209e-9
+                }
+              ],
+              "declared_products": [
+                {
+                  "name": "difference",
+                  "frequency_hz": 1001.2939453125,
+                  "level_dbfs": -217.89152953659598
+                },
+                {
+                  "name": "lower_imd",
+                  "frequency_hz": 16997.772216796875,
+                  "level_dbfs": -192.4325057386366
+                },
+                {
+                  "name": "upper_imd",
+                  "frequency_hz": 20001.654052734375,
+                  "level_dbfs": -183.99874583531533
+                }
+              ],
+              "sinad_db": 168.92981521434956,
+              "residual_excluding_declared_products_dbfs": -174.46804916127354,
+              "worst_declared_product": {
+                "name": "upper_imd",
+                "frequency_hz": 20001.654052734375,
+                "level_dbfs": -183.99874583531533
+              },
+              "worst_unexpected_spur": {
+                "frequency_hz": 13993.890380859375,
+                "level_dbfs": -190.00801396877324
+              }
+            },
+            "recovery": {
+              "carriers": [
+                {
+                  "name": "stress_18khz",
+                  "frequency_hz": 17999.066162109375,
+                  "expected_level_dbfs": -8.02761407252495,
+                  "measured_level_dbfs": -8.027614096491634,
+                  "gain_error_db": -2.3966684636889113e-8
+                },
+                {
+                  "name": "stress_19khz",
+                  "frequency_hz": 19000.360107421875,
+                  "expected_level_dbfs": -8.02761407252495,
+                  "measured_level_dbfs": -8.02761407873163,
+                  "gain_error_db": -6.2066813910632845e-9
+                }
+              ],
+              "declared_products": [
+                {
+                  "name": "difference",
+                  "frequency_hz": 1001.2939453125,
+                  "level_dbfs": -211.8393405653575
+                },
+                {
+                  "name": "lower_imd",
+                  "frequency_hz": 16997.772216796875,
+                  "level_dbfs": -192.6627965224426
+                },
+                {
+                  "name": "upper_imd",
+                  "frequency_hz": 20001.654052734375,
+                  "level_dbfs": -183.58799469753447
+                }
+              ],
+              "sinad_db": 168.92479243143862,
+              "residual_excluding_declared_products_dbfs": -174.50757279663637,
+              "worst_declared_product": {
+                "name": "upper_imd",
+                "frequency_hz": 20001.654052734375,
+                "level_dbfs": -183.58799469753447
+              },
+              "worst_unexpected_spur": {
+                "frequency_hz": 14004.656982421875,
+                "level_dbfs": -190.2643110230079
+              }
+            },
+            "settled_program_peak": 0.7936601622690009,
+            "transition_waveform_peak": 0.7936601639147032,
+            "transition_overshoot_above_settled": 1.6457022411486832e-9,
+            "zero_input_transition_peak": 0.28720884354589477,
+            "zero_input_transition_peak_dbfs": -10.836043834273594,
+            "clean_mute_peak": 6.63373536475305e-9,
+            "clean_mute_peak_dbfs": -163.56483714990878,
+            "clean_mute_rms_dbfs": -173.20578529618052,
+            "restart_residual_peak": 1.1253154096244544,
+            "restart_residual_peak_dbfs": 1.0254853193618068,
+            "restart_residual_rms_1ms_dbfs": -7.676394557509228,
+            "restart_residual_rms_10ms_dbfs": -17.675612835962394,
+            "restart_residual_rms_50ms_dbfs": -24.665312879320247,
+            "transition_residual_peak": 1.1253154096244544,
+            "transition_residual_peak_dbfs": 1.0254853193618068,
+            "end_to_end_recovery_time_ms": 21.33219954648526,
+            "steady_density_analysis_range": "stress_steady_analysis",
+            "steady_density": {
+              "density": 0.4999995231628418,
+              "deviation": 4.76837158203125e-7,
+              "rolling_max_deviation": 0.00001771541950112976,
+              "rolling_window_bits": 112896
+            },
+            "clean_mute_density_analysis_range": "stress_clean_mute",
+            "clean_mute_density": {
+              "density": 0.5,
+              "deviation": 0.0,
+              "rolling_max_deviation": 0.00001771541950112976,
+              "rolling_window_bits": 112896
+            },
+            "reconstructed_peak": 0.7936601639147032
+          }
+        ]
+      },
+      "structural_summary": {
+        "observed_max_density_deviation": 0.00001771541950112976,
+        "observed_max_reconstructed_peak": 0.7936601639147032,
+        "health_pass": true
+      },
+      "hard_failures": []
+    },
+    {
+      "scenario": "high_frequency_matched_stress",
+      "modulator": "Standard",
+      "diagnostic": false,
+      "comparison_class": "noncanonical",
+      "level_matched_across_modulators": true,
+      "production_default_filter": false,
+      "filter": "SplitPhase128kE3",
+      "headroom_db": -4.0,
+      "source_rate": 44100,
+      "dsd_rate": "DSD128",
+      "wire_rate": 5644800,
+      "source_frames": 822784,
+      "filter_guard_source_frames": 131328,
+      "source_peak": 0.9990000000000001,
+      "effective_source_peak": 0.6303263871357131,
+      "modulator_input_peak": 0.45599999999999996,
+      "expected_bits_per_channel": 105316352,
+      "native_bytes_before_idle": [
+        13164544,
+        13164544
+      ],
+      "native_bytes_after_idle": [
+        13164544,
+        13164544
+      ],
+      "full_fixture_density": [
+        {
+          "bits": 105316352,
+          "density": 0.500000028485605,
+          "deviation": 2.8485604985917234e-8
+        },
+        {
+          "bits": 105316352,
+          "density": 0.5000000189904034,
+          "deviation": 1.8990403360952257e-8
+        }
+      ],
+      "reconstruction_profile": "reconstruction-v1-audio-20k-24k",
+      "spectral_analysis_frames": 65536,
+      "spectral_bin_width_hz": 2.691650390625,
+      "render_seconds": 2.6464417,
+      "renderer_configuration": {
+        "production_policy_version": "dsd-production-policy-v4",
+        "coefficient_table": "CRFB7_STANDARD_OSR128",
+        "coefficient_osr": 128,
+        "coefficient_obg": 1.5,
+        "coefficient_input_peak": 0.45599999999999996,
+        "lookahead_depth": 1,
+        "isi_penalty": 0.0,
+        "chunk_source_frames": 1024,
+        "seeds_hex": [
+          "0xa5a5f00fdeadbeef",
+          "0xe99bc2d705f8d3e1"
+        ]
+      },
+      "source_pcm_sha256": "ea4bcc1515304e1aca4f503cc794df142c83646da4ee4f9cddc69817e809b86d",
+      "native_dsd_sha256": [
+        "ccccbe512b69b138b53701e38bf8b8ce8285478a0655560eae2d862f48495664",
+        "d15f27ac5276459f82b3e9d00300e34fc9e3bf18dfca4a1b8e017dde961a8ced"
+      ],
+      "health": {
+        "stability_resets": 0,
+        "state_clamps": 0,
+        "limiter_peak_ratio_max": 0.6304818987846375,
+        "limiter_limited_events": 0,
+        "limiter_limited_samples": 0,
+        "truncation_events": 0,
+        "discarded_left_bits": 0,
+        "discarded_right_bits": 0,
+        "beam_clamps": 0,
+        "beam_speculative_clamps": 0,
+        "beam_committed_clamps": 0,
+        "beam_rejected_hard_limits": 0,
+        "beam_all_children_rejected": 0,
+        "ecbeam2_constraint_escapes": 0,
+        "ecbeam2_state_repairs": 0,
+        "ecbeam2_nonfinite_resets": 0,
+        "ecbeam2_observer_desynchronizations": 0,
+        "ecbeam2_invalid_input_substitutions": 0,
+        "ecbeam2_output_length_events": 0
+      },
+      "measurements": {
+        "kind": "high_frequency_stress",
+        "level_contract": "matched_effective_peak",
+        "channels": [
+          {
+            "channel": "left",
+            "steady": {
+              "carriers": [
+                {
+                  "name": "matched_stress_18khz",
+                  "frequency_hz": 17999.066162109375,
+                  "expected_level_dbfs": -10.027614072524948,
+                  "measured_level_dbfs": -10.027614063956207,
+                  "gain_error_db": 8.568740383907425e-9
+                },
+                {
+                  "name": "matched_stress_19khz",
+                  "frequency_hz": 19000.360107421875,
+                  "expected_level_dbfs": -10.027614072524948,
+                  "measured_level_dbfs": -10.027614032061509,
+                  "gain_error_db": 4.046343882180281e-8
+                }
+              ],
+              "declared_products": [
+                {
+                  "name": "difference",
+                  "frequency_hz": 1001.2939453125,
+                  "level_dbfs": -229.94543791525373
+                },
+                {
+                  "name": "lower_imd",
+                  "frequency_hz": 16997.772216796875,
+                  "level_dbfs": -211.01852733615755
+                },
+                {
+                  "name": "upper_imd",
+                  "frequency_hz": 20001.654052734375,
+                  "level_dbfs": -209.45867511822368
+                }
+              ],
+              "sinad_db": 174.88399803987133,
+              "residual_excluding_declared_products_dbfs": -181.91434328175836,
+              "worst_declared_product": {
+                "name": "upper_imd",
+                "frequency_hz": 20001.654052734375,
+                "level_dbfs": -209.45867511822368
+              },
+              "worst_unexpected_spur": {
+                "frequency_hz": 12758.4228515625,
+                "level_dbfs": -201.9636478527281
+              }
+            },
+            "recovery": {
+              "carriers": [
+                {
+                  "name": "matched_stress_18khz",
+                  "frequency_hz": 17999.066162109375,
+                  "expected_level_dbfs": -10.027614072524948,
+                  "measured_level_dbfs": -10.027614063775003,
+                  "gain_error_db": 8.749944768737805e-9
+                },
+                {
+                  "name": "matched_stress_19khz",
+                  "frequency_hz": 19000.360107421875,
+                  "expected_level_dbfs": -10.027614072524948,
+                  "measured_level_dbfs": -10.027614031999988,
+                  "gain_error_db": 4.052495938822176e-8
+                }
+              ],
+              "declared_products": [
+                {
+                  "name": "difference",
+                  "frequency_hz": 1001.2939453125,
+                  "level_dbfs": -227.2492011330149
+                },
+                {
+                  "name": "lower_imd",
+                  "frequency_hz": 16997.772216796875,
+                  "level_dbfs": -211.27444439195725
+                },
+                {
+                  "name": "upper_imd",
+                  "frequency_hz": 20001.654052734375,
+                  "level_dbfs": -204.80859731084854
+                }
+              ],
+              "sinad_db": 174.90892245537987,
+              "residual_excluding_declared_products_dbfs": -181.95386184061687,
+              "worst_declared_product": {
+                "name": "upper_imd",
+                "frequency_hz": 20001.654052734375,
+                "level_dbfs": -204.80859731084854
+              },
+              "worst_unexpected_spur": {
+                "frequency_hz": 18494.329833984375,
+                "level_dbfs": -201.17564460967372
+              }
+            },
+            "settled_program_peak": 0.6304266792572721,
+            "transition_waveform_peak": 0.6304266796179124,
+            "transition_overshoot_above_settled": 3.606402954048349e-10,
+            "zero_input_transition_peak": 0.2281380917467318,
+            "zero_input_transition_peak_dbfs": -12.836043908298107,
+            "clean_mute_peak": 1.4905843676806535e-9,
+            "clean_mute_peak_dbfs": -176.53286875383188,
+            "clean_mute_rms_dbfs": -185.39688757690047,
+            "restart_residual_peak": 0.8938698054324511,
+            "restart_residual_peak_dbfs": -0.9745146553985449,
+            "restart_residual_rms_1ms_dbfs": -9.67639452352712,
+            "restart_residual_rms_10ms_dbfs": -19.675612802112617,
+            "restart_residual_rms_50ms_dbfs": -26.665312845470524,
+            "transition_residual_peak": 0.8938698054324511,
+            "transition_residual_peak_dbfs": -0.9745146553985449,
+            "end_to_end_recovery_time_ms": 19.35374149659864,
+            "steady_density_analysis_range": "matched_stress_steady_analysis",
+            "steady_density": {
+              "density": 0.5,
+              "deviation": 0.0,
+              "rolling_max_deviation": 0.00001771541950112976,
+              "rolling_window_bits": 112896
+            },
+            "clean_mute_density_analysis_range": "matched_stress_clean_mute",
+            "clean_mute_density": {
+              "density": 0.5,
+              "deviation": 0.0,
+              "rolling_max_deviation": 8.85770975056488e-6,
+              "rolling_window_bits": 112896
+            },
+            "reconstructed_peak": 0.6304266796179124
+          },
+          {
+            "channel": "right",
+            "steady": {
+              "carriers": [
+                {
+                  "name": "matched_stress_18khz",
+                  "frequency_hz": 17999.066162109375,
+                  "expected_level_dbfs": -10.027614072524948,
+                  "measured_level_dbfs": -10.027614063445451,
+                  "gain_error_db": 9.079496265940179e-9
+                },
+                {
+                  "name": "matched_stress_19khz",
+                  "frequency_hz": 19000.360107421875,
+                  "expected_level_dbfs": -10.027614072524948,
+                  "measured_level_dbfs": -10.027614031588223,
+                  "gain_error_db": 4.0936724232665256e-8
+                }
+              ],
+              "declared_products": [
+                {
+                  "name": "difference",
+                  "frequency_hz": 1001.2939453125,
+                  "level_dbfs": -224.88397980502356
+                },
+                {
+                  "name": "lower_imd",
+                  "frequency_hz": 16997.772216796875,
+                  "level_dbfs": -211.28802037301287
+                },
+                {
+                  "name": "upper_imd",
+                  "frequency_hz": 20001.654052734375,
+                  "level_dbfs": -208.40740134087238
+                }
+              ],
+              "sinad_db": 174.73727200926263,
+              "residual_excluding_declared_products_dbfs": -181.7690433854404,
+              "worst_declared_product": {
+                "name": "upper_imd",
+                "frequency_hz": 20001.654052734375,
+                "level_dbfs": -208.40740134087238
+              },
+              "worst_unexpected_spur": {
+                "frequency_hz": 12914.53857421875,
+                "level_dbfs": -201.97748501035778
+              }
+            },
+            "recovery": {
+              "carriers": [
+                {
+                  "name": "matched_stress_18khz",
+                  "frequency_hz": 17999.066162109375,
+                  "expected_level_dbfs": -10.027614072524948,
+                  "measured_level_dbfs": -10.027614063318024,
+                  "gain_error_db": 9.206923223814556e-9
+                },
+                {
+                  "name": "matched_stress_19khz",
+                  "frequency_hz": 19000.360107421875,
+                  "expected_level_dbfs": -10.027614072524948,
+                  "measured_level_dbfs": -10.027614032691975,
+                  "gain_error_db": 3.9832972476006034e-8
+                }
+              ],
+              "declared_products": [
+                {
+                  "name": "difference",
+                  "frequency_hz": 1001.2939453125,
+                  "level_dbfs": -236.30314914724624
+                },
+                {
+                  "name": "lower_imd",
+                  "frequency_hz": 16997.772216796875,
+                  "level_dbfs": -213.13509601058655
+                },
+                {
+                  "name": "upper_imd",
+                  "frequency_hz": 20001.654052734375,
+                  "level_dbfs": -206.0226699075384
+                }
+              ],
+              "sinad_db": 174.85913664647157,
+              "residual_excluding_declared_products_dbfs": -181.89647995344643,
+              "worst_declared_product": {
+                "name": "upper_imd",
+                "frequency_hz": 20001.654052734375,
+                "level_dbfs": -206.0226699075384
+              },
+              "worst_unexpected_spur": {
+                "frequency_hz": 19215.692138671875,
+                "level_dbfs": -202.02922829954758
+              }
+            },
+            "settled_program_peak": 0.6304266802382427,
+            "transition_waveform_peak": 0.6304266801965065,
+            "transition_overshoot_above_settled": 0.0,
+            "zero_input_transition_peak": 0.22813809181853134,
+            "zero_input_transition_peak_dbfs": -12.836043905564487,
+            "clean_mute_peak": 1.5754159501526157e-9,
+            "clean_mute_peak_dbfs": -176.05209523740513,
+            "clean_mute_rms_dbfs": -185.44673603465372,
+            "restart_residual_peak": 0.8938698059322603,
+            "restart_residual_peak_dbfs": -0.9745146505418112,
+            "restart_residual_rms_1ms_dbfs": -9.676394523448902,
+            "restart_residual_rms_10ms_dbfs": -19.675612801789942,
+            "restart_residual_rms_50ms_dbfs": -26.665312845147856,
+            "transition_residual_peak": 0.8938698059322603,
+            "transition_residual_peak_dbfs": -0.9745146505418112,
+            "end_to_end_recovery_time_ms": 19.35374149659864,
+            "steady_density_analysis_range": "matched_stress_steady_analysis",
+            "steady_density": {
+              "density": 0.5,
+              "deviation": 0.0,
+              "rolling_max_deviation": 0.00001771541950112976,
+              "rolling_window_bits": 112896
+            },
+            "clean_mute_density_analysis_range": "matched_stress_clean_mute",
+            "clean_mute_density": {
+              "density": 0.5,
+              "deviation": 0.0,
+              "rolling_max_deviation": 8.85770975056488e-6,
+              "rolling_window_bits": 112896
+            },
+            "reconstructed_peak": 0.6304266802382427
+          }
+        ]
+      },
+      "structural_summary": {
+        "observed_max_density_deviation": 0.00001771541950112976,
+        "observed_max_reconstructed_peak": 0.6304266802382427,
+        "health_pass": true
+      },
+      "hard_failures": []
+    },
+    {
+      "scenario": "high_frequency_matched_stress",
+      "modulator": "EcBeam",
+      "diagnostic": false,
+      "comparison_class": "noncanonical",
+      "level_matched_across_modulators": true,
+      "production_default_filter": false,
+      "filter": "SplitPhase128kE3",
+      "headroom_db": -2.0,
+      "source_rate": 44100,
+      "dsd_rate": "DSD128",
+      "wire_rate": 5644800,
+      "source_frames": 822784,
+      "filter_guard_source_frames": 131328,
+      "source_peak": 0.7935339064895572,
+      "effective_source_peak": 0.6303263871357131,
+      "modulator_input_peak": 0.589,
+      "expected_bits_per_channel": 105316352,
+      "native_bytes_before_idle": [
+        13164544,
+        13164544
+      ],
+      "native_bytes_after_idle": [
+        13164544,
+        13164544
+      ],
+      "full_fixture_density": [
+        {
+          "bits": 105316352,
+          "density": 0.500000028485605,
+          "deviation": 2.8485604985917234e-8
+        },
+        {
+          "bits": 105316352,
+          "density": 0.500000028485605,
+          "deviation": 2.8485604985917234e-8
+        }
+      ],
+      "reconstruction_profile": "reconstruction-v1-audio-20k-24k",
+      "spectral_analysis_frames": 65536,
+      "spectral_bin_width_hz": 2.691650390625,
+      "render_seconds": 11.6066748,
+      "renderer_configuration": {
+        "production_policy_version": "dsd-production-policy-v4",
+        "coefficient_table": "CRFB7_EC_OSR128",
+        "coefficient_osr": 128,
+        "coefficient_obg": 1.4,
+        "coefficient_input_peak": 0.589,
+        "lookahead_depth": 2,
+        "isi_penalty": 0.0,
+        "chunk_source_frames": 1024,
+        "seeds_hex": [
+          "0xa5a5f00fdeadbeef",
+          "0xe99bc2d705f8d3e1"
+        ]
+      },
+      "source_pcm_sha256": "38e46dc438e7b43ba9461a323ffe16803ca2ec99ab0307eb6f88060f7ef296b7",
+      "native_dsd_sha256": [
+        "1dffc56247884143a0bbd0553c4d23c8c9203e13cd818530f7a81df8ddcbf1d9",
+        "1dffc56247884143a0bbd0553c4d23c8c9203e13cd818530f7a81df8ddcbf1d9"
+      ],
+      "health": {
+        "stability_resets": 0,
+        "state_clamps": 0,
+        "limiter_peak_ratio_max": 0.6304818987846375,
+        "limiter_limited_events": 0,
+        "limiter_limited_samples": 0,
+        "truncation_events": 0,
+        "discarded_left_bits": 0,
+        "discarded_right_bits": 0,
+        "beam_clamps": 158346,
+        "beam_speculative_clamps": 0,
+        "beam_committed_clamps": 0,
+        "beam_rejected_hard_limits": 0,
+        "beam_all_children_rejected": 0,
+        "ecbeam2_constraint_escapes": 0,
+        "ecbeam2_state_repairs": 0,
+        "ecbeam2_nonfinite_resets": 0,
+        "ecbeam2_observer_desynchronizations": 0,
+        "ecbeam2_invalid_input_substitutions": 0,
+        "ecbeam2_output_length_events": 0
+      },
+      "measurements": {
+        "kind": "high_frequency_stress",
+        "level_contract": "matched_effective_peak",
+        "channels": [
+          {
+            "channel": "left",
+            "steady": {
+              "carriers": [
+                {
+                  "name": "matched_stress_18khz",
+                  "frequency_hz": 17999.066162109375,
+                  "expected_level_dbfs": -10.027614072524951,
+                  "measured_level_dbfs": -10.027614088102808,
+                  "gain_error_db": -1.5577857226389824e-8
+                },
+                {
+                  "name": "matched_stress_19khz",
+                  "frequency_hz": 19000.360107421875,
+                  "expected_level_dbfs": -10.027614072524951,
+                  "measured_level_dbfs": -10.027614066341577,
+                  "gain_error_db": 6.183373812973514e-9
+                }
+              ],
+              "declared_products": [
+                {
+                  "name": "difference",
+                  "frequency_hz": 1001.2939453125,
+                  "level_dbfs": -222.0946976823507
+                },
+                {
+                  "name": "lower_imd",
+                  "frequency_hz": 16997.772216796875,
+                  "level_dbfs": -197.00988421413885
+                },
+                {
+                  "name": "upper_imd",
+                  "frequency_hz": 20001.654052734375,
+                  "level_dbfs": -188.57815794146114
+                }
+              ],
+              "sinad_db": 167.50068305465052,
+              "residual_excluding_declared_products_dbfs": -174.71757438361522,
+              "worst_declared_product": {
+                "name": "upper_imd",
+                "frequency_hz": 20001.654052734375,
+                "level_dbfs": -188.57815794146114
+              },
+              "worst_unexpected_spur": {
+                "frequency_hz": 14995.184326171875,
+                "level_dbfs": -191.5464763135318
+              }
+            },
+            "recovery": {
+              "carriers": [
+                {
+                  "name": "matched_stress_18khz",
+                  "frequency_hz": 17999.066162109375,
+                  "expected_level_dbfs": -10.027614072524951,
+                  "measured_level_dbfs": -10.02761408903173,
+                  "gain_error_db": -1.6506778166558433e-8
+                },
+                {
+                  "name": "matched_stress_19khz",
+                  "frequency_hz": 19000.360107421875,
+                  "expected_level_dbfs": -10.027614072524951,
+                  "measured_level_dbfs": -10.027614068000679,
+                  "gain_error_db": 4.5242725121852345e-9
+                }
+              ],
+              "declared_products": [
+                {
+                  "name": "difference",
+                  "frequency_hz": 1001.2939453125,
+                  "level_dbfs": -226.7127708215625
+                },
+                {
+                  "name": "lower_imd",
+                  "frequency_hz": 16997.772216796875,
+                  "level_dbfs": -196.58804553898312
+                },
+                {
+                  "name": "upper_imd",
+                  "frequency_hz": 20001.654052734375,
+                  "level_dbfs": -188.06570387333755
+                }
+              ],
+              "sinad_db": 167.349027627123,
+              "residual_excluding_declared_products_dbfs": -174.58300974705483,
+              "worst_declared_product": {
+                "name": "upper_imd",
+                "frequency_hz": 20001.654052734375,
+                "level_dbfs": -188.06570387333755
+              },
+              "worst_unexpected_spur": {
+                "frequency_hz": 14981.72607421875,
+                "level_dbfs": -191.49235304054747
+              }
+            },
+            "settled_program_peak": 0.6304266765178844,
+            "transition_waveform_peak": 0.6304266792842452,
+            "transition_overshoot_above_settled": 2.766360807093804e-9,
+            "zero_input_transition_peak": 0.22813809089565498,
+            "zero_input_transition_peak_dbfs": -12.83604394070111,
+            "clean_mute_peak": 6.0106888340369545e-9,
+            "clean_mute_peak_dbfs": -164.421515086805,
+            "clean_mute_rms_dbfs": -172.98774291106758,
+            "restart_residual_peak": 0.8938698034320423,
+            "restart_residual_peak_dbfs": -0.9745146748368683,
+            "restart_residual_rms_1ms_dbfs": -9.676394533496213,
+            "restart_residual_rms_10ms_dbfs": -19.67561281146644,
+            "restart_residual_rms_50ms_dbfs": -26.665312854824347,
+            "transition_residual_peak": 0.8938698034320423,
+            "transition_residual_peak_dbfs": -0.9745146748368683,
+            "end_to_end_recovery_time_ms": 19.331065759637188,
+            "steady_density_analysis_range": "matched_stress_steady_analysis",
+            "steady_density": {
+              "density": 0.4999995231628418,
+              "deviation": 4.76837158203125e-7,
+              "rolling_max_deviation": 0.00001771541950112976,
+              "rolling_window_bits": 112896
+            },
+            "clean_mute_density_analysis_range": "matched_stress_clean_mute",
+            "clean_mute_density": {
+              "density": 0.5,
+              "deviation": 0.0,
+              "rolling_max_deviation": 8.85770975056488e-6,
+              "rolling_window_bits": 112896
+            },
+            "reconstructed_peak": 0.6304266792842452
+          },
+          {
+            "channel": "right",
+            "steady": {
+              "carriers": [
+                {
+                  "name": "matched_stress_18khz",
+                  "frequency_hz": 17999.066162109375,
+                  "expected_level_dbfs": -10.027614072524951,
+                  "measured_level_dbfs": -10.027614088102808,
+                  "gain_error_db": -1.5577857226389824e-8
+                },
+                {
+                  "name": "matched_stress_19khz",
+                  "frequency_hz": 19000.360107421875,
+                  "expected_level_dbfs": -10.027614072524951,
+                  "measured_level_dbfs": -10.027614066341577,
+                  "gain_error_db": 6.183373812973514e-9
+                }
+              ],
+              "declared_products": [
+                {
+                  "name": "difference",
+                  "frequency_hz": 1001.2939453125,
+                  "level_dbfs": -222.0946976823507
+                },
+                {
+                  "name": "lower_imd",
+                  "frequency_hz": 16997.772216796875,
+                  "level_dbfs": -197.00988421413885
+                },
+                {
+                  "name": "upper_imd",
+                  "frequency_hz": 20001.654052734375,
+                  "level_dbfs": -188.57815794146114
+                }
+              ],
+              "sinad_db": 167.50068305465052,
+              "residual_excluding_declared_products_dbfs": -174.71757438361522,
+              "worst_declared_product": {
+                "name": "upper_imd",
+                "frequency_hz": 20001.654052734375,
+                "level_dbfs": -188.57815794146114
+              },
+              "worst_unexpected_spur": {
+                "frequency_hz": 14995.184326171875,
+                "level_dbfs": -191.5464763135318
+              }
+            },
+            "recovery": {
+              "carriers": [
+                {
+                  "name": "matched_stress_18khz",
+                  "frequency_hz": 17999.066162109375,
+                  "expected_level_dbfs": -10.027614072524951,
+                  "measured_level_dbfs": -10.02761408903173,
+                  "gain_error_db": -1.6506778166558433e-8
+                },
+                {
+                  "name": "matched_stress_19khz",
+                  "frequency_hz": 19000.360107421875,
+                  "expected_level_dbfs": -10.027614072524951,
+                  "measured_level_dbfs": -10.027614068000679,
+                  "gain_error_db": 4.5242725121852345e-9
+                }
+              ],
+              "declared_products": [
+                {
+                  "name": "difference",
+                  "frequency_hz": 1001.2939453125,
+                  "level_dbfs": -226.7127708215625
+                },
+                {
+                  "name": "lower_imd",
+                  "frequency_hz": 16997.772216796875,
+                  "level_dbfs": -196.58804553898312
+                },
+                {
+                  "name": "upper_imd",
+                  "frequency_hz": 20001.654052734375,
+                  "level_dbfs": -188.06570387333755
+                }
+              ],
+              "sinad_db": 167.349027627123,
+              "residual_excluding_declared_products_dbfs": -174.58300974705483,
+              "worst_declared_product": {
+                "name": "upper_imd",
+                "frequency_hz": 20001.654052734375,
+                "level_dbfs": -188.06570387333755
+              },
+              "worst_unexpected_spur": {
+                "frequency_hz": 14981.72607421875,
+                "level_dbfs": -191.49235304054747
+              }
+            },
+            "settled_program_peak": 0.6304266765178844,
+            "transition_waveform_peak": 0.6304266792842452,
+            "transition_overshoot_above_settled": 2.766360807093804e-9,
+            "zero_input_transition_peak": 0.22813809089565498,
+            "zero_input_transition_peak_dbfs": -12.83604394070111,
+            "clean_mute_peak": 6.0106888340369545e-9,
+            "clean_mute_peak_dbfs": -164.421515086805,
+            "clean_mute_rms_dbfs": -172.98774291106758,
+            "restart_residual_peak": 0.8938698034320423,
+            "restart_residual_peak_dbfs": -0.9745146748368683,
+            "restart_residual_rms_1ms_dbfs": -9.676394533496213,
+            "restart_residual_rms_10ms_dbfs": -19.67561281146644,
+            "restart_residual_rms_50ms_dbfs": -26.665312854824347,
+            "transition_residual_peak": 0.8938698034320423,
+            "transition_residual_peak_dbfs": -0.9745146748368683,
+            "end_to_end_recovery_time_ms": 19.331065759637188,
+            "steady_density_analysis_range": "matched_stress_steady_analysis",
+            "steady_density": {
+              "density": 0.4999995231628418,
+              "deviation": 4.76837158203125e-7,
+              "rolling_max_deviation": 0.00001771541950112976,
+              "rolling_window_bits": 112896
+            },
+            "clean_mute_density_analysis_range": "matched_stress_clean_mute",
+            "clean_mute_density": {
+              "density": 0.5,
+              "deviation": 0.0,
+              "rolling_max_deviation": 8.85770975056488e-6,
+              "rolling_window_bits": 112896
+            },
+            "reconstructed_peak": 0.6304266792842452
+          }
+        ]
+      },
+      "structural_summary": {
+        "observed_max_density_deviation": 0.00001771541950112976,
+        "observed_max_reconstructed_peak": 0.6304266792842452,
+        "health_pass": true
+      },
+      "hard_failures": []
+    }
+  ],
+  "execution_failures": [],
+  "hard_failure_count": 0,
+  "diagnostic_hard_failure_count": 0
+}

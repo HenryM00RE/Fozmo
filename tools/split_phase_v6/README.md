@@ -60,7 +60,8 @@ therefore remain false.
 
 Frozen reports are in `baselines/`:
 
-- `e3-p3-onset-timing.json` is the corrected native E2v3/E3 timing run.
+- `e3-p3-onset-timing.json` is the corrected historical E2v3/early-E3 timing run;
+  it is not the retained `refine-0900` measurement.
 - `e3-phase-search-packet-qualification.json` contains every impulse-safe
   candidate and its packet-onset deltas.
 - `baseline-lock.json` records the source commit, hashes, test settings, and
@@ -107,3 +108,47 @@ the full DSD-path non-regression gate and production promotion remain false.
 The next search should either add the DSD transition tail as a hard objective
 or begin the wider joint magnitude/phase family; further cleanup-only changes
 are too small to move these transient cells materially.
+
+## Recovery-tail refinement
+
+P4 keeps `refine-0900` and `sobol-0370` immutable, interpolates only their
+unwrapped phase, reprojects every trial onto the accepted E2v3 magnitude, and
+adds bounded local high-frequency phase curvature. Run the deterministic 2,048
+point search with:
+
+```powershell
+python -m tools.split_phase_v6.e3_recovery_phase_search
+```
+
+The tighter search guards add maximum post-lobe at or below -8.6 dB, 15 kHz
+onset pre-echo at or below -30.5 dB, and a conservative 9.22 percent proxy for
+the 12.8 percent exact-runtime overshoot limit. The 4 and 8 ms tail energies
+are ranking objectives, not substitutes for the exact DSD transition gate.
+
+Forty of 2,048 trials passed every search guard. Two representative finalists
+were exact-tested:
+
+- `recovery-2047` improved the retained filter's 15 kHz onset pre-echo by
+  1.006 dB and made small simultaneous gains in post-lobe, post-energy, width,
+  and undershoot. DSD128 transition residual improved by 0.0148 dB and Standard
+  recovery improved by 0.22-0.27 ms, but EcBeam recovery regressed by
+  0.023-0.051 ms.
+- `recovery-0575` preserved the retained decay time, improved 15/18/20 kHz
+  onset pre-echo by 0.22-0.25 dB, and made small post-response gains. DSD128
+  transition residual improved by 0.0179 dB and Standard recovery improved by
+  0.22-0.27 ms, but EcBeam recovery regressed by 0.023-0.045 ms.
+
+A reprojected 50 percent phase step toward `recovery-0575` made EcBeam matched
+recovery 0.266 ms worse despite improving the transition residual. This proves
+that the current percentile-derived recovery threshold is non-monotonic with
+the scalar impulse-tail proxy. No P4 candidate is promoted; `refine-0900`
+remains the experimental incumbent. The next optimizer must score a fixed-
+reference filter-only transition envelope or the actual DSD transition cells,
+then use the existing recovery time as a reported secondary diagnostic.
+
+The P4 reports under `baselines/` contain the complete search audit, corrected
+current-incumbent timing, exact finalist timing, and timestamp-forced DSD128
+runs. On Windows, coefficient swaps for an `include_bytes!` asset must update
+the destination timestamp before invoking Cargo; otherwise an older copied
+timestamp can incorrectly reuse a previously embedded coefficient set. Native
+DSD hashes must change before a candidate run is accepted as valid evidence.
