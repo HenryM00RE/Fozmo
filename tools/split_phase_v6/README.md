@@ -364,3 +364,39 @@ existing 509-tap cleanup stage has no locally useful freedom while preserving
 the certified rejection floor. P7 should therefore proceed to the neutral and
 micro-apodized monotone character-magnitude families; cleanup can be solved
 again only after a new character target changes the feasible geometry.
+
+## P7.4 bounded character-magnitude search
+
+`e3_p7_magnitude_sensitivity.py` parameterizes the upper band with eight
+compact quintic smoothstep controls at 15, 18, 19, 20, 20.5, 21, 21.5, and
+22.05 kHz. The basis is identically zero below 15 kHz and has local support
+between adjacent controls, preventing transition controls from leaking into
+the protected passband. Neutral and micro-apodized families retain separate
+movement limits. Central finite differences measure static timing, all five
+production packets, twelve counterfactual restart fixtures, passband, image,
+reverse alias, and transition monotonicity before an SVD/linearized feasibility
+pass proposes exact trial directions.
+
+The full deterministic screen evaluated 4,096 Sobol points per family. Of
+8,192 candidates, 702 passed the cheap linearized and monotonicity gate, 128
+received exact timing and packet tests, 53 passed every exact static guard, and
+48 received the full counterfactual suite. Twelve diverse finalists were
+retained in the report, but no candidate met a minimum meaningful effect size.
+
+The best guarded post-lobe movement was only 0.00679 dB, versus the frozen
+0.05 dB threshold. The best worst-fixture counterfactual RMS movement was
+0.00134 dB, and the strongest worst-fixture positive-excess reduction was
+0.0415 percent, versus the frozen 1 percent threshold. Some candidates improved
+mean counterfactual energy by roughly 0.13-0.28 dB, but their worst fixture
+barely moved; lexicographic worst-case selection correctly prevents those from
+becoming incumbents. Larger finite-difference steps could approach a 0.05 dB
+post-lobe gain only by violating packet, decay, or monotonic-transition guards.
+
+No P7.4 candidate warrants exact DSD finalist testing and `p6d-local-0145`
+remains the immutable research incumbent. Cleanup-nullspace, neutral-magnitude,
+and micro-apodized-magnitude searches are three structurally distinct failures
+to reach the campaign's stopping thresholds. Under the frozen guards, the P7
+local frontier is therefore considered saturated; an alternating joint search
+is not justified without evidence of a material interaction. Any further
+engineering search should move to the explicitly separate P8 structural-
+capacity experiments rather than select numerical trivia.
