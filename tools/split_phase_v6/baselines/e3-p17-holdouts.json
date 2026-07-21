@@ -1,0 +1,556 @@
+{
+  "schema_version": 1,
+  "identity": "SplitPhase128kE3-P17-definitive-replacement-freeze-packet-holdouts",
+  "character_sha256": "c8dd84a905e188df39f0aa714cb8cd89cf91e99e9c87881bbe8aac8f6c11f8c4",
+  "cell_count": 21,
+  "failure_count": 0,
+  "failures": [],
+  "cells": [
+    {
+      "identifier": "7000hz-4cycles",
+      "frequency_hz": 7000.0,
+      "cycles": 4.0,
+      "packets": {
+        "7000": {
+          "frequency_hz": 7000.0,
+          "onset_pre_echo_energy_db_total": -49.188974114027445,
+          "onset_pre_echo_energy_db_0_0p5ms": -49.189259893213816,
+          "onset_pre_echo_energy_db_0p5_2ms": -91.00767363197976,
+          "onset_pre_echo_energy_db_2_8ms": -127.30127646027762,
+          "onset_post_decay_energy_db_total": -53.78147595616717,
+          "maximum_onset_pre_echo_db_peak": -38.70331474853542,
+          "maximum_onset_post_decay_db_peak": -45.36890691019778
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "7000": {
+          "maximum_onset_pre_echo_db_peak": -0.6124970250223356,
+          "onset_pre_echo_energy_db_0_0p5ms": 0.31842801651839636,
+          "onset_pre_echo_energy_db_0p5_2ms": 6.0080584992421535,
+          "onset_pre_echo_energy_db_2_8ms": 0.08475455442658131
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "12000hz-4cycles",
+      "frequency_hz": 12000.0,
+      "cycles": 4.0,
+      "packets": {
+        "12000": {
+          "frequency_hz": 12000.0,
+          "onset_pre_echo_energy_db_total": -37.31702273380317,
+          "onset_pre_echo_energy_db_0_0p5ms": -37.33115105173903,
+          "onset_pre_echo_energy_db_0p5_2ms": -62.20128613048841,
+          "onset_pre_echo_energy_db_2_8ms": -104.38548106518002,
+          "onset_post_decay_energy_db_total": -19.70476433007617,
+          "maximum_onset_pre_echo_db_peak": -32.4360253417759,
+          "maximum_onset_post_decay_db_peak": -21.590627546706113
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "12000": {
+          "maximum_onset_pre_echo_db_peak": -4.274111447723712,
+          "onset_pre_echo_energy_db_0_0p5ms": -0.2743335638890869,
+          "onset_pre_echo_energy_db_0p5_2ms": 21.622251815950918,
+          "onset_pre_echo_energy_db_2_8ms": 27.839202368748573
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "13500hz-4cycles",
+      "frequency_hz": 13500.0,
+      "cycles": 4.0,
+      "packets": {
+        "13500": {
+          "frequency_hz": 13500.0,
+          "onset_pre_echo_energy_db_total": -36.963291951435096,
+          "onset_pre_echo_energy_db_0_0p5ms": -36.97240367227376,
+          "onset_pre_echo_energy_db_0p5_2ms": -63.75011472324096,
+          "onset_pre_echo_energy_db_2_8ms": -103.80671303049056,
+          "onset_post_decay_energy_db_total": -8.225102115963477,
+          "maximum_onset_pre_echo_db_peak": -31.795012700574127,
+          "maximum_onset_post_decay_db_peak": -9.08987880490177
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "13500": {
+          "maximum_onset_pre_echo_db_peak": -5.70052763190489,
+          "onset_pre_echo_energy_db_0_0p5ms": -2.204763594429771,
+          "onset_pre_echo_energy_db_0p5_2ms": 17.788612521241085,
+          "onset_pre_echo_energy_db_2_8ms": 27.34966269104379
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "16000hz-4cycles",
+      "frequency_hz": 16000.0,
+      "cycles": 4.0,
+      "packets": {
+        "16000": {
+          "frequency_hz": 16000.0,
+          "onset_pre_echo_energy_db_total": -39.01410472086256,
+          "onset_pre_echo_energy_db_0_0p5ms": -39.02635691765952,
+          "onset_pre_echo_energy_db_0p5_2ms": -64.51784154926787,
+          "onset_pre_echo_energy_db_2_8ms": -98.08736203664132,
+          "onset_post_decay_energy_db_total": -2.73030773399109,
+          "maximum_onset_pre_echo_db_peak": -31.340728612862293,
+          "maximum_onset_post_decay_db_peak": -2.0833283177468616
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "16000": {
+          "maximum_onset_pre_echo_db_peak": -6.37196860293443,
+          "onset_pre_echo_energy_db_0_0p5ms": -4.25373567025791,
+          "onset_pre_echo_energy_db_0p5_2ms": 17.911538856731767,
+          "onset_pre_echo_energy_db_2_8ms": 34.907412916956886
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "17000hz-4cycles",
+      "frequency_hz": 17000.0,
+      "cycles": 4.0,
+      "packets": {
+        "17000": {
+          "frequency_hz": 17000.0,
+          "onset_pre_echo_energy_db_total": -38.52683353232872,
+          "onset_pre_echo_energy_db_0_0p5ms": -38.5424423704361,
+          "onset_pre_echo_energy_db_0p5_2ms": -62.98324764794317,
+          "onset_pre_echo_energy_db_2_8ms": -92.85123051538139,
+          "onset_post_decay_energy_db_total": -2.0178652206376424,
+          "maximum_onset_pre_echo_db_peak": -29.574730048961598,
+          "maximum_onset_post_decay_db_peak": -0.30550531677650977
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "17000": {
+          "maximum_onset_pre_echo_db_peak": -5.842443398452225,
+          "onset_pre_echo_energy_db_0_0p5ms": -4.364817440320358,
+          "onset_pre_echo_energy_db_0p5_2ms": 20.010989001073995,
+          "onset_pre_echo_energy_db_2_8ms": 40.22342276515994
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "19000hz-4cycles",
+      "frequency_hz": 19000.0,
+      "cycles": 4.0,
+      "packets": {
+        "19000": {
+          "frequency_hz": 19000.0,
+          "onset_pre_echo_energy_db_total": -36.72691575863662,
+          "onset_pre_echo_energy_db_0_0p5ms": -36.745193372986236,
+          "onset_pre_echo_energy_db_0p5_2ms": -60.50225847747909,
+          "onset_pre_echo_energy_db_2_8ms": -88.09162048592292,
+          "onset_post_decay_energy_db_total": -1.308202229095038,
+          "maximum_onset_pre_echo_db_peak": -27.918234735164503,
+          "maximum_onset_post_decay_db_peak": 0.0
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "19000": {
+          "maximum_onset_pre_echo_db_peak": -5.261513626965943,
+          "onset_pre_echo_energy_db_0_0p5ms": -2.4799209800401627,
+          "onset_pre_echo_energy_db_0p5_2ms": 24.734061055166748,
+          "onset_pre_echo_energy_db_2_8ms": 47.60933506445379
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "19500hz-4cycles",
+      "frequency_hz": 19500.0,
+      "cycles": 4.0,
+      "packets": {
+        "19500": {
+          "frequency_hz": 19500.0,
+          "onset_pre_echo_energy_db_total": -36.59982463879876,
+          "onset_pre_echo_energy_db_0_0p5ms": -36.6194220587788,
+          "onset_pre_echo_energy_db_0p5_2ms": -60.07341091287806,
+          "onset_pre_echo_energy_db_2_8ms": -87.45064779728494,
+          "onset_post_decay_energy_db_total": -1.1867426635497427,
+          "maximum_onset_pre_echo_db_peak": -27.6918574248775,
+          "maximum_onset_post_decay_db_peak": 0.0
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "19500": {
+          "maximum_onset_pre_echo_db_peak": -4.34884813301154,
+          "onset_pre_echo_energy_db_0_0p5ms": -1.758780239916355,
+          "onset_pre_echo_energy_db_0p5_2ms": 26.290063235888013,
+          "onset_pre_echo_energy_db_2_8ms": 50.05211559257856
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "7000hz-8cycles",
+      "frequency_hz": 7000.0,
+      "cycles": 8.0,
+      "packets": {
+        "7000": {
+          "frequency_hz": 7000.0,
+          "onset_pre_echo_energy_db_total": -64.34059164082691,
+          "onset_pre_echo_energy_db_0_0p5ms": -64.34075502250913,
+          "onset_pre_echo_energy_db_0p5_2ms": -108.58860677881479,
+          "onset_pre_echo_energy_db_2_8ms": -141.6939323571667,
+          "onset_post_decay_energy_db_total": -70.48283851602953,
+          "maximum_onset_pre_echo_db_peak": -50.645418050920284,
+          "maximum_onset_post_decay_db_peak": -58.44784392154612
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "7000": {
+          "maximum_onset_pre_echo_db_peak": -0.5077883527853047,
+          "onset_pre_echo_energy_db_0_0p5ms": 0.34887891850195274,
+          "onset_pre_echo_energy_db_0p5_2ms": 3.9065156776778593,
+          "onset_pre_echo_energy_db_2_8ms": 0.04330541154229195
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "12000hz-8cycles",
+      "frequency_hz": 12000.0,
+      "cycles": 8.0,
+      "packets": {
+        "12000": {
+          "frequency_hz": 12000.0,
+          "onset_pre_echo_energy_db_total": -47.828203024206175,
+          "onset_pre_echo_energy_db_0_0p5ms": -48.068184942844766,
+          "onset_pre_echo_energy_db_0p5_2ms": -60.52377994251739,
+          "onset_pre_echo_energy_db_2_8ms": -107.83927079168973,
+          "onset_post_decay_energy_db_total": -42.304348619343415,
+          "maximum_onset_pre_echo_db_peak": -39.98777159881101,
+          "maximum_onset_post_decay_db_peak": -41.67252107657876
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "12000": {
+          "maximum_onset_pre_echo_db_peak": -1.3974338903126124,
+          "onset_pre_echo_energy_db_0_0p5ms": 1.4142858660578597,
+          "onset_pre_echo_energy_db_0p5_2ms": 34.138884735974955,
+          "onset_pre_echo_energy_db_2_8ms": 32.69892701343065
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "13500hz-8cycles",
+      "frequency_hz": 13500.0,
+      "cycles": 8.0,
+      "packets": {
+        "13500": {
+          "frequency_hz": 13500.0,
+          "onset_pre_echo_energy_db_total": -45.81993951435103,
+          "onset_pre_echo_energy_db_0_0p5ms": -45.86817378743525,
+          "onset_pre_echo_energy_db_0p5_2ms": -65.38855724582098,
+          "onset_pre_echo_energy_db_2_8ms": -108.01547096930399,
+          "onset_post_decay_energy_db_total": -27.763100422655928,
+          "maximum_onset_pre_echo_db_peak": -39.66036176302085,
+          "maximum_onset_post_decay_db_peak": -27.520390215588577
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "13500": {
+          "maximum_onset_pre_echo_db_peak": -3.4497735716948483,
+          "onset_pre_echo_energy_db_0_0p5ms": -0.2227867816735909,
+          "onset_pre_echo_energy_db_0p5_2ms": 21.32990042301644,
+          "onset_pre_echo_energy_db_2_8ms": 23.514123587640896
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "16000hz-8cycles",
+      "frequency_hz": 16000.0,
+      "cycles": 8.0,
+      "packets": {
+        "16000": {
+          "frequency_hz": 16000.0,
+          "onset_pre_echo_energy_db_total": -51.6426526835682,
+          "onset_pre_echo_energy_db_0_0p5ms": -51.71550792133839,
+          "onset_pre_echo_energy_db_0p5_2ms": -69.43247946697457,
+          "onset_pre_echo_energy_db_2_8ms": -112.49038328985114,
+          "onset_post_decay_energy_db_total": -4.29727222348331,
+          "maximum_onset_pre_echo_db_peak": -41.7453750845613,
+          "maximum_onset_post_decay_db_peak": -0.7298775133531861
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "16000": {
+          "maximum_onset_pre_echo_db_peak": 0.03139842231047396,
+          "onset_pre_echo_energy_db_0_0p5ms": -0.5174138777115118,
+          "onset_pre_echo_energy_db_0p5_2ms": 21.728037734525756,
+          "onset_pre_echo_energy_db_2_8ms": 24.01680118988216
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "17000hz-8cycles",
+      "frequency_hz": 17000.0,
+      "cycles": 8.0,
+      "packets": {
+        "17000": {
+          "frequency_hz": 17000.0,
+          "onset_pre_echo_energy_db_total": -55.498018955516756,
+          "onset_pre_echo_energy_db_0_0p5ms": -55.9285733334538,
+          "onset_pre_echo_energy_db_0p5_2ms": -65.74915453805352,
+          "onset_pre_echo_energy_db_2_8ms": -113.44889922769605,
+          "onset_post_decay_energy_db_total": -3.0569493886941226,
+          "maximum_onset_pre_echo_db_peak": -43.873983786120604,
+          "maximum_onset_post_decay_db_peak": -0.2219968124808498
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "17000": {
+          "maximum_onset_pre_echo_db_peak": -1.3582367718075972,
+          "onset_pre_echo_energy_db_0_0p5ms": -2.7451866356878867,
+          "onset_pre_echo_energy_db_0p5_2ms": 31.239232630858965,
+          "onset_pre_echo_energy_db_2_8ms": 29.54944871484679
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "19000hz-8cycles",
+      "frequency_hz": 19000.0,
+      "cycles": 8.0,
+      "packets": {
+        "19000": {
+          "frequency_hz": 19000.0,
+          "onset_pre_echo_energy_db_total": -51.76477697942146,
+          "onset_pre_echo_energy_db_0_0p5ms": -52.11079788049669,
+          "onset_pre_echo_energy_db_0p5_2ms": -62.926402303125116,
+          "onset_pre_echo_energy_db_2_8ms": -94.61378870918308,
+          "onset_post_decay_energy_db_total": -3.812957864052817,
+          "maximum_onset_pre_echo_db_peak": -40.80537466539839,
+          "maximum_onset_post_decay_db_peak": -0.006524352695146837
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "19000": {
+          "maximum_onset_pre_echo_db_peak": 0.034882576163710155,
+          "onset_pre_echo_energy_db_0_0p5ms": 1.6239119667359248,
+          "onset_pre_echo_energy_db_0p5_2ms": 44.154575528130295,
+          "onset_pre_echo_energy_db_2_8ms": 60.4146030052769
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "19500hz-8cycles",
+      "frequency_hz": 19500.0,
+      "cycles": 8.0,
+      "packets": {
+        "19500": {
+          "frequency_hz": 19500.0,
+          "onset_pre_echo_energy_db_total": -49.251983868917215,
+          "onset_pre_echo_energy_db_0_0p5ms": -49.51889941147903,
+          "onset_pre_echo_energy_db_0p5_2ms": -61.50411685523545,
+          "onset_pre_echo_energy_db_2_8ms": -90.67423518339977,
+          "onset_post_decay_energy_db_total": -3.4414392751633702,
+          "maximum_onset_pre_echo_db_peak": -39.2779757666448,
+          "maximum_onset_post_decay_db_peak": 0.0
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "19500": {
+          "maximum_onset_pre_echo_db_peak": 0.03928536207916267,
+          "onset_pre_echo_energy_db_0_0p5ms": 3.1004442385262365,
+          "onset_pre_echo_energy_db_0p5_2ms": 45.811552345773066,
+          "onset_pre_echo_energy_db_2_8ms": 64.63457104737243
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "7000hz-16cycles",
+      "frequency_hz": 7000.0,
+      "cycles": 16.0,
+      "packets": {
+        "7000": {
+          "frequency_hz": 7000.0,
+          "onset_pre_echo_energy_db_total": -79.74808573911922,
+          "onset_pre_echo_energy_db_0_0p5ms": -79.74823692148232,
+          "onset_pre_echo_energy_db_0p5_2ms": -124.33270382304497,
+          "onset_pre_echo_energy_db_2_8ms": -158.37803353333857,
+          "onset_post_decay_energy_db_total": -85.89467695803528,
+          "maximum_onset_pre_echo_db_peak": -62.926481121861656,
+          "maximum_onset_post_decay_db_peak": -70.85579875834088
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "7000": {
+          "maximum_onset_pre_echo_db_peak": -0.48167129088427885,
+          "onset_pre_echo_energy_db_0_0p5ms": 0.3547469733977522,
+          "onset_pre_echo_energy_db_0p5_2ms": 3.844959221625004,
+          "onset_pre_echo_energy_db_2_8ms": 0.07504793494751993
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "12000hz-16cycles",
+      "frequency_hz": 12000.0,
+      "cycles": 16.0,
+      "packets": {
+        "12000": {
+          "frequency_hz": 12000.0,
+          "onset_pre_echo_energy_db_total": -58.097808466111196,
+          "onset_pre_echo_energy_db_0_0p5ms": -60.51842183671017,
+          "onset_pre_echo_energy_db_0p5_2ms": -61.79064799995703,
+          "onset_pre_echo_energy_db_2_8ms": -116.52618157034539,
+          "onset_post_decay_energy_db_total": -55.44297197310097,
+          "maximum_onset_pre_echo_db_peak": -54.264114392564515,
+          "maximum_onset_post_decay_db_peak": -52.3157239407627
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "12000": {
+          "maximum_onset_pre_echo_db_peak": -2.7680722594353284,
+          "onset_pre_echo_energy_db_0_0p5ms": 4.468242584063766,
+          "onset_pre_echo_energy_db_0p5_2ms": 50.18809766099406,
+          "onset_pre_echo_energy_db_2_8ms": 44.821109912642555
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "13500hz-16cycles",
+      "frequency_hz": 13500.0,
+      "cycles": 16.0,
+      "packets": {
+        "13500": {
+          "frequency_hz": 13500.0,
+          "onset_pre_echo_energy_db_total": -57.276149871310395,
+          "onset_pre_echo_energy_db_0_0p5ms": -57.37431339723831,
+          "onset_pre_echo_energy_db_0p5_2ms": -73.7835709793591,
+          "onset_pre_echo_energy_db_2_8ms": -120.61050623529493,
+          "onset_post_decay_energy_db_total": -44.10701505352513,
+          "maximum_onset_pre_echo_db_peak": -48.454208701621646,
+          "maximum_onset_post_decay_db_peak": -41.044437779917615
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "13500": {
+          "maximum_onset_pre_echo_db_peak": -2.229740166144275,
+          "onset_pre_echo_energy_db_0_0p5ms": 0.1546628549996143,
+          "onset_pre_echo_energy_db_0p5_2ms": 21.63479599517281,
+          "onset_pre_echo_energy_db_2_8ms": 13.221991180168459
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "16000hz-16cycles",
+      "frequency_hz": 16000.0,
+      "cycles": 16.0,
+      "packets": {
+        "16000": {
+          "frequency_hz": 16000.0,
+          "onset_pre_echo_energy_db_total": -65.59229414660207,
+          "onset_pre_echo_energy_db_0_0p5ms": -65.94031055759692,
+          "onset_pre_echo_energy_db_0p5_2ms": -76.72712216743669,
+          "onset_pre_echo_energy_db_2_8ms": -121.77354823955874,
+          "onset_post_decay_energy_db_total": -10.23647388912736,
+          "maximum_onset_pre_echo_db_peak": -59.44696984697143,
+          "maximum_onset_post_decay_db_peak": -5.360171146300326
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "16000": {
+          "maximum_onset_pre_echo_db_peak": -4.406631034136595,
+          "onset_pre_echo_energy_db_0_0p5ms": 1.674674773387494,
+          "onset_pre_echo_energy_db_0p5_2ms": 31.876464362185487,
+          "onset_pre_echo_energy_db_2_8ms": 35.57866440429764
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "17000hz-16cycles",
+      "frequency_hz": 17000.0,
+      "cycles": 16.0,
+      "packets": {
+        "17000": {
+          "frequency_hz": 17000.0,
+          "onset_pre_echo_energy_db_total": -65.31441621533487,
+          "onset_pre_echo_energy_db_0_0p5ms": -66.52014022396371,
+          "onset_pre_echo_energy_db_0p5_2ms": -71.46876283351536,
+          "onset_pre_echo_energy_db_2_8ms": -120.11853806176417,
+          "onset_post_decay_energy_db_total": -6.243505062955789,
+          "maximum_onset_pre_echo_db_peak": -58.89396346379394,
+          "maximum_onset_post_decay_db_peak": -1.9751590488309807
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "17000": {
+          "maximum_onset_pre_echo_db_peak": -2.7689370137710227,
+          "onset_pre_echo_energy_db_0_0p5ms": 2.5604876119331976,
+          "onset_pre_echo_energy_db_0p5_2ms": 44.00211660669312,
+          "onset_pre_echo_energy_db_2_8ms": 45.891342358844966
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "19000hz-16cycles",
+      "frequency_hz": 19000.0,
+      "cycles": 16.0,
+      "packets": {
+        "19000": {
+          "frequency_hz": 19000.0,
+          "onset_pre_echo_energy_db_total": -61.92310242830149,
+          "onset_pre_echo_energy_db_0_0p5ms": -65.52423296304646,
+          "onset_pre_echo_energy_db_0p5_2ms": -64.41344336569539,
+          "onset_pre_echo_energy_db_2_8ms": -115.51352470632749,
+          "onset_post_decay_energy_db_total": -19.919949990924344,
+          "maximum_onset_pre_echo_db_peak": -55.789623141586056,
+          "maximum_onset_post_decay_db_peak": -14.999983426624066
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "19000": {
+          "maximum_onset_pre_echo_db_peak": 0.011252864019446918,
+          "onset_pre_echo_energy_db_0_0p5ms": 3.8372352002754013,
+          "onset_pre_echo_energy_db_0p5_2ms": 59.031518219302356,
+          "onset_pre_echo_energy_db_2_8ms": 58.39154179932471
+        }
+      },
+      "failures": []
+    },
+    {
+      "identifier": "19500hz-16cycles",
+      "frequency_hz": 19500.0,
+      "cycles": 16.0,
+      "packets": {
+        "19500": {
+          "frequency_hz": 19500.0,
+          "onset_pre_echo_energy_db_total": -62.14166340009057,
+          "onset_pre_echo_energy_db_0_0p5ms": -64.59978294836485,
+          "onset_pre_echo_energy_db_0p5_2ms": -65.78496396566129,
+          "onset_pre_echo_energy_db_2_8ms": -108.27709813404446,
+          "onset_post_decay_energy_db_total": -13.62445730043027,
+          "maximum_onset_pre_echo_db_peak": -54.947855922384186,
+          "maximum_onset_post_decay_db_peak": -8.8395831665172
+        }
+      },
+      "gated_delta_db_vs_e2v3": {
+        "19500": {
+          "maximum_onset_pre_echo_db_peak": 0.04085598351953479,
+          "onset_pre_echo_energy_db_0_0p5ms": 4.571436720627972,
+          "onset_pre_echo_energy_db_0p5_2ms": 58.91037013091285,
+          "onset_pre_echo_energy_db_2_8ms": 64.80216011177045
+        }
+      },
+      "failures": []
+    }
+  ]
+}

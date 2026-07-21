@@ -1,0 +1,2133 @@
+{
+  "selected_rates": [
+    64,
+    128,
+    256
+  ],
+  "selected_modulators": [
+    "Standard",
+    "EcBeam2"
+  ],
+  "candidate_cell_count": 14,
+  "e2v3_cell_count": 14,
+  "candidate_hard_failure_count": 0,
+  "candidate_diagnostic_hard_failure_count": 0,
+  "e2v3_hard_failure_count": 0,
+  "e2v3_diagnostic_hard_failure_count": 0,
+  "comparisons": [
+    {
+      "scenario": "coherent_level_sweep",
+      "dsd_rate": "DSD64",
+      "modulator": "Standard",
+      "candidate_native_dsd_sha256": [
+        "49c6032d7d871fb19ed45be2690475710e39f459b505d56ae8af21f649dba87a",
+        "13017708277d407be4137e4bba86966597fd765371934ed35baa9b5808bf791e"
+      ],
+      "e2v3_native_dsd_sha256": [
+        "72f91605829b33ab501a8736476c40fbd411b0cc4cc40f4a6d7027b8c5fce79a",
+        "d20e4f781cd57b3d6596ce4b486a8d06fcc0ba9115956d6d5daf61dd31831ad2"
+      ],
+      "quality_scalars": [
+        {
+          "metric": "level_-6_dbfs/left/sinad_db",
+          "value": 131.3727247582798,
+          "direction": "higher",
+          "e2v3": 131.42656221714435,
+          "delta_vs_e2v3": -0.053837458864563814
+        },
+        {
+          "metric": "level_-6_dbfs/left/residual_noise_dbfs",
+          "value": -137.39061255466734,
+          "direction": "lower",
+          "e2v3": -137.4387358484306,
+          "delta_vs_e2v3": 0.04812329376326829
+        },
+        {
+          "metric": "level_-6_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -156.86501114844174,
+          "direction": "lower",
+          "e2v3": -156.1690170627664,
+          "delta_vs_e2v3": -0.6959940856753519
+        },
+        {
+          "metric": "level_-6_dbfs/left/absolute_gain_error_db",
+          "value": 1.131321250014139e-07,
+          "direction": "lower",
+          "e2v3": 1.5365331851313613e-07,
+          "delta_vs_e2v3": -4.052119351172223e-08
+        },
+        {
+          "metric": "level_-6_dbfs/right/sinad_db",
+          "value": 131.3929687564527,
+          "direction": "higher",
+          "e2v3": 131.43484141016802,
+          "delta_vs_e2v3": -0.04187265371533044
+        },
+        {
+          "metric": "level_-6_dbfs/right/residual_noise_dbfs",
+          "value": -137.40832597624015,
+          "direction": "lower",
+          "e2v3": -137.44382759293669,
+          "delta_vs_e2v3": 0.03550161669653562
+        },
+        {
+          "metric": "level_-6_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -156.6346611712368,
+          "direction": "lower",
+          "e2v3": -156.8403521525508,
+          "delta_vs_e2v3": 0.20569098131400665
+        },
+        {
+          "metric": "level_-6_dbfs/right/absolute_gain_error_db",
+          "value": 1.1592721183006915e-07,
+          "direction": "lower",
+          "e2v3": 1.2936251980733005e-07,
+          "delta_vs_e2v3": -1.343530797726089e-08
+        },
+        {
+          "metric": "level_-20_dbfs/left/sinad_db",
+          "value": 118.70376112576517,
+          "direction": "higher",
+          "e2v3": 118.79900427536552,
+          "delta_vs_e2v3": -0.09524314960034985
+        },
+        {
+          "metric": "level_-20_dbfs/left/residual_noise_dbfs",
+          "value": -138.7259872812334,
+          "direction": "lower",
+          "e2v3": -138.80847005289215,
+          "delta_vs_e2v3": 0.08248277165876061
+        },
+        {
+          "metric": "level_-20_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -157.79955915339323,
+          "direction": "lower",
+          "e2v3": -158.04087307473392,
+          "delta_vs_e2v3": 0.24131392134069074
+        },
+        {
+          "metric": "level_-20_dbfs/left/absolute_gain_error_db",
+          "value": 2.0012192436524856e-07,
+          "direction": "lower",
+          "e2v3": 2.224562258845708e-07,
+          "delta_vs_e2v3": -2.2334301519322253e-08
+        },
+        {
+          "metric": "level_-20_dbfs/right/sinad_db",
+          "value": 118.69891107468227,
+          "direction": "higher",
+          "e2v3": 118.6553898871975,
+          "delta_vs_e2v3": 0.04352118748477096
+        },
+        {
+          "metric": "level_-20_dbfs/right/residual_noise_dbfs",
+          "value": -138.7091676463214,
+          "direction": "lower",
+          "e2v3": -138.66551041712367,
+          "delta_vs_e2v3": -0.04365722919771997
+        },
+        {
+          "metric": "level_-20_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -158.3377633071268,
+          "direction": "lower",
+          "e2v3": -157.7432606409691,
+          "delta_vs_e2v3": -0.5945026661576946
+        },
+        {
+          "metric": "level_-20_dbfs/right/absolute_gain_error_db",
+          "value": 1.8871269702458449e-07,
+          "direction": "lower",
+          "e2v3": 2.3501314672103035e-07,
+          "delta_vs_e2v3": -4.630044969644587e-08
+        },
+        {
+          "metric": "level_-60_dbfs/left/sinad_db",
+          "value": 77.83759204972023,
+          "direction": "higher",
+          "e2v3": 78.0751972192331,
+          "delta_vs_e2v3": -0.23760516951287514
+        },
+        {
+          "metric": "level_-60_dbfs/left/residual_noise_dbfs",
+          "value": -137.8390127272723,
+          "direction": "lower",
+          "e2v3": -138.07799961599835,
+          "delta_vs_e2v3": 0.23898688872606044
+        },
+        {
+          "metric": "level_-60_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -157.25974061331115,
+          "direction": "lower",
+          "e2v3": -157.864546433662,
+          "delta_vs_e2v3": 0.6048058203508617
+        },
+        {
+          "metric": "level_-60_dbfs/left/absolute_gain_error_db",
+          "value": 1.8997220337269027e-05,
+          "direction": "lower",
+          "e2v3": 2.4118538860307126e-05,
+          "delta_vs_e2v3": -5.121318523038099e-06
+        },
+        {
+          "metric": "level_-60_dbfs/right/sinad_db",
+          "value": 77.98375126446014,
+          "direction": "higher",
+          "e2v3": 77.87231735364745,
+          "delta_vs_e2v3": 0.11143391081269272
+        },
+        {
+          "metric": "level_-60_dbfs/right/residual_noise_dbfs",
+          "value": -137.98566423018136,
+          "direction": "lower",
+          "e2v3": -137.8767455793811,
+          "delta_vs_e2v3": -0.10891865080026264
+        },
+        {
+          "metric": "level_-60_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -157.56062745613428,
+          "direction": "lower",
+          "e2v3": -156.8664900344925,
+          "delta_vs_e2v3": -0.6941374216417842
+        },
+        {
+          "metric": "level_-60_dbfs/right/absolute_gain_error_db",
+          "value": 2.7573119794510603e-05,
+          "direction": "lower",
+          "e2v3": 2.5937647777141137e-05,
+          "delta_vs_e2v3": 1.635472017369466e-06
+        },
+        {
+          "metric": "level_-100_dbfs/left/sinad_db",
+          "value": 37.91064720769434,
+          "direction": "higher",
+          "e2v3": 38.105113387753434,
+          "delta_vs_e2v3": -0.194466180059095
+        },
+        {
+          "metric": "level_-100_dbfs/left/residual_noise_dbfs",
+          "value": -137.9133344800674,
+          "direction": "lower",
+          "e2v3": -138.10826866126862,
+          "delta_vs_e2v3": 0.19493418120123351
+        },
+        {
+          "metric": "level_-100_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -156.91656291329156,
+          "direction": "lower",
+          "e2v3": -157.27476181883594,
+          "delta_vs_e2v3": 0.35819890554438416
+        },
+        {
+          "metric": "level_-100_dbfs/left/absolute_gain_error_db",
+          "value": 7.139151087187656e-05,
+          "direction": "lower",
+          "e2v3": 0.0006023677788533632,
+          "delta_vs_e2v3": -0.0005309762679814867
+        },
+        {
+          "metric": "level_-100_dbfs/right/sinad_db",
+          "value": 38.1800271609826,
+          "direction": "higher",
+          "e2v3": 38.179840384660494,
+          "delta_vs_e2v3": 0.000186776322102844
+        },
+        {
+          "metric": "level_-100_dbfs/right/residual_noise_dbfs",
+          "value": -138.18428500467195,
+          "direction": "lower",
+          "e2v3": -138.1813613149804,
+          "delta_vs_e2v3": -0.0029236896915563193
+        },
+        {
+          "metric": "level_-100_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -158.14587354857085,
+          "direction": "lower",
+          "e2v3": -158.60751517279496,
+          "delta_vs_e2v3": 0.46164162422411437
+        },
+        {
+          "metric": "level_-100_dbfs/right/absolute_gain_error_db",
+          "value": 0.0003790436616810666,
+          "direction": "lower",
+          "e2v3": 9.205351965135833e-05,
+          "delta_vs_e2v3": 0.0002869901420297083
+        }
+      ]
+    },
+    {
+      "scenario": "coherent_level_sweep",
+      "dsd_rate": "DSD128",
+      "modulator": "Standard",
+      "candidate_native_dsd_sha256": [
+        "43d4e39cd1bfd54f8eb839f87c206e986e3d2ffb0fc2c45faffd099204f3dce4",
+        "9856fd5c5aed54f159c791bd6fb9b5580bfd7b58453b62004838722f0a9cfacd"
+      ],
+      "e2v3_native_dsd_sha256": [
+        "accf69e5862af57e2f73987712f9ab765584bdde47a0594ad7bdd584b9e8f890",
+        "392f8fb5a9d4341884530c6a06c8320de248d8851d297e33a03a6e0545d5e0cd"
+      ],
+      "quality_scalars": [
+        {
+          "metric": "level_-6_dbfs/left/sinad_db",
+          "value": 175.63144401782782,
+          "direction": "higher",
+          "e2v3": 175.79628090974506,
+          "delta_vs_e2v3": -0.16483689191724693
+        },
+        {
+          "metric": "level_-6_dbfs/left/residual_noise_dbfs",
+          "value": -181.6420134809886,
+          "direction": "lower",
+          "e2v3": -181.8164596879333,
+          "delta_vs_e2v3": 0.17444620694470814
+        },
+        {
+          "metric": "level_-6_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -201.5401419143555,
+          "direction": "lower",
+          "e2v3": -200.02044464845653,
+          "delta_vs_e2v3": -1.5196972658989694
+        },
+        {
+          "metric": "level_-6_dbfs/left/absolute_gain_error_db",
+          "value": 5.072897657498743e-09,
+          "direction": "lower",
+          "e2v3": 1.748623468245114e-08,
+          "delta_vs_e2v3": -1.2413337024952398e-08
+        },
+        {
+          "metric": "level_-6_dbfs/right/sinad_db",
+          "value": 175.8071276039669,
+          "direction": "higher",
+          "e2v3": 175.73329301297892,
+          "delta_vs_e2v3": 0.0738345909879854
+        },
+        {
+          "metric": "level_-6_dbfs/right/residual_noise_dbfs",
+          "value": -181.82755328405494,
+          "direction": "lower",
+          "e2v3": -181.74505309135102,
+          "delta_vs_e2v3": -0.08250019270391817
+        },
+        {
+          "metric": "level_-6_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -201.05951599898242,
+          "direction": "lower",
+          "e2v3": -201.95084468167565,
+          "delta_vs_e2v3": 0.8913286826932278
+        },
+        {
+          "metric": "level_-6_dbfs/right/absolute_gain_error_db",
+          "value": 5.140833536643186e-09,
+          "direction": "lower",
+          "e2v3": 1.7388188666700444e-08,
+          "delta_vs_e2v3": -1.2247355130057258e-08
+        },
+        {
+          "metric": "level_-20_dbfs/left/sinad_db",
+          "value": 163.00523896080577,
+          "direction": "higher",
+          "e2v3": 163.10262607483412,
+          "delta_vs_e2v3": -0.09738711402835065
+        },
+        {
+          "metric": "level_-20_dbfs/left/residual_noise_dbfs",
+          "value": -183.02547018769812,
+          "direction": "lower",
+          "e2v3": -183.11589968995884,
+          "delta_vs_e2v3": 0.09042950226071866
+        },
+        {
+          "metric": "level_-20_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -202.42758975418622,
+          "direction": "lower",
+          "e2v3": -200.42104727061889,
+          "delta_vs_e2v3": -2.00654248356733
+        },
+        {
+          "metric": "level_-20_dbfs/left/absolute_gain_error_db",
+          "value": 4.754689086894359e-09,
+          "direction": "lower",
+          "e2v3": 1.785216952043811e-08,
+          "delta_vs_e2v3": -1.3097480433543751e-08
+        },
+        {
+          "metric": "level_-20_dbfs/right/sinad_db",
+          "value": 162.83201940351276,
+          "direction": "higher",
+          "e2v3": 162.94702211664935,
+          "delta_vs_e2v3": -0.11500271313659027
+        },
+        {
+          "metric": "level_-20_dbfs/right/residual_noise_dbfs",
+          "value": -182.84778559006568,
+          "direction": "lower",
+          "e2v3": -182.96388823268876,
+          "delta_vs_e2v3": 0.11610264262307624
+        },
+        {
+          "metric": "level_-20_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -202.5651282329599,
+          "direction": "lower",
+          "e2v3": -202.1328805730999,
+          "delta_vs_e2v3": -0.43224765985999625
+        },
+        {
+          "metric": "level_-20_dbfs/right/absolute_gain_error_db",
+          "value": 4.781167461942459e-09,
+          "direction": "lower",
+          "e2v3": 1.778274238972699e-08,
+          "delta_vs_e2v3": -1.3001574927784532e-08
+        },
+        {
+          "metric": "level_-60_dbfs/left/sinad_db",
+          "value": 122.53580866677862,
+          "direction": "higher",
+          "e2v3": 122.68108264347397,
+          "delta_vs_e2v3": -0.14527397669534992
+        },
+        {
+          "metric": "level_-60_dbfs/left/residual_noise_dbfs",
+          "value": -182.9738936022221,
+          "direction": "lower",
+          "e2v3": -183.1229080462055,
+          "delta_vs_e2v3": 0.14901444398341823
+        },
+        {
+          "metric": "level_-60_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -201.86007794514302,
+          "direction": "lower",
+          "e2v3": -202.11651753070836,
+          "delta_vs_e2v3": 0.25643958556534585
+        },
+        {
+          "metric": "level_-60_dbfs/left/absolute_gain_error_db",
+          "value": 3.7518675100045584e-07,
+          "direction": "lower",
+          "e2v3": 3.981940750463764e-07,
+          "delta_vs_e2v3": -2.300732404592054e-08
+        },
+        {
+          "metric": "level_-60_dbfs/right/sinad_db",
+          "value": 122.74475431924347,
+          "direction": "higher",
+          "e2v3": 122.63184366771162,
+          "delta_vs_e2v3": 0.11291065153184832
+        },
+        {
+          "metric": "level_-60_dbfs/right/residual_noise_dbfs",
+          "value": -183.21561482642264,
+          "direction": "lower",
+          "e2v3": -183.0446790597603,
+          "delta_vs_e2v3": -0.1709357666623248
+        },
+        {
+          "metric": "level_-60_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -203.2658756075081,
+          "direction": "lower",
+          "e2v3": -202.35953938160816,
+          "delta_vs_e2v3": -0.9063362258999348
+        },
+        {
+          "metric": "level_-60_dbfs/right/absolute_gain_error_db",
+          "value": 3.6810366310646714e-07,
+          "direction": "lower",
+          "e2v3": 3.673080470889545e-07,
+          "delta_vs_e2v3": 7.95616017512657e-10
+        },
+        {
+          "metric": "level_-100_dbfs/left/sinad_db",
+          "value": 82.20787355450614,
+          "direction": "higher",
+          "e2v3": 82.50896593129112,
+          "delta_vs_e2v3": -0.3010923767849789
+        },
+        {
+          "metric": "level_-100_dbfs/left/residual_noise_dbfs",
+          "value": -182.20945865871957,
+          "direction": "lower",
+          "e2v3": -182.51111595303155,
+          "delta_vs_e2v3": 0.30165729431197974
+        },
+        {
+          "metric": "level_-100_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -202.52767539164182,
+          "direction": "lower",
+          "e2v3": -202.12679756894812,
+          "delta_vs_e2v3": -0.4008778226937011
+        },
+        {
+          "metric": "level_-100_dbfs/left/absolute_gain_error_db",
+          "value": 1.1635470968940353e-06,
+          "direction": "lower",
+          "e2v3": 3.157231688533102e-06,
+          "delta_vs_e2v3": -1.9936845916390666e-06
+        },
+        {
+          "metric": "level_-100_dbfs/right/sinad_db",
+          "value": 82.19386320924258,
+          "direction": "higher",
+          "e2v3": 82.40002316721305,
+          "delta_vs_e2v3": -0.2061599579704705
+        },
+        {
+          "metric": "level_-100_dbfs/right/residual_noise_dbfs",
+          "value": -182.19669172142295,
+          "direction": "lower",
+          "e2v3": -182.40373103444423,
+          "delta_vs_e2v3": 0.20703931302128353
+        },
+        {
+          "metric": "level_-100_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -200.6606487139564,
+          "direction": "lower",
+          "e2v3": -202.09904935526276,
+          "delta_vs_e2v3": 1.438400641306373
+        },
+        {
+          "metric": "level_-100_dbfs/right/absolute_gain_error_db",
+          "value": 5.544602075246985e-06,
+          "direction": "lower",
+          "e2v3": 1.3412530819323365e-06,
+          "delta_vs_e2v3": 4.203348993314648e-06
+        }
+      ]
+    },
+    {
+      "scenario": "coherent_level_sweep",
+      "dsd_rate": "DSD256",
+      "modulator": "Standard",
+      "candidate_native_dsd_sha256": [
+        "99fa6fb271eccfabe0cb742098d6adb58764c5104a61f2afc8cc9d267311f7b9",
+        "f02631ddcd11d1975e4db194a55333106205945ee283a895a0cd4bef513903e8"
+      ],
+      "e2v3_native_dsd_sha256": [
+        "c127bb341e7c3154936990f8381412786aba0619137caa7fc5a0f8ed35310c81",
+        "d2e8ee9672aa1a42df144a8461a042b716df6acb5c1f751a52914aa5dcd9d299"
+      ],
+      "quality_scalars": [
+        {
+          "metric": "level_-6_dbfs/left/sinad_db",
+          "value": 181.49512104671416,
+          "direction": "higher",
+          "e2v3": 181.3734667483597,
+          "delta_vs_e2v3": 0.12165429835445707
+        },
+        {
+          "metric": "level_-6_dbfs/left/residual_noise_dbfs",
+          "value": -187.718692091351,
+          "direction": "lower",
+          "e2v3": -187.5966699883287,
+          "delta_vs_e2v3": -0.12202210302228877
+        },
+        {
+          "metric": "level_-6_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -202.27065836843806,
+          "direction": "lower",
+          "e2v3": -202.98934626706705,
+          "delta_vs_e2v3": 0.7186878986289855
+        },
+        {
+          "metric": "level_-6_dbfs/left/absolute_gain_error_db",
+          "value": 5.601044961167645e-09,
+          "direction": "lower",
+          "e2v3": 1.6915390865790414e-08,
+          "delta_vs_e2v3": -1.1314345904622769e-08
+        },
+        {
+          "metric": "level_-6_dbfs/right/sinad_db",
+          "value": 181.30978009667518,
+          "direction": "higher",
+          "e2v3": 181.39858602761603,
+          "delta_vs_e2v3": -0.08880593094085043
+        },
+        {
+          "metric": "level_-6_dbfs/right/residual_noise_dbfs",
+          "value": -187.55961540315297,
+          "direction": "lower",
+          "e2v3": -187.59517990692174,
+          "delta_vs_e2v3": 0.03556450376876796
+        },
+        {
+          "metric": "level_-6_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -202.6819258808738,
+          "direction": "lower",
+          "e2v3": -201.88502556902623,
+          "delta_vs_e2v3": -0.7969003118475655
+        },
+        {
+          "metric": "level_-6_dbfs/right/absolute_gain_error_db",
+          "value": 5.543943082386704e-09,
+          "direction": "lower",
+          "e2v3": 1.7042919076004637e-08,
+          "delta_vs_e2v3": -1.1498975993617933e-08
+        },
+        {
+          "metric": "level_-20_dbfs/left/sinad_db",
+          "value": 166.22776899560532,
+          "direction": "higher",
+          "e2v3": 166.1431951228057,
+          "delta_vs_e2v3": 0.08457387279960926
+        },
+        {
+          "metric": "level_-20_dbfs/left/residual_noise_dbfs",
+          "value": -187.17139087876464,
+          "direction": "lower",
+          "e2v3": -187.1131230740757,
+          "delta_vs_e2v3": -0.05826780468893844
+        },
+        {
+          "metric": "level_-20_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -196.4233704615952,
+          "direction": "lower",
+          "e2v3": -196.60686673534707,
+          "delta_vs_e2v3": 0.18349627375187083
+        },
+        {
+          "metric": "level_-20_dbfs/left/absolute_gain_error_db",
+          "value": 5.810377956549928e-09,
+          "direction": "lower",
+          "e2v3": 1.69523914905767e-08,
+          "delta_vs_e2v3": -1.1142013534026773e-08
+        },
+        {
+          "metric": "level_-20_dbfs/right/sinad_db",
+          "value": 166.13194659802443,
+          "direction": "higher",
+          "e2v3": 166.1348820659364,
+          "delta_vs_e2v3": -0.0029354679119819593
+        },
+        {
+          "metric": "level_-20_dbfs/right/residual_noise_dbfs",
+          "value": -187.08003993092052,
+          "direction": "lower",
+          "e2v3": -187.12687619943497,
+          "delta_vs_e2v3": 0.046836268514454105
+        },
+        {
+          "metric": "level_-20_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -196.40540878061867,
+          "direction": "lower",
+          "e2v3": -196.57201899956073,
+          "delta_vs_e2v3": 0.1666102189420542
+        },
+        {
+          "metric": "level_-20_dbfs/right/absolute_gain_error_db",
+          "value": 5.1422617275420635e-09,
+          "direction": "lower",
+          "e2v3": 1.739066135542089e-08,
+          "delta_vs_e2v3": -1.2248399627878825e-08
+        },
+        {
+          "metric": "level_-60_dbfs/left/sinad_db",
+          "value": 122.11701935654581,
+          "direction": "higher",
+          "e2v3": 121.88310840702852,
+          "delta_vs_e2v3": 0.23391094951729485
+        },
+        {
+          "metric": "level_-60_dbfs/left/residual_noise_dbfs",
+          "value": -191.16193970224765,
+          "direction": "lower",
+          "e2v3": -191.34128658101508,
+          "delta_vs_e2v3": 0.17934687876743283
+        },
+        {
+          "metric": "level_-60_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -213.0205567211955,
+          "direction": "lower",
+          "e2v3": -213.58662668728664,
+          "delta_vs_e2v3": 0.5660699660911348
+        },
+        {
+          "metric": "level_-60_dbfs/left/absolute_gain_error_db",
+          "value": 1.6892798271328502e-09,
+          "direction": "lower",
+          "e2v3": 5.5136155197033077e-08,
+          "delta_vs_e2v3": -5.3446875369900226e-08
+        },
+        {
+          "metric": "level_-60_dbfs/right/sinad_db",
+          "value": 122.07703089242507,
+          "direction": "higher",
+          "e2v3": 121.82197977122085,
+          "delta_vs_e2v3": 0.25505112120421813
+        },
+        {
+          "metric": "level_-60_dbfs/right/residual_noise_dbfs",
+          "value": -191.09900554410802,
+          "direction": "lower",
+          "e2v3": -191.35853943989162,
+          "delta_vs_e2v3": 0.25953389578359065
+        },
+        {
+          "metric": "level_-60_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -212.9519258877072,
+          "direction": "lower",
+          "e2v3": -213.6925612820076,
+          "delta_vs_e2v3": 0.7406353943003978
+        },
+        {
+          "metric": "level_-60_dbfs/right/absolute_gain_error_db",
+          "value": 2.2818369416199857e-09,
+          "direction": "lower",
+          "e2v3": 1.4898176914357464e-08,
+          "delta_vs_e2v3": -1.2616339972737478e-08
+        },
+        {
+          "metric": "level_-100_dbfs/left/sinad_db",
+          "value": 94.14655990616232,
+          "direction": "higher",
+          "e2v3": 94.48297361096877,
+          "delta_vs_e2v3": -0.3364137048064464
+        },
+        {
+          "metric": "level_-100_dbfs/left/residual_noise_dbfs",
+          "value": -194.15040033498212,
+          "direction": "lower",
+          "e2v3": -194.4873394623082,
+          "delta_vs_e2v3": 0.336939127326076
+        },
+        {
+          "metric": "level_-100_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -216.68904187516844,
+          "direction": "lower",
+          "e2v3": -217.2427258176587,
+          "delta_vs_e2v3": 0.5536839424902666
+        },
+        {
+          "metric": "level_-100_dbfs/left/absolute_gain_error_db",
+          "value": 9.014155182285322e-07,
+          "direction": "lower",
+          "e2v3": 4.8636010774316674e-08,
+          "delta_vs_e2v3": 8.527795074542155e-07
+        },
+        {
+          "metric": "level_-100_dbfs/right/sinad_db",
+          "value": 94.22876569243954,
+          "direction": "higher",
+          "e2v3": 94.46898961747777,
+          "delta_vs_e2v3": -0.24022392503823653
+        },
+        {
+          "metric": "level_-100_dbfs/right/residual_noise_dbfs",
+          "value": -194.2308780590723,
+          "direction": "lower",
+          "e2v3": -194.4716788075056,
+          "delta_vs_e2v3": 0.24080074843331545
+        },
+        {
+          "metric": "level_-100_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -216.68508728092488,
+          "direction": "lower",
+          "e2v3": -216.97089320569637,
+          "delta_vs_e2v3": 0.2858059247714948
+        },
+        {
+          "metric": "level_-100_dbfs/right/absolute_gain_error_db",
+          "value": 6.307190574261767e-07,
+          "direction": "lower",
+          "e2v3": 2.687522851374524e-06,
+          "delta_vs_e2v3": -2.0568037939483474e-06
+        }
+      ]
+    },
+    {
+      "scenario": "idle_tiny_signal",
+      "dsd_rate": "DSD64",
+      "modulator": "Standard",
+      "candidate_native_dsd_sha256": [
+        "201a8494caefe974956c24d1371d10aa7376114331733f3de4f8a9a1b3c59913",
+        "1e2081f139dfe5339c3fa68d4e863cb7aa3cb7b6d7b90be0a512fde8d50bab44"
+      ],
+      "e2v3_native_dsd_sha256": [
+        "cd7ba5d729c1239de6985bba8d6acc975a871e2e029eb7b5e2e4f71c74d1998a",
+        "ab748ad59875cc13b389f56322b66e062c383f942ed9cf7d5980bb396e7f65c7"
+      ],
+      "quality_scalars": [
+        {
+          "metric": "silence/left/integrated_noise_dbfs",
+          "value": -143.7424048883286,
+          "direction": "lower",
+          "e2v3": -143.7424048883286,
+          "delta_vs_e2v3": 0.0
+        },
+        {
+          "metric": "silence/left/worst_spur_dbfs",
+          "value": -162.84122265272862,
+          "direction": "lower",
+          "e2v3": -162.84122265272862,
+          "delta_vs_e2v3": 0.0
+        },
+        {
+          "metric": "silence/right/integrated_noise_dbfs",
+          "value": -143.75289856554392,
+          "direction": "lower",
+          "e2v3": -143.75289856554392,
+          "delta_vs_e2v3": 0.0
+        },
+        {
+          "metric": "silence/right/worst_spur_dbfs",
+          "value": -162.91862561164226,
+          "direction": "lower",
+          "e2v3": -162.91862561164226,
+          "delta_vs_e2v3": 0.0
+        },
+        {
+          "metric": "tiny_dc/left/integrated_noise_dbfs",
+          "value": -137.66804037790666,
+          "direction": "lower",
+          "e2v3": -137.94008676989472,
+          "delta_vs_e2v3": 0.2720463919880558
+        },
+        {
+          "metric": "tiny_dc/left/worst_spur_dbfs",
+          "value": -155.99655412659737,
+          "direction": "lower",
+          "e2v3": -157.51491380189367,
+          "delta_vs_e2v3": 1.5183596752962956
+        },
+        {
+          "metric": "tiny_dc/right/integrated_noise_dbfs",
+          "value": -137.806726335225,
+          "direction": "lower",
+          "e2v3": -137.7640101622022,
+          "delta_vs_e2v3": -0.04271617302279651
+        },
+        {
+          "metric": "tiny_dc/right/worst_spur_dbfs",
+          "value": -156.75953980316967,
+          "direction": "lower",
+          "e2v3": -157.97533172659894,
+          "delta_vs_e2v3": 1.215791923429265
+        },
+        {
+          "metric": "tone_100hz_-120_dbfs/left/integrated_noise_dbfs",
+          "value": -139.07993076895949,
+          "direction": "lower",
+          "e2v3": -139.39743933217068,
+          "delta_vs_e2v3": 0.3175085632111916
+        },
+        {
+          "metric": "tone_100hz_-120_dbfs/left/worst_spur_dbfs",
+          "value": -157.55860435311223,
+          "direction": "lower",
+          "e2v3": -158.19235653182793,
+          "delta_vs_e2v3": 0.6337521787156959
+        },
+        {
+          "metric": "tone_100hz_-120_dbfs/right/integrated_noise_dbfs",
+          "value": -139.10981984433994,
+          "direction": "lower",
+          "e2v3": -139.14646434853006,
+          "delta_vs_e2v3": 0.03664450419012155
+        },
+        {
+          "metric": "tone_100hz_-120_dbfs/right/worst_spur_dbfs",
+          "value": -159.28961688427538,
+          "direction": "lower",
+          "e2v3": -159.49065832713825,
+          "delta_vs_e2v3": 0.2010414428628735
+        }
+      ]
+    },
+    {
+      "scenario": "high_frequency_rated_stress",
+      "dsd_rate": "DSD128",
+      "modulator": "Standard",
+      "candidate_native_dsd_sha256": [
+        "4280c4f4595aab93a14df4e8f25e80566fcef213c558a329bcad1a6838b765f0",
+        "873823cb2954a80b1b17ece441bf4976e15000df39e2da7ff079db855e6630f6"
+      ],
+      "e2v3_native_dsd_sha256": [
+        "86133b8ed561ebfba7634079767fdb095cee88f783cc6de1c0113164ba4aea6d",
+        "4589a8be9019f3f0baf27815f9cd8f859b024870b8e9a751868412e21bbc2d7b"
+      ],
+      "quality_scalars": [
+        {
+          "metric": "left/sinad_db",
+          "value": 174.82651818280178,
+          "direction": "higher",
+          "e2v3": 174.86195540271171,
+          "delta_vs_e2v3": -0.03543721990993731
+        },
+        {
+          "metric": "left/residual_excluding_products_dbfs",
+          "value": -181.85862283216238,
+          "direction": "lower",
+          "e2v3": -181.9136484196992,
+          "delta_vs_e2v3": 0.055025587536817966
+        },
+        {
+          "metric": "left/worst_unexpected_spur_dbfs",
+          "value": -202.2908206415891,
+          "direction": "lower",
+          "e2v3": -201.5219311358102,
+          "delta_vs_e2v3": -0.7688895057789011
+        },
+        {
+          "metric": "right/sinad_db",
+          "value": 174.93124894264096,
+          "direction": "higher",
+          "e2v3": 174.8677089806501,
+          "delta_vs_e2v3": 0.06353996199086964
+        },
+        {
+          "metric": "right/residual_excluding_products_dbfs",
+          "value": -181.96424459173957,
+          "direction": "lower",
+          "e2v3": -181.9009033202159,
+          "delta_vs_e2v3": -0.06334127152368296
+        },
+        {
+          "metric": "right/worst_unexpected_spur_dbfs",
+          "value": -201.714740977895,
+          "direction": "lower",
+          "e2v3": -201.23240522506745,
+          "delta_vs_e2v3": -0.48233575282753804
+        }
+      ]
+    },
+    {
+      "scenario": "high_frequency_matched_stress",
+      "dsd_rate": "DSD128",
+      "modulator": "Standard",
+      "candidate_native_dsd_sha256": [
+        "bb7586a3671bf7a04df4a844ed24c9a023687028905dcbe130eb92b811a7b8b2",
+        "b6dca5ce3f14dbe7c39ee2bb1cfc19aa77dfaf0240bdb8ef1c264d762f9f465e"
+      ],
+      "e2v3_native_dsd_sha256": [
+        "83d5fc651014fc643127a4592b4775d061b516e0e0a9ae4c00d3186d1a87472a",
+        "f95d6871cad9bfd788c356b3f57f05542c1db27dead9880e90d5796f85741eeb"
+      ],
+      "quality_scalars": [
+        {
+          "metric": "left/sinad_db",
+          "value": 174.79796695794425,
+          "direction": "higher",
+          "e2v3": 174.95254659362186,
+          "delta_vs_e2v3": -0.15457963567760657
+        },
+        {
+          "metric": "left/residual_excluding_products_dbfs",
+          "value": -181.83381442622175,
+          "direction": "lower",
+          "e2v3": -181.98356853525428,
+          "delta_vs_e2v3": 0.1497541090325285
+        },
+        {
+          "metric": "left/worst_unexpected_spur_dbfs",
+          "value": -201.977768946162,
+          "direction": "lower",
+          "e2v3": -201.89927933973294,
+          "delta_vs_e2v3": -0.07848960642905922
+        },
+        {
+          "metric": "right/sinad_db",
+          "value": 174.83063458214733,
+          "direction": "higher",
+          "e2v3": 174.95562437935507,
+          "delta_vs_e2v3": -0.12498979720774628
+        },
+        {
+          "metric": "right/residual_excluding_products_dbfs",
+          "value": -181.87027773987595,
+          "direction": "lower",
+          "e2v3": -181.9856889143097,
+          "delta_vs_e2v3": 0.1154111744337456
+        },
+        {
+          "metric": "right/worst_unexpected_spur_dbfs",
+          "value": -201.3340657959099,
+          "direction": "lower",
+          "e2v3": -202.3753317293122,
+          "delta_vs_e2v3": 1.0412659334022862
+        }
+      ]
+    },
+    {
+      "scenario": "hires_reconstruction",
+      "dsd_rate": "DSD256",
+      "modulator": "Standard",
+      "candidate_native_dsd_sha256": [
+        "a8162a23c4d8ddf11e5b5b6dffcccca1774576db75a578598516047594589f67",
+        "c785feba43f6c798c8c6de88bb9b36e9a3d212707a50fb86b8e2aa2066d7c261"
+      ],
+      "e2v3_native_dsd_sha256": [
+        "fa9a30f4dfa07655386a2ef875509b66623dfe4fee00e6512ecbd37ae4278f86",
+        "505ae33b6555af9d665a13a147a4c904a3c8311dc04e2bf9df9b653702bb1604"
+      ],
+      "quality_scalars": [
+        {
+          "metric": "left/hires_1khz/absolute_gain_error_db",
+          "value": 1.6470782071564827e-08,
+          "direction": "lower",
+          "e2v3": 8.082135849463157e-09,
+          "delta_vs_e2v3": 8.38864622210167e-09
+        },
+        {
+          "metric": "left/hires_18khz/absolute_gain_error_db",
+          "value": 1.653164005688268e-08,
+          "direction": "lower",
+          "e2v3": 3.6988190288411715e-09,
+          "delta_vs_e2v3": 1.2832821028041508e-08
+        },
+        {
+          "metric": "left/hires_40khz/absolute_gain_error_db",
+          "value": 1.9620998870095718e-07,
+          "direction": "lower",
+          "e2v3": 1.547458374773214e-07,
+          "delta_vs_e2v3": 4.146415122363578e-08
+        },
+        {
+          "metric": "left/hires_70khz/absolute_gain_error_db",
+          "value": 2.136345727521416e-05,
+          "direction": "lower",
+          "e2v3": 2.0292684173028874e-05,
+          "delta_vs_e2v3": 1.070773102185285e-06
+        },
+        {
+          "metric": "left/0-20000hz/residual_dbfs",
+          "value": -167.36398401433559,
+          "direction": "lower",
+          "e2v3": -176.26914898391777,
+          "delta_vs_e2v3": 8.905164969582188
+        },
+        {
+          "metric": "left/0-20000hz/worst_unexpected_spur_dbfs",
+          "value": -202.67833890644744,
+          "direction": "lower",
+          "e2v3": -211.4603166737125,
+          "delta_vs_e2v3": 8.781977767265062
+        },
+        {
+          "metric": "left/20000-80000hz/residual_dbfs",
+          "value": -119.69757809853536,
+          "direction": "lower",
+          "e2v3": -119.74559434448422,
+          "delta_vs_e2v3": 0.04801624594885823
+        },
+        {
+          "metric": "left/20000-80000hz/worst_unexpected_spur_dbfs",
+          "value": -136.44594970818443,
+          "direction": "lower",
+          "e2v3": -135.61585637956787,
+          "delta_vs_e2v3": -0.8300933286165559
+        },
+        {
+          "metric": "right/hires_1khz/absolute_gain_error_db",
+          "value": 1.5634572747558195e-08,
+          "direction": "lower",
+          "e2v3": 7.719719974375039e-09,
+          "delta_vs_e2v3": 7.914852773183156e-09
+        },
+        {
+          "metric": "right/hires_18khz/absolute_gain_error_db",
+          "value": 1.88000477407968e-08,
+          "direction": "lower",
+          "e2v3": 4.822840793394789e-09,
+          "delta_vs_e2v3": 1.397720694740201e-08
+        },
+        {
+          "metric": "right/hires_40khz/absolute_gain_error_db",
+          "value": 2.0634335484714939e-07,
+          "direction": "lower",
+          "e2v3": 1.5968417343970032e-07,
+          "delta_vs_e2v3": 4.665918140744907e-08
+        },
+        {
+          "metric": "right/hires_70khz/absolute_gain_error_db",
+          "value": 2.0237862482730407e-05,
+          "direction": "lower",
+          "e2v3": 2.1017986487237295e-05,
+          "delta_vs_e2v3": -7.80124004506888e-07
+        },
+        {
+          "metric": "right/0-20000hz/residual_dbfs",
+          "value": -172.67896068470708,
+          "direction": "lower",
+          "e2v3": -170.39904595831166,
+          "delta_vs_e2v3": -2.2799147263954183
+        },
+        {
+          "metric": "right/0-20000hz/worst_unexpected_spur_dbfs",
+          "value": -208.26136620775043,
+          "direction": "lower",
+          "e2v3": -205.80558806059688,
+          "delta_vs_e2v3": -2.455778147153552
+        },
+        {
+          "metric": "right/20000-80000hz/residual_dbfs",
+          "value": -119.72134515640597,
+          "direction": "lower",
+          "e2v3": -119.74832981176192,
+          "delta_vs_e2v3": 0.026984655355946074
+        },
+        {
+          "metric": "right/20000-80000hz/worst_unexpected_spur_dbfs",
+          "value": -135.26630731190915,
+          "direction": "lower",
+          "e2v3": -135.84529133572264,
+          "delta_vs_e2v3": 0.57898402381349
+        }
+      ]
+    },
+    {
+      "scenario": "coherent_level_sweep",
+      "dsd_rate": "DSD64",
+      "modulator": "EcBeam2",
+      "candidate_native_dsd_sha256": [
+        "179b9a6bd0aea2fc5e227b6cdf38e061d0f2f92e4076ddf36cba9d0b5ca770a9",
+        "179b9a6bd0aea2fc5e227b6cdf38e061d0f2f92e4076ddf36cba9d0b5ca770a9"
+      ],
+      "e2v3_native_dsd_sha256": [
+        "49cd681c80249ae5402fc0ec2b551ddc25935a4971c95518a832454d53a68456",
+        "49cd681c80249ae5402fc0ec2b551ddc25935a4971c95518a832454d53a68456"
+      ],
+      "quality_scalars": [
+        {
+          "metric": "level_-6_dbfs/left/sinad_db",
+          "value": 141.53715787471572,
+          "direction": "higher",
+          "e2v3": 141.56468256992537,
+          "delta_vs_e2v3": -0.027524695209649508
+        },
+        {
+          "metric": "level_-6_dbfs/left/residual_noise_dbfs",
+          "value": -147.57727986607588,
+          "direction": "lower",
+          "e2v3": -147.5928061759652,
+          "delta_vs_e2v3": 0.015526309889310141
+        },
+        {
+          "metric": "level_-6_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -165.6915208633199,
+          "direction": "lower",
+          "e2v3": -167.2382270673213,
+          "delta_vs_e2v3": 1.5467062040013957
+        },
+        {
+          "metric": "level_-6_dbfs/left/absolute_gain_error_db",
+          "value": 1.1858158899258342e-10,
+          "direction": "lower",
+          "e2v3": 2.0724040261654864e-08,
+          "delta_vs_e2v3": -2.060545867266228e-08
+        },
+        {
+          "metric": "level_-6_dbfs/right/sinad_db",
+          "value": 141.53715787471572,
+          "direction": "higher",
+          "e2v3": 141.56468256992537,
+          "delta_vs_e2v3": -0.027524695209649508
+        },
+        {
+          "metric": "level_-6_dbfs/right/residual_noise_dbfs",
+          "value": -147.57727986607588,
+          "direction": "lower",
+          "e2v3": -147.5928061759652,
+          "delta_vs_e2v3": 0.015526309889310141
+        },
+        {
+          "metric": "level_-6_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -165.6915208633199,
+          "direction": "lower",
+          "e2v3": -167.2382270673213,
+          "delta_vs_e2v3": 1.5467062040013957
+        },
+        {
+          "metric": "level_-6_dbfs/right/absolute_gain_error_db",
+          "value": 1.1858158899258342e-10,
+          "direction": "lower",
+          "e2v3": 2.0724040261654864e-08,
+          "delta_vs_e2v3": -2.060545867266228e-08
+        },
+        {
+          "metric": "level_-20_dbfs/left/sinad_db",
+          "value": 127.76207352714643,
+          "direction": "higher",
+          "e2v3": 127.54968408347474,
+          "delta_vs_e2v3": 0.21238944367168244
+        },
+        {
+          "metric": "level_-20_dbfs/left/residual_noise_dbfs",
+          "value": -147.7716879108504,
+          "direction": "lower",
+          "e2v3": -147.5615446412019,
+          "delta_vs_e2v3": -0.21014326964851193
+        },
+        {
+          "metric": "level_-20_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -168.27557440951196,
+          "direction": "lower",
+          "e2v3": -165.6944695928092,
+          "delta_vs_e2v3": -2.581104816702748
+        },
+        {
+          "metric": "level_-20_dbfs/left/absolute_gain_error_db",
+          "value": 3.1541951273084123e-09,
+          "direction": "lower",
+          "e2v3": 2.722601166738059e-08,
+          "delta_vs_e2v3": -2.4071816540072177e-08
+        },
+        {
+          "metric": "level_-20_dbfs/right/sinad_db",
+          "value": 127.76207352714643,
+          "direction": "higher",
+          "e2v3": 127.54968408347474,
+          "delta_vs_e2v3": 0.21238944367168244
+        },
+        {
+          "metric": "level_-20_dbfs/right/residual_noise_dbfs",
+          "value": -147.7716879108504,
+          "direction": "lower",
+          "e2v3": -147.5615446412019,
+          "delta_vs_e2v3": -0.21014326964851193
+        },
+        {
+          "metric": "level_-20_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -168.27557440951196,
+          "direction": "lower",
+          "e2v3": -165.6944695928092,
+          "delta_vs_e2v3": -2.581104816702748
+        },
+        {
+          "metric": "level_-20_dbfs/right/absolute_gain_error_db",
+          "value": 3.1541951273084123e-09,
+          "direction": "lower",
+          "e2v3": 2.722601166738059e-08,
+          "delta_vs_e2v3": -2.4071816540072177e-08
+        },
+        {
+          "metric": "level_-60_dbfs/left/sinad_db",
+          "value": 88.33786940812726,
+          "direction": "higher",
+          "e2v3": 88.23798969778795,
+          "delta_vs_e2v3": 0.09987971033930876
+        },
+        {
+          "metric": "level_-60_dbfs/left/residual_noise_dbfs",
+          "value": -148.35522873392878,
+          "direction": "lower",
+          "e2v3": -148.2647169967824,
+          "delta_vs_e2v3": -0.09051173714638594
+        },
+        {
+          "metric": "level_-60_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -167.72964296337605,
+          "direction": "lower",
+          "e2v3": -166.6823233560736,
+          "delta_vs_e2v3": -1.0473196073024553
+        },
+        {
+          "metric": "level_-60_dbfs/left/absolute_gain_error_db",
+          "value": 1.48057108191324e-05,
+          "direction": "lower",
+          "e2v3": 1.1262787992905032e-05,
+          "delta_vs_e2v3": 3.542922826227368e-06
+        },
+        {
+          "metric": "level_-60_dbfs/right/sinad_db",
+          "value": 88.33786940812726,
+          "direction": "higher",
+          "e2v3": 88.23798969778795,
+          "delta_vs_e2v3": 0.09987971033930876
+        },
+        {
+          "metric": "level_-60_dbfs/right/residual_noise_dbfs",
+          "value": -148.35522873392878,
+          "direction": "lower",
+          "e2v3": -148.2647169967824,
+          "delta_vs_e2v3": -0.09051173714638594
+        },
+        {
+          "metric": "level_-60_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -167.72964296337605,
+          "direction": "lower",
+          "e2v3": -166.6823233560736,
+          "delta_vs_e2v3": -1.0473196073024553
+        },
+        {
+          "metric": "level_-60_dbfs/right/absolute_gain_error_db",
+          "value": 1.48057108191324e-05,
+          "direction": "lower",
+          "e2v3": 1.1262787992905032e-05,
+          "delta_vs_e2v3": 3.542922826227368e-06
+        },
+        {
+          "metric": "level_-100_dbfs/left/sinad_db",
+          "value": 49.11951275808672,
+          "direction": "higher",
+          "e2v3": 49.15282051383427,
+          "delta_vs_e2v3": -0.033307755747550516
+        },
+        {
+          "metric": "level_-100_dbfs/left/residual_noise_dbfs",
+          "value": -149.12171299336927,
+          "direction": "lower",
+          "e2v3": -149.1558827913909,
+          "delta_vs_e2v3": 0.034169798021622455
+        },
+        {
+          "metric": "level_-100_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -166.2239029058767,
+          "direction": "lower",
+          "e2v3": -166.82941180261818,
+          "delta_vs_e2v3": 0.605508896741469
+        },
+        {
+          "metric": "level_-100_dbfs/left/absolute_gain_error_db",
+          "value": 3.7061233570057084e-05,
+          "direction": "lower",
+          "e2v3": 7.101297057943157e-06,
+          "delta_vs_e2v3": 2.9959936512113927e-05
+        },
+        {
+          "metric": "level_-100_dbfs/right/sinad_db",
+          "value": 49.11951275808672,
+          "direction": "higher",
+          "e2v3": 49.15282051383427,
+          "delta_vs_e2v3": -0.033307755747550516
+        },
+        {
+          "metric": "level_-100_dbfs/right/residual_noise_dbfs",
+          "value": -149.12171299336927,
+          "direction": "lower",
+          "e2v3": -149.1558827913909,
+          "delta_vs_e2v3": 0.034169798021622455
+        },
+        {
+          "metric": "level_-100_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -166.2239029058767,
+          "direction": "lower",
+          "e2v3": -166.82941180261818,
+          "delta_vs_e2v3": 0.605508896741469
+        },
+        {
+          "metric": "level_-100_dbfs/right/absolute_gain_error_db",
+          "value": 3.7061233570057084e-05,
+          "direction": "lower",
+          "e2v3": 7.101297057943157e-06,
+          "delta_vs_e2v3": 2.9959936512113927e-05
+        }
+      ]
+    },
+    {
+      "scenario": "coherent_level_sweep",
+      "dsd_rate": "DSD128",
+      "modulator": "EcBeam2",
+      "candidate_native_dsd_sha256": [
+        "a27e0ac659abfa2d3a6a6be7b83e351fbb43cd7d82a6edd1e236cfbb4d6a3fef",
+        "a27e0ac659abfa2d3a6a6be7b83e351fbb43cd7d82a6edd1e236cfbb4d6a3fef"
+      ],
+      "e2v3_native_dsd_sha256": [
+        "7260008207c68087502f2b2815ac2a5b857766847b2b15f249ffbb1eb17cc3a3",
+        "7260008207c68087502f2b2815ac2a5b857766847b2b15f249ffbb1eb17cc3a3"
+      ],
+      "quality_scalars": [
+        {
+          "metric": "level_-6_dbfs/left/sinad_db",
+          "value": 186.5240733141585,
+          "direction": "higher",
+          "e2v3": 186.6112497024166,
+          "delta_vs_e2v3": -0.08717638825808649
+        },
+        {
+          "metric": "level_-6_dbfs/left/residual_noise_dbfs",
+          "value": -192.5356422170556,
+          "direction": "lower",
+          "e2v3": -192.62326932231906,
+          "delta_vs_e2v3": 0.08762710526346495
+        },
+        {
+          "metric": "level_-6_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -212.20790181775413,
+          "direction": "lower",
+          "e2v3": -212.68274841835083,
+          "delta_vs_e2v3": 0.4748466005966918
+        },
+        {
+          "metric": "level_-6_dbfs/left/absolute_gain_error_db",
+          "value": 5.540321090791167e-09,
+          "direction": "lower",
+          "e2v3": 1.692084961035789e-08,
+          "delta_vs_e2v3": -1.1380528519566724e-08
+        },
+        {
+          "metric": "level_-6_dbfs/right/sinad_db",
+          "value": 186.5240733141585,
+          "direction": "higher",
+          "e2v3": 186.6112497024166,
+          "delta_vs_e2v3": -0.08717638825808649
+        },
+        {
+          "metric": "level_-6_dbfs/right/residual_noise_dbfs",
+          "value": -192.5356422170556,
+          "direction": "lower",
+          "e2v3": -192.62326932231906,
+          "delta_vs_e2v3": 0.08762710526346495
+        },
+        {
+          "metric": "level_-6_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -212.20790181775413,
+          "direction": "lower",
+          "e2v3": -212.68274841835083,
+          "delta_vs_e2v3": 0.4748466005966918
+        },
+        {
+          "metric": "level_-6_dbfs/right/absolute_gain_error_db",
+          "value": 5.540321090791167e-09,
+          "direction": "lower",
+          "e2v3": 1.692084961035789e-08,
+          "delta_vs_e2v3": -1.1380528519566724e-08
+        },
+        {
+          "metric": "level_-20_dbfs/left/sinad_db",
+          "value": 172.85196346799196,
+          "direction": "higher",
+          "e2v3": 172.63268368131875,
+          "delta_vs_e2v3": 0.21927978667321213
+        },
+        {
+          "metric": "level_-20_dbfs/left/residual_noise_dbfs",
+          "value": -192.86222495707165,
+          "direction": "lower",
+          "e2v3": -192.64478474045706,
+          "delta_vs_e2v3": -0.217440216614591
+        },
+        {
+          "metric": "level_-20_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -212.751759843527,
+          "direction": "lower",
+          "e2v3": -212.26260324257095,
+          "delta_vs_e2v3": -0.4891566009560506
+        },
+        {
+          "metric": "level_-20_dbfs/left/absolute_gain_error_db",
+          "value": 5.4659956560954015e-09,
+          "direction": "lower",
+          "e2v3": 1.69335550026517e-08,
+          "delta_vs_e2v3": -1.14675593465563e-08
+        },
+        {
+          "metric": "level_-20_dbfs/right/sinad_db",
+          "value": 172.85196346799196,
+          "direction": "higher",
+          "e2v3": 172.63268368131875,
+          "delta_vs_e2v3": 0.21927978667321213
+        },
+        {
+          "metric": "level_-20_dbfs/right/residual_noise_dbfs",
+          "value": -192.86222495707165,
+          "direction": "lower",
+          "e2v3": -192.64478474045706,
+          "delta_vs_e2v3": -0.217440216614591
+        },
+        {
+          "metric": "level_-20_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -212.751759843527,
+          "direction": "lower",
+          "e2v3": -212.26260324257095,
+          "delta_vs_e2v3": -0.4891566009560506
+        },
+        {
+          "metric": "level_-20_dbfs/right/absolute_gain_error_db",
+          "value": 5.4659956560954015e-09,
+          "direction": "lower",
+          "e2v3": 1.69335550026517e-08,
+          "delta_vs_e2v3": -1.14675593465563e-08
+        },
+        {
+          "metric": "level_-60_dbfs/left/sinad_db",
+          "value": 132.67601191363644,
+          "direction": "higher",
+          "e2v3": 132.75607220615075,
+          "delta_vs_e2v3": -0.08006029251430391
+        },
+        {
+          "metric": "level_-60_dbfs/left/residual_noise_dbfs",
+          "value": -192.74836194957356,
+          "direction": "lower",
+          "e2v3": -192.85852578601373,
+          "delta_vs_e2v3": 0.11016383644016514
+        },
+        {
+          "metric": "level_-60_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -211.54482288282617,
+          "direction": "lower",
+          "e2v3": -213.53082205826027,
+          "delta_vs_e2v3": 1.9859991754341024
+        },
+        {
+          "metric": "level_-60_dbfs/left/absolute_gain_error_db",
+          "value": 4.5301959517018986e-08,
+          "direction": "lower",
+          "e2v3": 1.8083682107317145e-08,
+          "delta_vs_e2v3": 2.721827740970184e-08
+        },
+        {
+          "metric": "level_-60_dbfs/right/sinad_db",
+          "value": 132.67601191363644,
+          "direction": "higher",
+          "e2v3": 132.75607220615075,
+          "delta_vs_e2v3": -0.08006029251430391
+        },
+        {
+          "metric": "level_-60_dbfs/right/residual_noise_dbfs",
+          "value": -192.74836194957356,
+          "direction": "lower",
+          "e2v3": -192.85852578601373,
+          "delta_vs_e2v3": 0.11016383644016514
+        },
+        {
+          "metric": "level_-60_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -211.54482288282617,
+          "direction": "lower",
+          "e2v3": -213.53082205826027,
+          "delta_vs_e2v3": 1.9859991754341024
+        },
+        {
+          "metric": "level_-60_dbfs/right/absolute_gain_error_db",
+          "value": 4.5301959517018986e-08,
+          "direction": "lower",
+          "e2v3": 1.8083682107317145e-08,
+          "delta_vs_e2v3": 2.721827740970184e-08
+        },
+        {
+          "metric": "level_-100_dbfs/left/sinad_db",
+          "value": 94.06686827209354,
+          "direction": "higher",
+          "e2v3": 94.13222625396713,
+          "delta_vs_e2v3": -0.06535798187358921
+        },
+        {
+          "metric": "level_-100_dbfs/left/residual_noise_dbfs",
+          "value": -194.06874563109878,
+          "direction": "lower",
+          "e2v3": -194.1343948499116,
+          "delta_vs_e2v3": 0.06564921881280839
+        },
+        {
+          "metric": "level_-100_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -214.18037780574468,
+          "direction": "lower",
+          "e2v3": -213.1823276634339,
+          "delta_vs_e2v3": -0.9980501423107739
+        },
+        {
+          "metric": "level_-100_dbfs/left/absolute_gain_error_db",
+          "value": 9.123970414748328e-07,
+          "direction": "lower",
+          "e2v3": 9.271725502912886e-07,
+          "delta_vs_e2v3": -1.477550881645584e-08
+        },
+        {
+          "metric": "level_-100_dbfs/right/sinad_db",
+          "value": 94.06686827209354,
+          "direction": "higher",
+          "e2v3": 94.13222625396713,
+          "delta_vs_e2v3": -0.06535798187358921
+        },
+        {
+          "metric": "level_-100_dbfs/right/residual_noise_dbfs",
+          "value": -194.06874563109878,
+          "direction": "lower",
+          "e2v3": -194.1343948499116,
+          "delta_vs_e2v3": 0.06564921881280839
+        },
+        {
+          "metric": "level_-100_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -214.18037780574468,
+          "direction": "lower",
+          "e2v3": -213.1823276634339,
+          "delta_vs_e2v3": -0.9980501423107739
+        },
+        {
+          "metric": "level_-100_dbfs/right/absolute_gain_error_db",
+          "value": 9.123970414748328e-07,
+          "direction": "lower",
+          "e2v3": 9.271725502912886e-07,
+          "delta_vs_e2v3": -1.477550881645584e-08
+        }
+      ]
+    },
+    {
+      "scenario": "coherent_level_sweep",
+      "dsd_rate": "DSD256",
+      "modulator": "EcBeam2",
+      "candidate_native_dsd_sha256": [
+        "98e800c31dd3c2cf04d77d05e907d6bbe35413544693959ce8d91e3c16873770",
+        "98e800c31dd3c2cf04d77d05e907d6bbe35413544693959ce8d91e3c16873770"
+      ],
+      "e2v3_native_dsd_sha256": [
+        "d1b27c78c796a7a3d20c1390a3b32f1ba94d76ed1b2c8f716c2b5d7cf79f0625",
+        "d1b27c78c796a7a3d20c1390a3b32f1ba94d76ed1b2c8f716c2b5d7cf79f0625"
+      ],
+      "quality_scalars": [
+        {
+          "metric": "level_-6_dbfs/left/sinad_db",
+          "value": 186.53206510358132,
+          "direction": "higher",
+          "e2v3": 186.58933729422495,
+          "delta_vs_e2v3": -0.05727219064362998
+        },
+        {
+          "metric": "level_-6_dbfs/left/residual_noise_dbfs",
+          "value": -192.5465910982591,
+          "direction": "lower",
+          "e2v3": -192.61003009636158,
+          "delta_vs_e2v3": 0.06343899810246967
+        },
+        {
+          "metric": "level_-6_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -214.82800708001935,
+          "direction": "lower",
+          "e2v3": -215.44251334799557,
+          "delta_vs_e2v3": 0.6145062679762248
+        },
+        {
+          "metric": "level_-6_dbfs/left/absolute_gain_error_db",
+          "value": 5.619280152302508e-09,
+          "direction": "lower",
+          "e2v3": 1.6936114732857277e-08,
+          "delta_vs_e2v3": -1.1316834580554769e-08
+        },
+        {
+          "metric": "level_-6_dbfs/right/sinad_db",
+          "value": 186.53206510358132,
+          "direction": "higher",
+          "e2v3": 186.58933729422495,
+          "delta_vs_e2v3": -0.05727219064362998
+        },
+        {
+          "metric": "level_-6_dbfs/right/residual_noise_dbfs",
+          "value": -192.5465910982591,
+          "direction": "lower",
+          "e2v3": -192.61003009636158,
+          "delta_vs_e2v3": 0.06343899810246967
+        },
+        {
+          "metric": "level_-6_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -214.82800708001935,
+          "direction": "lower",
+          "e2v3": -215.44251334799557,
+          "delta_vs_e2v3": 0.6145062679762248
+        },
+        {
+          "metric": "level_-6_dbfs/right/absolute_gain_error_db",
+          "value": 5.619280152302508e-09,
+          "direction": "lower",
+          "e2v3": 1.6936114732857277e-08,
+          "delta_vs_e2v3": -1.1316834580554769e-08
+        },
+        {
+          "metric": "level_-20_dbfs/left/sinad_db",
+          "value": 172.13109995932797,
+          "direction": "higher",
+          "e2v3": 172.2505488832677,
+          "delta_vs_e2v3": -0.1194489239397285
+        },
+        {
+          "metric": "level_-20_dbfs/left/residual_noise_dbfs",
+          "value": -192.18354646896984,
+          "direction": "lower",
+          "e2v3": -192.29727037424564,
+          "delta_vs_e2v3": 0.11372390527580478
+        },
+        {
+          "metric": "level_-20_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -211.1107322279347,
+          "direction": "lower",
+          "e2v3": -211.00766197735987,
+          "delta_vs_e2v3": -0.10307025057483088
+        },
+        {
+          "metric": "level_-20_dbfs/left/absolute_gain_error_db",
+          "value": 5.696115579212346e-09,
+          "direction": "lower",
+          "e2v3": 1.6741591224445074e-08,
+          "delta_vs_e2v3": -1.1045475645232727e-08
+        },
+        {
+          "metric": "level_-20_dbfs/right/sinad_db",
+          "value": 172.13109995932797,
+          "direction": "higher",
+          "e2v3": 172.2505488832677,
+          "delta_vs_e2v3": -0.1194489239397285
+        },
+        {
+          "metric": "level_-20_dbfs/right/residual_noise_dbfs",
+          "value": -192.18354646896984,
+          "direction": "lower",
+          "e2v3": -192.29727037424564,
+          "delta_vs_e2v3": 0.11372390527580478
+        },
+        {
+          "metric": "level_-20_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -211.1107322279347,
+          "direction": "lower",
+          "e2v3": -211.00766197735987,
+          "delta_vs_e2v3": -0.10307025057483088
+        },
+        {
+          "metric": "level_-20_dbfs/right/absolute_gain_error_db",
+          "value": 5.696115579212346e-09,
+          "direction": "lower",
+          "e2v3": 1.6741591224445074e-08,
+          "delta_vs_e2v3": -1.1045475645232727e-08
+        },
+        {
+          "metric": "level_-60_dbfs/left/sinad_db",
+          "value": 129.39704829340928,
+          "direction": "higher",
+          "e2v3": 129.4867196333551,
+          "delta_vs_e2v3": -0.08967133994582355
+        },
+        {
+          "metric": "level_-60_dbfs/left/residual_noise_dbfs",
+          "value": -192.4697064243563,
+          "direction": "lower",
+          "e2v3": -192.4951202119147,
+          "delta_vs_e2v3": 0.025413787558392187
+        },
+        {
+          "metric": "level_-60_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -213.6133453061073,
+          "direction": "lower",
+          "e2v3": -215.34027254061255,
+          "delta_vs_e2v3": 1.72692723450524
+        },
+        {
+          "metric": "level_-60_dbfs/left/absolute_gain_error_db",
+          "value": 9.56262624640658e-10,
+          "direction": "lower",
+          "e2v3": 9.529223632398498e-09,
+          "delta_vs_e2v3": -8.57296100775784e-09
+        },
+        {
+          "metric": "level_-60_dbfs/right/sinad_db",
+          "value": 129.39704829340928,
+          "direction": "higher",
+          "e2v3": 129.4867196333551,
+          "delta_vs_e2v3": -0.08967133994582355
+        },
+        {
+          "metric": "level_-60_dbfs/right/residual_noise_dbfs",
+          "value": -192.4697064243563,
+          "direction": "lower",
+          "e2v3": -192.4951202119147,
+          "delta_vs_e2v3": 0.025413787558392187
+        },
+        {
+          "metric": "level_-60_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -213.6133453061073,
+          "direction": "lower",
+          "e2v3": -215.34027254061255,
+          "delta_vs_e2v3": 1.72692723450524
+        },
+        {
+          "metric": "level_-60_dbfs/right/absolute_gain_error_db",
+          "value": 9.56262624640658e-10,
+          "direction": "lower",
+          "e2v3": 9.529223632398498e-09,
+          "delta_vs_e2v3": -8.57296100775784e-09
+        },
+        {
+          "metric": "level_-100_dbfs/left/sinad_db",
+          "value": 93.31540919393152,
+          "direction": "higher",
+          "e2v3": 93.09930142001376,
+          "delta_vs_e2v3": 0.2161077739177557
+        },
+        {
+          "metric": "level_-100_dbfs/left/residual_noise_dbfs",
+          "value": -193.3171368717419,
+          "direction": "lower",
+          "e2v3": -193.1033286939925,
+          "delta_vs_e2v3": -0.21380817774939942
+        },
+        {
+          "metric": "level_-100_dbfs/left/worst_nonharmonic_spur_dbfs",
+          "value": -215.14900600481343,
+          "direction": "lower",
+          "e2v3": -215.67907168993003,
+          "delta_vs_e2v3": 0.5300656851165968
+        },
+        {
+          "metric": "level_-100_dbfs/left/absolute_gain_error_db",
+          "value": 2.79858556950785e-06,
+          "direction": "lower",
+          "e2v3": 6.412753066342702e-07,
+          "delta_vs_e2v3": 2.1573102628735796e-06
+        },
+        {
+          "metric": "level_-100_dbfs/right/sinad_db",
+          "value": 93.31540919393152,
+          "direction": "higher",
+          "e2v3": 93.09930142001376,
+          "delta_vs_e2v3": 0.2161077739177557
+        },
+        {
+          "metric": "level_-100_dbfs/right/residual_noise_dbfs",
+          "value": -193.3171368717419,
+          "direction": "lower",
+          "e2v3": -193.1033286939925,
+          "delta_vs_e2v3": -0.21380817774939942
+        },
+        {
+          "metric": "level_-100_dbfs/right/worst_nonharmonic_spur_dbfs",
+          "value": -215.14900600481343,
+          "direction": "lower",
+          "e2v3": -215.67907168993003,
+          "delta_vs_e2v3": 0.5300656851165968
+        },
+        {
+          "metric": "level_-100_dbfs/right/absolute_gain_error_db",
+          "value": 2.79858556950785e-06,
+          "direction": "lower",
+          "e2v3": 6.412753066342702e-07,
+          "delta_vs_e2v3": 2.1573102628735796e-06
+        }
+      ]
+    },
+    {
+      "scenario": "idle_tiny_signal",
+      "dsd_rate": "DSD64",
+      "modulator": "EcBeam2",
+      "candidate_native_dsd_sha256": [
+        "da060a007f9edc6ec663baaf3e9fd10f17bf74a1927452c21cd437fa54eec9cd",
+        "c9abccdd37f4208326fc0b171992ce41e01d01f73542029fd1eb7fa19d2610e7"
+      ],
+      "e2v3_native_dsd_sha256": [
+        "cb9792b8b24ff7bc227976e0bf960db9637fba1cc400513a49224864323338d8",
+        "157bbfe346de57824013d8ee4b5d4269c8ab5998a2b6afa0939d3ed3219491c0"
+      ],
+      "quality_scalars": [
+        {
+          "metric": "silence/left/integrated_noise_dbfs",
+          "value": -149.0905004704084,
+          "direction": "lower",
+          "e2v3": -149.0905004704084,
+          "delta_vs_e2v3": 0.0
+        },
+        {
+          "metric": "silence/left/worst_spur_dbfs",
+          "value": -168.06327485774472,
+          "direction": "lower",
+          "e2v3": -168.06327485774472,
+          "delta_vs_e2v3": 0.0
+        },
+        {
+          "metric": "silence/right/integrated_noise_dbfs",
+          "value": -149.0905004704084,
+          "direction": "lower",
+          "e2v3": -149.0905004704084,
+          "delta_vs_e2v3": 0.0
+        },
+        {
+          "metric": "silence/right/worst_spur_dbfs",
+          "value": -168.06327485774472,
+          "direction": "lower",
+          "e2v3": -168.06327485774472,
+          "delta_vs_e2v3": 0.0
+        },
+        {
+          "metric": "tiny_dc/left/integrated_noise_dbfs",
+          "value": -148.28080859188643,
+          "direction": "lower",
+          "e2v3": -148.2002126340236,
+          "delta_vs_e2v3": -0.08059595786284035
+        },
+        {
+          "metric": "tiny_dc/left/worst_spur_dbfs",
+          "value": -167.9485622771193,
+          "direction": "lower",
+          "e2v3": -167.8139563152159,
+          "delta_vs_e2v3": -0.13460596190338947
+        },
+        {
+          "metric": "tiny_dc/right/integrated_noise_dbfs",
+          "value": -148.31972603872794,
+          "direction": "lower",
+          "e2v3": -148.21856924136225,
+          "delta_vs_e2v3": -0.1011567973656895
+        },
+        {
+          "metric": "tiny_dc/right/worst_spur_dbfs",
+          "value": -168.5430494997866,
+          "direction": "lower",
+          "e2v3": -167.7400476965303,
+          "delta_vs_e2v3": -0.8030018032563078
+        },
+        {
+          "metric": "tone_100hz_-120_dbfs/left/integrated_noise_dbfs",
+          "value": -147.44929365593268,
+          "direction": "lower",
+          "e2v3": -147.60095518486037,
+          "delta_vs_e2v3": 0.15166152892768991
+        },
+        {
+          "metric": "tone_100hz_-120_dbfs/left/worst_spur_dbfs",
+          "value": -166.91359998996364,
+          "direction": "lower",
+          "e2v3": -167.79845162885894,
+          "delta_vs_e2v3": 0.8848516388952987
+        },
+        {
+          "metric": "tone_100hz_-120_dbfs/right/integrated_noise_dbfs",
+          "value": -147.72154840696732,
+          "direction": "lower",
+          "e2v3": -147.475589463269,
+          "delta_vs_e2v3": -0.2459589436983265
+        },
+        {
+          "metric": "tone_100hz_-120_dbfs/right/worst_spur_dbfs",
+          "value": -166.7186516203762,
+          "direction": "lower",
+          "e2v3": -166.96768866182654,
+          "delta_vs_e2v3": 0.24903704145035022
+        }
+      ]
+    },
+    {
+      "scenario": "high_frequency_rated_stress",
+      "dsd_rate": "DSD128",
+      "modulator": "EcBeam2",
+      "candidate_native_dsd_sha256": [
+        "22c89aaf6347e87a12926945bb80aef887662b18e690337f7b9ac67bd1bc98d6",
+        "22c89aaf6347e87a12926945bb80aef887662b18e690337f7b9ac67bd1bc98d6"
+      ],
+      "e2v3_native_dsd_sha256": [
+        "59a64e8667b1928d1c7bbeb2c070be9a1e2f187e151f3369f0260cfa0bf1896e",
+        "59a64e8667b1928d1c7bbeb2c070be9a1e2f187e151f3369f0260cfa0bf1896e"
+      ],
+      "quality_scalars": [
+        {
+          "metric": "left/sinad_db",
+          "value": 187.416664469764,
+          "direction": "higher",
+          "e2v3": 187.23020733272512,
+          "delta_vs_e2v3": 0.18645713703887168
+        },
+        {
+          "metric": "left/residual_excluding_products_dbfs",
+          "value": -192.4600384428336,
+          "direction": "lower",
+          "e2v3": -192.28519878410364,
+          "delta_vs_e2v3": -0.174839658729951
+        },
+        {
+          "metric": "left/worst_unexpected_spur_dbfs",
+          "value": -212.0131647813318,
+          "direction": "lower",
+          "e2v3": -213.7234196737688,
+          "delta_vs_e2v3": 1.710254892437007
+        },
+        {
+          "metric": "right/sinad_db",
+          "value": 187.416664469764,
+          "direction": "higher",
+          "e2v3": 187.23020733272512,
+          "delta_vs_e2v3": 0.18645713703887168
+        },
+        {
+          "metric": "right/residual_excluding_products_dbfs",
+          "value": -192.4600384428336,
+          "direction": "lower",
+          "e2v3": -192.28519878410364,
+          "delta_vs_e2v3": -0.174839658729951
+        },
+        {
+          "metric": "right/worst_unexpected_spur_dbfs",
+          "value": -212.0131647813318,
+          "direction": "lower",
+          "e2v3": -213.7234196737688,
+          "delta_vs_e2v3": 1.710254892437007
+        }
+      ]
+    },
+    {
+      "scenario": "high_frequency_matched_stress",
+      "dsd_rate": "DSD128",
+      "modulator": "EcBeam2",
+      "candidate_native_dsd_sha256": [
+        "c91ddf4805605063fa9942ad3571c9a758728db5dbc9da308fcfaf29a8bde796",
+        "c91ddf4805605063fa9942ad3571c9a758728db5dbc9da308fcfaf29a8bde796"
+      ],
+      "e2v3_native_dsd_sha256": [
+        "ef0f2bdc658e51eccc101537f9a3c78aaac5cbaa8f394ce44fc72d343d9d8fed",
+        "ef0f2bdc658e51eccc101537f9a3c78aaac5cbaa8f394ce44fc72d343d9d8fed"
+      ],
+      "quality_scalars": [
+        {
+          "metric": "left/sinad_db",
+          "value": 185.3314854389018,
+          "direction": "higher",
+          "e2v3": 185.34889050157392,
+          "delta_vs_e2v3": -0.01740506267211117
+        },
+        {
+          "metric": "left/residual_excluding_products_dbfs",
+          "value": -192.35673416700757,
+          "direction": "lower",
+          "e2v3": -192.3680946260826,
+          "delta_vs_e2v3": 0.011360459075035578
+        },
+        {
+          "metric": "left/worst_unexpected_spur_dbfs",
+          "value": -212.55675054269608,
+          "direction": "lower",
+          "e2v3": -212.47577711052597,
+          "delta_vs_e2v3": -0.08097343217011144
+        },
+        {
+          "metric": "right/sinad_db",
+          "value": 185.3314854389018,
+          "direction": "higher",
+          "e2v3": 185.34889050157392,
+          "delta_vs_e2v3": -0.01740506267211117
+        },
+        {
+          "metric": "right/residual_excluding_products_dbfs",
+          "value": -192.35673416700757,
+          "direction": "lower",
+          "e2v3": -192.3680946260826,
+          "delta_vs_e2v3": 0.011360459075035578
+        },
+        {
+          "metric": "right/worst_unexpected_spur_dbfs",
+          "value": -212.55675054269608,
+          "direction": "lower",
+          "e2v3": -212.47577711052597,
+          "delta_vs_e2v3": -0.08097343217011144
+        }
+      ]
+    },
+    {
+      "scenario": "hires_reconstruction",
+      "dsd_rate": "DSD256",
+      "modulator": "EcBeam2",
+      "candidate_native_dsd_sha256": [
+        "09d3a41bd713fa5fe736d949a345ce451e1935e441b19b0bc1af23349a19670e",
+        "09d3a41bd713fa5fe736d949a345ce451e1935e441b19b0bc1af23349a19670e"
+      ],
+      "e2v3_native_dsd_sha256": [
+        "02db2ef835018182e194e848727725c34c7cda4f5ab29cbbce25e5666bb9504e",
+        "02db2ef835018182e194e848727725c34c7cda4f5ab29cbbce25e5666bb9504e"
+      ],
+      "quality_scalars": [
+        {
+          "metric": "left/hires_1khz/absolute_gain_error_db",
+          "value": 1.5059601565781122e-08,
+          "direction": "lower",
+          "e2v3": 9.090062036420932e-09,
+          "delta_vs_e2v3": 5.9695395293601905e-09
+        },
+        {
+          "metric": "left/hires_18khz/absolute_gain_error_db",
+          "value": 2.1188299115237896e-08,
+          "direction": "lower",
+          "e2v3": 4.694733490850922e-10,
+          "delta_vs_e2v3": 2.0718825766152804e-08
+        },
+        {
+          "metric": "left/hires_40khz/absolute_gain_error_db",
+          "value": 1.3559176892385949e-08,
+          "direction": "lower",
+          "e2v3": 8.048672839322535e-09,
+          "delta_vs_e2v3": 5.510504053063414e-09
+        },
+        {
+          "metric": "left/hires_70khz/absolute_gain_error_db",
+          "value": 6.174483857535051e-08,
+          "direction": "lower",
+          "e2v3": 1.812221555042015e-07,
+          "delta_vs_e2v3": -1.19477316928851e-07
+        },
+        {
+          "metric": "left/0-20000hz/residual_dbfs",
+          "value": -201.02774978313664,
+          "direction": "lower",
+          "e2v3": -177.7109162959401,
+          "delta_vs_e2v3": -23.316833487196533
+        },
+        {
+          "metric": "left/0-20000hz/worst_unexpected_spur_dbfs",
+          "value": -225.25162329770697,
+          "direction": "lower",
+          "e2v3": -213.11012129147514,
+          "delta_vs_e2v3": -12.141502006231832
+        },
+        {
+          "metric": "left/20000-80000hz/residual_dbfs",
+          "value": -126.45241465589608,
+          "direction": "lower",
+          "e2v3": -126.40687766940059,
+          "delta_vs_e2v3": -0.04553698649549176
+        },
+        {
+          "metric": "left/20000-80000hz/worst_unexpected_spur_dbfs",
+          "value": -142.4508655323626,
+          "direction": "lower",
+          "e2v3": -141.42241186784403,
+          "delta_vs_e2v3": -1.0284536645185653
+        },
+        {
+          "metric": "right/hires_1khz/absolute_gain_error_db",
+          "value": 1.5059601565781122e-08,
+          "direction": "lower",
+          "e2v3": 9.090062036420932e-09,
+          "delta_vs_e2v3": 5.9695395293601905e-09
+        },
+        {
+          "metric": "right/hires_18khz/absolute_gain_error_db",
+          "value": 2.1188299115237896e-08,
+          "direction": "lower",
+          "e2v3": 4.694733490850922e-10,
+          "delta_vs_e2v3": 2.0718825766152804e-08
+        },
+        {
+          "metric": "right/hires_40khz/absolute_gain_error_db",
+          "value": 1.3559176892385949e-08,
+          "direction": "lower",
+          "e2v3": 8.048672839322535e-09,
+          "delta_vs_e2v3": 5.510504053063414e-09
+        },
+        {
+          "metric": "right/hires_70khz/absolute_gain_error_db",
+          "value": 6.174483857535051e-08,
+          "direction": "lower",
+          "e2v3": 1.812221555042015e-07,
+          "delta_vs_e2v3": -1.19477316928851e-07
+        },
+        {
+          "metric": "right/0-20000hz/residual_dbfs",
+          "value": -201.02774978313664,
+          "direction": "lower",
+          "e2v3": -177.7109162959401,
+          "delta_vs_e2v3": -23.316833487196533
+        },
+        {
+          "metric": "right/0-20000hz/worst_unexpected_spur_dbfs",
+          "value": -225.25162329770697,
+          "direction": "lower",
+          "e2v3": -213.11012129147514,
+          "delta_vs_e2v3": -12.141502006231832
+        },
+        {
+          "metric": "right/20000-80000hz/residual_dbfs",
+          "value": -126.45241465589608,
+          "direction": "lower",
+          "e2v3": -126.40687766940059,
+          "delta_vs_e2v3": -0.04553698649549176
+        },
+        {
+          "metric": "right/20000-80000hz/worst_unexpected_spur_dbfs",
+          "value": -142.4508655323626,
+          "direction": "lower",
+          "e2v3": -141.42241186784403,
+          "delta_vs_e2v3": -1.0284536645185653
+        }
+      ]
+    }
+  ]
+}

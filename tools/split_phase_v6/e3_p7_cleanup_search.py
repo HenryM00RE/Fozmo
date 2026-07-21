@@ -4,13 +4,17 @@ import argparse
 import hashlib
 import json
 import math
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from scipy import optimize
 
+from .e3_p10_packet_contract import (
+    measure_packet_set,
+    packet_gate_failures,
+)
+from .e3_p11_structural_search import _timing_with_runtime_step
 from .e3_p7_counterfactual import (
     INTERVALS_MS,
     character_counterfactual_residual,
@@ -18,14 +22,12 @@ from .e3_p7_counterfactual import (
     fixture_contract,
     interval_metrics,
 )
-from .e3_phase_search import _cascade_character_and_cleanup, _read_f64le, _timing_metrics
-from .evaluate_e3_packets import PACKET_FREQUENCIES_HZ, _measure_packet
+from .e3_phase_search import _cascade_character_and_cleanup, _read_f64le
 
 
-IDENTITY = "SplitPhase128kE3-P7-cleanup1-counterfactual-pilot"
+IDENTITY = "SplitPhase128kE3-cleanup1-counterfactual-search-v2"
 OUTPUT_RATE_HZ = 176_400
 CHARACTER_RATE_HZ = 88_200
-CHARACTER_ORIGIN = 2_530
 TRACE_SAMPLES = round(OUTPUT_RATE_HZ * 0.050)
 TRUST_RADII = (1.0e-5, 2.0e-5, 5.0e-5, 1.0e-4, 2.0e-4)
 OBJECTIVES = ("transition", "post_lobe", "post_energy", "balanced")
@@ -94,10 +96,18 @@ def _main_lobe_bounds(response: np.ndarray) -> tuple[int, int, int]:
     peak = int(np.argmax(np.abs(response)))
     sign = math.copysign(1.0, float(response[peak]))
     left = peak
-    while left > 0 and response[left - 1] != 0.0 and math.copysign(1.0, float(response[left - 1])) == sign:
+    while (
+        left > 0
+        and response[left - 1] != 0.0
+        and math.copysign(1.0, float(response[left - 1])) == sign
+    ):
         left -= 1
     right = peak
-    while right + 1 < response.size and response[right + 1] != 0.0 and math.copysign(1.0, float(response[right + 1])) == sign:
+    while (
+        right + 1 < response.size
+        and response[right + 1] != 0.0
+        and math.copysign(1.0, float(response[right + 1])) == sign
+    ):
         right += 1
     return left, peak, right
 
@@ -124,7 +134,9 @@ def _frequency_model(
     # Keep the constraint model compact while retaining exact FFT-bin endpoints.
     selected_indices = np.flatnonzero(selected)[::128]
     endpoints = np.searchsorted(frequencies, [18_000.0, 20_000.0, 22_050.0, 88_200.0])
-    selected_indices = np.unique(np.concatenate((selected_indices, endpoints.clip(0, bins.size - 1))))
+    selected_indices = np.unique(
+        np.concatenate((selected_indices, endpoints.clip(0, bins.size - 1)))
+    )
     selected_omega = 2.0 * np.pi * selected_indices / fft_length
     selected_source = source_spectrum[selected_indices]
     center = cleanup.size // 2
@@ -162,7 +174,11 @@ def _frequency_metrics(response: np.ndarray, baseline: np.ndarray) -> dict[str, 
     )
     stop = frequency >= 22_050.0
     stop_db = 20.0 * np.log10(
-        max(float(np.max(np.abs(candidate_spectrum[stop]))) / abs(candidate_spectrum[0]), 1.0e-300)
+        max(
+            float(np.max(np.abs(candidate_spectrum[stop])))
+            / abs(candidate_spectrum[0]),
+            1.0e-300,
+        )
     )
     transition = (frequency >= 20_000.0) & (frequency <= 22_050.0)
     transition_magnitude = np.abs(candidate_spectrum[transition])
@@ -174,24 +190,38 @@ def _frequency_metrics(response: np.ndarray, baseline: np.ndarray) -> dict[str, 
     }
 
 
-def search(root: Path, work_dir: Path, reduced_directions: int = REDUCED_DIRECTIONS) -> dict[str, Any]:
+def search(
+    root: Path,
+    work_dir: Path,
+    reduced_directions: int = REDUCED_DIRECTIONS,
+    character_path: Path | None = None,
+) -> dict[str, Any]:
     assets = root / "assets/filters/split_phase_e2v3"
-    character_path = root / "tools/split_phase_v6/baselines/e3-p6d-local-0145.f64le"
+    character_path = (
+        character_path
+        or root / "tools/split_phase_v6/baselines/e3-p6d-local-0145.f64le"
+    ).resolve()
     cleanup_path = assets / "cleanup_stage_1.f64le"
     character = _read_f64le(character_path)
     cleanup = _read_f64le(cleanup_path)
     left_indices, nullspace = _halfband_geometry(cleanup)
     baseline_response = _cascade_character_and_cleanup(character, cleanup)
-    baseline_metrics = asdict(_timing_metrics(baseline_response))
-    baseline_frequency_metrics = _frequency_metrics(baseline_response, baseline_response)
-    baseline_packets = {
-        str(int(frequency)): asdict(_measure_packet(baseline_response, frequency))
-        for frequency in PACKET_FREQUENCIES_HZ
-    }
+    baseline_metrics = _timing_with_runtime_step(baseline_response)
+    baseline_frequency_metrics = _frequency_metrics(
+        baseline_response, baseline_response
+    )
+    baseline_packets = measure_packet_set(baseline_response)
+    e2_character = _read_f64le(assets / "character_full_rate.f64le")
+    e2_response = _cascade_character_and_cleanup(e2_character, cleanup)
+    e2_packets = measure_packet_set(e2_response)
+    character_origin = int(np.argmax(np.abs(character)))
     left_main, peak, right_main = _main_lobe_bounds(baseline_response)
 
     # Static response Jacobian in the exact halfband nullspace.
-    post_indices = np.arange(right_main + 1, min(peak + round(0.007 * OUTPUT_RATE_HZ), baseline_response.size))
+    post_indices = np.arange(
+        right_main + 1,
+        min(peak + round(0.007 * OUTPUT_RATE_HZ), baseline_response.size),
+    )
     post_unique = _pair_shift_matrix(2.0 * character, post_indices, left_indices)
     post_null = post_unique @ nullspace
     baseline_post = baseline_response[post_indices]
@@ -202,22 +232,34 @@ def search(root: Path, work_dir: Path, reduced_directions: int = REDUCED_DIRECTI
     fixture_baselines: dict[str, dict[str, Any]] = {}
     cleanup_center = cleanup.size // 2
     pre_character = math.ceil(cleanup_center / 2) + 4
-    character_count = pre_character + round(CHARACTER_RATE_HZ * 0.050) + pre_character + 8
+    character_count = (
+        pre_character + round(CHARACTER_RATE_HZ * 0.050) + pre_character + 8
+    )
     output_raw_indices = pre_character * 2 + cleanup_center + np.arange(TRACE_SAMPLES)
     for fixture in fixtures:
         character_residual = character_counterfactual_residual(
             character,
             fixture,
-            character_origin=CHARACTER_ORIGIN,
+            character_origin=character_origin,
             sample_start=-pre_character,
             sample_count=character_count,
         )
-        unique = _pair_shift_matrix(character_residual, output_raw_indices, left_indices)
-        baseline = unique @ cleanup[left_indices] + 2.0 * cleanup[cleanup_center] * np.where(
+        unique = _pair_shift_matrix(
+            character_residual, output_raw_indices, left_indices
+        )
+        baseline = unique @ cleanup[left_indices] + 2.0 * cleanup[
+            cleanup_center
+        ] * np.where(
             ((output_raw_indices - cleanup_center) >= 0)
             & (((output_raw_indices - cleanup_center) & 1) == 0)
             & (((output_raw_indices - cleanup_center) // 2) < character_residual.size),
-            character_residual[np.clip((output_raw_indices - cleanup_center) // 2, 0, character_residual.size - 1)],
+            character_residual[
+                np.clip(
+                    (output_raw_indices - cleanup_center) // 2,
+                    0,
+                    character_residual.size - 1,
+                )
+            ],
             0.0,
         )
         direct = np.asarray(baseline, dtype=np.float64)
@@ -260,14 +302,18 @@ def search(root: Path, work_dir: Path, reduced_directions: int = REDUCED_DIRECTI
     if stop_nullspace.shape[1] == 0:
         raise RuntimeError("stopband-preserving cleanup nullspace is empty")
     reduced_geometry = geometry @ stop_nullspace
-    _, singular_values, right_vectors = np.linalg.svd(reduced_geometry, full_matrices=False)
+    _, singular_values, right_vectors = np.linalg.svd(
+        reduced_geometry, full_matrices=False
+    )
     count = min(reduced_directions, right_vectors.shape[0])
     reduced_coordinates = stop_nullspace @ right_vectors[:count].T
     reduced_transform = nullspace @ reduced_coordinates
     transition_reduced = transition_matrix @ reduced_coordinates
     post_reduced = post_null @ reduced_coordinates
 
-    frequency_model = _frequency_model(character, cleanup, left_indices, reduced_transform)
+    frequency_model = _frequency_model(
+        character, cleanup, left_indices, reduced_transform
+    )
     frequency = np.asarray(frequency_model["frequency_hz"])
     frequency_baseline = np.asarray(frequency_model["baseline"])
     frequency_directions = np.asarray(frequency_model["directions"])
@@ -278,11 +324,19 @@ def search(root: Path, work_dir: Path, reduced_directions: int = REDUCED_DIRECTI
     # The compact optimization grid carries 5 dB of margin; exact dense FFT
     # certification below still applies the frozen -150 dB production floor.
     stop_limit = dc * 10.0 ** (-155.0 / 20.0)
-    baseline_phase = frequency_baseline / np.maximum(np.abs(frequency_baseline), 1.0e-300)
-    collinear_directions = np.real(frequency_directions * np.conj(baseline_phase[:, None]))
+    baseline_phase = frequency_baseline / np.maximum(
+        np.abs(frequency_baseline), 1.0e-300
+    )
+    collinear_directions = np.real(
+        frequency_directions * np.conj(baseline_phase[:, None])
+    )
 
     def linear_constraints(radius: float) -> optimize.LinearConstraint:
-        pass_scale = np.maximum(np.abs(frequency_baseline[passband]) * (10.0 ** (1.0e-4 / 20.0) - 1.0), 1.0e-300)
+        pass_scale = np.maximum(
+            np.abs(frequency_baseline[passband])
+            * (10.0 ** (1.0e-4 / 20.0) - 1.0),
+            1.0e-300,
+        )
         pass_matrix = collinear_directions[passband] / pass_scale[:, None]
         stop_matrix = collinear_directions[stopband] / stop_limit
         stop_baseline = np.abs(frequency_baseline[stopband]) / stop_limit
@@ -306,9 +360,14 @@ def search(root: Path, work_dir: Path, reduced_directions: int = REDUCED_DIRECTI
     baseline_post_lobe = max(float(np.max(np.abs(baseline_post))), 1.0e-300)
 
     def objective(q: np.ndarray, name: str) -> float:
-        transition_value = float(np.mean((transition_base + transition_reduced @ q) ** 2))
+        transition_value = float(
+            np.mean((transition_base + transition_reduced @ q) ** 2)
+        )
         post = baseline_post + post_reduced @ q
-        post_energy = float(np.dot(post, post) / max(np.dot(baseline_post, baseline_post), 1.0e-300))
+        post_energy = float(
+            np.dot(post, post)
+            / max(np.dot(baseline_post, baseline_post), 1.0e-300)
+        )
         post_lobe = float(np.max(np.abs(post)) / baseline_post_lobe)
         if name == "transition":
             return transition_value + 0.01 * post_energy
@@ -339,30 +398,37 @@ def search(root: Path, work_dir: Path, reduced_directions: int = REDUCED_DIRECTI
             )
             optimizer_feasible = linear_violation <= 1.0e-6
             unique_delta = reduced_transform @ result.x
-            candidate_cleanup = _cleanup_from_unique(cleanup, left_indices, unique_delta)
+            candidate_cleanup = _cleanup_from_unique(
+                cleanup, left_indices, unique_delta
+            )
             response = _cascade_character_and_cleanup(character, candidate_cleanup)
-            metrics = asdict(_timing_metrics(response))
-            packets = {
-                key: asdict(_measure_packet(response, float(key))) for key in baseline_packets
-            }
+            metrics = _timing_with_runtime_step(response)
+            packets = measure_packet_set(response)
             packet_delta = {
                 key: packets[key]["onset_pre_echo_energy_db_total"]
                 - baseline_packets[key]["onset_pre_echo_energy_db_total"]
                 for key in packets
             }
+            p10_packet_failures = packet_gate_failures(packets, e2_packets)
             transition_reports = []
             for fixture in fixtures:
                 from .e3_p7_counterfactual import cleanup_counterfactual_residual
 
-                residual = cleanup_counterfactual_residual(character, candidate_cleanup, fixture)
+                residual = cleanup_counterfactual_residual(
+                    character, candidate_cleanup, fixture
+                )
                 measured = interval_metrics(residual)
                 baseline_intervals = fixture_baselines[fixture.name]["intervals"]
-                for measured_interval, baseline_interval in zip(measured, baseline_intervals, strict=True):
-                    measured_interval["delta_db_vs_p6"] = (
+                for measured_interval, baseline_interval in zip(
+                    measured, baseline_intervals, strict=True
+                ):
+                    measured_interval["delta_db_vs_anchor"] = (
                         measured_interval["residual_rms_dbfs"]
                         - baseline_interval["residual_rms_dbfs"]
                     )
-                transition_reports.append({"fixture": fixture.name, "intervals": measured})
+                transition_reports.append(
+                    {"fixture": fixture.name, "intervals": measured}
+                )
             frequency_metrics = _frequency_metrics(response, baseline_response)
             identifier = f"cleanup-{objective_name}-r{radius:.0e}".replace("+", "")
             passes = bool(
@@ -370,10 +436,11 @@ def search(root: Path, work_dir: Path, reduced_directions: int = REDUCED_DIRECTI
                 and metrics["maximum_pre_lobe_db_peak"] <= -22.5
                 and metrics["pre_energy_db_total"] <= -4.85
                 and metrics["main_lobe_width_us"] <= 62.5
-                and metrics["step_overshoot_percent"] <= 9.22
+                and metrics["step_overshoot_percent"] <= 12.8
+                and metrics["step_undershoot_percent"] <= 9.5
                 and metrics["decay_120_ms"] is not None
                 and metrics["decay_120_ms"] <= 7.0
-                and max(packet_delta.values()) <= 0.10
+                and not p10_packet_failures
                 and frequency_metrics["maximum_passband_delta_db_0_18khz"] <= 1.0e-4
                 and frequency_metrics["maximum_stopband_db_22k05_nyquist"] <= -150.0
                 and frequency_metrics["maximum_transition_rebound_linear"]
@@ -381,11 +448,15 @@ def search(root: Path, work_dir: Path, reduced_directions: int = REDUCED_DIRECTI
                 + abs(baseline_response.sum()) * 1.0e-15
             )
             first_two_deltas = [
-                interval["delta_db_vs_p6"]
+                interval["delta_db_vs_anchor"]
                 for report in transition_reports
                 for interval in report["intervals"][:2]
             ]
-            timing_deltas = {key: metrics[key] - baseline_metrics[key] for key in metrics if metrics[key] is not None and baseline_metrics[key] is not None}
+            timing_deltas = {
+                key: metrics[key] - baseline_metrics[key]
+                for key in metrics
+                if metrics[key] is not None and baseline_metrics[key] is not None
+            }
             meaningful = bool(
                 min(first_two_deltas) <= -0.03
                 or timing_deltas["maximum_post_lobe_db_peak"] <= -0.05
@@ -405,13 +476,14 @@ def search(root: Path, work_dir: Path, reduced_directions: int = REDUCED_DIRECTI
                 "maximum_unique_coefficient_delta": float(np.max(np.abs(unique_delta))),
                 "sum_unique_coefficient_delta": float(np.sum(unique_delta)),
                 "metrics": metrics,
-                "timing_delta_vs_p6": timing_deltas,
+                "timing_delta_vs_anchor": timing_deltas,
                 "packets": packets,
-                "packet_delta_db_vs_p6": packet_delta,
+                "packet_delta_db_vs_anchor": packet_delta,
+                "p10_packet_failures": p10_packet_failures,
                 "counterfactual_fixtures": transition_reports,
-                "worst_0_5ms_delta_db_vs_p6": float(max(first_two_deltas)),
-                "best_0_5ms_delta_db_vs_p6": float(min(first_two_deltas)),
-                "mean_0_5ms_delta_db_vs_p6": float(np.mean(first_two_deltas)),
+                "worst_0_5ms_delta_db_vs_anchor": float(max(first_two_deltas)),
+                "best_0_5ms_delta_db_vs_anchor": float(min(first_two_deltas)),
+                "mean_0_5ms_delta_db_vs_anchor": float(np.mean(first_two_deltas)),
                 "frequency": frequency_metrics,
                 "passes_hard_gates": passes,
                 "passes_minimum_effect_size": meaningful,
@@ -422,8 +494,8 @@ def search(root: Path, work_dir: Path, reduced_directions: int = REDUCED_DIRECTI
     qualified = [record for record in candidates if record["passes_hard_gates"]]
     qualified.sort(
         key=lambda record: (
-            record["worst_0_5ms_delta_db_vs_p6"],
-            record["mean_0_5ms_delta_db_vs_p6"],
+            record["worst_0_5ms_delta_db_vs_anchor"],
+            record["mean_0_5ms_delta_db_vs_anchor"],
             record["metrics"]["maximum_post_lobe_db_peak"],
             record["metrics"]["post_energy_db_total"],
             record["metrics"]["step_undershoot_percent"],
@@ -448,6 +520,7 @@ def search(root: Path, work_dir: Path, reduced_directions: int = REDUCED_DIRECTI
             "character_sha256": _sha256_bytes(character_path.read_bytes()),
             "cleanup_stage_1": str(cleanup_path.relative_to(root)).replace("\\", "/"),
             "cleanup_stage_1_sha256": _sha256_bytes(cleanup_path.read_bytes()),
+            "character_origin": character_origin,
         },
         "geometry": {
             "unique_odd_pairs": int(left_indices.size),
@@ -457,10 +530,14 @@ def search(root: Path, work_dir: Path, reduced_directions: int = REDUCED_DIRECTI
             "stopband_constraint_singular_values": stop_singular_values.tolist(),
             "retained_svd_directions": count,
             "singular_values": singular_values.tolist(),
-            "condition_ratio_retained": float(singular_values[count - 1] / singular_values[0]),
+            "condition_ratio_retained": float(
+                singular_values[count - 1] / singular_values[0]
+            ),
         },
         "contract": {
-            "counterfactual": "actual mute/restart minus continuously running recovered carrier",
+            "counterfactual": (
+                "actual mute/restart minus continuously running recovered carrier"
+            ),
             "intervals_ms": INTERVALS_MS,
             "training_fixtures": [fixture_contract(fixture) for fixture in fixtures],
             "trust_radii": TRUST_RADII,
@@ -477,6 +554,9 @@ def search(root: Path, work_dir: Path, reduced_directions: int = REDUCED_DIRECTI
             "metrics": baseline_metrics,
             "frequency": baseline_frequency_metrics,
             "packets": baseline_packets,
+            "p10_packet_failures_vs_e2v3": packet_gate_failures(
+                baseline_packets, e2_packets
+            ),
             "counterfactual_fixtures": fixture_baselines,
         },
         "candidate_count": len(candidates),
@@ -497,20 +577,35 @@ def search(root: Path, work_dir: Path, reduced_directions: int = REDUCED_DIRECTI
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument(
+        "--root", type=Path, default=Path(__file__).resolve().parents[2]
+    )
     parser.add_argument("--work-dir", type=Path)
+    parser.add_argument("--character", type=Path)
     parser.add_argument("--reduced-directions", type=int, default=REDUCED_DIRECTIONS)
     arguments = parser.parse_args()
     root = arguments.root.resolve()
-    work_dir = (arguments.work_dir or root / "tools/split_phase_v6/work-e3-p7-cleanup").resolve()
-    report = search(root, work_dir, arguments.reduced_directions)
+    work_dir = (
+        arguments.work_dir or root / "tools/split_phase_v6/work-e3-p7-cleanup"
+    ).resolve()
+    character_path = arguments.character.resolve() if arguments.character else None
+    report = search(
+        root,
+        work_dir,
+        arguments.reduced_directions,
+        character_path,
+    )
     print(
         json.dumps(
             {
                 "candidate_count": report["candidate_count"],
                 "hard_gate_qualified_count": report["hard_gate_qualified_count"],
                 "meaningful_qualified_count": report["meaningful_qualified_count"],
-                "best": report["finalists"][0]["identifier"] if report["finalists"] else None,
+                "best": (
+                    report["finalists"][0]["identifier"]
+                    if report["finalists"]
+                    else None
+                ),
             },
             indent=2,
         )

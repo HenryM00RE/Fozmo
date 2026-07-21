@@ -1,0 +1,2728 @@
+{
+  "schema_version": 1,
+  "configuration": {
+    "source_rate_hz": 48000,
+    "output_rate_hz": 192000,
+    "integer_ratio": 4,
+    "stimulus_headroom_dbfs": -12.0,
+    "packet_window": "Hann",
+    "packet_cycles": 8.0,
+    "packet_frequencies_hz": [
+      5000.0,
+      10000.0,
+      15000.0,
+      18000.0,
+      20000.0
+    ],
+    "packet_energy_contract": "p10-windowed-v1",
+    "packet_pre_echo_windows_ms": [
+      [
+        0.0,
+        0.5
+      ],
+      [
+        0.5,
+        2.0
+      ],
+      [
+        2.0,
+        8.0
+      ]
+    ],
+    "guard_source_frames": 131072,
+    "analysis_tail_ms": 4000.0,
+    "passband_gain_control": "each measured impulse is DC-normalized to the common integer interpolation ratio",
+    "transition_bandwidth_control": "intrinsic production response; common rates and 20 kHz analysis band, with no additional equalizer",
+    "impulse_alignment": "principal absolute-energy peak",
+    "packet_alignment": "historical quadrature-envelope centroid plus principal-peak nominal onset bounds",
+    "group_delay_method": "local linear derivative of the unwrapped transfer-function phase",
+    "reconstruction_filter": "the production SincResampler path only; no secondary reconstruction filter",
+    "packet_reconstruction_floor_db_peak": -160.0,
+    "analysis_window": "full fixed guard plus tail capture; 10 ms threshold hold for decay censoring",
+    "environment_overrides": {}
+  },
+  "filters": [
+    {
+      "filter": "SplitPhase128kE2v3",
+      "display_name": "Split Phase",
+      "runtime": {
+        "path": "integer_cascade",
+        "phase_profile_preserved": true,
+        "uses_capped_fallback": false,
+        "ratio_num": 1,
+        "ratio_den": 4,
+        "nominal_buffer_latency_ms": 113.01041666666667,
+        "estimated_memory_bytes": 22607152
+      },
+      "dc_normalization_scale": 0.999999999999964,
+      "measured_peak_offset_from_input_ms": 0.078125,
+      "impulse": {
+        "peak_index": 524303,
+        "peak_amplitude": 0.6880050212655571,
+        "pre_peak_energy_db_total": -5.243295015715933,
+        "post_peak_energy_db_total": -2.3938911226100323,
+        "maximum_pre_ringing_lobe_db_peak": -18.25087131088886,
+        "maximum_post_ringing_lobe_db_peak": -7.752214322277807,
+        "decay_time_to_minus_80_db_ms": 3.0885416666666665,
+        "decay_time_to_minus_120_db_ms": 3.90625,
+        "decay_minus_80_db_censored": false,
+        "decay_minus_120_db_censored": false,
+        "main_lobe_width_us": 63.15764618557295,
+        "step_response_overshoot_percent": 13.982132513841684,
+        "step_response_undershoot_percent": 11.411923813593878,
+        "energy_centroid_relative_to_peak_ms": 0.06978168858646919
+      },
+      "tone_packets": [
+        {
+          "frequency_hz": 5000.0,
+          "cycles": 8.0,
+          "nominal_duration_ms": 1.6041666666666667,
+          "alignment": "energy_centroid (historical envelope split)",
+          "energy_centroid_index": 1900.490202886253,
+          "pre_echo_energy_db_total": -78.36995553195366,
+          "post_echo_energy_db_total": -76.2733896717945,
+          "maximum_pre_echo_db_peak": -62.381839387299905,
+          "maximum_post_echo_db_peak": -61.164237364771054,
+          "onset_reference": "principal impulse peak plus nominal source packet bounds",
+          "nominal_onset_index": 1750.0,
+          "onset_pre_echo_energy_db_total": -73.32005240243356,
+          "onset_pre_echo_energy_db_0_0p5ms": -73.33950828013344,
+          "onset_pre_echo_energy_db_0p5_2ms": -96.81950720084522,
+          "onset_pre_echo_energy_db_2_8ms": -129.40210747962777,
+          "onset_post_decay_energy_db_total": -82.40927979101733,
+          "maximum_onset_pre_echo_db_peak": -57.92270208284586,
+          "maximum_onset_post_decay_db_peak": -67.53683946708306
+        },
+        {
+          "frequency_hz": 10000.0,
+          "cycles": 8.0,
+          "nominal_duration_ms": 0.7916666666666666,
+          "alignment": "energy_centroid (historical envelope split)",
+          "energy_centroid_index": 1822.1408792556622,
+          "pre_echo_energy_db_total": -68.93210958738499,
+          "post_echo_energy_db_total": -55.65048537013237,
+          "maximum_pre_echo_db_peak": -54.93630995289288,
+          "maximum_post_echo_db_peak": -45.36736584322866,
+          "onset_reference": "principal impulse peak plus nominal source packet bounds",
+          "nominal_onset_index": 1750.0,
+          "onset_pre_echo_energy_db_total": -60.6571882207433,
+          "onset_pre_echo_energy_db_0_0p5ms": -60.65719697799501,
+          "onset_pre_echo_energy_db_0p5_2ms": -117.61280080819628,
+          "onset_pre_echo_energy_db_2_8ms": -152.39724462028542,
+          "onset_post_decay_energy_db_total": -58.72592226701599,
+          "maximum_onset_pre_echo_db_peak": -46.45343133748384,
+          "maximum_onset_post_decay_db_peak": -51.056092022285185
+        },
+        {
+          "frequency_hz": 15000.0,
+          "cycles": 8.0,
+          "nominal_duration_ms": 0.5416666666666666,
+          "alignment": "energy_centroid (historical envelope split)",
+          "energy_centroid_index": 1806.5473637705543,
+          "pre_echo_energy_db_total": -40.35563405466287,
+          "post_echo_energy_db_total": -36.14152490380393,
+          "maximum_pre_echo_db_peak": -30.894680378082057,
+          "maximum_post_echo_db_peak": -28.55518341930027,
+          "onset_reference": "principal impulse peak plus nominal source packet bounds",
+          "nominal_onset_index": 1750.0,
+          "onset_pre_echo_energy_db_total": -46.10361974876203,
+          "onset_pre_echo_energy_db_0_0p5ms": -46.103818055172525,
+          "onset_pre_echo_energy_db_0p5_2ms": -89.50835288733607,
+          "onset_pre_echo_energy_db_2_8ms": -133.88838172375716,
+          "onset_post_decay_energy_db_total": -33.07520508178109,
+          "maximum_onset_pre_echo_db_peak": -36.81840182039679,
+          "maximum_onset_post_decay_db_peak": -24.930489101620687
+        },
+        {
+          "frequency_hz": 18000.0,
+          "cycles": 8.0,
+          "nominal_duration_ms": 0.4375,
+          "alignment": "energy_centroid (historical envelope split)",
+          "energy_centroid_index": 1809.436313961134,
+          "pre_echo_energy_db_total": -28.28177357231574,
+          "post_echo_energy_db_total": -20.199369328407478,
+          "maximum_pre_echo_db_peak": -19.41722221985762,
+          "maximum_post_echo_db_peak": -15.752781960111026,
+          "onset_reference": "principal impulse peak plus nominal source packet bounds",
+          "nominal_onset_index": 1750.0,
+          "onset_pre_echo_energy_db_total": -51.94373210223867,
+          "onset_pre_echo_energy_db_0_0p5ms": -51.94389427769397,
+          "onset_pre_echo_energy_db_0p5_2ms": -96.22191381030929,
+          "onset_pre_echo_energy_db_2_8ms": -142.2348360094285,
+          "onset_post_decay_energy_db_total": -13.351567513634704,
+          "maximum_onset_pre_echo_db_peak": -41.92498581494191,
+          "maximum_onset_post_decay_db_peak": -7.970850953299321
+        },
+        {
+          "frequency_hz": 20000.0,
+          "cycles": 8.0,
+          "nominal_duration_ms": 0.3958333333333333,
+          "alignment": "energy_centroid (historical envelope split)",
+          "energy_centroid_index": 1829.410551100918,
+          "pre_echo_energy_db_total": -13.113388635861202,
+          "post_echo_energy_db_total": -9.923413822166093,
+          "maximum_pre_echo_db_peak": -5.748182797320798,
+          "maximum_post_echo_db_peak": -8.569609973442429,
+          "onset_reference": "principal impulse peak plus nominal source packet bounds",
+          "nominal_onset_index": 1750.0,
+          "onset_pre_echo_energy_db_total": -53.13081078747943,
+          "onset_pre_echo_energy_db_0_0p5ms": -53.13082787507865,
+          "onset_pre_echo_energy_db_0p5_2ms": -107.18190061136355,
+          "onset_pre_echo_energy_db_2_8ms": -156.69333056474431,
+          "onset_post_decay_energy_db_total": -3.88587702424408,
+          "maximum_onset_pre_echo_db_peak": -40.98794638063793,
+          "maximum_onset_post_decay_db_peak": -1.0963600038799164
+        }
+      ],
+      "group_delay": [
+        {
+          "frequency_hz": 20.0,
+          "magnitude_db": -8.714627069661114e-8,
+          "absolute_group_delay_ms": 2730.7456344201873,
+          "group_delay_relative_to_peak_ms": 0.0008427535206768273
+        },
+        {
+          "frequency_hz": 100.0,
+          "magnitude_db": -8.527567790169934e-8,
+          "absolute_group_delay_ms": 2730.745634419977,
+          "group_delay_relative_to_peak_ms": 0.0008427533102803864
+        },
+        {
+          "frequency_hz": 200.0,
+          "magnitude_db": -8.175904368040174e-8,
+          "absolute_group_delay_ms": 2730.745634419687,
+          "group_delay_relative_to_peak_ms": 0.0008427530204547414
+        },
+        {
+          "frequency_hz": 300.0,
+          "magnitude_db": -7.802306546166756e-8,
+          "absolute_group_delay_ms": 2730.745634419002,
+          "group_delay_relative_to_peak_ms": 0.0008427523353020661
+        },
+        {
+          "frequency_hz": 400.0,
+          "magnitude_db": -7.572794292709828e-8,
+          "absolute_group_delay_ms": 2730.745634420267,
+          "group_delay_relative_to_peak_ms": 0.0008427536001060313
+        },
+        {
+          "frequency_hz": 500.0,
+          "magnitude_db": -7.361378222973077e-8,
+          "absolute_group_delay_ms": 2730.745634419845,
+          "group_delay_relative_to_peak_ms": 0.0008427531781004898
+        },
+        {
+          "frequency_hz": 600.0,
+          "magnitude_db": -7.411178601020793e-8,
+          "absolute_group_delay_ms": 2730.7456344192124,
+          "group_delay_relative_to_peak_ms": 0.0008427525456985071
+        },
+        {
+          "frequency_hz": 700.0,
+          "magnitude_db": -7.639122279364123e-8,
+          "absolute_group_delay_ms": 2730.745634420056,
+          "group_delay_relative_to_peak_ms": 0.0008427533891032605
+        },
+        {
+          "frequency_hz": 800.0,
+          "magnitude_db": -7.739819475833498e-8,
+          "absolute_group_delay_ms": 2730.745634419634,
+          "group_delay_relative_to_peak_ms": 0.0008427529670977189
+        },
+        {
+          "frequency_hz": 900.0,
+          "magnitude_db": -7.72007969241748e-8,
+          "absolute_group_delay_ms": 2730.745634419845,
+          "group_delay_relative_to_peak_ms": 0.0008427531781004898
+        },
+        {
+          "frequency_hz": 1000.0,
+          "magnitude_db": -7.684744805074695e-8,
+          "absolute_group_delay_ms": 2730.745634419634,
+          "group_delay_relative_to_peak_ms": 0.0008427529670977189
+        },
+        {
+          "frequency_hz": 1100.0,
+          "magnitude_db": -7.6022112951995e-8,
+          "absolute_group_delay_ms": 2730.7456344192124,
+          "group_delay_relative_to_peak_ms": 0.0008427525456985071
+        },
+        {
+          "frequency_hz": 1200.0,
+          "magnitude_db": -7.51994933994908e-8,
+          "absolute_group_delay_ms": 2730.7456344192124,
+          "group_delay_relative_to_peak_ms": 0.0008427525456985071
+        },
+        {
+          "frequency_hz": 1300.0,
+          "magnitude_db": -7.488791533504561e-8,
+          "absolute_group_delay_ms": 2730.745634420056,
+          "group_delay_relative_to_peak_ms": 0.0008427533891032605
+        },
+        {
+          "frequency_hz": 1400.0,
+          "magnitude_db": -7.552514678777136e-8,
+          "absolute_group_delay_ms": 2730.745634420056,
+          "group_delay_relative_to_peak_ms": 0.0008427533891032605
+        },
+        {
+          "frequency_hz": 1500.0,
+          "magnitude_db": -7.737424857847218e-8,
+          "absolute_group_delay_ms": 2730.7456344192124,
+          "group_delay_relative_to_peak_ms": 0.0008427525456985071
+        },
+        {
+          "frequency_hz": 1600.0,
+          "magnitude_db": -7.70429596603578e-8,
+          "absolute_group_delay_ms": 2730.7456344192124,
+          "group_delay_relative_to_peak_ms": 0.0008427525456985071
+        },
+        {
+          "frequency_hz": 1700.0,
+          "magnitude_db": -7.638223911888381e-8,
+          "absolute_group_delay_ms": 2730.7456344192124,
+          "group_delay_relative_to_peak_ms": 0.0008427525456985071
+        },
+        {
+          "frequency_hz": 1800.0,
+          "magnitude_db": -7.643681041069614e-8,
+          "absolute_group_delay_ms": 2730.7456344192124,
+          "group_delay_relative_to_peak_ms": 0.0008427525456985071
+        },
+        {
+          "frequency_hz": 1900.0,
+          "magnitude_db": -7.578644867500435e-8,
+          "absolute_group_delay_ms": 2730.745634418791,
+          "group_delay_relative_to_peak_ms": 0.0008427521242992952
+        },
+        {
+          "frequency_hz": 2000.0,
+          "magnitude_db": -7.476407254341411e-8,
+          "absolute_group_delay_ms": 2730.745634420477,
+          "group_delay_relative_to_peak_ms": 0.0008427538105024723
+        },
+        {
+          "frequency_hz": 2100.0,
+          "magnitude_db": -7.571698430967282e-8,
+          "absolute_group_delay_ms": 2730.745634420477,
+          "group_delay_relative_to_peak_ms": 0.0008427538105024723
+        },
+        {
+          "frequency_hz": 2200.0,
+          "magnitude_db": -7.635215788762767e-8,
+          "absolute_group_delay_ms": 2730.7456344179477,
+          "group_delay_relative_to_peak_ms": 0.0008427512808945419
+        },
+        {
+          "frequency_hz": 2300.0,
+          "magnitude_db": -7.727274346843916e-8,
+          "absolute_group_delay_ms": 2730.745634419634,
+          "group_delay_relative_to_peak_ms": 0.0008427529670977189
+        },
+        {
+          "frequency_hz": 2400.0,
+          "magnitude_db": -7.694296854446454e-8,
+          "absolute_group_delay_ms": 2730.7456344171046,
+          "group_delay_relative_to_peak_ms": 0.0008427504380961182
+        },
+        {
+          "frequency_hz": 2500.0,
+          "magnitude_db": -7.58807194003027e-8,
+          "absolute_group_delay_ms": 2730.7456344171046,
+          "group_delay_relative_to_peak_ms": 0.0008427504380961182
+        },
+        {
+          "frequency_hz": 2600.0,
+          "magnitude_db": -7.633099475686068e-8,
+          "absolute_group_delay_ms": 2730.745634419634,
+          "group_delay_relative_to_peak_ms": 0.0008427529670977189
+        },
+        {
+          "frequency_hz": 2700.0,
+          "magnitude_db": -7.573207217734606e-8,
+          "absolute_group_delay_ms": 2730.745634420477,
+          "group_delay_relative_to_peak_ms": 0.0008427538105024723
+        },
+        {
+          "frequency_hz": 2800.0,
+          "magnitude_db": -7.433129394464023e-8,
+          "absolute_group_delay_ms": 2730.7456344171046,
+          "group_delay_relative_to_peak_ms": 0.0008427504380961182
+        },
+        {
+          "frequency_hz": 2900.0,
+          "magnitude_db": -7.671977880766642e-8,
+          "absolute_group_delay_ms": 2730.745634419634,
+          "group_delay_relative_to_peak_ms": 0.0008427529670977189
+        },
+        {
+          "frequency_hz": 3000.0,
+          "magnitude_db": -7.725132189790661e-8,
+          "absolute_group_delay_ms": 2730.745634420477,
+          "group_delay_relative_to_peak_ms": 0.0008427538105024723
+        },
+        {
+          "frequency_hz": 3100.0,
+          "magnitude_db": -7.53120689889116e-8,
+          "absolute_group_delay_ms": 2730.7456344179477,
+          "group_delay_relative_to_peak_ms": 0.0008427512808945419
+        },
+        {
+          "frequency_hz": 3200.0,
+          "magnitude_db": -8.022265014519401e-8,
+          "absolute_group_delay_ms": 2730.7456344322823,
+          "group_delay_relative_to_peak_ms": 0.0008427656157437013
+        },
+        {
+          "frequency_hz": 3300.0,
+          "magnitude_db": -7.868770117281601e-8,
+          "absolute_group_delay_ms": 2730.7456168609883,
+          "group_delay_relative_to_peak_ms": 0.0008251943218056113
+        },
+        {
+          "frequency_hz": 3400.0,
+          "magnitude_db": -7.705252386025591e-8,
+          "absolute_group_delay_ms": 2730.7449663057073,
+          "group_delay_relative_to_peak_ms": 0.00017463904077885672
+        },
+        {
+          "frequency_hz": 3500.0,
+          "magnitude_db": -7.368396791199656e-8,
+          "absolute_group_delay_ms": 2730.74344673787,
+          "group_delay_relative_to_peak_ms": -0.0013449287968493688
+        },
+        {
+          "frequency_hz": 3600.0,
+          "magnitude_db": -7.628834833860516e-8,
+          "absolute_group_delay_ms": 2730.7418799025927,
+          "group_delay_relative_to_peak_ms": -0.0029117640739665753
+        },
+        {
+          "frequency_hz": 3700.0,
+          "magnitude_db": -7.663455540272997e-8,
+          "absolute_group_delay_ms": 2730.7408313193027,
+          "group_delay_relative_to_peak_ms": -0.003960347363924181
+        },
+        {
+          "frequency_hz": 3800.0,
+          "magnitude_db": -7.684551746714181e-8,
+          "absolute_group_delay_ms": 2730.7402933128915,
+          "group_delay_relative_to_peak_ms": -0.004498353775488795
+        },
+        {
+          "frequency_hz": 3900.0,
+          "magnitude_db": -7.705896363913468e-8,
+          "absolute_group_delay_ms": 2730.7400313886283,
+          "group_delay_relative_to_peak_ms": -0.004760278038399216
+        },
+        {
+          "frequency_hz": 4000.0,
+          "magnitude_db": -7.623950515199538e-8,
+          "absolute_group_delay_ms": 2730.739852658599,
+          "group_delay_relative_to_peak_ms": -0.004939008067594841
+        },
+        {
+          "frequency_hz": 4100.0,
+          "magnitude_db": -7.605559054461693e-8,
+          "absolute_group_delay_ms": 2730.739673458046,
+          "group_delay_relative_to_peak_ms": -0.005118208620842779
+        },
+        {
+          "frequency_hz": 4200.0,
+          "magnitude_db": -7.592037447472883e-8,
+          "absolute_group_delay_ms": 2730.739470786939,
+          "group_delay_relative_to_peak_ms": -0.005320879727757226
+        },
+        {
+          "frequency_hz": 4300.0,
+          "magnitude_db": -7.479674395826222e-8,
+          "absolute_group_delay_ms": 2730.7392400479707,
+          "group_delay_relative_to_peak_ms": -0.005551618696093405
+        },
+        {
+          "frequency_hz": 4400.0,
+          "magnitude_db": -7.610377991719763e-8,
+          "absolute_group_delay_ms": 2730.7389761362065,
+          "group_delay_relative_to_peak_ms": -0.005815530460192045
+        },
+        {
+          "frequency_hz": 4500.0,
+          "magnitude_db": -7.735511053540051e-8,
+          "absolute_group_delay_ms": 2730.738676274038,
+          "group_delay_relative_to_peak_ms": -0.006115392628998961
+        },
+        {
+          "frequency_hz": 4600.0,
+          "magnitude_db": -7.67469169114699e-8,
+          "absolute_group_delay_ms": 2730.738342498714,
+          "group_delay_relative_to_peak_ms": -0.006449167952572073
+        },
+        {
+          "frequency_hz": 4700.0,
+          "magnitude_db": -7.659043934940098e-8,
+          "absolute_group_delay_ms": 2730.7379836810505,
+          "group_delay_relative_to_peak_ms": -0.0068079856161299785
+        },
+        {
+          "frequency_hz": 4800.0,
+          "magnitude_db": -7.650090732930728e-8,
+          "absolute_group_delay_ms": 2730.7376135455097,
+          "group_delay_relative_to_peak_ms": -0.007178121156660685
+        },
+        {
+          "frequency_hz": 4900.0,
+          "magnitude_db": -7.591564155548162e-8,
+          "absolute_group_delay_ms": 2730.737244303797,
+          "group_delay_relative_to_peak_ms": -0.007547362869445351
+        },
+        {
+          "frequency_hz": 5000.0,
+          "magnitude_db": -7.525624792869887e-8,
+          "absolute_group_delay_ms": 2730.7368848216656,
+          "group_delay_relative_to_peak_ms": -0.007906845001343754
+        },
+        {
+          "frequency_hz": 5100.0,
+          "magnitude_db": -7.54842728034187e-8,
+          "absolute_group_delay_ms": 2730.7365385648036,
+          "group_delay_relative_to_peak_ms": -0.008253101862768137
+        },
+        {
+          "frequency_hz": 5200.0,
+          "magnitude_db": -7.653900983650142e-8,
+          "absolute_group_delay_ms": 2730.736206359581,
+          "group_delay_relative_to_peak_ms": -0.008585307085619814
+        },
+        {
+          "frequency_hz": 5300.0,
+          "magnitude_db": -7.748773256440278e-8,
+          "absolute_group_delay_ms": 2730.735886418342,
+          "group_delay_relative_to_peak_ms": -0.008905248324784528
+        },
+        {
+          "frequency_hz": 5400.0,
+          "magnitude_db": -7.65338738283693e-8,
+          "absolute_group_delay_ms": 2730.7355770984686,
+          "group_delay_relative_to_peak_ms": -0.009214568198027944
+        },
+        {
+          "frequency_hz": 5500.0,
+          "magnitude_db": -7.65771239156254e-8,
+          "absolute_group_delay_ms": 2730.73527725991,
+          "group_delay_relative_to_peak_ms": -0.0095144067563524
+        },
+        {
+          "frequency_hz": 5600.0,
+          "magnitude_db": -7.651672037124312e-8,
+          "absolute_group_delay_ms": 2730.734987337775,
+          "group_delay_relative_to_peak_ms": -0.009804328892035603
+        },
+        {
+          "frequency_hz": 5700.0,
+          "magnitude_db": -7.561489674586432e-8,
+          "absolute_group_delay_ms": 2730.734707397833,
+          "group_delay_relative_to_peak_ms": -0.01008426883345237
+        },
+        {
+          "frequency_hz": 5800.0,
+          "magnitude_db": -7.502208607393487e-8,
+          "absolute_group_delay_ms": 2730.7344380117993,
+          "group_delay_relative_to_peak_ms": -0.010353654867382526
+        },
+        {
+          "frequency_hz": 5900.0,
+          "magnitude_db": -7.622822252053769e-8,
+          "absolute_group_delay_ms": 2730.7341795422626,
+          "group_delay_relative_to_peak_ms": -0.010612124403754326
+        },
+        {
+          "frequency_hz": 6000.0,
+          "magnitude_db": -7.702375990032843e-8,
+          "absolute_group_delay_ms": 2730.7339329521965,
+          "group_delay_relative_to_peak_ms": -0.010858714470183866
+        },
+        {
+          "frequency_hz": 6100.0,
+          "magnitude_db": -7.714897010835188e-8,
+          "absolute_group_delay_ms": 2730.733698430484,
+          "group_delay_relative_to_peak_ms": -0.011093236182811477
+        },
+        {
+          "frequency_hz": 6200.0,
+          "magnitude_db": -7.661215407548432e-8,
+          "absolute_group_delay_ms": 2730.733476142399,
+          "group_delay_relative_to_peak_ms": -0.011315524267653624
+        },
+        {
+          "frequency_hz": 6300.0,
+          "magnitude_db": -7.662768167648773e-8,
+          "absolute_group_delay_ms": 2730.7332668097492,
+          "group_delay_relative_to_peak_ms": -0.011524856917579502
+        },
+        {
+          "frequency_hz": 6400.0,
+          "magnitude_db": -7.633373151823483e-8,
+          "absolute_group_delay_ms": 2730.7330704679507,
+          "group_delay_relative_to_peak_ms": -0.011721198715652765
+        },
+        {
+          "frequency_hz": 6500.0,
+          "magnitude_db": -7.519639405098647e-8,
+          "absolute_group_delay_ms": 2730.732887349736,
+          "group_delay_relative_to_peak_ms": -0.011904316930667846
+        },
+        {
+          "frequency_hz": 6600.0,
+          "magnitude_db": -7.538859608866621e-8,
+          "absolute_group_delay_ms": 2730.7327174736556,
+          "group_delay_relative_to_peak_ms": -0.012074193010751817
+        },
+        {
+          "frequency_hz": 6700.0,
+          "magnitude_db": -7.682346329778666e-8,
+          "absolute_group_delay_ms": 2730.732561315294,
+          "group_delay_relative_to_peak_ms": -0.012230351372636505
+        },
+        {
+          "frequency_hz": 6800.0,
+          "magnitude_db": -7.729387188341935e-8,
+          "absolute_group_delay_ms": 2730.7324188510393,
+          "group_delay_relative_to_peak_ms": -0.012372815627410699
+        },
+        {
+          "frequency_hz": 6900.0,
+          "magnitude_db": -7.670989830835684e-8,
+          "absolute_group_delay_ms": 2730.732290156784,
+          "group_delay_relative_to_peak_ms": -0.01250150988259217
+        },
+        {
+          "frequency_hz": 7000.0,
+          "magnitude_db": -7.692405229671308e-8,
+          "absolute_group_delay_ms": 2730.732175237586,
+          "group_delay_relative_to_peak_ms": -0.012616429080784048
+        },
+        {
+          "frequency_hz": 7100.0,
+          "magnitude_db": -7.658948659385562e-8,
+          "absolute_group_delay_ms": 2730.7320743632813,
+          "group_delay_relative_to_peak_ms": -0.012717303385215928
+        },
+        {
+          "frequency_hz": 7200.0,
+          "magnitude_db": -7.587827579448112e-8,
+          "absolute_group_delay_ms": 2730.731987430994,
+          "group_delay_relative_to_peak_ms": -0.012804235672471501
+        },
+        {
+          "frequency_hz": 7300.0,
+          "magnitude_db": -7.504905831340736e-8,
+          "absolute_group_delay_ms": 2730.731914459277,
+          "group_delay_relative_to_peak_ms": -0.012877207389465184
+        },
+        {
+          "frequency_hz": 7400.0,
+          "magnitude_db": -7.610793809726984e-8,
+          "absolute_group_delay_ms": 2730.731855377298,
+          "group_delay_relative_to_peak_ms": -0.01293628936885701
+        },
+        {
+          "frequency_hz": 7500.0,
+          "magnitude_db": -7.718664445414989e-8,
+          "absolute_group_delay_ms": 2730.731810201921,
+          "group_delay_relative_to_peak_ms": -0.012981464746189886
+        },
+        {
+          "frequency_hz": 7600.0,
+          "magnitude_db": -7.719574963417001e-8,
+          "absolute_group_delay_ms": 2730.7317787897964,
+          "group_delay_relative_to_peak_ms": -0.01301287687056174
+        },
+        {
+          "frequency_hz": 7700.0,
+          "magnitude_db": -7.66241676671686e-8,
+          "absolute_group_delay_ms": 2730.7317610397367,
+          "group_delay_relative_to_peak_ms": -0.013030626929927772
+        },
+        {
+          "frequency_hz": 7800.0,
+          "magnitude_db": -7.713684079736984e-8,
+          "absolute_group_delay_ms": 2730.7317568606727,
+          "group_delay_relative_to_peak_ms": -0.01303480599381146
+        },
+        {
+          "frequency_hz": 7900.0,
+          "magnitude_db": -7.640047648009167e-8,
+          "absolute_group_delay_ms": 2730.731766116001,
+          "group_delay_relative_to_peak_ms": -0.01302555066589169
+        },
+        {
+          "frequency_hz": 8000.0,
+          "magnitude_db": -7.527755185127458e-8,
+          "absolute_group_delay_ms": 2730.731788687668,
+          "group_delay_relative_to_peak_ms": -0.013002978998580755
+        },
+        {
+          "frequency_hz": 8100.0,
+          "magnitude_db": -7.546195247968392e-8,
+          "absolute_group_delay_ms": 2730.731824545318,
+          "group_delay_relative_to_peak_ms": -0.012967121348992805
+        },
+        {
+          "frequency_hz": 8200.0,
+          "magnitude_db": -7.67830734058204e-8,
+          "absolute_group_delay_ms": 2730.7318734966934,
+          "group_delay_relative_to_peak_ms": -0.012918169973393864
+        },
+        {
+          "frequency_hz": 8300.0,
+          "magnitude_db": -7.730499829382745e-8,
+          "absolute_group_delay_ms": 2730.7319354912,
+          "group_delay_relative_to_peak_ms": -0.012856175466367858
+        },
+        {
+          "frequency_hz": 8400.0,
+          "magnitude_db": -7.693255766504342e-8,
+          "absolute_group_delay_ms": 2730.7320104276514,
+          "group_delay_relative_to_peak_ms": -0.012781239015263662
+        },
+        {
+          "frequency_hz": 8500.0,
+          "magnitude_db": -7.700640586308648e-8,
+          "absolute_group_delay_ms": 2730.732098279062,
+          "group_delay_relative_to_peak_ms": -0.01269338760478907
+        },
+        {
+          "frequency_hz": 8600.0,
+          "magnitude_db": -7.704281886854642e-8,
+          "absolute_group_delay_ms": 2730.7321986980214,
+          "group_delay_relative_to_peak_ms": -0.012592968645549263
+        },
+        {
+          "frequency_hz": 8700.0,
+          "magnitude_db": -7.60305276735418e-8,
+          "absolute_group_delay_ms": 2730.732311596832,
+          "group_delay_relative_to_peak_ms": -0.012480069834661359
+        },
+        {
+          "frequency_hz": 8800.0,
+          "magnitude_db": -7.498709641583632e-8,
+          "absolute_group_delay_ms": 2730.7324367697456,
+          "group_delay_relative_to_peak_ms": -0.012354896921048445
+        },
+        {
+          "frequency_hz": 8900.0,
+          "magnitude_db": -7.626184090497177e-8,
+          "absolute_group_delay_ms": 2730.7325741054556,
+          "group_delay_relative_to_peak_ms": -0.012217561211097442
+        },
+        {
+          "frequency_hz": 9000.0,
+          "magnitude_db": -7.720816052877486e-8,
+          "absolute_group_delay_ms": 2730.7327230912756,
+          "group_delay_relative_to_peak_ms": -0.012068575391216047
+        },
+        {
+          "frequency_hz": 9100.0,
+          "magnitude_db": -7.718065405187443e-8,
+          "absolute_group_delay_ms": 2730.7328835956623,
+          "group_delay_relative_to_peak_ms": -0.01190807100465463
+        },
+        {
+          "frequency_hz": 9200.0,
+          "magnitude_db": -7.691219492607934e-8,
+          "absolute_group_delay_ms": 2730.733055561274,
+          "group_delay_relative_to_peak_ms": -0.011736105392628815
+        },
+        {
+          "frequency_hz": 9300.0,
+          "magnitude_db": -7.74563437050865e-8,
+          "absolute_group_delay_ms": 2730.7332384551887,
+          "group_delay_relative_to_peak_ms": -0.011553211477803416
+        },
+        {
+          "frequency_hz": 9400.0,
+          "magnitude_db": -7.66357839559332e-8,
+          "absolute_group_delay_ms": 2730.733432257169,
+          "group_delay_relative_to_peak_ms": -0.011359409497648205
+        },
+        {
+          "frequency_hz": 9500.0,
+          "magnitude_db": -7.552024607554371e-8,
+          "absolute_group_delay_ms": 2730.7336368289234,
+          "group_delay_relative_to_peak_ms": -0.011154837743257909
+        },
+        {
+          "frequency_hz": 9600.0,
+          "magnitude_db": -7.535695264690414e-8,
+          "absolute_group_delay_ms": 2730.733852254776,
+          "group_delay_relative_to_peak_ms": -0.010939411890528087
+        },
+        {
+          "frequency_hz": 9700.0,
+          "magnitude_db": -7.696520400738532e-8,
+          "absolute_group_delay_ms": 2730.7340780658897,
+          "group_delay_relative_to_peak_ms": -0.010713600776701545
+        },
+        {
+          "frequency_hz": 9800.0,
+          "magnitude_db": -7.73371123274045e-8,
+          "absolute_group_delay_ms": 2730.7343143499593,
+          "group_delay_relative_to_peak_ms": -0.010477316707086478
+        },
+        {
+          "frequency_hz": 9900.0,
+          "magnitude_db": -7.697229760029215e-8,
+          "absolute_group_delay_ms": 2730.7345610125444,
+          "group_delay_relative_to_peak_ms": -0.010230654122400058
+        },
+        {
+          "frequency_hz": 10000.0,
+          "magnitude_db": -7.731741111708741e-8,
+          "absolute_group_delay_ms": 2730.7348181615776,
+          "group_delay_relative_to_peak_ms": -0.009973505089268048
+        },
+        {
+          "frequency_hz": 10100.0,
+          "magnitude_db": -7.75041396320651e-8,
+          "absolute_group_delay_ms": 2730.7350851460833,
+          "group_delay_relative_to_peak_ms": -0.009706520583373882
+        },
+        {
+          "frequency_hz": 10200.0,
+          "magnitude_db": -7.606158866151142e-8,
+          "absolute_group_delay_ms": 2730.7353619694345,
+          "group_delay_relative_to_peak_ms": -0.009429697232311204
+        },
+        {
+          "frequency_hz": 10300.0,
+          "magnitude_db": -7.519291282880206e-8,
+          "absolute_group_delay_ms": 2730.7356484225083,
+          "group_delay_relative_to_peak_ms": -0.00914324415862211
+        },
+        {
+          "frequency_hz": 10400.0,
+          "magnitude_db": -7.627528555862851e-8,
+          "absolute_group_delay_ms": 2730.735944458085,
+          "group_delay_relative_to_peak_ms": -0.00884720858145253
+        },
+        {
+          "frequency_hz": 10500.0,
+          "magnitude_db": -7.726138369078212e-8,
+          "absolute_group_delay_ms": 2730.7362493307464,
+          "group_delay_relative_to_peak_ms": -0.008542335920234716
+        },
+        {
+          "frequency_hz": 10600.0,
+          "magnitude_db": -7.724517913189003e-8,
+          "absolute_group_delay_ms": 2730.736563259732,
+          "group_delay_relative_to_peak_ms": -0.008228406934601177
+        },
+        {
+          "frequency_hz": 10700.0,
+          "magnitude_db": -7.70550426836209e-8,
+          "absolute_group_delay_ms": 2730.736886643049,
+          "group_delay_relative_to_peak_ms": -0.007905023617543824
+        },
+        {
+          "frequency_hz": 10800.0,
+          "magnitude_db": -7.783008810463946e-8,
+          "absolute_group_delay_ms": 2730.7372192985595,
+          "group_delay_relative_to_peak_ms": -0.00757236810750328
+        },
+        {
+          "frequency_hz": 10900.0,
+          "magnitude_db": -7.702758056578481e-8,
+          "absolute_group_delay_ms": 2730.737562170683,
+          "group_delay_relative_to_peak_ms": -0.007229495983968566
+        },
+        {
+          "frequency_hz": 11000.0,
+          "magnitude_db": -7.553161356781828e-8,
+          "absolute_group_delay_ms": 2730.7379162780453,
+          "group_delay_relative_to_peak_ms": -0.0068753886213623145
+        },
+        {
+          "frequency_hz": 11100.0,
+          "magnitude_db": -7.54524442107811e-8,
+          "absolute_group_delay_ms": 2730.7382833543356,
+          "group_delay_relative_to_peak_ms": -0.006508312331182727
+        },
+        {
+          "frequency_hz": 11200.0,
+          "magnitude_db": -7.717657108934475e-8,
+          "absolute_group_delay_ms": 2730.738664441789,
+          "group_delay_relative_to_peak_ms": -0.006127224877976308
+        },
+        {
+          "frequency_hz": 11300.0,
+          "magnitude_db": -7.721164946557987e-8,
+          "absolute_group_delay_ms": 2730.7390618711024,
+          "group_delay_relative_to_peak_ms": -0.0057297955645481125
+        },
+        {
+          "frequency_hz": 11400.0,
+          "magnitude_db": -7.714037216458372e-8,
+          "absolute_group_delay_ms": 2730.73947764917,
+          "group_delay_relative_to_peak_ms": -0.005314017496251229
+        },
+        {
+          "frequency_hz": 11500.0,
+          "magnitude_db": -7.761433333265209e-8,
+          "absolute_group_delay_ms": 2730.7399142112517,
+          "group_delay_relative_to_peak_ms": -0.004877455414922831
+        },
+        {
+          "frequency_hz": 11600.0,
+          "magnitude_db": -7.793081596673398e-8,
+          "absolute_group_delay_ms": 2730.7403724882756,
+          "group_delay_relative_to_peak_ms": -0.004419178390890011
+        },
+        {
+          "frequency_hz": 11700.0,
+          "magnitude_db": -7.626370205699856e-8,
+          "absolute_group_delay_ms": 2730.740854328608,
+          "group_delay_relative_to_peak_ms": -0.003937338058676687
+        },
+        {
+          "frequency_hz": 11800.0,
+          "magnitude_db": -7.533452817580239e-8,
+          "absolute_group_delay_ms": 2730.741360798097,
+          "group_delay_relative_to_peak_ms": -0.0034308685693152556
+        },
+        {
+          "frequency_hz": 11900.0,
+          "magnitude_db": -7.632797641186384e-8,
+          "absolute_group_delay_ms": 2730.7418929356054,
+          "group_delay_relative_to_peak_ms": -0.002898731060971234
+        },
+        {
+          "frequency_hz": 12000.0,
+          "magnitude_db": -7.752199511959514e-8,
+          "absolute_group_delay_ms": 2730.742449715762,
+          "group_delay_relative_to_peak_ms": -0.002341950904641029
+        },
+        {
+          "frequency_hz": 12100.0,
+          "magnitude_db": -7.70922637955052e-8,
+          "absolute_group_delay_ms": 2730.743031013768,
+          "group_delay_relative_to_peak_ms": -0.0017606528987622974
+        },
+        {
+          "frequency_hz": 12200.0,
+          "magnitude_db": -7.732097527143552e-8,
+          "absolute_group_delay_ms": 2730.7436364113796,
+          "group_delay_relative_to_peak_ms": -0.0011552552872065767
+        },
+        {
+          "frequency_hz": 12300.0,
+          "magnitude_db": -7.832919121868014e-8,
+          "absolute_group_delay_ms": 2730.74426388821,
+          "group_delay_relative_to_peak_ms": -0.0005277784566715127
+        },
+        {
+          "frequency_hz": 12400.0,
+          "magnitude_db": -7.735534583130445e-8,
+          "absolute_group_delay_ms": 2730.74491352521,
+          "group_delay_relative_to_peak_ms": 0.00012185854332832
+        },
+        {
+          "frequency_hz": 12500.0,
+          "magnitude_db": -7.56059053564879e-8,
+          "absolute_group_delay_ms": 2730.7455856731644,
+          "group_delay_relative_to_peak_ms": 0.0007940064976234378
+        },
+        {
+          "frequency_hz": 12600.0,
+          "magnitude_db": -7.571465449449334e-8,
+          "absolute_group_delay_ms": 2730.7462825244797,
+          "group_delay_relative_to_peak_ms": 0.0014908578129203913
+        },
+        {
+          "frequency_hz": 12700.0,
+          "magnitude_db": -7.726586588488653e-8,
+          "absolute_group_delay_ms": 2730.747005742011,
+          "group_delay_relative_to_peak_ms": 0.0022140753444546135
+        },
+        {
+          "frequency_hz": 12800.0,
+          "magnitude_db": -7.725321776572271e-8,
+          "absolute_group_delay_ms": 2730.7477605301942,
+          "group_delay_relative_to_peak_ms": 0.0029688635277125286
+        },
+        {
+          "frequency_hz": 12900.0,
+          "magnitude_db": -7.717967236650475e-8,
+          "absolute_group_delay_ms": 2730.748553381926,
+          "group_delay_relative_to_peak_ms": 0.003761715259315679
+        },
+        {
+          "frequency_hz": 13000.0,
+          "magnitude_db": -7.793986328710636e-8,
+          "absolute_group_delay_ms": 2730.7493935322964,
+          "group_delay_relative_to_peak_ms": 0.0046018656297140605
+        },
+        {
+          "frequency_hz": 13100.0,
+          "magnitude_db": -7.850517326829518e-8,
+          "absolute_group_delay_ms": 2730.7502900410027,
+          "group_delay_relative_to_peak_ms": 0.00549837433633608
+        },
+        {
+          "frequency_hz": 13200.0,
+          "magnitude_db": -7.63728697131364e-8,
+          "absolute_group_delay_ms": 2730.751255796022,
+          "group_delay_relative_to_peak_ms": 0.006464129355663317
+        },
+        {
+          "frequency_hz": 13300.0,
+          "magnitude_db": -7.545565927858252e-8,
+          "absolute_group_delay_ms": 2730.752303229985,
+          "group_delay_relative_to_peak_ms": 0.007511563318378952
+        },
+        {
+          "frequency_hz": 13400.0,
+          "magnitude_db": -7.660664969425667e-8,
+          "absolute_group_delay_ms": 2730.7534449475424,
+          "group_delay_relative_to_peak_ms": 0.008653280875781396
+        },
+        {
+          "frequency_hz": 13500.0,
+          "magnitude_db": -7.763596898388505e-8,
+          "absolute_group_delay_ms": 2730.7546883691452,
+          "group_delay_relative_to_peak_ms": 0.009896702478727093
+        },
+        {
+          "frequency_hz": 13600.0,
+          "magnitude_db": -7.686854946455677e-8,
+          "absolute_group_delay_ms": 2730.7560411007594,
+          "group_delay_relative_to_peak_ms": 0.011249434092557445
+        },
+        {
+          "frequency_hz": 13700.0,
+          "magnitude_db": -7.770767251762927e-8,
+          "absolute_group_delay_ms": 2730.757507304582,
+          "group_delay_relative_to_peak_ms": 0.012715637915486393
+        },
+        {
+          "frequency_hz": 13800.0,
+          "magnitude_db": -7.872525787066872e-8,
+          "absolute_group_delay_ms": 2730.759082572191,
+          "group_delay_relative_to_peak_ms": 0.014290905524224703
+        },
+        {
+          "frequency_hz": 13900.0,
+          "magnitude_db": -7.777005293334398e-8,
+          "absolute_group_delay_ms": 2730.760761328128,
+          "group_delay_relative_to_peak_ms": 0.01596966146159199
+        },
+        {
+          "frequency_hz": 14000.0,
+          "magnitude_db": -7.564683720048961e-8,
+          "absolute_group_delay_ms": 2730.76253082608,
+          "group_delay_relative_to_peak_ms": 0.0177391594133951
+        },
+        {
+          "frequency_hz": 14100.0,
+          "magnitude_db": -7.601664521521178e-8,
+          "absolute_group_delay_ms": 2730.7643739248006,
+          "group_delay_relative_to_peak_ms": 0.01958225813420237
+        },
+        {
+          "frequency_hz": 14200.0,
+          "magnitude_db": -7.748866603339874e-8,
+          "absolute_group_delay_ms": 2730.7662618902755,
+          "group_delay_relative_to_peak_ms": 0.02147022360865473
+        },
+        {
+          "frequency_hz": 14300.0,
+          "magnitude_db": -7.72670462217161e-8,
+          "absolute_group_delay_ms": 2730.7681661234055,
+          "group_delay_relative_to_peak_ms": 0.023374456738868805
+        },
+        {
+          "frequency_hz": 14400.0,
+          "magnitude_db": -7.702361525120718e-8,
+          "absolute_group_delay_ms": 2730.7700544329186,
+          "group_delay_relative_to_peak_ms": 0.025262766252126312
+        },
+        {
+          "frequency_hz": 14500.0,
+          "magnitude_db": -7.859146514809258e-8,
+          "absolute_group_delay_ms": 2730.771897325891,
+          "group_delay_relative_to_peak_ms": 0.02710565922461683
+        },
+        {
+          "frequency_hz": 14600.0,
+          "magnitude_db": -7.896814303187431e-8,
+          "absolute_group_delay_ms": 2730.7736639872064,
+          "group_delay_relative_to_peak_ms": 0.028872320539448992
+        },
+        {
+          "frequency_hz": 14700.0,
+          "magnitude_db": -7.645575751692573e-8,
+          "absolute_group_delay_ms": 2730.7753347324274,
+          "group_delay_relative_to_peak_ms": 0.03054306576086674
+        },
+        {
+          "frequency_hz": 14800.0,
+          "magnitude_db": -7.570380195309013e-8,
+          "absolute_group_delay_ms": 2730.7768964577103,
+          "group_delay_relative_to_peak_ms": 0.032104791043821024
+        },
+        {
+          "frequency_hz": 14900.0,
+          "magnitude_db": -7.70471274837052e-8,
+          "absolute_group_delay_ms": 2730.778347415877,
+          "group_delay_relative_to_peak_ms": 0.033555749210184636
+        },
+        {
+          "frequency_hz": 15000.0,
+          "magnitude_db": -7.764756212879158e-8,
+          "absolute_group_delay_ms": 2730.7796937220533,
+          "group_delay_relative_to_peak_ms": 0.03490205538643446
+        },
+        {
+          "frequency_hz": 15100.0,
+          "magnitude_db": -7.67294201537622e-8,
+          "absolute_group_delay_ms": 2730.780958861972,
+          "group_delay_relative_to_peak_ms": 0.0361671953057036
+        },
+        {
+          "frequency_hz": 15200.0,
+          "magnitude_db": -7.806562701911378e-8,
+          "absolute_group_delay_ms": 2730.7821807102964,
+          "group_delay_relative_to_peak_ms": 0.03738904363005228
+        },
+        {
+          "frequency_hz": 15300.0,
+          "magnitude_db": -7.93671740265513e-8,
+          "absolute_group_delay_ms": 2730.7834068253806,
+          "group_delay_relative_to_peak_ms": 0.03861515871418912
+        },
+        {
+          "frequency_hz": 15400.0,
+          "magnitude_db": -7.808830221536615e-8,
+          "absolute_group_delay_ms": 2730.7846640591442,
+          "group_delay_relative_to_peak_ms": 0.03987239247787026
+        },
+        {
+          "frequency_hz": 15500.0,
+          "magnitude_db": -7.555783556051686e-8,
+          "absolute_group_delay_ms": 2730.7859542262254,
+          "group_delay_relative_to_peak_ms": 0.04116255955887027
+        },
+        {
+          "frequency_hz": 15600.0,
+          "magnitude_db": -7.661788025203123e-8,
+          "absolute_group_delay_ms": 2730.7872797011682,
+          "group_delay_relative_to_peak_ms": 0.04248803450173
+        },
+        {
+          "frequency_hz": 15700.0,
+          "magnitude_db": -7.776586775210165e-8,
+          "absolute_group_delay_ms": 2730.788639384397,
+          "group_delay_relative_to_peak_ms": 0.04384771773038665
+        },
+        {
+          "frequency_hz": 15800.0,
+          "magnitude_db": -7.703161531194064e-8,
+          "absolute_group_delay_ms": 2730.7900357921185,
+          "group_delay_relative_to_peak_ms": 0.04524412545166949
+        },
+        {
+          "frequency_hz": 15900.0,
+          "magnitude_db": -7.693146026037675e-8,
+          "absolute_group_delay_ms": 2730.7914703679494,
+          "group_delay_relative_to_peak_ms": 0.04667870128287177
+        },
+        {
+          "frequency_hz": 16000.0,
+          "magnitude_db": -7.945090850989258e-8,
+          "absolute_group_delay_ms": 2730.7929459721367,
+          "group_delay_relative_to_peak_ms": 0.04815430547023425
+        },
+        {
+          "frequency_hz": 16100.0,
+          "magnitude_db": -7.923470050395153e-8,
+          "absolute_group_delay_ms": 2730.79446147812,
+          "group_delay_relative_to_peak_ms": 0.04966981145359266
+        },
+        {
+          "frequency_hz": 16200.0,
+          "magnitude_db": -7.655238698723533e-8,
+          "absolute_group_delay_ms": 2730.796019860827,
+          "group_delay_relative_to_peak_ms": 0.051228194160406325
+        },
+        {
+          "frequency_hz": 16300.0,
+          "magnitude_db": -7.592632437524949e-8,
+          "absolute_group_delay_ms": 2730.7976228674365,
+          "group_delay_relative_to_peak_ms": 0.05283120077001513
+        },
+        {
+          "frequency_hz": 16400.0,
+          "magnitude_db": -7.778858923607205e-8,
+          "absolute_group_delay_ms": 2730.799273884373,
+          "group_delay_relative_to_peak_ms": 0.05448221770651192
+        },
+        {
+          "frequency_hz": 16500.0,
+          "magnitude_db": -7.749014338309067e-8,
+          "absolute_group_delay_ms": 2730.8009718525363,
+          "group_delay_relative_to_peak_ms": 0.05618018586998611
+        },
+        {
+          "frequency_hz": 16600.0,
+          "magnitude_db": -7.642200219798943e-8,
+          "absolute_group_delay_ms": 2730.8027203067595,
+          "group_delay_relative_to_peak_ms": 0.05792864009284434
+        },
+        {
+          "frequency_hz": 16700.0,
+          "magnitude_db": -7.846243813190125e-8,
+          "absolute_group_delay_ms": 2730.804523132661,
+          "group_delay_relative_to_peak_ms": 0.05973146599414274
+        },
+        {
+          "frequency_hz": 16800.0,
+          "magnitude_db": -8.027612210370843e-8,
+          "absolute_group_delay_ms": 2730.806379331853,
+          "group_delay_relative_to_peak_ms": 0.061587665186380036
+        },
+        {
+          "frequency_hz": 16900.0,
+          "magnitude_db": -7.792558159719856e-8,
+          "absolute_group_delay_ms": 2730.8082929451098,
+          "group_delay_relative_to_peak_ms": 0.06350127844295154
+        },
+        {
+          "frequency_hz": 17000.0,
+          "magnitude_db": -7.564597702038195e-8,
+          "absolute_group_delay_ms": 2730.8102666437935,
+          "group_delay_relative_to_peak_ms": 0.06547497712684465
+        },
+        {
+          "frequency_hz": 17100.0,
+          "magnitude_db": -7.754682269477064e-8,
+          "absolute_group_delay_ms": 2730.8123050218387,
+          "group_delay_relative_to_peak_ms": 0.06751335517219559
+        },
+        {
+          "frequency_hz": 17200.0,
+          "magnitude_db": -7.80602904308659e-8,
+          "absolute_group_delay_ms": 2730.814407323709,
+          "group_delay_relative_to_peak_ms": 0.06961565704235302
+        },
+        {
+          "frequency_hz": 17300.0,
+          "magnitude_db": -7.637886204406625e-8,
+          "absolute_group_delay_ms": 2730.8165784738862,
+          "group_delay_relative_to_peak_ms": 0.07178680721942025
+        },
+        {
+          "frequency_hz": 17400.0,
+          "magnitude_db": -7.716650929646934e-8,
+          "absolute_group_delay_ms": 2730.8188218183195,
+          "group_delay_relative_to_peak_ms": 0.07403015165255056
+        },
+        {
+          "frequency_hz": 17500.0,
+          "magnitude_db": -8.055788509145942e-8,
+          "absolute_group_delay_ms": 2730.8211430640113,
+          "group_delay_relative_to_peak_ms": 0.07635139734460003
+        },
+        {
+          "frequency_hz": 17600.0,
+          "magnitude_db": -7.931861049489206e-8,
+          "absolute_group_delay_ms": 2730.8235417454976,
+          "group_delay_relative_to_peak_ms": 0.07875007883073219
+        },
+        {
+          "frequency_hz": 17700.0,
+          "magnitude_db": -7.629366178299255e-8,
+          "absolute_group_delay_ms": 2730.82602399477,
+          "group_delay_relative_to_peak_ms": 0.08123232810309369
+        },
+        {
+          "frequency_hz": 17800.0,
+          "magnitude_db": -7.668760305713327e-8,
+          "absolute_group_delay_ms": 2730.8285941224367,
+          "group_delay_relative_to_peak_ms": 0.08380245577003127
+        },
+        {
+          "frequency_hz": 17900.0,
+          "magnitude_db": -7.887146727381902e-8,
+          "absolute_group_delay_ms": 2730.831259245386,
+          "group_delay_relative_to_peak_ms": 0.0864675787191421
+        },
+        {
+          "frequency_hz": 18000.0,
+          "magnitude_db": -7.666753925968703e-8,
+          "absolute_group_delay_ms": 2730.834019471552,
+          "group_delay_relative_to_peak_ms": 0.08922780488561935
+        },
+        {
+          "frequency_hz": 18100.0,
+          "magnitude_db": -7.6096782757039e-8,
+          "absolute_group_delay_ms": 2730.8368824777303,
+          "group_delay_relative_to_peak_ms": 0.09209081106382655
+        },
+        {
+          "frequency_hz": 18200.0,
+          "magnitude_db": -7.966248967261204e-8,
+          "absolute_group_delay_ms": 2730.8398567906943,
+          "group_delay_relative_to_peak_ms": 0.09506512402792092
+        },
+        {
+          "frequency_hz": 18300.0,
+          "magnitude_db": -8.105443659515653e-8,
+          "absolute_group_delay_ms": 2730.842943112016,
+          "group_delay_relative_to_peak_ms": 0.09815144534938251
+        },
+        {
+          "frequency_hz": 18400.0,
+          "magnitude_db": -7.681558281366028e-8,
+          "absolute_group_delay_ms": 2730.846150771227,
+          "group_delay_relative_to_peak_ms": 0.10135910455998479
+        },
+        {
+          "frequency_hz": 18500.0,
+          "magnitude_db": -7.645572472979157e-8,
+          "absolute_group_delay_ms": 2730.8494869459273,
+          "group_delay_relative_to_peak_ms": 0.10469527926034061
+        },
+        {
+          "frequency_hz": 18600.0,
+          "magnitude_db": -7.905297299122373e-8,
+          "absolute_group_delay_ms": 2730.8529626048953,
+          "group_delay_relative_to_peak_ms": 0.10817093822879542
+        },
+        {
+          "frequency_hz": 18700.0,
+          "magnitude_db": -7.773881450911282e-8,
+          "absolute_group_delay_ms": 2730.8565797988754,
+          "group_delay_relative_to_peak_ms": 0.1117881322085547
+        },
+        {
+          "frequency_hz": 18800.0,
+          "magnitude_db": -7.497799895043831e-8,
+          "absolute_group_delay_ms": 2730.8603507446296,
+          "group_delay_relative_to_peak_ms": 0.1155590779629468
+        },
+        {
+          "frequency_hz": 18900.0,
+          "magnitude_db": -7.8727433393453e-8,
+          "absolute_group_delay_ms": 2730.864285331598,
+          "group_delay_relative_to_peak_ms": 0.11949366493111788
+        },
+        {
+          "frequency_hz": 19000.0,
+          "magnitude_db": -8.170612717450417e-8,
+          "absolute_group_delay_ms": 2730.8683981241034,
+          "group_delay_relative_to_peak_ms": 0.12360645743683563
+        },
+        {
+          "frequency_hz": 19100.0,
+          "magnitude_db": -7.821200807254354e-8,
+          "absolute_group_delay_ms": 2730.872693446248,
+          "group_delay_relative_to_peak_ms": 0.12790177958110385
+        },
+        {
+          "frequency_hz": 19200.0,
+          "magnitude_db": -7.592283736709993e-8,
+          "absolute_group_delay_ms": 2730.877187737705,
+          "group_delay_relative_to_peak_ms": 0.13239607103848053
+        },
+        {
+          "frequency_hz": 19300.0,
+          "magnitude_db": -7.949645755386452e-8,
+          "absolute_group_delay_ms": 2730.8818950096393,
+          "group_delay_relative_to_peak_ms": 0.13710334297259882
+        },
+        {
+          "frequency_hz": 19400.0,
+          "magnitude_db": -7.882824997368564e-8,
+          "absolute_group_delay_ms": 2730.8868353917132,
+          "group_delay_relative_to_peak_ms": 0.14204372504658144
+        },
+        {
+          "frequency_hz": 19500.0,
+          "magnitude_db": -7.447284757466811e-8,
+          "absolute_group_delay_ms": 2730.892016796828,
+          "group_delay_relative_to_peak_ms": 0.1472251301614354
+        },
+        {
+          "frequency_hz": 19600.0,
+          "magnitude_db": -7.728650056419942e-8,
+          "absolute_group_delay_ms": 2730.897462349812,
+          "group_delay_relative_to_peak_ms": 0.15267068314521265
+        },
+        {
+          "frequency_hz": 19700.0,
+          "magnitude_db": -8.247242614573306e-8,
+          "absolute_group_delay_ms": 2730.9031981301823,
+          "group_delay_relative_to_peak_ms": 0.15840646351534815
+        },
+        {
+          "frequency_hz": 19800.0,
+          "magnitude_db": -7.881403964400954e-8,
+          "absolute_group_delay_ms": 2730.9092365705696,
+          "group_delay_relative_to_peak_ms": 0.1644449039031315
+        },
+        {
+          "frequency_hz": 19900.0,
+          "magnitude_db": -7.571195823487336e-8,
+          "absolute_group_delay_ms": 2730.91560833768,
+          "group_delay_relative_to_peak_ms": 0.17081667101350226
+        },
+        {
+          "frequency_hz": 20000.0,
+          "magnitude_db": -8.043765659912519e-8,
+          "absolute_group_delay_ms": 2730.922341885576,
+          "group_delay_relative_to_peak_ms": 0.1775502189090427
+        }
+      ]
+    },
+    {
+      "filter": "SplitPhase128kE3",
+      "display_name": "Split Phase E3 (experimental)",
+      "runtime": {
+        "path": "integer_cascade",
+        "phase_profile_preserved": true,
+        "uses_capped_fallback": false,
+        "ratio_num": 1,
+        "ratio_den": 4,
+        "nominal_buffer_latency_ms": 113.01041666666667,
+        "estimated_memory_bytes": 22607152
+      },
+      "dc_normalization_scale": 0.9999999999999831,
+      "measured_peak_offset_from_input_ms": 0.078125,
+      "impulse": {
+        "peak_index": 524303,
+        "peak_amplitude": 0.7759673079046964,
+        "pre_peak_energy_db_total": -5.3971980216722,
+        "post_peak_energy_db_total": -2.574932563243113,
+        "maximum_pre_ringing_lobe_db_peak": -25.873671134342082,
+        "maximum_post_ringing_lobe_db_peak": -10.326909542465488,
+        "decay_time_to_minus_80_db_ms": 2.520833333333333,
+        "decay_time_to_minus_120_db_ms": 3.5572916666666665,
+        "decay_minus_80_db_censored": false,
+        "decay_minus_120_db_censored": false,
+        "main_lobe_width_us": 55.72788616761196,
+        "step_response_overshoot_percent": 12.253788099127028,
+        "step_response_undershoot_percent": 7.455271540831341,
+        "energy_centroid_relative_to_peak_ms": 0.0645582243159879
+      },
+      "tone_packets": [
+        {
+          "frequency_hz": 5000.0,
+          "cycles": 8.0,
+          "nominal_duration_ms": 1.6041666666666667,
+          "alignment": "energy_centroid (historical envelope split)",
+          "energy_centroid_index": 1873.515462266968,
+          "pre_echo_energy_db_total": -77.67264839930937,
+          "post_echo_energy_db_total": -75.4192084633119,
+          "maximum_pre_echo_db_peak": -62.409771540204574,
+          "maximum_post_echo_db_peak": -60.600225297504295,
+          "onset_reference": "principal impulse peak plus nominal source packet bounds",
+          "nominal_onset_index": 1723.0,
+          "onset_pre_echo_energy_db_total": -73.41658997797445,
+          "onset_pre_echo_energy_db_0_0p5ms": -73.43659060109988,
+          "onset_pre_echo_energy_db_0p5_2ms": -96.79638200264222,
+          "onset_pre_echo_energy_db_2_8ms": -129.3934260439595,
+          "onset_post_decay_energy_db_total": -81.15292090165573,
+          "maximum_onset_pre_echo_db_peak": -58.512143195386216,
+          "maximum_onset_post_decay_db_peak": -66.26083057147717
+        },
+        {
+          "frequency_hz": 10000.0,
+          "cycles": 8.0,
+          "nominal_duration_ms": 0.7916666666666666,
+          "alignment": "energy_centroid (historical envelope split)",
+          "energy_centroid_index": 1796.6877223991116,
+          "pre_echo_energy_db_total": -62.199709517809474,
+          "post_echo_energy_db_total": -55.51713628560488,
+          "maximum_pre_echo_db_peak": -50.25872336666981,
+          "maximum_post_echo_db_peak": -44.586088276194566,
+          "onset_reference": "principal impulse peak plus nominal source packet bounds",
+          "nominal_onset_index": 1723.0,
+          "onset_pre_echo_energy_db_total": -59.074480712683126,
+          "onset_pre_echo_energy_db_0_0p5ms": -59.08111435348201,
+          "onset_pre_echo_energy_db_0p5_2ms": -87.23814487424364,
+          "onset_pre_echo_energy_db_2_8ms": -139.78421924869286,
+          "onset_post_decay_energy_db_total": -58.35984608433569,
+          "maximum_onset_pre_echo_db_peak": -46.71830300382048,
+          "maximum_onset_post_decay_db_peak": -50.202578765082215
+        },
+        {
+          "frequency_hz": 15000.0,
+          "cycles": 8.0,
+          "nominal_duration_ms": 0.5416666666666666,
+          "alignment": "energy_centroid (historical envelope split)",
+          "energy_centroid_index": 1778.7491530331613,
+          "pre_echo_energy_db_total": -44.02206004097753,
+          "post_echo_energy_db_total": -24.265519335192415,
+          "maximum_pre_echo_db_peak": -36.44508971036189,
+          "maximum_post_echo_db_peak": -23.040642961020538,
+          "onset_reference": "principal impulse peak plus nominal source packet bounds",
+          "nominal_onset_index": 1723.0,
+          "onset_pre_echo_energy_db_total": -46.044924964147256,
+          "onset_pre_echo_energy_db_0_0p5ms": -46.07871327255409,
+          "onset_pre_echo_energy_db_0p5_2ms": -67.15200405395508,
+          "onset_pre_echo_energy_db_2_8ms": -121.1564800938818,
+          "onset_post_decay_energy_db_total": -23.831545126788406,
+          "maximum_onset_pre_echo_db_peak": -40.04053485710724,
+          "maximum_onset_post_decay_db_peak": -22.80916065624305
+        },
+        {
+          "frequency_hz": 18000.0,
+          "cycles": 8.0,
+          "nominal_duration_ms": 0.4375,
+          "alignment": "energy_centroid (historical envelope split)",
+          "energy_centroid_index": 1806.1307481424544,
+          "pre_echo_energy_db_total": -8.235486127449663,
+          "post_echo_energy_db_total": -10.322187803478444,
+          "maximum_pre_echo_db_peak": -3.5329755714904376,
+          "maximum_post_echo_db_peak": -7.453436803306701,
+          "onset_reference": "principal impulse peak plus nominal source packet bounds",
+          "nominal_onset_index": 1723.0,
+          "onset_pre_echo_energy_db_total": -53.53309246650369,
+          "onset_pre_echo_energy_db_0_0p5ms": -53.71446335604677,
+          "onset_pre_echo_energy_db_0p5_2ms": -67.41566935063982,
+          "onset_pre_echo_energy_db_2_8ms": -117.79969210290682,
+          "onset_post_decay_energy_db_total": -3.2856414707767563,
+          "maximum_onset_pre_echo_db_peak": -42.6992735503325,
+          "maximum_onset_post_decay_db_peak": -0.27469224971317496
+        },
+        {
+          "frequency_hz": 20000.0,
+          "cycles": 8.0,
+          "nominal_duration_ms": 0.3958333333333333,
+          "alignment": "energy_centroid (historical envelope split)",
+          "energy_centroid_index": 1799.2065816223335,
+          "pre_echo_energy_db_total": -10.230722439322587,
+          "post_echo_energy_db_total": -10.0415985828211,
+          "maximum_pre_echo_db_peak": -5.963815350859603,
+          "maximum_post_echo_db_peak": -8.457482186255415,
+          "onset_reference": "principal impulse peak plus nominal source packet bounds",
+          "nominal_onset_index": 1723.0,
+          "onset_pre_echo_energy_db_total": -53.45516736245912,
+          "onset_pre_echo_energy_db_0_0p5ms": -53.85743451401078,
+          "onset_pre_echo_energy_db_0p5_2ms": -63.98798318926169,
+          "onset_pre_echo_energy_db_2_8ms": -103.0638997651922,
+          "onset_post_decay_energy_db_total": -3.315882023755576,
+          "maximum_onset_pre_echo_db_peak": -41.78339911658661,
+          "maximum_onset_post_decay_db_peak": -0.11837834912395084
+        }
+      ],
+      "group_delay": [
+        {
+          "frequency_hz": 20.0,
+          "magnitude_db": -9.094307001754897e-8,
+          "absolute_group_delay_ms": 2730.7454806209284,
+          "group_delay_relative_to_peak_ms": 0.00068895426193194
+        },
+        {
+          "frequency_hz": 100.0,
+          "magnitude_db": -8.293716352178673e-8,
+          "absolute_group_delay_ms": 2730.7454747491265,
+          "group_delay_relative_to_peak_ms": 0.0006830824598485682
+        },
+        {
+          "frequency_hz": 200.0,
+          "magnitude_db": -8.247233839193278e-8,
+          "absolute_group_delay_ms": 2730.7454672553913,
+          "group_delay_relative_to_peak_ms": 0.0006755887249407049
+        },
+        {
+          "frequency_hz": 300.0,
+          "magnitude_db": -7.681710645107091e-8,
+          "absolute_group_delay_ms": 2730.745459562576,
+          "group_delay_relative_to_peak_ms": 0.000667895908918581
+        },
+        {
+          "frequency_hz": 400.0,
+          "magnitude_db": -7.490845551026032e-8,
+          "absolute_group_delay_ms": 2730.745451698477,
+          "group_delay_relative_to_peak_ms": 0.0006600318101845914
+        },
+        {
+          "frequency_hz": 500.0,
+          "magnitude_db": -7.34599382460517e-8,
+          "absolute_group_delay_ms": 2730.745443667418,
+          "group_delay_relative_to_peak_ms": 0.0006520007512638888
+        },
+        {
+          "frequency_hz": 600.0,
+          "magnitude_db": -7.30124960837631e-8,
+          "absolute_group_delay_ms": 2730.745435472456,
+          "group_delay_relative_to_peak_ms": 0.0006438057892713308
+        },
+        {
+          "frequency_hz": 700.0,
+          "magnitude_db": -7.586134509700296e-8,
+          "absolute_group_delay_ms": 2730.7454271558577,
+          "group_delay_relative_to_peak_ms": 0.0006354891908510277
+        },
+        {
+          "frequency_hz": 800.0,
+          "magnitude_db": -7.693356056561751e-8,
+          "absolute_group_delay_ms": 2730.7454187224707,
+          "group_delay_relative_to_peak_ms": 0.0006270558042160701
+        },
+        {
+          "frequency_hz": 900.0,
+          "magnitude_db": -7.621121564118833e-8,
+          "absolute_group_delay_ms": 2730.745410192745,
+          "group_delay_relative_to_peak_ms": 0.0006185260784453325
+        },
+        {
+          "frequency_hz": 1000.0,
+          "magnitude_db": -7.642261165295365e-8,
+          "absolute_group_delay_ms": 2730.745401590712,
+          "group_delay_relative_to_peak_ms": 0.0006099240454204846
+        },
+        {
+          "frequency_hz": 1100.0,
+          "magnitude_db": -7.536629408715369e-8,
+          "absolute_group_delay_ms": 2730.7453929530525,
+          "group_delay_relative_to_peak_ms": 0.0006012863856691789
+        },
+        {
+          "frequency_hz": 1200.0,
+          "magnitude_db": -7.433590150131484e-8,
+          "absolute_group_delay_ms": 2730.7453843035873,
+          "group_delay_relative_to_peak_ms": 0.0005926369206766443
+        },
+        {
+          "frequency_hz": 1300.0,
+          "magnitude_db": -7.448031146932323e-8,
+          "absolute_group_delay_ms": 2730.7453756785762,
+          "group_delay_relative_to_peak_ms": 0.000584011909571321
+        },
+        {
+          "frequency_hz": 1400.0,
+          "magnitude_db": -7.474686122664293e-8,
+          "absolute_group_delay_ms": 2730.7453671020517,
+          "group_delay_relative_to_peak_ms": 0.0005754353848412089
+        },
+        {
+          "frequency_hz": 1500.0,
+          "magnitude_db": -7.663772707579546e-8,
+          "absolute_group_delay_ms": 2730.74535863346,
+          "group_delay_relative_to_peak_ms": 0.0005669667934853351
+        },
+        {
+          "frequency_hz": 1600.0,
+          "magnitude_db": -7.659343551486598e-8,
+          "absolute_group_delay_ms": 2730.7453503073752,
+          "group_delay_relative_to_peak_ms": 0.0005586407084289628
+        },
+        {
+          "frequency_hz": 1700.0,
+          "magnitude_db": -7.553969173907585e-8,
+          "absolute_group_delay_ms": 2730.745342157948,
+          "group_delay_relative_to_peak_ms": 0.0005504912811981436
+        },
+        {
+          "frequency_hz": 1800.0,
+          "magnitude_db": -7.581302071857712e-8,
+          "absolute_group_delay_ms": 2730.74533426149,
+          "group_delay_relative_to_peak_ms": 0.0005425948232489948
+        },
+        {
+          "frequency_hz": 1900.0,
+          "magnitude_db": -7.526003387836536e-8,
+          "absolute_group_delay_ms": 2730.7453266593207,
+          "group_delay_relative_to_peak_ms": 0.0005349926541384775
+        },
+        {
+          "frequency_hz": 2000.0,
+          "magnitude_db": -7.390932256389751e-8,
+          "absolute_group_delay_ms": 2730.7453194079367,
+          "group_delay_relative_to_peak_ms": 0.0005277412698584764
+        },
+        {
+          "frequency_hz": 2100.0,
+          "magnitude_db": -7.517756362838409e-8,
+          "absolute_group_delay_ms": 2730.7453125726884,
+          "group_delay_relative_to_peak_ms": 0.0005209060218476225
+        },
+        {
+          "frequency_hz": 2200.0,
+          "magnitude_db": -7.57341580176744e-8,
+          "absolute_group_delay_ms": 2730.745306223142,
+          "group_delay_relative_to_peak_ms": 0.000514556475536665
+        },
+        {
+          "frequency_hz": 2300.0,
+          "magnitude_db": -7.645076712224238e-8,
+          "absolute_group_delay_ms": 2730.7453004351887,
+          "group_delay_relative_to_peak_ms": 0.0005087685221951688
+        },
+        {
+          "frequency_hz": 2400.0,
+          "magnitude_db": -7.645225315088142e-8,
+          "absolute_group_delay_ms": 2730.7452952788176,
+          "group_delay_relative_to_peak_ms": 0.0005036121510784142
+        },
+        {
+          "frequency_hz": 2500.0,
+          "magnitude_db": -7.517487508338406e-8,
+          "absolute_group_delay_ms": 2730.7452908307623,
+          "group_delay_relative_to_peak_ms": 0.00049916409564806
+        },
+        {
+          "frequency_hz": 2600.0,
+          "magnitude_db": -7.557182120188596e-8,
+          "absolute_group_delay_ms": 2730.745287193054,
+          "group_delay_relative_to_peak_ms": 0.0004955263872640595
+        },
+        {
+          "frequency_hz": 2700.0,
+          "magnitude_db": -7.524793253288274e-8,
+          "absolute_group_delay_ms": 2730.745284444114,
+          "group_delay_relative_to_peak_ms": 0.0004927774474102383
+        },
+        {
+          "frequency_hz": 2800.0,
+          "magnitude_db": -7.35542060783424e-8,
+          "absolute_group_delay_ms": 2730.745282678384,
+          "group_delay_relative_to_peak_ms": 0.0004910117168037686
+        },
+        {
+          "frequency_hz": 2900.0,
+          "magnitude_db": -7.60387919600025e-8,
+          "absolute_group_delay_ms": 2730.7452820063268,
+          "group_delay_relative_to_peak_ms": 0.0004903396602458088
+        },
+        {
+          "frequency_hz": 3000.0,
+          "magnitude_db": -7.67376555103993e-8,
+          "absolute_group_delay_ms": 2730.745282524072,
+          "group_delay_relative_to_peak_ms": 0.000490857405263038
+        },
+        {
+          "frequency_hz": 3100.0,
+          "magnitude_db": -7.449580724751616e-8,
+          "absolute_group_delay_ms": 2730.745284340396,
+          "group_delay_relative_to_peak_ms": 0.0004926737298471078
+        },
+        {
+          "frequency_hz": 3200.0,
+          "magnitude_db": -7.961940544966633e-8,
+          "absolute_group_delay_ms": 2730.745287596963,
+          "group_delay_relative_to_peak_ms": 0.0004959302962864361
+        },
+        {
+          "frequency_hz": 3300.0,
+          "magnitude_db": -7.811643936243824e-8,
+          "absolute_group_delay_ms": 2730.745274799212,
+          "group_delay_relative_to_peak_ms": 0.00048313254531725153
+        },
+        {
+          "frequency_hz": 3400.0,
+          "magnitude_db": -7.623193614564398e-8,
+          "absolute_group_delay_ms": 2730.744630673585,
+          "group_delay_relative_to_peak_ms": -0.0001609930817115431
+        },
+        {
+          "frequency_hz": 3500.0,
+          "magnitude_db": -7.314464462790901e-8,
+          "absolute_group_delay_ms": 2730.743119324741,
+          "group_delay_relative_to_peak_ms": -0.0016723419254655407
+        },
+        {
+          "frequency_hz": 3600.0,
+          "magnitude_db": -7.564473978823158e-8,
+          "absolute_group_delay_ms": 2730.741562624284,
+          "group_delay_relative_to_peak_ms": -0.003229042382372427
+        },
+        {
+          "frequency_hz": 3700.0,
+          "magnitude_db": -7.584335267497487e-8,
+          "absolute_group_delay_ms": 2730.7405262257143,
+          "group_delay_relative_to_peak_ms": -0.004265440952318992
+        },
+        {
+          "frequency_hz": 3800.0,
+          "magnitude_db": -7.634112887429576e-8,
+          "absolute_group_delay_ms": 2730.740002598959,
+          "group_delay_relative_to_peak_ms": -0.004789067707558085
+        },
+        {
+          "frequency_hz": 3900.0,
+          "magnitude_db": -7.63399456444839e-8,
+          "absolute_group_delay_ms": 2730.7397573749304,
+          "group_delay_relative_to_peak_ms": -0.005034291735986092
+        },
+        {
+          "frequency_hz": 4000.0,
+          "magnitude_db": -7.550361624823843e-8,
+          "absolute_group_delay_ms": 2730.7395978352033,
+          "group_delay_relative_to_peak_ms": -0.005193831463354097
+        },
+        {
+          "frequency_hz": 4100.0,
+          "magnitude_db": -7.555388374652455e-8,
+          "absolute_group_delay_ms": 2730.7394404305423,
+          "group_delay_relative_to_peak_ms": -0.005351236124018517
+        },
+        {
+          "frequency_hz": 4200.0,
+          "magnitude_db": -7.514332035975047e-8,
+          "absolute_group_delay_ms": 2730.7392623211326,
+          "group_delay_relative_to_peak_ms": -0.005529345534038535
+        },
+        {
+          "frequency_hz": 4300.0,
+          "magnitude_db": -7.413343998365416e-8,
+          "absolute_group_delay_ms": 2730.739059041212,
+          "group_delay_relative_to_peak_ms": -0.005732625454887359
+        },
+        {
+          "frequency_hz": 4400.0,
+          "magnitude_db": -7.557295235801406e-8,
+          "absolute_group_delay_ms": 2730.7388256865333,
+          "group_delay_relative_to_peak_ms": -0.005965980133017486
+        },
+        {
+          "frequency_hz": 4500.0,
+          "magnitude_db": -7.654493370018064e-8,
+          "absolute_group_delay_ms": 2730.738559550321,
+          "group_delay_relative_to_peak_ms": -0.006232116345927352
+        },
+        {
+          "frequency_hz": 4600.0,
+          "magnitude_db": -7.615408502425874e-8,
+          "absolute_group_delay_ms": 2730.7382628502764,
+          "group_delay_relative_to_peak_ms": -0.0065288163902247716
+        },
+        {
+          "frequency_hz": 4700.0,
+          "magnitude_db": -7.600394212938373e-8,
+          "absolute_group_delay_ms": 2730.7379446444115,
+          "group_delay_relative_to_peak_ms": -0.006847022255290843
+        },
+        {
+          "frequency_hz": 4800.0,
+          "magnitude_db": -7.568988092166166e-8,
+          "absolute_group_delay_ms": 2730.7376187077843,
+          "group_delay_relative_to_peak_ms": -0.007172958882316985
+        },
+        {
+          "frequency_hz": 4900.0,
+          "magnitude_db": -7.53793057577728e-8,
+          "absolute_group_delay_ms": 2730.7372974342366,
+          "group_delay_relative_to_peak_ms": -0.007494232429962722
+        },
+        {
+          "frequency_hz": 5000.0,
+          "magnitude_db": -7.459795074230507e-8,
+          "absolute_group_delay_ms": 2730.736989804203,
+          "group_delay_relative_to_peak_ms": -0.007801862463869232
+        },
+        {
+          "frequency_hz": 5100.0,
+          "magnitude_db": -7.470442021014733e-8,
+          "absolute_group_delay_ms": 2730.7366994688828,
+          "group_delay_relative_to_peak_ms": -0.00809219778420811
+        },
+        {
+          "frequency_hz": 5200.0,
+          "magnitude_db": -7.603267426650113e-8,
+          "absolute_group_delay_ms": 2730.7364272698223,
+          "group_delay_relative_to_peak_ms": -0.008364396844020424
+        },
+        {
+          "frequency_hz": 5300.0,
+          "magnitude_db": -7.676060650430606e-8,
+          "absolute_group_delay_ms": 2730.7361715829556,
+          "group_delay_relative_to_peak_ms": -0.008620083711017893
+        },
+        {
+          "frequency_hz": 5400.0,
+          "magnitude_db": -7.581173527005297e-8,
+          "absolute_group_delay_ms": 2730.735930848301,
+          "group_delay_relative_to_peak_ms": -0.008860818365671244
+        },
+        {
+          "frequency_hz": 5500.0,
+          "magnitude_db": -7.607006606434414e-8,
+          "absolute_group_delay_ms": 2730.7357040893935,
+          "group_delay_relative_to_peak_ms": -0.009087577273021452
+        },
+        {
+          "frequency_hz": 5600.0,
+          "magnitude_db": -7.57356141521616e-8,
+          "absolute_group_delay_ms": 2730.7354916958075,
+          "group_delay_relative_to_peak_ms": -0.009299970859501627
+        },
+        {
+          "frequency_hz": 5700.0,
+          "magnitude_db": -7.496138358804618e-8,
+          "absolute_group_delay_ms": 2730.735293844621,
+          "group_delay_relative_to_peak_ms": -0.009497822045280676
+        },
+        {
+          "frequency_hz": 5800.0,
+          "magnitude_db": -7.448181871316638e-8,
+          "absolute_group_delay_ms": 2730.7351111868115,
+          "group_delay_relative_to_peak_ms": -0.009680479855281495
+        },
+        {
+          "frequency_hz": 5900.0,
+          "magnitude_db": -7.541737258484544e-8,
+          "absolute_group_delay_ms": 2730.734944181098,
+          "group_delay_relative_to_peak_ms": -0.009847485568874012
+        },
+        {
+          "frequency_hz": 6000.0,
+          "magnitude_db": -7.643889335804221e-8,
+          "absolute_group_delay_ms": 2730.734793672398,
+          "group_delay_relative_to_peak_ms": -0.009997994268511926
+        },
+        {
+          "frequency_hz": 6100.0,
+          "magnitude_db": -7.655206490185865e-8,
+          "absolute_group_delay_ms": 2730.7346599271755,
+          "group_delay_relative_to_peak_ms": -0.010131739491043845
+        },
+        {
+          "frequency_hz": 6200.0,
+          "magnitude_db": -7.580379692627903e-8,
+          "absolute_group_delay_ms": 2730.734543220323,
+          "group_delay_relative_to_peak_ms": -0.010248446343515146
+        },
+        {
+          "frequency_hz": 6300.0,
+          "magnitude_db": -7.60968521886172e-8,
+          "absolute_group_delay_ms": 2730.7344440476627,
+          "group_delay_relative_to_peak_ms": -0.010347619003975222
+        },
+        {
+          "frequency_hz": 6400.0,
+          "magnitude_db": -7.566625972016264e-8,
+          "absolute_group_delay_ms": 2730.734362528934,
+          "group_delay_relative_to_peak_ms": -0.010429137732595942
+        },
+        {
+          "frequency_hz": 6500.0,
+          "magnitude_db": -7.442319917462706e-8,
+          "absolute_group_delay_ms": 2730.734298842901,
+          "group_delay_relative_to_peak_ms": -0.010492823765768359
+        },
+        {
+          "frequency_hz": 6600.0,
+          "magnitude_db": -7.488446207835811e-8,
+          "absolute_group_delay_ms": 2730.734253063768,
+          "group_delay_relative_to_peak_ms": -0.010538602898426081
+        },
+        {
+          "frequency_hz": 6700.0,
+          "magnitude_db": -7.608824460157534e-8,
+          "absolute_group_delay_ms": 2730.7342253888537,
+          "group_delay_relative_to_peak_ms": -0.010566277812661914
+        },
+        {
+          "frequency_hz": 6800.0,
+          "magnitude_db": -7.657928400916953e-8,
+          "absolute_group_delay_ms": 2730.7342158249025,
+          "group_delay_relative_to_peak_ms": -0.010575841764269475
+        },
+        {
+          "frequency_hz": 6900.0,
+          "magnitude_db": -7.62009233740475e-8,
+          "absolute_group_delay_ms": 2730.7342243651688,
+          "group_delay_relative_to_peak_ms": -0.010567301498061472
+        },
+        {
+          "frequency_hz": 7000.0,
+          "magnitude_db": -7.61369209595311e-8,
+          "absolute_group_delay_ms": 2730.734251072052,
+          "group_delay_relative_to_peak_ms": -0.01054059461481908
+        },
+        {
+          "frequency_hz": 7100.0,
+          "magnitude_db": -7.594406607213422e-8,
+          "absolute_group_delay_ms": 2730.734295851109,
+          "group_delay_relative_to_peak_ms": -0.010495815557684788
+        },
+        {
+          "frequency_hz": 7200.0,
+          "magnitude_db": -7.53342282699577e-8,
+          "absolute_group_delay_ms": 2730.73435865512,
+          "group_delay_relative_to_peak_ms": -0.010433011546410853
+        },
+        {
+          "frequency_hz": 7300.0,
+          "magnitude_db": -7.423509842171899e-8,
+          "absolute_group_delay_ms": 2730.7344393913295,
+          "group_delay_relative_to_peak_ms": -0.01035227533733026
+        },
+        {
+          "frequency_hz": 7400.0,
+          "magnitude_db": -7.553093082396602e-8,
+          "absolute_group_delay_ms": 2730.73453808166,
+          "group_delay_relative_to_peak_ms": -0.010253585006770058
+        },
+        {
+          "frequency_hz": 7500.0,
+          "magnitude_db": -7.658396967637082e-8,
+          "absolute_group_delay_ms": 2730.7346543837602,
+          "group_delay_relative_to_peak_ms": -0.010137282906725886
+        },
+        {
+          "frequency_hz": 7600.0,
+          "magnitude_db": -7.638700482526543e-8,
+          "absolute_group_delay_ms": 2730.7347882318572,
+          "group_delay_relative_to_peak_ms": -0.010003434809429262
+        },
+        {
+          "frequency_hz": 7700.0,
+          "magnitude_db": -7.609995732308672e-8,
+          "absolute_group_delay_ms": 2730.7349396445024,
+          "group_delay_relative_to_peak_ms": -0.009852022164219912
+        },
+        {
+          "frequency_hz": 7800.0,
+          "magnitude_db": -7.64622840852768e-8,
+          "absolute_group_delay_ms": 2730.7351081832153,
+          "group_delay_relative_to_peak_ms": -0.009683483451226493
+        },
+        {
+          "frequency_hz": 7900.0,
+          "magnitude_db": -7.56292440100366e-8,
+          "absolute_group_delay_ms": 2730.735293873291,
+          "group_delay_relative_to_peak_ms": -0.009497793375582358
+        },
+        {
+          "frequency_hz": 8000.0,
+          "magnitude_db": -7.47790948368174e-8,
+          "absolute_group_delay_ms": 2730.7354966371536,
+          "group_delay_relative_to_peak_ms": -0.009295029512941255
+        },
+        {
+          "frequency_hz": 8100.0,
+          "magnitude_db": -7.471978001816673e-8,
+          "absolute_group_delay_ms": 2730.73571660972,
+          "group_delay_relative_to_peak_ms": -0.00907505694643381
+        },
+        {
+          "frequency_hz": 8200.0,
+          "magnitude_db": -7.607235634209726e-8,
+          "absolute_group_delay_ms": 2730.735953379493,
+          "group_delay_relative_to_peak_ms": -0.008838287173906185
+        },
+        {
+          "frequency_hz": 8300.0,
+          "magnitude_db": -7.679821045419671e-8,
+          "absolute_group_delay_ms": 2730.736207131982,
+          "group_delay_relative_to_peak_ms": -0.008584534684511405
+        },
+        {
+          "frequency_hz": 8400.0,
+          "magnitude_db": -7.613749473437874e-8,
+          "absolute_group_delay_ms": 2730.7364778705623,
+          "group_delay_relative_to_peak_ms": -0.008313796104024126
+        },
+        {
+          "frequency_hz": 8500.0,
+          "magnitude_db": -7.636568065181003e-8,
+          "absolute_group_delay_ms": 2730.736765895424,
+          "group_delay_relative_to_peak_ms": -0.008025771242804087
+        },
+        {
+          "frequency_hz": 8600.0,
+          "magnitude_db": -7.649942226499571e-8,
+          "absolute_group_delay_ms": 2730.737070639913,
+          "group_delay_relative_to_peak_ms": -0.0077210267536429456
+        },
+        {
+          "frequency_hz": 8700.0,
+          "magnitude_db": -7.521129869643856e-8,
+          "absolute_group_delay_ms": 2730.737392319899,
+          "group_delay_relative_to_peak_ms": -0.007399346767973233
+        },
+        {
+          "frequency_hz": 8800.0,
+          "magnitude_db": -7.441685679282521e-8,
+          "absolute_group_delay_ms": 2730.737730874668,
+          "group_delay_relative_to_peak_ms": -0.00706079199820427
+        },
+        {
+          "frequency_hz": 8900.0,
+          "magnitude_db": -7.565848434773208e-8,
+          "absolute_group_delay_ms": 2730.738086513343,
+          "group_delay_relative_to_peak_ms": -0.006705153323612952
+        },
+        {
+          "frequency_hz": 9000.0,
+          "magnitude_db": -7.639477537605925e-8,
+          "absolute_group_delay_ms": 2730.7384583994353,
+          "group_delay_relative_to_peak_ms": -0.006333267231336019
+        },
+        {
+          "frequency_hz": 9100.0,
+          "magnitude_db": -7.666321039365147e-8,
+          "absolute_group_delay_ms": 2730.738846681355,
+          "group_delay_relative_to_peak_ms": -0.005944985311847025
+        },
+        {
+          "frequency_hz": 9200.0,
+          "magnitude_db": -7.623557069589733e-8,
+          "absolute_group_delay_ms": 2730.7392514164408,
+          "group_delay_relative_to_peak_ms": -0.0055402502257493325
+        },
+        {
+          "frequency_hz": 9300.0,
+          "magnitude_db": -7.668141786070818e-8,
+          "absolute_group_delay_ms": 2730.739671589441,
+          "group_delay_relative_to_peak_ms": -0.005120077225607626
+        },
+        {
+          "frequency_hz": 9400.0,
+          "magnitude_db": -7.61436191781725e-8,
+          "absolute_group_delay_ms": 2730.7401071160316,
+          "group_delay_relative_to_peak_ms": -0.004684550634920015
+        },
+        {
+          "frequency_hz": 9500.0,
+          "magnitude_db": -7.477205428192347e-8,
+          "absolute_group_delay_ms": 2730.740557473409,
+          "group_delay_relative_to_peak_ms": -0.00423419325791959
+        },
+        {
+          "frequency_hz": 9600.0,
+          "magnitude_db": -7.464318637982223e-8,
+          "absolute_group_delay_ms": 2730.7410224288387,
+          "group_delay_relative_to_peak_ms": -0.0037692378276309078
+        },
+        {
+          "frequency_hz": 9700.0,
+          "magnitude_db": -7.646515778115242e-8,
+          "absolute_group_delay_ms": 2730.741500295857,
+          "group_delay_relative_to_peak_ms": -0.0032913708097718577
+        },
+        {
+          "frequency_hz": 9800.0,
+          "magnitude_db": -7.653747848447102e-8,
+          "absolute_group_delay_ms": 2730.7419903830114,
+          "group_delay_relative_to_peak_ms": -0.0028012836555717513
+        },
+        {
+          "frequency_hz": 9900.0,
+          "magnitude_db": -7.633300152233622e-8,
+          "absolute_group_delay_ms": 2730.742491341128,
+          "group_delay_relative_to_peak_ms": -0.002300325539181358
+        },
+        {
+          "frequency_hz": 10000.0,
+          "magnitude_db": -7.678191910583275e-8,
+          "absolute_group_delay_ms": 2730.743001932341,
+          "group_delay_relative_to_peak_ms": -0.0017897343259392073
+        },
+        {
+          "frequency_hz": 10100.0,
+          "magnitude_db": -7.667802246366848e-8,
+          "absolute_group_delay_ms": 2730.7435191513664,
+          "group_delay_relative_to_peak_ms": -0.0012725153004187935
+        },
+        {
+          "frequency_hz": 10200.0,
+          "magnitude_db": -7.549089194720666e-8,
+          "absolute_group_delay_ms": 2730.7440410081754,
+          "group_delay_relative_to_peak_ms": -0.0007506584909909483
+        },
+        {
+          "frequency_hz": 10300.0,
+          "magnitude_db": -7.45953624873626e-8,
+          "absolute_group_delay_ms": 2730.7445646762494,
+          "group_delay_relative_to_peak_ms": -0.00022699041740755396
+        },
+        {
+          "frequency_hz": 10400.0,
+          "magnitude_db": -7.545182414821473e-8,
+          "absolute_group_delay_ms": 2730.745087426886,
+          "group_delay_relative_to_peak_ms": 0.0002957602191600017
+        },
+        {
+          "frequency_hz": 10500.0,
+          "magnitude_db": -7.674706541790107e-8,
+          "absolute_group_delay_ms": 2730.7456048685262,
+          "group_delay_relative_to_peak_ms": 0.0008132018592732493
+        },
+        {
+          "frequency_hz": 10600.0,
+          "magnitude_db": -7.657465041565189e-8,
+          "absolute_group_delay_ms": 2730.746114063344,
+          "group_delay_relative_to_peak_ms": 0.001322396677399714
+        },
+        {
+          "frequency_hz": 10700.0,
+          "magnitude_db": -7.626758829672289e-8,
+          "absolute_group_delay_ms": 2730.746612302877,
+          "group_delay_relative_to_peak_ms": 0.0018206362104441116
+        },
+        {
+          "frequency_hz": 10800.0,
+          "magnitude_db": -7.734561962439018e-8,
+          "absolute_group_delay_ms": 2730.747096126495,
+          "group_delay_relative_to_peak_ms": 0.0023044598280345476
+        },
+        {
+          "frequency_hz": 10900.0,
+          "magnitude_db": -7.628364917081938e-8,
+          "absolute_group_delay_ms": 2730.7475647483034,
+          "group_delay_relative_to_peak_ms": 0.00277308163640555
+        },
+        {
+          "frequency_hz": 11000.0,
+          "magnitude_db": -7.480609311313097e-8,
+          "absolute_group_delay_ms": 2730.74801900479,
+          "group_delay_relative_to_peak_ms": 0.0032273381233001905
+        },
+        {
+          "frequency_hz": 11100.0,
+          "magnitude_db": -7.496506249736283e-8,
+          "absolute_group_delay_ms": 2730.7484633887025,
+          "group_delay_relative_to_peak_ms": 0.0036717220361121385
+        },
+        {
+          "frequency_hz": 11200.0,
+          "magnitude_db": -7.637637890081805e-8,
+          "absolute_group_delay_ms": 2730.748905789331,
+          "group_delay_relative_to_peak_ms": 0.004114122664153305
+        },
+        {
+          "frequency_hz": 11300.0,
+          "magnitude_db": -7.655908520587704e-8,
+          "absolute_group_delay_ms": 2730.74936124321,
+          "group_delay_relative_to_peak_ms": 0.0045695765432659146
+        },
+        {
+          "frequency_hz": 11400.0,
+          "magnitude_db": -7.6619454998798e-8,
+          "absolute_group_delay_ms": 2730.7498514652802,
+          "group_delay_relative_to_peak_ms": 0.005059798613729072
+        },
+        {
+          "frequency_hz": 11500.0,
+          "magnitude_db": -7.678051793801145e-8,
+          "absolute_group_delay_ms": 2730.7504061036243,
+          "group_delay_relative_to_peak_ms": 0.005614436957936657
+        },
+        {
+          "frequency_hz": 11600.0,
+          "magnitude_db": -7.735044415474831e-8,
+          "absolute_group_delay_ms": 2730.7510597004475,
+          "group_delay_relative_to_peak_ms": 0.006268033780846357
+        },
+        {
+          "frequency_hz": 11700.0,
+          "magnitude_db": -7.568695129479275e-8,
+          "absolute_group_delay_ms": 2730.751851371653,
+          "group_delay_relative_to_peak_ms": 0.007059704986507616
+        },
+        {
+          "frequency_hz": 11800.0,
+          "magnitude_db": -7.449713512644899e-8,
+          "absolute_group_delay_ms": 2730.7528167320393,
+          "group_delay_relative_to_peak_ms": 0.008025065372445775
+        },
+        {
+          "frequency_hz": 11900.0,
+          "magnitude_db": -7.581136689695754e-8,
+          "absolute_group_delay_ms": 2730.753979277457,
+          "group_delay_relative_to_peak_ms": 0.009187610790225637
+        },
+        {
+          "frequency_hz": 12000.0,
+          "magnitude_db": -7.687206925984084e-8,
+          "absolute_group_delay_ms": 2730.755331179329,
+          "group_delay_relative_to_peak_ms": 0.010539512662338286
+        },
+        {
+          "frequency_hz": 12100.0,
+          "magnitude_db": -7.628145532581371e-8,
+          "absolute_group_delay_ms": 2730.7568180862145,
+          "group_delay_relative_to_peak_ms": 0.012026419547813322
+        },
+        {
+          "frequency_hz": 12200.0,
+          "magnitude_db": -7.684371610341835e-8,
+          "absolute_group_delay_ms": 2730.758308912448,
+          "group_delay_relative_to_peak_ms": 0.01351724578125868
+        },
+        {
+          "frequency_hz": 12300.0,
+          "magnitude_db": -7.760190315149716e-8,
+          "absolute_group_delay_ms": 2730.7595682711594,
+          "group_delay_relative_to_peak_ms": 0.014776604492605355
+        },
+        {
+          "frequency_hz": 12400.0,
+          "magnitude_db": -7.66006023966606e-8,
+          "absolute_group_delay_ms": 2730.7602804524545,
+          "group_delay_relative_to_peak_ms": 0.015488785787965753
+        },
+        {
+          "frequency_hz": 12500.0,
+          "magnitude_db": -7.51380985264739e-8,
+          "absolute_group_delay_ms": 2730.7601498626104,
+          "group_delay_relative_to_peak_ms": 0.015358195943917963
+        },
+        {
+          "frequency_hz": 12600.0,
+          "magnitude_db": -7.492330518904585e-8,
+          "absolute_group_delay_ms": 2730.759115083892,
+          "group_delay_relative_to_peak_ms": 0.014323417225265683
+        },
+        {
+          "frequency_hz": 12700.0,
+          "magnitude_db": -7.658249521966146e-8,
+          "absolute_group_delay_ms": 2730.757569754435,
+          "group_delay_relative_to_peak_ms": 0.012778087768310797
+        },
+        {
+          "frequency_hz": 12800.0,
+          "magnitude_db": -7.676198549259543e-8,
+          "absolute_group_delay_ms": 2730.756341720152,
+          "group_delay_relative_to_peak_ms": 0.011550053484825185
+        },
+        {
+          "frequency_hz": 12900.0,
+          "magnitude_db": -7.634040370003454e-8,
+          "absolute_group_delay_ms": 2730.7562900468192,
+          "group_delay_relative_to_peak_ms": 0.011498380152867563
+        },
+        {
+          "frequency_hz": 13000.0,
+          "magnitude_db": -7.73337796116504e-8,
+          "absolute_group_delay_ms": 2730.7576943708145,
+          "group_delay_relative_to_peak_ms": 0.012902704148170113
+        },
+        {
+          "frequency_hz": 13100.0,
+          "magnitude_db": -7.796603802776592e-8,
+          "absolute_group_delay_ms": 2730.759934123075,
+          "group_delay_relative_to_peak_ms": 0.015142456408284488
+        },
+        {
+          "frequency_hz": 13200.0,
+          "magnitude_db": -7.551501652764713e-8,
+          "absolute_group_delay_ms": 2730.7618400898928,
+          "group_delay_relative_to_peak_ms": 0.0170484232257877
+        },
+        {
+          "frequency_hz": 13300.0,
+          "magnitude_db": -7.492480375394181e-8,
+          "absolute_group_delay_ms": 2730.762470278561,
+          "group_delay_relative_to_peak_ms": 0.017678611894249723
+        },
+        {
+          "frequency_hz": 13400.0,
+          "magnitude_db": -7.599664892069036e-8,
+          "absolute_group_delay_ms": 2730.7617021909027,
+          "group_delay_relative_to_peak_ms": 0.016910524236057732
+        },
+        {
+          "frequency_hz": 13500.0,
+          "magnitude_db": -7.67899259168583e-8,
+          "absolute_group_delay_ms": 2730.760224124474,
+          "group_delay_relative_to_peak_ms": 0.015432457807643612
+        },
+        {
+          "frequency_hz": 13600.0,
+          "magnitude_db": -7.639538193804105e-8,
+          "absolute_group_delay_ms": 2730.7590200380146,
+          "group_delay_relative_to_peak_ms": 0.014228371347902188
+        },
+        {
+          "frequency_hz": 13700.0,
+          "magnitude_db": -7.70127260653583e-8,
+          "absolute_group_delay_ms": 2730.7587741444586,
+          "group_delay_relative_to_peak_ms": 0.01398247779191782
+        },
+        {
+          "frequency_hz": 13800.0,
+          "magnitude_db": -7.79270811264225e-8,
+          "absolute_group_delay_ms": 2730.7595251785688,
+          "group_delay_relative_to_peak_ms": 0.014733511901795282
+        },
+        {
+          "frequency_hz": 13900.0,
+          "magnitude_db": -7.73240360468416e-8,
+          "absolute_group_delay_ms": 2730.7607183805735,
+          "group_delay_relative_to_peak_ms": 0.015926713906689354
+        },
+        {
+          "frequency_hz": 14000.0,
+          "magnitude_db": -7.486871075338366e-8,
+          "absolute_group_delay_ms": 2730.7616149702303,
+          "group_delay_relative_to_peak_ms": 0.0168233035637968
+        },
+        {
+          "frequency_hz": 14100.0,
+          "magnitude_db": -7.528836196226833e-8,
+          "absolute_group_delay_ms": 2730.761796973691,
+          "group_delay_relative_to_peak_ms": 0.01700530702449517
+        },
+        {
+          "frequency_hz": 14200.0,
+          "magnitude_db": -7.703524889786684e-8,
+          "absolute_group_delay_ms": 2730.7614029071915,
+          "group_delay_relative_to_peak_ms": 0.016611240524677363
+        },
+        {
+          "frequency_hz": 14300.0,
+          "magnitude_db": -7.642712181255441e-8,
+          "absolute_group_delay_ms": 2730.76091285714,
+          "group_delay_relative_to_peak_ms": 0.01612119047301045
+        },
+        {
+          "frequency_hz": 14400.0,
+          "magnitude_db": -7.638315330133015e-8,
+          "absolute_group_delay_ms": 2730.7607007131505,
+          "group_delay_relative_to_peak_ms": 0.015909046484011924
+        },
+        {
+          "frequency_hz": 14500.0,
+          "magnitude_db": -7.810248554387174e-8,
+          "absolute_group_delay_ms": 2730.7607804357935,
+          "group_delay_relative_to_peak_ms": 0.01598876912673101
+        },
+        {
+          "frequency_hz": 14600.0,
+          "magnitude_db": -7.808825014168247e-8,
+          "absolute_group_delay_ms": 2730.7609348452897,
+          "group_delay_relative_to_peak_ms": 0.016143178623072647
+        },
+        {
+          "frequency_hz": 14700.0,
+          "magnitude_db": -7.590095581236514e-8,
+          "absolute_group_delay_ms": 2730.7610218905697,
+          "group_delay_relative_to_peak_ms": 0.01623022390291832
+        },
+        {
+          "frequency_hz": 14800.0,
+          "magnitude_db": -7.514460484394702e-8,
+          "absolute_group_delay_ms": 2730.7611200193073,
+          "group_delay_relative_to_peak_ms": 0.016328352640509063
+        },
+        {
+          "frequency_hz": 14900.0,
+          "magnitude_db": -7.615863857859575e-8,
+          "absolute_group_delay_ms": 2730.7614131069404,
+          "group_delay_relative_to_peak_ms": 0.016621440273714448
+        },
+        {
+          "frequency_hz": 15000.0,
+          "magnitude_db": -7.71721968999176e-8,
+          "absolute_group_delay_ms": 2730.761997025715,
+          "group_delay_relative_to_peak_ms": 0.017205359048602986
+        },
+        {
+          "frequency_hz": 15100.0,
+          "magnitude_db": -7.608086171042676e-8,
+          "absolute_group_delay_ms": 2730.762829178862,
+          "group_delay_relative_to_peak_ms": 0.01803751219510256
+        },
+        {
+          "frequency_hz": 15200.0,
+          "magnitude_db": -7.721011039892956e-8,
+          "absolute_group_delay_ms": 2730.7638367649947,
+          "group_delay_relative_to_peak_ms": 0.019045098328206223
+        },
+        {
+          "frequency_hz": 15300.0,
+          "magnitude_db": -7.894315055669647e-8,
+          "absolute_group_delay_ms": 2730.7650300074756,
+          "group_delay_relative_to_peak_ms": 0.02023834080864617
+        },
+        {
+          "frequency_hz": 15400.0,
+          "magnitude_db": -7.734325316476618e-8,
+          "absolute_group_delay_ms": 2730.7664777984583,
+          "group_delay_relative_to_peak_ms": 0.021686131791284424
+        },
+        {
+          "frequency_hz": 15500.0,
+          "magnitude_db": -7.476812464746345e-8,
+          "absolute_group_delay_ms": 2730.7682236217934,
+          "group_delay_relative_to_peak_ms": 0.02343195512670112
+        },
+        {
+          "frequency_hz": 15600.0,
+          "magnitude_db": -7.620982508096935e-8,
+          "absolute_group_delay_ms": 2730.770252252062,
+          "group_delay_relative_to_peak_ms": 0.025460585395194357
+        },
+        {
+          "frequency_hz": 15700.0,
+          "magnitude_db": -7.693881036439193e-8,
+          "absolute_group_delay_ms": 2730.772503381225,
+          "group_delay_relative_to_peak_ms": 0.02771171455788135
+        },
+        {
+          "frequency_hz": 15800.0,
+          "magnitude_db": -7.632563309609954e-8,
+          "absolute_group_delay_ms": 2730.7749517527586,
+          "group_delay_relative_to_peak_ms": 0.030160086091806683
+        },
+        {
+          "frequency_hz": 15900.0,
+          "magnitude_db": -7.65058726514763e-8,
+          "absolute_group_delay_ms": 2730.7776479066906,
+          "group_delay_relative_to_peak_ms": 0.03285624002395101
+        },
+        {
+          "frequency_hz": 16000.0,
+          "magnitude_db": -7.855892777474926e-8,
+          "absolute_group_delay_ms": 2730.780711001996,
+          "group_delay_relative_to_peak_ms": 0.03591933532940554
+        },
+        {
+          "frequency_hz": 16100.0,
+          "magnitude_db": -7.86193997863965e-8,
+          "absolute_group_delay_ms": 2730.784250213767,
+          "group_delay_relative_to_peak_ms": 0.03945854710036656
+        },
+        {
+          "frequency_hz": 16200.0,
+          "magnitude_db": -7.608277107882725e-8,
+          "absolute_group_delay_ms": 2730.7882991499073,
+          "group_delay_relative_to_peak_ms": 0.043507483240318834
+        },
+        {
+          "frequency_hz": 16300.0,
+          "magnitude_db": -7.499612637831107e-8,
+          "absolute_group_delay_ms": 2730.7927765901914,
+          "group_delay_relative_to_peak_ms": 0.04798492352468505
+        },
+        {
+          "frequency_hz": 16400.0,
+          "magnitude_db": -7.726638083575825e-8,
+          "absolute_group_delay_ms": 2730.7975731369133,
+          "group_delay_relative_to_peak_ms": 0.052781470246676086
+        },
+        {
+          "frequency_hz": 16500.0,
+          "magnitude_db": -7.69510669666004e-8,
+          "absolute_group_delay_ms": 2730.8026916705594,
+          "group_delay_relative_to_peak_ms": 0.057900003892427776
+        },
+        {
+          "frequency_hz": 16600.0,
+          "magnitude_db": -7.54820461712791e-8,
+          "absolute_group_delay_ms": 2730.8083731602005,
+          "group_delay_relative_to_peak_ms": 0.06358149353400222
+        },
+        {
+          "frequency_hz": 16700.0,
+          "magnitude_db": -7.801620523600887e-8,
+          "absolute_group_delay_ms": 2730.8149986123417,
+          "group_delay_relative_to_peak_ms": 0.07020694567533307
+        },
+        {
+          "frequency_hz": 16800.0,
+          "magnitude_db": -7.965467476275142e-8,
+          "absolute_group_delay_ms": 2730.8228429007795,
+          "group_delay_relative_to_peak_ms": 0.07805123411283905
+        },
+        {
+          "frequency_hz": 16900.0,
+          "magnitude_db": -7.700672891279063e-8,
+          "absolute_group_delay_ms": 2730.8319806685167,
+          "group_delay_relative_to_peak_ms": 0.08718900185037153
+        },
+        {
+          "frequency_hz": 17000.0,
+          "magnitude_db": -7.525595573747398e-8,
+          "absolute_group_delay_ms": 2730.8424102425806,
+          "group_delay_relative_to_peak_ms": 0.0976185759142633
+        },
+        {
+          "frequency_hz": 17100.0,
+          "magnitude_db": -7.685518967171693e-8,
+          "absolute_group_delay_ms": 2730.8543846401617,
+          "group_delay_relative_to_peak_ms": 0.10959297349533396
+        },
+        {
+          "frequency_hz": 17200.0,
+          "magnitude_db": -7.717132611220758e-8,
+          "absolute_group_delay_ms": 2730.8685258435817,
+          "group_delay_relative_to_peak_ms": 0.1237341769149983
+        },
+        {
+          "frequency_hz": 17300.0,
+          "magnitude_db": -7.601749478771725e-8,
+          "absolute_group_delay_ms": 2730.8857200977127,
+          "group_delay_relative_to_peak_ms": 0.14092843104602554
+        },
+        {
+          "frequency_hz": 17400.0,
+          "magnitude_db": -7.641688836938931e-8,
+          "absolute_group_delay_ms": 2730.906777574297,
+          "group_delay_relative_to_peak_ms": 0.16198590763027218
+        },
+        {
+          "frequency_hz": 17500.0,
+          "magnitude_db": -7.968397103145403e-8,
+          "absolute_group_delay_ms": 2730.9323996882276,
+          "group_delay_relative_to_peak_ms": 0.18760802156066347
+        },
+        {
+          "frequency_hz": 17600.0,
+          "magnitude_db": -7.897887021070978e-8,
+          "absolute_group_delay_ms": 2730.9633318644255,
+          "group_delay_relative_to_peak_ms": 0.2185401977591634
+        },
+        {
+          "frequency_hz": 17700.0,
+          "magnitude_db": -7.553183536313752e-8,
+          "absolute_group_delay_ms": 2731.000736820331,
+          "group_delay_relative_to_peak_ms": 0.2559451536641669
+        },
+        {
+          "frequency_hz": 17800.0,
+          "magnitude_db": -7.580085379882542e-8,
+          "absolute_group_delay_ms": 2731.045837061987,
+          "group_delay_relative_to_peak_ms": 0.30104539532051905
+        },
+        {
+          "frequency_hz": 17900.0,
+          "magnitude_db": -7.854189196557107e-8,
+          "absolute_group_delay_ms": 2731.0989928051404,
+          "group_delay_relative_to_peak_ms": 0.35420113847370277
+        },
+        {
+          "frequency_hz": 18000.0,
+          "magnitude_db": -7.596177691053981e-8,
+          "absolute_group_delay_ms": 2731.158009882719,
+          "group_delay_relative_to_peak_ms": 0.4132182160519733
+        },
+        {
+          "frequency_hz": 18100.0,
+          "magnitude_db": -7.51345951247576e-8,
+          "absolute_group_delay_ms": 2731.2171655338734,
+          "group_delay_relative_to_peak_ms": 0.47237386720674596
+        },
+        {
+          "frequency_hz": 18200.0,
+          "magnitude_db": -7.927550216376116e-8,
+          "absolute_group_delay_ms": 2731.267120842639,
+          "group_delay_relative_to_peak_ms": 0.5223291759721178
+        },
+        {
+          "frequency_hz": 18300.0,
+          "magnitude_db": -8.052084720178061e-8,
+          "absolute_group_delay_ms": 2731.297176595947,
+          "group_delay_relative_to_peak_ms": 0.5523849292803789
+        },
+        {
+          "frequency_hz": 18400.0,
+          "magnitude_db": -7.579789909944211e-8,
+          "absolute_group_delay_ms": 2731.299907909332,
+          "group_delay_relative_to_peak_ms": 0.5551162426654628
+        },
+        {
+          "frequency_hz": 18500.0,
+          "magnitude_db": -7.590203585913712e-8,
+          "absolute_group_delay_ms": 2731.274790784173,
+          "group_delay_relative_to_peak_ms": 0.5299991175064255
+        },
+        {
+          "frequency_hz": 18600.0,
+          "magnitude_db": -7.869896066041752e-8,
+          "absolute_group_delay_ms": 2731.2285838562407,
+          "group_delay_relative_to_peak_ms": 0.48379218957416015
+        },
+        {
+          "frequency_hz": 18700.0,
+          "magnitude_db": -7.676742815686475e-8,
+          "absolute_group_delay_ms": 2731.172014745444,
+          "group_delay_relative_to_peak_ms": 0.42722307877738785
+        },
+        {
+          "frequency_hz": 18800.0,
+          "magnitude_db": -7.42591034255491e-8,
+          "absolute_group_delay_ms": 2731.114802126267,
+          "group_delay_relative_to_peak_ms": 0.370010459600356
+        },
+        {
+          "frequency_hz": 18900.0,
+          "magnitude_db": -7.84400589841828e-8,
+          "absolute_group_delay_ms": 2731.062985929933,
+          "group_delay_relative_to_peak_ms": 0.31819426326607453
+        },
+        {
+          "frequency_hz": 19000.0,
+          "magnitude_db": -8.077069962904704e-8,
+          "absolute_group_delay_ms": 2731.018773916432,
+          "group_delay_relative_to_peak_ms": 0.27398224976544344
+        },
+        {
+          "frequency_hz": 19100.0,
+          "magnitude_db": -7.74377389351084e-8,
+          "absolute_group_delay_ms": 2730.982173728831,
+          "group_delay_relative_to_peak_ms": 0.23738206216451846
+        },
+        {
+          "frequency_hz": 19200.0,
+          "magnitude_db": -7.566513338567188e-8,
+          "absolute_group_delay_ms": 2730.9522685702323,
+          "group_delay_relative_to_peak_ms": 0.20747690356559664
+        },
+        {
+          "frequency_hz": 19300.0,
+          "magnitude_db": -7.853924777963387e-8,
+          "absolute_group_delay_ms": 2730.928202086696,
+          "group_delay_relative_to_peak_ms": 0.1834104200291525
+        },
+        {
+          "frequency_hz": 19400.0,
+          "magnitude_db": -7.808078624702426e-8,
+          "absolute_group_delay_ms": 2730.9092589398606,
+          "group_delay_relative_to_peak_ms": 0.16446727319392568
+        },
+        {
+          "frequency_hz": 19500.0,
+          "magnitude_db": -7.422034903299202e-8,
+          "absolute_group_delay_ms": 2730.8947241556434,
+          "group_delay_relative_to_peak_ms": 0.1499324889767498
+        },
+        {
+          "frequency_hz": 19600.0,
+          "magnitude_db": -7.62686307347234e-8,
+          "absolute_group_delay_ms": 2730.883582177671,
+          "group_delay_relative_to_peak_ms": 0.13879051100411743
+        },
+        {
+          "frequency_hz": 19700.0,
+          "magnitude_db": -8.179672188352966e-8,
+          "absolute_group_delay_ms": 2730.8746508604113,
+          "group_delay_relative_to_peak_ms": 0.12985919374477817
+        },
+        {
+          "frequency_hz": 19800.0,
+          "magnitude_db": -7.85410607152874e-8,
+          "absolute_group_delay_ms": 2730.8669347366795,
+          "group_delay_relative_to_peak_ms": 0.12214307001280153
+        },
+        {
+          "frequency_hz": 19900.0,
+          "magnitude_db": -7.462761924139591e-8,
+          "absolute_group_delay_ms": 2730.8599238932225,
+          "group_delay_relative_to_peak_ms": 0.11513222655594291
+        },
+        {
+          "frequency_hz": 20000.0,
+          "magnitude_db": -7.987644790256355e-8,
+          "absolute_group_delay_ms": 2730.853712981283,
+          "group_delay_relative_to_peak_ms": 0.10892131461635776
+        }
+      ]
+    }
+  ]
+}

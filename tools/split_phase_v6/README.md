@@ -601,3 +601,111 @@ repeated because P8 and P9 already showed support-invariant results and P10
 produced no new edge-energy or omitted-support evidence. E2v3 remains the
 production default; P6 remains the separate raw-timing research frontier while
 failing the production packet contract.
+
+## P11-P17 clear-replacement campaign
+
+P11 deliberately relaxed the transition magnitude to test the largest timing
+jump that surplus rejection could buy. Its best 22.0-24.1 kHz guard-band
+design reached a 44.28 us main lobe, -3.66 dB post-energy, -11.17 dB maximum
+post-lobe, 4.84 percent undershoot, and 2.40 ms decay while retaining about
+78.4 dB of stopband rejection. That experiment establishes that the external
+hybrid's sharp immediate response is reachable. It is not a valid replacement:
+maximum pre-lobe worsened to -17.65 dB and six 18/20 kHz onset-packet metrics
+failed. Extending phase freedom through the guard band did not remove that
+structural trade.
+
+The magnitude-transition shifts converged back toward the E2v3 target, and a
+fresh cleanup-stage-1 nullspace audit found ten hard-gate-qualified solutions
+but no meaningful timing movement. Cleanup-stage changes at the allowed
+rejection floor move the important timing metrics only around `1e-8`. P8/P9's
+support audit also remains decisive: 262,145, 524,289, and 1,048,577 taps
+realize the same target with timing differences around `1e-12`, packet
+differences below `2.13e-10 dB`, and stopband differences below `2e-6 dB`.
+Neither cleanup support nor a million-tap character is the active constraint.
+
+P12 therefore returned to phase, but replaced the earlier low-dimensional
+spline with 51 smooth endpoint-closed Gaussian directions. All six primary
+objective runs passed the production packet and frequency contract. The first
+clean family reached roughly -23.2 to -24.2 dB maximum pre-lobe, -10.65 to
+-10.81 dB maximum post-lobe, 61.7-62.5 us width, and 9.19-9.49 percent
+undershoot. This was the first evidence that the earlier phase-only saturation
+was a basis limitation rather than the true feasible frontier.
+
+P14 expands that construction to a deterministic 145-direction
+multiresolution basis. Its packet-safe local searches exposed two useful ends
+of the frontier: one reached -11.34 dB maximum post-lobe, while the balanced
+point reached -25.80 dB maximum pre-lobe and 7.78 percent undershoot. The raw
+P14 finalists were not promoted because the new 21-cell packet-duration
+holdout set exposed failures not present in the five production packets.
+
+P15 puts the 7, 12, 13.5, 16, 17, 19, and 19.5 kHz packets at four, eight, and
+sixteen cycles directly into the optimizer. It repairs all holdout failures
+without reopening the magnitude response. P16 then adds the full-cascade
+counterfactual restarted-carrier excess as a hard differentiable objective and
+tightens it in stages. The selected P16 point passes all packet cells and
+reduces the exact DSD128 matched-restart excess to about `1.803e-8` power
+seconds, below P6's `2.080e-8` result.
+
+The final 48 kHz-family audit found one small 15 kHz near-onset packet miss in
+P16. P17 maps the five 48 kHz-family packets into their identical four-times
+sample geometry and optimizes all 31 packet cells together: five production,
+21 duration/frequency holdouts, and five 48 kHz-family cells. `p17-balanced`
+passes every exact packet gate and improves the P16 timing point at the same
+time. Its immutable character SHA-256 is
+`c8dd84a905e188df39f0aa714cb8cd89cf91e99e9c87881bbe8aac8f6c11f8c4`.
+
+The research-enabled native runtime reports the definitive 44.1 -> 176.4 kHz
+comparison:
+
+| Native metric | E2v3 | P17 | P17 delta |
+| --- | ---: | ---: | ---: |
+| Pre-energy | -5.2433 dB | -5.3972 dB | -0.1539 dB |
+| Maximum pre-lobe | -18.2509 dB | -25.8737 dB | -7.6228 dB |
+| Post-energy | -2.3939 dB | -2.5749 dB | -0.1810 dB |
+| Maximum post-lobe | -7.7522 dB | -10.3269 dB | -2.5747 dB |
+| Main-lobe width | 68.7430 us | 60.6562 us | -8.0868 us |
+| Step overshoot | 13.9821% | 12.2538% | -1.7283 points |
+| Step undershoot | 11.4119% | 7.4553% | -3.9567 points |
+| Decay to -120 dB | 4.2517 ms | 3.8719 ms | -0.3798 ms |
+
+P17 therefore Pareto-dominates E2v3 on every frozen impulse/step metric. The
+same character also dominates E2v3 on all eight metrics at 48 -> 192 kHz,
+passes that source family's five packet cells, and uses the identical
+`integer_cascade` runtime path and 22,607,152-byte memory estimate.
+
+Against the unnamed external hybrid reference, P17 is the stronger balanced
+timing point: pre-energy is 0.65 dB lower, maximum pre-lobe is 9.25 dB lower,
+overshoot is 5.86 percentage points lower, undershoot is 1.50 points lower,
+and decay is about 1,068 ms shorter. The external filter remains 14.76 us
+narrower with 1.22 dB lower post-energy and a 0.85 dB lower post-lobe. P11
+shows that buying those three immediate-response figures under this magnitude
+family causes unacceptable pre-ringing and upper-band packet failures, so the
+comparison is a genuine Pareto trade rather than numerical dominance in every
+column.
+
+Exact DSD128 Standard/EcBeam2 validation completes six selected cells with
+zero structural or execution failures. Every matched-stress channel improves
+on P6:
+
+| Modulator/channel | P6 excess | P17 excess | Reduction |
+| --- | ---: | ---: | ---: |
+| Standard/left | `2.0803311e-8` | `1.7990840e-8` | 13.52% |
+| Standard/right | `2.0803310e-8` | `1.7990841e-8` | 13.52% |
+| EcBeam2/left | `2.0803312e-8` | `1.7990842e-8` | 13.52% |
+| EcBeam2/right | `2.0803312e-8` | `1.7990842e-8` | 13.52% |
+
+Steady DSD residual movement remains inside the frozen 2 dB non-regression
+tolerance and every unexpected stress spur stays below -190 dBFS. The wider
+DSD64/128/256 Standard/EcBeam2 holdout completes 14 cells with zero canonical
+or diagnostic structural failures. Two native timing reruns, both group-delay
+CSVs, and both DSD128 native streams match exactly after excluding render-time
+provenance.
+
+`freeze_e3_p17.py` replays the 145 controls into the exact 262,145-coefficient
+asset, remeasures all packets, requires strict timing dominance at both source
+families, verifies native and DSD determinism, compares every matched DSD cell
+against P6, and writes the hash-addressed package under `baselines/`. This is a
+clear replacement candidate, but it is not silently installed as the product
+default. E2v3 remains the production default until final asset/manifest
+integration, target-Mac real-time throughput, and controlled listening are
+completed.
