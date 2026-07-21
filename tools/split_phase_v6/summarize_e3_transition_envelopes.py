@@ -174,7 +174,12 @@ def _candidate_audit(
     }
 
 
-def build(reference_path: Path, candidates: list[tuple[str, Path]]) -> dict[str, Any]:
+def build(
+    reference_path: Path,
+    candidates: list[tuple[str, Path]],
+    identity: str = IDENTITY,
+    promotion_status: str = "research only; no E3 candidate promoted",
+) -> dict[str, Any]:
     reference = _load(reference_path)
     reference_channels = _stress_channels(reference)
     audits = [
@@ -183,12 +188,12 @@ def build(reference_path: Path, candidates: list[tuple[str, Path]]) -> dict[str,
     ]
     return {
         "schema_version": 1,
-        "identity": IDENTITY,
+        "identity": identity,
         "contract": CONTRACT,
         "interpretation": {
             "first_crossing_recovery": "secondary threshold-sensitive diagnostic",
             "optimizer_primary": "linear-power fixed-reference interval envelope",
-            "promotion_status": "research only; no E3 candidate promoted",
+            "promotion_status": promotion_status,
         },
         "reference": {
             "name": "SplitPhase128kE2v3",
@@ -215,8 +220,18 @@ def main() -> None:
     parser.add_argument("--reference", type=Path, required=True)
     parser.add_argument("--candidate", type=_candidate, action="append", required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--identity", default=IDENTITY)
+    parser.add_argument(
+        "--promotion-status",
+        default="research only; no E3 candidate promoted",
+    )
     arguments = parser.parse_args()
-    report = build(arguments.reference, arguments.candidate)
+    report = build(
+        arguments.reference,
+        arguments.candidate,
+        arguments.identity,
+        arguments.promotion_status,
+    )
     arguments.out.parent.mkdir(parents=True, exist_ok=True)
     arguments.out.write_bytes((json.dumps(report, indent=2) + "\n").encode("utf-8"))
     print(json.dumps({"out": str(arguments.out), "sha256": _sha256(arguments.out)}, indent=2))

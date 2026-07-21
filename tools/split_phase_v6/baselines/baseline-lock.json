@@ -94,6 +94,18 @@
     "e3_p5_all_finalists_stage_audit": {
       "path": "tools/split_phase_v6/baselines/e3-p5-all-finalists-stage-audit.json",
       "sha256": "8886fbdf0e9340069eec933c67781aae6c09fd90a6553102c8892d157ded7aa3"
+    },
+    "e3_p6_restarted_carrier_search": {
+      "path": "tools/split_phase_v6/baselines/e3-p6-restarted-carrier-search.json",
+      "sha256": "9fb96ea930e7cfa2fdd5cd6f49445c7bd6b07df2851d720761222a35f661098a"
+    },
+    "e3_p6_local_refine": {
+      "path": "tools/split_phase_v6/baselines/e3-p6-local-refine.json",
+      "sha256": "0b02876b424d0f592eb7d795dae86dfe3f1cfc219b1767b072fcbb05fda8e08d"
+    },
+    "e3_p6_local0145_transition_envelope_audit": {
+      "path": "tools/split_phase_v6/baselines/e3-p6-local0145-transition-envelope-audit.json",
+      "sha256": "771f70e8ba7506b37e034a0466e9e6c5cdb2c5c74db53cfa8c2cfc071076e143"
     }
   },
   "current_e3_asset": {
@@ -101,6 +113,14 @@
     "character_sha256": "ae37e2a5838a7510283a0e1a675cfc3eea264628f1a7d62a0e7744a2abb7505b",
     "manifest_sha256": "80dd328fcd864dcabca336740adeab8fd023d935dc2f38598132bf91884c6fb9",
     "experimental_audit_sha256": "c2e2e848ec06592a83f265bac72333d21c2c86b6a5cfa71f4d952661b549283a",
+    "production_promoted": false
+  },
+  "current_e3_research_incumbent": {
+    "candidate_identifier": "p6d-local-0145",
+    "character_path": "tools/split_phase_v6/baselines/e3-p6d-local-0145.f64le",
+    "character_sha256": "da418ad185fdd0317c3046598eb40ec205bd33976b563870011d3f058acd51d5",
+    "exact_transition_audit_sha256": "771f70e8ba7506b37e034a0466e9e6c5cdb2c5c74db53cfa8c2cfc071076e143",
+    "embedded": false,
     "production_promoted": false
   },
   "external_product": {
@@ -157,5 +177,12 @@
     "tools/split_phase_v6/summarize_e3_transition_envelopes.py": "81d3367ff781e7e4b5a17f0cf18b382b867b679c166ae6e7c48625c2ca86e872",
     "tools/split_phase_v6/e3_full_cascade_stage_audit.py": "f4d5bc3c84a098f7caae68a4e211ada036f018e6db5cf6138bcece7316d1f5ca",
     "tools/split_phase_v6/e3_p5_group_delay_search.py": "38e79dcf9b6ff96075d64202cdbe936b9e6a017ebee80e0a0090673155ca790c"
+  },
+  "e3_p6_measurement_sources": {
+    "audio_tests/e3_transition_probe.rs": "e94a6eb68c83c7944d28a23cd582e983e8afd4c03e818771afb7475bae467cba",
+    "src/audio/dsd/dsd_render.rs": "70248567d575e7bfe5434656e7c375e93b5af51343acaa2858805ea5c77b9649",
+    "tools/split_phase_v6/e3_p6_restarted_carrier_search.py": "81d6532e4ac30a23dd7c54cb659cc16e3a6a9fc475b15fdae3409e02595c3cdb",
+    "tools/split_phase_v6/e3_p6_local_refine.py": "08b77048385b35815a2fde94970101fb2aa7b797e9d47b30208a0b9d7aaf61a9",
+    "tools/split_phase_v6/summarize_e3_transition_envelopes.py": "9e1b5d03655b1f4c0ac0556c579eaef3536fbc33aeedb524ef61b9704cc4191f"
   }
 }

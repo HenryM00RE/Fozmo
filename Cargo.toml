@@ -122,6 +122,11 @@ path = "src/bin/dsd_modulator_bench.rs"
 name = "dsd_public_quality"
 path = "audio_tests/dsd_public_quality.rs"
 
+[[bin]]
+name = "e3_transition_probe"
+path = "audio_tests/e3_transition_probe.rs"
+required-features = ["research-filter-assets"]
+
 [[test]]
 name = "audio_smoke"
 path = "audio_tests/audio_smoke.rs"

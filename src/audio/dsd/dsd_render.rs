@@ -1989,6 +1989,34 @@ impl DsdRenderer {
         Ok((left, right))
     }
 
+    /// Materialize the current upsampler block in the exact normalized PCM
+    /// domain entering either production modulator. This research-only probe
+    /// shares coefficient gain, mandatory headroom, block riding, and limiting
+    /// with production, then divides out the coefficient-table input peak so
+    /// Standard and EcBeam2 captures remain directly comparable in PCM units.
+    #[cfg(feature = "research-filter-assets")]
+    #[doc(hidden)]
+    pub fn research_normalized_modulator_input_block(
+        &self,
+        input_gain: f64,
+        left: &mut Vec<f64>,
+        right: &mut Vec<f64>,
+    ) {
+        prepare_modulator_input_planes(
+            &self.pcm_scratch,
+            self.coeffs,
+            self.dsd_modulator,
+            self.experiment_tweaks,
+            input_gain,
+            left,
+            right,
+        );
+        let inverse_peak = self.coeffs.input_peak.recip();
+        for sample in left.iter_mut().chain(right.iter_mut()) {
+            *sample *= inverse_peak;
+        }
+    }
+
     /// Stage 2 (pipelined): hand the upsampled buffer produced by [`upsample`] to
     /// the modulator workers and surface the *previous* block's bits for packing.
     /// Output therefore lags input by one block; the end-of-stream flush emits the

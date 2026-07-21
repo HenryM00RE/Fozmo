@@ -235,3 +235,63 @@ P5 is therefore complete as a structural screen but has no promoted winner.
 the exact filter-only restarted-carrier waveform entering the modulator and
 use its fixed-reference positive excess in finalist selection. P6 bounded
 magnitude movement should wait until that surrogate mismatch is closed.
+
+## P6 restarted-carrier search
+
+`e3_transition_probe` closes the P5 surrogate gap by streaming the exact public
+18/19 kHz mute-and-restart fixture through the production DSD128 cascade and
+capturing the normalized PCM blocks after coefficient gain, headroom, block
+riding, and limiting, immediately before the selected modulator. It retains
+only the restart and settled-fit windows. The probe is available only with the
+`research-filter-assets` feature; normal playback builds do not expose it.
+
+The exact probe reproduced the old P5 finalist ordering and deltas. For example,
+its predicted 0-2 ms positive-excess changes were +18.0% for `p5-c-0383` and
++18.4% for `p5-d-0861`, versus +19.1% and +19.3% in the reconstructed one-bit
+reports. Its average interval deltas agreed to roughly 0.0002 dB. This validates
+the efficient 176.4 kHz restarted-carrier model in
+`e3_p6_restarted_carrier_search.py` as a finalist-selection surrogate.
+
+The bounded P6 pass evaluated 1,024 phase-only candidates. Of those, 599 passed
+the frozen impulse guards, 282 also preserved both 0-2 ms restarted-carrier
+objectives, 72 passed all packet gates, and 32 hash-addressed finalists were
+retained. `p6-d-0145` was the first candidate to improve both restart intervals
+and all four immediate post-response objectives. A 512-point family-D local
+search then froze its restart gains: 65 candidates passed the tighter transition
+guards and 63 passed every packet cell.
+
+`p6d-local-0145` (`da418ad185fdd0317c3046598eb40ec205bd33976b563870011d3f058acd51d5`)
+is the current exact-validated E3 research incumbent. Relative to embedded
+`refine-0900`, its filter-only metrics are:
+
+| Metric | refine-0900 | p6d-local-0145 | Change |
+| --- | ---: | ---: | ---: |
+| Maximum pre-lobe | -22.8353 dB | -22.8793 dB | -0.0440 dB |
+| Pre-energy | -4.8561 dB | -4.8572 dB | -0.0011 dB |
+| Maximum post-lobe | -8.7040 dB | -8.7063 dB | -0.0024 dB |
+| Post-energy | -2.8520 dB | -2.8524 dB | -0.0004 dB |
+| Main-lobe width | 61.9356 us | 61.9275 us | -0.0081 us |
+| Step overshoot | 9.1201% | 9.1232% | +0.0031 points |
+| Step undershoot | 8.9010% | 8.8903% | -0.0107 points |
+| Decay to -120 dB | 6.5873 ms | 6.6610 ms | +0.0737 ms |
+
+The candidate therefore advances the Pareto frontier rather than dominating
+every scalar: it spends 0.074 ms of still-sub-7 ms low-level decay and 0.003
+overshoot points for the other gains. All fixed guards remain satisfied.
+
+The exact six-cell Standard/EcBeam2 DSD128 run completed with zero structural
+failures. In every matched-stress channel, 0-2 ms residual RMS improved by
+0.00645 dB and 2-5 ms by 0.06413 dB. E2v3-referenced positive excess fell by
+2.79% and 2.02%, and threshold recovery improved by 0.221-0.244 ms. The five
+packet deltas versus `refine-0900` are +0.0001, +0.0003, -0.0772, +0.0347,
+and -0.1850 dB at 5, 10, 15, 18, and 20 kHz. The fixed-magnitude guard passed;
+the largest exact spur increase was 1.60 dB at an absolute -199.64 dBFS, so
+there is no meaningful frequency-domain regression.
+
+The search reports, selected coefficient file, and compact exact audit are
+frozen under `baselines/`. This does not change the embedded E3 asset and does
+not promote E3 to production; E2v3 remains the product default. The remaining
+gap to the aspirational -9.5 dB post-lobe and -3.1 dB post-energy targets is much
+larger than the gains available in this tightly constrained phase-only region,
+so any next expansion should explicitly test a bounded magnitude or cleanup-1
+co-optimization while retaining the P6 restarted-carrier gates.
