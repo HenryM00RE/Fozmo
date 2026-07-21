@@ -106,6 +106,22 @@
     "e3_p6_local0145_transition_envelope_audit": {
       "path": "tools/split_phase_v6/baselines/e3-p6-local0145-transition-envelope-audit.json",
       "sha256": "771f70e8ba7506b37e034a0466e9e6c5cdb2c5c74db53cfa8c2cfc071076e143"
+    },
+    "e3_p6_definitive_freeze": {
+      "path": "tools/split_phase_v6/baselines/e3-p6-definitive-freeze.json",
+      "sha256": "90a1495e15cb05738e85571f217890a4be979c9aa9f1834d4d35439f798f43fe"
+    },
+    "e3_p6_freeze_native_timing": {
+      "path": "tools/split_phase_v6/baselines/e3-p6-freeze-native-timing.json",
+      "sha256": "5668853f49e3d76f7202cba71894c60aa586c859f6f4934f9a2e3e997aa851b1"
+    },
+    "e3_p6_freeze_dsd128": {
+      "path": "tools/split_phase_v6/baselines/e3-p6-freeze-dsd128.json",
+      "sha256": "c6de452bc2d5eb3ac862b32094e8a8e76fe39d80a78f43c2f31c12156352f278"
+    },
+    "e3_p7_cleanup_search": {
+      "path": "tools/split_phase_v6/baselines/e3-p7-cleanup-search.json",
+      "sha256": "54cb3417c128025f4c54c9d9075f647a91b3f20c7f6cb65259fe1b2b3ab05941"
     }
   },
   "current_e3_asset": {
@@ -184,5 +200,13 @@
     "tools/split_phase_v6/e3_p6_restarted_carrier_search.py": "81d6532e4ac30a23dd7c54cb659cc16e3a6a9fc475b15fdae3409e02595c3cdb",
     "tools/split_phase_v6/e3_p6_local_refine.py": "08b77048385b35815a2fde94970101fb2aa7b797e9d47b30208a0b9d7aaf61a9",
     "tools/split_phase_v6/summarize_e3_transition_envelopes.py": "9e1b5d03655b1f4c0ac0556c579eaef3536fbc33aeedb524ef61b9704cc4191f"
+  },
+  "e3_p7_measurement_and_search_sources": {
+    "audio_tests/e3_transition_probe.rs": "1d50e38212441ab2890713cca69b40558cc67e26ca2382a46f146a3069453aa2",
+    "src/bin/filter_timing_bench.rs": "f3b7e98dc90ac8c98cc0b51c6df053ae29282f2bbe3aecbce4d5983eb1daf975",
+    "tools/split_phase_v6/e3_p7_counterfactual.py": "31430e26eea99fe1509bdc647a2864f12f5f0ed97b4c646ebca47b9857597ce3",
+    "tools/split_phase_v6/e3_p7_cleanup_search.py": "496f9e753833f3cb89e95de3ae14bee5eb682a8417b588bc867794d41c2c9b87",
+    "tools/split_phase_v6/freeze_e3_p6.py": "545ca923547e761ccccebcc5b71de9bc88be098b3ef9dd9d14fa7bd551ccab4c",
+    "tools/split_phase_v6/test_e3_p7_counterfactual.py": "31948b9e7537a66f3cd69cbe59441ec708913684a7d6c09064e605888d118b33"
   }
 }

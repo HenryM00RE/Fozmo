@@ -3,6 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
+#[cfg(feature = "research-filter-assets")]
+use fozmo::audio::dsp::resampler::install_research_e3_character_file;
 use fozmo::audio::dsp::resampler::{FilterType, SincResampler};
 use fozmo::audio::dsp::timing::{
     GroupDelayPoint, ImpulseTimingMetrics, PacketTimingMetrics, analyze_impulse,
@@ -43,6 +45,14 @@ struct Args {
     tail_ms: f64,
     #[arg(long, value_name = "NAME")]
     filter: Vec<String>,
+    /// Research-only E3 character coefficient file loaded at process startup.
+    #[cfg(feature = "research-filter-assets")]
+    #[arg(long)]
+    experimental_character_file: Option<PathBuf>,
+    /// Required SHA-256 for --experimental-character-file.
+    #[cfg(feature = "research-filter-assets")]
+    #[arg(long)]
+    experimental_character_sha256: Option<String>,
     #[arg(long, default_value = "target/filter-timing")]
     out: PathBuf,
 }
@@ -101,6 +111,30 @@ struct RuntimeMetadata {
 
 fn main() -> Result<(), String> {
     let args = Args::parse();
+    #[cfg(feature = "research-filter-assets")]
+    match (
+        args.experimental_character_file.as_deref(),
+        args.experimental_character_sha256.as_deref(),
+    ) {
+        (None, None) => {}
+        (Some(path), Some(hash)) => {
+            install_research_e3_character_file(path, hash)?;
+            if !args.filter.is_empty()
+                && !args
+                    .filter
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case("SplitPhase128kE3"))
+            {
+                return Err("research character files require SplitPhase128kE3 in --filter".into());
+            }
+        }
+        _ => {
+            return Err(
+                "--experimental-character-file and --experimental-character-sha256 are required together"
+                    .into(),
+            );
+        }
+    }
     let ratio = validate_args(&args)?;
     let filters = selected_filters(&args.filter)?;
     let amplitude = 10.0_f64.powf(args.headroom_db / 20.0);

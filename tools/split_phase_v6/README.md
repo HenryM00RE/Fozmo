@@ -295,3 +295,72 @@ gap to the aspirational -9.5 dB post-lobe and -3.1 dB post-energy targets is muc
 larger than the gains available in this tightly constrained phase-only region,
 so any next expansion should explicitly test a bounded magnitude or cleanup-1
 co-optimization while retaining the P6 restarted-carrier gates.
+
+## P7.0 definitive P6 freeze
+
+`freeze_e3_p6.py` archives the immutable P6 research reference before P7 adds
+new design variables. The frozen package records the `p6d-local-0145`
+coefficient hash and exact sum, alignment, native timing and all five onset
+packets, group-delay artifact hash, counterfactual probe summaries, two clean
+release-build executable hashes, source/compiler/CPU provenance, and all six
+Standard/EcBeam2 native DSD hashes.
+
+The two clean builds used separate Cargo target directories. Their executable
+hashes differ, which is explicitly retained as provenance, but the reports are
+byte-for-byte identical after removing executable hash and wall-clock render
+time. Every native DSD hash and every measurement trace matches exactly. Both
+runs completed six cells with zero structural or diagnostic hard failures.
+
+The native timing bench now accepts the same feature-gated, hash-checked
+research character loader as the DSD bench. Its exact P6 result confirms
+-22.8793 dB maximum pre-lobe, -4.8572 dB pre-energy, -8.7063 dB maximum
+post-lobe, -2.8524 dB post-energy, 61.9275 microseconds width, 12.5739 percent
+runtime overshoot, 10.1211 percent runtime undershoot, and 6.6610 ms decay to
+-120 dB. Normal builds do not expose the loader.
+
+## P7.1 counterfactual restart contract
+
+`e3_p7_counterfactual.py` implements the linear filter-generated restart
+residual directly:
+
+```text
+r[n] = y_mute_restart[n] - y_continuous_recovered_carrier[n]
+```
+
+It supports arbitrary coherent carrier pairs, restart phases, and mute lengths,
+and reports the frozen 0-2, 2-5, 5-10, 10-25, and 25-50 ms intervals. Unit tests
+show that the bounded-mute formulation converges to the P6 closed form and that
+separate character/cleanup propagation matches a directly cascaded FIR to
+floating-point tolerance.
+
+`e3_transition_probe` now independently renders the real mute/restart fixture
+and a continuously running recovered-phase reference through the production
+DSD128 interpolation and normalization path. It retains the old fitted-carrier
+report for cross-validation. On P6, the two methods agree within 0.00000011 dB
+through the primary 0-5 ms region for both Standard and EcBeam2. This validates
+the counterfactual residual as the P7 optimizer domain without making it the
+only full-path promotion measurement.
+
+## P7.2/P7.3 cleanup-stage-1 feasibility pilot
+
+`e3_p7_cleanup_search.py` builds cleanup stage 1 in its exact 126-dimensional
+halfband equality nullspace: symmetry is intrinsic, the centre and independent
+even coefficients stay fixed, and the unique odd-pair perturbations sum to
+zero. It maps twelve counterfactual training fixtures spanning three carrier
+pairs, two restart phases, and two mute lengths. A stopband-preserving SVD then
+retains the 24 most sensitive objective directions before constrained solves at
+trust radii from `1e-5` through `2e-4`.
+
+Twenty transition, post-lobe, post-energy, and balanced solutions were exact-
+tested. Fifteen passed the complete impulse, packet, passband, monotonic-
+transition, and -150 dB rejection guards, but none met a minimum meaningful
+effect size. The best changes were only about `7e-7` dB in an individual
+counterfactual cell and roughly `1e-7` dB in static timing. Dense rejection
+certification restricted useful coefficient movement to about `2e-9`, far
+inside every requested trust radius.
+
+No cleanup candidate becomes an incumbent. This is strong evidence that the
+existing 509-tap cleanup stage has no locally useful freedom while preserving
+the certified rejection floor. P7 should therefore proceed to the neutral and
+micro-apodized monotone character-magnitude families; cleanup can be solved
+again only after a new character target changes the feasible geometry.

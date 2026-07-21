@@ -16,7 +16,7 @@ use fozmo::audio::dsp::resampler::{FilterType, install_research_e3_character_fil
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-const SCHEMA_VERSION: &str = "e3-filter-only-transition-probe-v1";
+const SCHEMA_VERSION: &str = "e3-filter-only-transition-probe-v2-counterfactual";
 const CHUNK_SOURCE_FRAMES: usize = 1024;
 const SPLIT_FILTER_GUARD_FRAMES: usize = 131_328;
 const TRANSITION_TRACE_SECONDS: f64 = 0.050;
@@ -95,6 +95,8 @@ impl Capture {
 #[derive(Debug, Deserialize)]
 struct ReferenceReport {
     transition_envelope: analysis::TransitionEnvelopeMetrics,
+    #[serde(default)]
+    counterfactual_transition_envelope: Option<analysis::TransitionEnvelopeMetrics>,
 }
 
 #[derive(Debug, Serialize)]
@@ -108,6 +110,7 @@ struct SourceMetadata {
     effective_peak: f64,
     carrier_frequencies_hz: Vec<f64>,
     source_pcm_sha256: String,
+    continuous_source_pcm_sha256: String,
     restart_wire_sample: usize,
     recovered_fit_wire_range: [usize; 2],
 }
@@ -122,6 +125,10 @@ struct Report {
     source: SourceMetadata,
     transition_envelope: analysis::TransitionEnvelopeMetrics,
     transition_envelope_excess_vs_reference: Option<analysis::TransitionEnvelopeExcessMetrics>,
+    counterfactual_transition_envelope: analysis::TransitionEnvelopeMetrics,
+    counterfactual_transition_envelope_excess_vs_reference:
+        Option<analysis::TransitionEnvelopeExcessMetrics>,
+    counterfactual_residual_peak_dbfs: f64,
     residual_peak_dbfs: f64,
     residual_rms_1ms_dbfs: f64,
     residual_rms_10ms_dbfs: f64,
@@ -259,7 +266,6 @@ fn run(cli: Cli) -> Result<(), String> {
         &mut fit_capture,
     );
     output_cursor += normalized_left.len();
-    let elapsed_seconds = started.elapsed().as_secs_f64();
     let expected_wire_samples = signal.frames() * ratio;
     if output_cursor != expected_wire_samples {
         return Err(format!(
@@ -268,6 +274,58 @@ fn run(cli: Cli) -> Result<(), String> {
     }
     restart_capture.validate()?;
     fit_capture.validate()?;
+
+    // Counterfactual source: the recovered, phase-reversed carriers run through
+    // the mute interval and meet the real fixture sample-for-sample at restart.
+    // Subtracting its rendered restart capture from the real muted fixture
+    // therefore isolates the exact interpolation-generated restart transient.
+    let continuous_signal = continuous_restart_reference(&signal, recovery.start)?;
+    continuous_signal
+        .validate()
+        .map_err(|error| error.to_string())?;
+    let mut continuous_restart_capture = Capture::new(
+        "continuous restart",
+        restart_wire..restart_wire + restart_required,
+    );
+    let mut continuous_renderer = DsdRenderer::new_with_dsd_modulator(
+        filter,
+        continuous_signal.sample_rate_hz,
+        DsdRate::Dsd128,
+        modulator,
+    )
+    .map_err(str::to_string)?;
+    let mut continuous_left = Vec::new();
+    let mut continuous_right = Vec::new();
+    let mut continuous_cursor = 0usize;
+    for start in (0..continuous_signal.frames()).step_by(CHUNK_SOURCE_FRAMES) {
+        let end = (start + CHUNK_SOURCE_FRAMES).min(continuous_signal.frames());
+        continuous_renderer.upsample(
+            &continuous_signal.left[start..end],
+            &continuous_signal.right[start..end],
+        );
+        continuous_renderer.research_normalized_modulator_input_block(
+            continuous_signal.headroom_gain,
+            &mut continuous_left,
+            &mut continuous_right,
+        );
+        continuous_restart_capture.append_overlap(continuous_cursor, &continuous_left);
+        continuous_cursor += continuous_left.len();
+    }
+    continuous_renderer.drain_resampler_eof();
+    continuous_renderer.research_normalized_modulator_input_block(
+        continuous_signal.headroom_gain,
+        &mut continuous_left,
+        &mut continuous_right,
+    );
+    continuous_restart_capture.append_overlap(continuous_cursor, &continuous_left);
+    continuous_cursor += continuous_left.len();
+    if continuous_cursor != expected_wire_samples {
+        return Err(format!(
+            "continuous resampler emitted {continuous_cursor} wire samples, expected {expected_wire_samples}"
+        ));
+    }
+    continuous_restart_capture.validate()?;
+    let elapsed_seconds = started.elapsed().as_secs_f64();
 
     let frequencies = signal
         .carriers
@@ -281,6 +339,14 @@ fn run(cli: Cli) -> Result<(), String> {
     let residual =
         analysis::residual_against_tone_model(&restart_capture.samples, &fit_model, fit_offset)?;
     let transition_envelope = analysis::analyze_transition_envelope(&residual, wire_rate)?;
+    let counterfactual_residual = restart_capture
+        .samples
+        .iter()
+        .zip(&continuous_restart_capture.samples)
+        .map(|(muted, continuous)| muted - continuous)
+        .collect::<Vec<_>>();
+    let counterfactual_transition_envelope =
+        analysis::analyze_transition_envelope(&counterfactual_residual, wire_rate)?;
     let reference = cli.reference.as_deref().map(load_reference).transpose()?;
     let excess = reference
         .as_ref()
@@ -288,6 +354,17 @@ fn run(cli: Cli) -> Result<(), String> {
             analysis::compare_transition_envelopes(
                 &transition_envelope,
                 &reference.transition_envelope,
+                cli.tolerance_rms,
+            )
+        })
+        .transpose()?;
+    let counterfactual_excess = reference
+        .as_ref()
+        .and_then(|reference| reference.counterfactual_transition_envelope.as_ref())
+        .map(|reference| {
+            analysis::compare_transition_envelopes(
+                &counterfactual_transition_envelope,
+                reference,
                 cli.tolerance_rms,
             )
         })
@@ -311,11 +388,17 @@ fn run(cli: Cli) -> Result<(), String> {
             effective_peak: signal.effective_peak(),
             carrier_frequencies_hz: frequencies,
             source_pcm_sha256: source_pcm_sha256(&signal),
+            continuous_source_pcm_sha256: source_pcm_sha256(&continuous_signal),
             restart_wire_sample: restart_wire,
             recovered_fit_wire_range: [fit_wire.start, fit_wire.end],
         },
         transition_envelope,
         transition_envelope_excess_vs_reference: excess,
+        counterfactual_transition_envelope,
+        counterfactual_transition_envelope_excess_vs_reference: counterfactual_excess,
+        counterfactual_residual_peak_dbfs: analysis::peak_sine_dbfs(analysis::max_abs(
+            &counterfactual_residual,
+        )),
         residual_peak_dbfs: analysis::peak_sine_dbfs(analysis::max_abs(&residual)),
         residual_rms_1ms_dbfs: prefix_rms_dbfs(&residual, wire_rate, 0.001)?,
         residual_rms_10ms_dbfs: prefix_rms_dbfs(&residual, wire_rate, 0.010)?,
@@ -332,14 +415,46 @@ fn run(cli: Cli) -> Result<(), String> {
     )
     .map_err(|error| error.to_string())?;
     println!(
-        "{} {}: 0-2 ms {:.6} dBFS, 2-5 ms {:.6} dBFS, elapsed {:.3} s",
+        "{} {} counterfactual: 0-2 ms {:.6} dBFS, 2-5 ms {:.6} dBFS, elapsed {:.3} s",
         report.filter,
         report.modulator,
-        report.transition_envelope.intervals[0].residual_rms_dbfs,
-        report.transition_envelope.intervals[1].residual_rms_dbfs,
+        report.counterfactual_transition_envelope.intervals[0].residual_rms_dbfs,
+        report.counterfactual_transition_envelope.intervals[1].residual_rms_dbfs,
         report.elapsed_seconds,
     );
     Ok(())
+}
+
+fn continuous_restart_reference(
+    signal: &signals::StereoSignal,
+    restart_source_frame: usize,
+) -> Result<signals::StereoSignal, String> {
+    let mute_start = signal
+        .range(signals::STRESS_LEVEL_MATCHED_MUTE_ENTRY_TRANSITION_RANGE)
+        .ok_or_else(|| "stress fixture is missing its mute-entry range".to_string())?
+        .start;
+    if mute_start >= restart_source_frame || restart_source_frame > signal.frames() {
+        return Err("stress fixture has an invalid mute/restart ordering".into());
+    }
+    let mut continuous = signal.clone();
+    for frame in mute_start..restart_source_frame {
+        let relative = frame as f64 - restart_source_frame as f64;
+        let sample = continuous
+            .carriers
+            .iter()
+            .map(|carrier| {
+                carrier.source_amplitude
+                    * (2.0 * std::f64::consts::PI * carrier.actual_hz * relative
+                        / continuous.sample_rate_hz as f64
+                        + carrier.phase_rad
+                        + carrier.phase_reversal_rad.unwrap_or(0.0))
+                    .sin()
+            })
+            .sum::<f64>();
+        continuous.left[frame] = sample;
+        continuous.right[frame] = sample;
+    }
+    Ok(continuous)
 }
 
 fn append_captures(block_start: usize, samples: &[f64], restart: &mut Capture, fit: &mut Capture) {
