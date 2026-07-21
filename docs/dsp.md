@@ -29,6 +29,7 @@ The selectable filters are 128k-class reconstruction filters, but they arrange t
 | Linear Phase | 131,073 | Uses a long symmetric FIR matched to the Split Phase magnitude target, with constant group delay that keeps relative phase aligned through the passband. |
 | Minimum Phase | 131,071 | Converts the long reconstruction response to minimum phase, moving the impulse energy after its leading edge instead of spreading it symmetrically. |
 | Split Phase | 131,073 | Uses the promoted E2v3 frozen bundle, retaining linear phase at low frequencies and transitioning toward minimum phase at high frequencies with independently optimized interpolation, decimation, cleanup, and rational paths. |
+| Split Phase B | 131,073 | Uses the P17 frozen bundle. It preserves the Split Phase magnitude response while reducing both dominant ringing lobes, integrated side energy, main-lobe width, step overshoot and undershoot, and measured decay relative to Split Phase. |
 | Smooth Phase | 131,071 | Uses a long minimum-phase structure with a gradual high-frequency taper before the cutoff. |
 
 It is best to use integer upsampling and keep the source in the same sample-rate family. For example, 44.1 kHz sources should go to 88.2, 176.4, or 352.8 kHz, while 48 kHz sources should go to 96, 192, or 384 kHz. These integer-multiple paths are what I tuned the upsampling filters for.
@@ -74,9 +75,16 @@ Performance depends on the song and its source sample rate, along with the proce
 RUSTFLAGS="-C target-cpu=native" cargo run --release --bin resampler_bench
 RUSTFLAGS="-C target-cpu=native" cargo run --release --bin dsd_renderer_bench
 RUSTFLAGS="-C target-cpu=native" cargo run --release --bin dsd_modulator_bench
+RUSTFLAGS="-C target-cpu=native" cargo run --locked --release --bin filter_timing_bench
 ```
 
 If playback cannot keep up, try a lower DSD rate or a lighter modulator. PCM is also there as the safer option when a DAC or output path does not handle DSD reliably.
+
+The [production filter timing bench](filter-timing-bench.md) is a quality
+measurement rather than a throughput benchmark. It compares impulse and step
+behavior, windowed 5-20 kHz tone packets, energy asymmetry, decay, and group
+delay for the five selectable reconstruction filters under one controlled
+integer-upsampling setup.
 
 ## Testing so far
 

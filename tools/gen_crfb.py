@@ -240,6 +240,10 @@ EC_STATE_LIMIT_SOFT_KNEE = 0.82
 # in-band suppression (HQPlayer-class modulators live in the 1.6-2.0 region,
 # managed by look-ahead and graceful overload recovery on the Rust side).
 STANDARD_OBG_FAMILY = [1.4, 1.5, 1.6]
+HIGH_RATE_STANDARD_OBG_FAMILY = {
+    512: [1.2, 1.3, 1.4, 1.45, 1.5, 1.6],
+    1024: [1.4, 1.5, 1.6],
+}
 EC_OBG_FAMILY = {
     # OSR64 EC sweep variants for the hotter-NTF measurement campaign (the EC
     # search should tolerate more OBG than the one-step calibration suggests;
@@ -257,7 +261,16 @@ EC_OBG_FAMILY = {
 # battery). DSD128 keeps the proven Lee value; DSD256 spends some OSR headroom
 # on the hottest NTF that remains usable for the plain greedy quantizer.
 # DSD64 has the least OSR headroom, so it stays on the proven Lee value too.
-STANDARD_DEFAULT_OBG = {64: 1.5, 128: 1.5, 256: 1.6}
+STANDARD_DEFAULT_OBG = {
+    64: 1.5,
+    128: 1.5,
+    256: 1.6,
+    # The DSD512 E2v3 quality sweep favored OBG 1.50 across the weighted
+    # coherent-level and hi-res reconstruction metrics. DSD1024 remains on the
+    # hottest calibrated table until it receives the same end-to-end sweep.
+    512: 1.5,
+    1024: 1.6,
+}
 
 # EC default preference per OSR. The first generated entry wins; later entries
 # are conservative fallbacks if the hotter target does not survive calibration.
@@ -269,7 +282,13 @@ EC_DEFAULT_OBG_PREFERENCE = {
 
 # OSR64 is appended after the original entries so the shared RNG stream for
 # the OSR128/OSR256 jobs is unchanged and their tables regenerate identically.
-TARGET_OSRS = [128, 256, 64]
+LEGACY_TARGET_OSRS = [128, 256, 64]
+
+# DSD512/DSD1024 are measurement-only Standard-modulator targets. Generate
+# each candidate with its own documented seed, exactly like `--single`, so
+# adding them cannot perturb any established Standard or EC table.
+HIGH_RATE_STANDARD_OSRS = [512, 1024]
+TARGET_OSRS = LEGACY_TARGET_OSRS + HIGH_RATE_STANDARD_OSRS
 
 # Stability sweep: amplitudes tried per stimulus, divergence threshold, length.
 SWEEP_AMPS = np.round(np.arange(0.30, 0.99, 0.02), 4)
@@ -685,20 +704,21 @@ def emit_rust(variants):
     for osr in TARGET_OSRS:
         standard_default = choose_default(
             generated, "standard", osr, [STANDARD_DEFAULT_OBG[osr]])
-        ec_default = choose_default(generated, "standard", osr, [1.4])
-        ec_note = (
-            f"Conservative coefficient table used by the EC quantizer for OSR={osr}; "
-            "EC-specific variants are generated for explicit measurement sweeps only."
-        )
         out.append(f"/// Standard hard-sign CRFB baseline for OSR={osr}.")
         out.append(f"pub const CRFB7_STANDARD_OSR{osr}: ModulatorCoeffs = {standard_default};")
         out.append("")
-        out.append(f"/// {ec_note}")
-        out.append(f"pub const CRFB7_EC_OSR{osr}: ModulatorCoeffs = {ec_default};")
-        out.append("")
-        out.append(f"/// Runtime default table for OSR={osr}; currently points to CRFB7_EC_OSR{osr}.")
-        out.append(f"pub const CRFB_OSR{osr}: ModulatorCoeffs = CRFB7_EC_OSR{osr};")
-        out.append("")
+        if osr in LEGACY_TARGET_OSRS:
+            ec_default = choose_default(generated, "standard", osr, [1.4])
+            ec_note = (
+                f"Conservative coefficient table used by the EC quantizer for OSR={osr}; "
+                "EC-specific variants are generated for explicit measurement sweeps only."
+            )
+            out.append(f"/// {ec_note}")
+            out.append(f"pub const CRFB7_EC_OSR{osr}: ModulatorCoeffs = {ec_default};")
+            out.append("")
+            out.append(f"/// Runtime default table for OSR={osr}; currently points to CRFB7_EC_OSR{osr}.")
+            out.append(f"pub const CRFB_OSR{osr}: ModulatorCoeffs = CRFB7_EC_OSR{osr};")
+            out.append("")
     out.append("/// Every generated variant, for measurement harnesses and A/B sweeps.")
     out.append(
         f"pub static ALL_VARIANTS: [(&str, &ModulatorCoeffs); {len(names)}] = [")
@@ -774,13 +794,22 @@ def main():
     print("mode      osr  obg   Hinf  inband(dB)  stableDC  stableSine  input_peak  notes",
           file=sys.stderr)
     jobs = []
-    for osr in TARGET_OSRS:
+    for osr in LEGACY_TARGET_OSRS:
         jobs.extend(("standard", osr, obg) for obg in STANDARD_OBG_FAMILY)
         jobs.extend(("ec", osr, obg) for obg in EC_OBG_FAMILY[osr])
+    for osr in HIGH_RATE_STANDARD_OSRS:
+        jobs.extend(("standard", osr, obg) for obg in HIGH_RATE_STANDARD_OBG_FAMILY[osr])
 
     for mode, osr, obg in jobs:
         try:
-            coeffs, report = design_variant(mode, osr, obg, rng)
+            # High-rate candidates use isolated RNG streams so their checked-in
+            # text is reproducible with the matching `--single` invocation.
+            job_rng = (
+                np.random.default_rng(0xD5D)
+                if osr in HIGH_RATE_STANDARD_OSRS
+                else rng
+            )
+            coeffs, report = design_variant(mode, osr, obg, job_rng)
         except Exception as exc:
             skipped.append((mode, osr, obg, str(exc)))
             print(f"{mode:<8}  {osr:>3}  {obg:.2f}  skipped: {exc}", file=sys.stderr)

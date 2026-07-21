@@ -326,7 +326,7 @@ impl BeamErrorProfile {
     unsafe fn state_dot4_x86(
         coefficients: &BeamErrorProfileState,
         states: &[[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
-    ) -> [f64; 4] {
+    ) -> core::arch::x86_64::__m256d {
         use core::arch::x86_64::*;
         let mut dot = _mm256_setzero_pd();
         for stage in 0..MAX_BEAM_ERROR_PROFILE_STATES {
@@ -336,9 +336,7 @@ impl BeamErrorProfile {
                 dot,
             );
         }
-        let mut result = [0.0; 4];
-        unsafe { _mm256_storeu_pd(result.as_mut_ptr(), dot) };
-        result
+        dot
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -349,14 +347,21 @@ impl BeamErrorProfile {
         states: &[[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
         input: f64,
     ) -> [[f64; 4]; 2] {
+        use core::arch::x86_64::*;
         let linear = unsafe { Self::state_dot4_x86(&self.h, states) };
         let errors = [1.0 - input, -1.0 - input];
-        core::array::from_fn(|sign| {
-            core::array::from_fn(|lane| {
-                let error = errors[sign];
-                (2.0 * error).mul_add(linear[lane], self.q * error * error)
-            })
-        })
+        let mut increments = [[0.0; 4]; 2];
+        for (sign, error) in errors.into_iter().enumerate() {
+            let twice_error = 2.0 * error;
+            let quadratic = self.q * error * error;
+            let increment = _mm256_fmadd_pd(
+                _mm256_set1_pd(twice_error),
+                linear,
+                _mm256_set1_pd(quadratic),
+            );
+            unsafe { _mm256_storeu_pd(increments[sign].as_mut_ptr(), increment) };
+        }
+        increments
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -509,26 +514,100 @@ impl BeamErrorProfile {
             p[0] + 1,
             p[0],
         );
-        let state_vectors: [__m256d; MAX_BEAM_ERROR_PROFILE_STATES] =
-            core::array::from_fn(|stage| {
-                let packed = unsafe { _mm256_loadu_si256(states[stage].as_ptr().cast()) };
-                _mm256_castsi256_pd(_mm256_permutevar8x32_epi32(packed, permutation))
-            });
+        let mut dot0 = _mm256_setzero_pd();
+        let mut dot1 = _mm256_setzero_pd();
+        let mut dot2 = _mm256_setzero_pd();
+        let mut dot3 = _mm256_setzero_pd();
+        let mut dot4 = _mm256_setzero_pd();
+        let mut dot5 = _mm256_setzero_pd();
+        for stage in 0..MAX_BEAM_ERROR_PROFILE_STATES {
+            let packed = unsafe { _mm256_loadu_si256(states[stage].as_ptr().cast()) };
+            let state = _mm256_castsi256_pd(_mm256_permutevar8x32_epi32(packed, permutation));
+            dot0 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[0][stage]), dot0);
+            dot1 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[1][stage]), dot1);
+            dot2 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[2][stage]), dot2);
+            dot3 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[3][stage]), dot3);
+            dot4 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[4][stage]), dot4);
+            dot5 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[5][stage]), dot5);
+        }
         let error = unsafe { _mm256_loadu_pd(errors.as_ptr()) };
         let sign = _mm256_set1_pd(-0.0);
         let max = _mm256_set1_pd(f64::MAX);
         let mut finite = _mm256_castsi256_pd(_mm256_set1_epi64x(-1));
-        for row in 0..MAX_BEAM_ERROR_PROFILE_STATES {
-            let mut dot = _mm256_setzero_pd();
-            for (stage, state) in state_vectors.iter().copied().enumerate() {
-                dot = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[row][stage]), dot);
-            }
-            let value = _mm256_fmadd_pd(error, _mm256_set1_pd(self.b[row]), dot);
-            unsafe { _mm256_storeu_pd(next[row].as_mut_ptr(), value) };
-            let absolute = _mm256_andnot_pd(sign, value);
-            finite = _mm256_and_pd(finite, _mm256_cmp_pd::<_CMP_LE_OQ>(absolute, max));
+        macro_rules! store_row {
+            ($row:expr, $dot:expr) => {{
+                let value = _mm256_fmadd_pd(error, _mm256_set1_pd(self.b[$row]), $dot);
+                unsafe { _mm256_storeu_pd(next[$row].as_mut_ptr(), value) };
+                finite = _mm256_and_pd(
+                    finite,
+                    _mm256_cmp_pd::<_CMP_LE_OQ>(_mm256_andnot_pd(sign, value), max),
+                );
+            }};
         }
+        store_row!(0, dot0);
+        store_row!(1, dot1);
+        store_row!(2, dot2);
+        store_row!(3, dot3);
+        store_row!(4, dot4);
+        store_row!(5, dot5);
         let finite_mask = _mm256_movemask_pd(finite);
+        core::array::from_fn(|lane| finite_mask & (1 << lane) != 0)
+    }
+
+    /// AVX-512VL survivor transition retaining four-lane AVX arithmetic while
+    /// using native 64-bit lane indices and mask-returning comparisons.
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2,fma,avx512f,avx512vl")]
+    #[allow(clippy::needless_range_loop)]
+    #[inline]
+    pub(crate) unsafe fn next_state4_selected_x86_avx512vl(
+        &self,
+        states: &[[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
+        parent_indices: [usize; 4],
+        errors: [f64; 4],
+        next: &mut [[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
+    ) -> [bool; 4] {
+        use core::arch::x86_64::*;
+        debug_assert!(parent_indices.into_iter().all(|parent| parent < 4));
+        let permutation = _mm256_set_epi64x(
+            parent_indices[3] as i64,
+            parent_indices[2] as i64,
+            parent_indices[1] as i64,
+            parent_indices[0] as i64,
+        );
+        let mut dot0 = _mm256_setzero_pd();
+        let mut dot1 = _mm256_setzero_pd();
+        let mut dot2 = _mm256_setzero_pd();
+        let mut dot3 = _mm256_setzero_pd();
+        let mut dot4 = _mm256_setzero_pd();
+        let mut dot5 = _mm256_setzero_pd();
+        for stage in 0..MAX_BEAM_ERROR_PROFILE_STATES {
+            let packed = unsafe { _mm256_loadu_pd(states[stage].as_ptr()) };
+            let state = _mm256_permutexvar_pd(permutation, packed);
+            dot0 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[0][stage]), dot0);
+            dot1 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[1][stage]), dot1);
+            dot2 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[2][stage]), dot2);
+            dot3 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[3][stage]), dot3);
+            dot4 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[4][stage]), dot4);
+            dot5 = _mm256_fmadd_pd(state, _mm256_set1_pd(self.a[5][stage]), dot5);
+        }
+        let error = unsafe { _mm256_loadu_pd(errors.as_ptr()) };
+        let sign = _mm256_set1_pd(-0.0);
+        let max = _mm256_set1_pd(f64::MAX);
+        let mut finite_mask = 0b1111u8;
+        macro_rules! store_row {
+            ($row:expr, $dot:expr) => {{
+                let value = _mm256_fmadd_pd(error, _mm256_set1_pd(self.b[$row]), $dot);
+                unsafe { _mm256_storeu_pd(next[$row].as_mut_ptr(), value) };
+                finite_mask &= _mm256_cmp_pd_mask::<_CMP_LE_OQ>(_mm256_andnot_pd(sign, value), max);
+            }};
+        }
+        store_row!(0, dot0);
+        store_row!(1, dot1);
+        store_row!(2, dot2);
+        store_row!(3, dot3);
+        store_row!(4, dot4);
+        store_row!(5, dot5);
         core::array::from_fn(|lane| finite_mask & (1 << lane) != 0)
     }
 

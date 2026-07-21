@@ -50,9 +50,16 @@ The CLI is intentionally narrow:
 --out PATH
 --modulator Standard,EcDepth2,EcBeam,EcBeam2
 --filter Split128k|SplitPhase128kE2v3
---rates 64,128,256
+--rates 64,128,256,512,1024
 --check
 --include-linear-reference
+--hires-only
+--standard-obg OBG
+--level-probe-dbfs LEVEL
+--transition-envelope-reference PATH
+--transition-envelope-tolerance-rms RMS
+--external-upsampler PATH
+--external-preset PRESET
 ```
 
 `SplitPhase128kE2v3` is the canonical product filter exposed as Split Phase.
@@ -63,6 +70,33 @@ selection are useful for investigation, but always produce
 `matrix_complete: false`. With `--check`, an incomplete matrix returns a
 failure status even when every attempted cell is structurally healthy. A
 partial run must never be described as a canonical pass.
+
+DSD512 and DSD1024 selections are non-scoring Standard-only diagnostics.
+`--standard-obg` selects a checked-in high-rate Standard candidate table, and
+`--level-probe-dbfs` restricts a tuning run to one declared coherent level.
+Neither option changes the canonical matrix or application UI.
+
+## Fixed-reference restart envelope
+
+Report schema v5 keeps the existing first-crossing recovery time but demotes
+it to a secondary diagnostic. For every high-frequency stress channel, the
+bench subtracts the settled carrier model and serializes a 2 ms sliding
+mean-square trace aligned to restart over the first 50 ms. It reports residual
+energy, maximum RMS, and 95th-percentile RMS in fixed 0-2, 2-5, 5-10, 10-25,
+and 25-50 ms intervals.
+
+When `--transition-envelope-reference` names a frozen v5 report, the bench
+requires a matching scenario/modulator/channel and computes maximum and
+integrated positive excess in linear power. The optional RMS tolerance is
+squared before subtraction. Reference contract/version mismatches and missing
+cells fail closed. Decibels are presentation only; optimizer inputs remain
+linear power.
+
+`research-filter-assets` is a non-production Cargo feature for exact Split
+Phase B candidate reruns. It adds `--experimental-character-file` and
+`--experimental-character-sha256`, requires the E3 filter, validates exact
+length, finite binary64 values, SHA-256, and DC normalization, and records the
+loaded identity in JSON and Markdown. Normal builds expose neither flag.
 
 For example, a focused Split Phase check across DSD64 and DSD128 is:
 
@@ -80,6 +114,40 @@ cargo run --locked --release --bin dsd_public_quality -- \
 support that filter, so no diagnostic EcBeam2 cell is invented. Diagnostic
 cells cannot make the canonical matrix complete or incomplete, affect scores,
 or affect the canonical `--check` result.
+
+## External-product EC DSD128 diagnostic
+
+`--external-upsampler` adds an unnamed external-product DSD128 diagnostic
+alongside ECBeam2. It requires `--rates 128` and `EcBeam2` in `--modulator`.
+The adapter writes the canonical fixtures as stereo float32 WAV, invokes the
+offline executable with its undocumented EC selector, validates a
+native stereo 5.6448 MHz DSF, reverses its LSB-first bytes to the bench's
+canonical MSB-first representation, and analyzes those bits with the same
+reconstruction and metrics as Fozmo.
+
+```powershell
+$env:RUSTFLAGS = "-C target-cpu=native"
+cargo run --locked --release --bin dsd_public_quality -- `
+  --out target/external-product-ec-vs-ecbeam2-dsd128 `
+  --modulator EcBeam2 `
+  --rates 128 `
+  --external-upsampler "C:\path\to\upsampler.exe" `
+  --external-preset megaextreme
+```
+
+Before running cells, the adapter renders an impulse twice to require native
+payload determinism and to measure the external product's source-to-bit timing offset. A
+separate settled 1 kHz render measures its fixed input calibration; the raw
+calibration is recorded as `coefficient_input_peak` and applied using the same
+decoder convention as Fozmo's declared modulator input peak.
+
+The external identity is reported as `ExternalProductEcInferred`: enabling its
+vendor-specific selector changes only the deterministic DSD payload, while the
+disabled selector matches the default, but the CLI does not print an explicit EC
+confirmation. The external product also exposes no internal reset/clamp/limiter telemetry,
+so external structural health covers observable file, density, reconstruction,
+and transition gates only. External cells are always diagnostic and cannot
+affect canonical completeness, scores, or `--check`.
 
 `--check` otherwise gates structural invariants. The presentation score is not
 a quality gate, and a structural `PASS` is not a claim that one modulator

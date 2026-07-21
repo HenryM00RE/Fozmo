@@ -43,6 +43,18 @@ Any reduced `--rates` or `--modulator` selection is noncanonical, reports
 `Split128k` implementation remains selectable only for non-scoring historical
 comparisons.
 
+Version 5 reports also serialize a fixed 2 ms restart-error envelope over
+0-50 ms. `--transition-envelope-reference PATH` compares each stress channel
+with a frozen report using linear-power positive excess, and
+`--transition-envelope-tolerance-rms` supplies the frozen numerical tolerance.
+The existing percentile-derived first-crossing recovery time remains a
+secondary diagnostic.
+
+The optional `research-filter-assets` Cargo feature adds a Split Phase B-only,
+hash-verified `--experimental-character-file` loader for offline filter work.
+It is not compiled into ordinary product or canonical bench builds and does
+not replace the frozen cleanup or rational assets.
+
 Add `--include-rate-comparison` for non-scoring DSD128 hi-res cells. This runs
 the same 176.4 kHz four-carrier fixture used at DSD256, allowing a direct raw
 DSD128/DSD256 comparison without changing the canonical matrix or scores.
@@ -97,6 +109,21 @@ tools/dsd-perf-mac.sh
 ```
 
 Generated output belongs under `audio_tests/out/`, which is ignored by Git.
+
+## Production filter timing
+
+The reconstruction-filter timing bench measures the exact production runtime
+with impulse, direct-step, and 5-20 kHz windowed-tone-packet probes:
+
+```sh
+RUSTFLAGS="-C target-cpu=native" \
+cargo run --locked --release --bin filter_timing_bench
+```
+
+It writes Markdown, JSON, and a long-form group-delay CSV under
+`target/filter-timing` by default. See
+[the measurement contract](../docs/filter-timing-bench.md) for definitions and
+controls.
 
 ## Functional smoke coverage
 

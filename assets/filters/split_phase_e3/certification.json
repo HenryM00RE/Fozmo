@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "identity": "SplitPhase128kE3-P17-production-certification",
+  "runtime_name": "SplitPhase128kE3",
+  "display_name": "Split Phase B",
+  "candidate": {
+    "identifier": "p17-balanced",
+    "character_sha256": "c8dd84a905e188df39f0aa714cb8cd89cf91e99e9c87881bbe8aac8f6c11f8c4",
+    "coefficient_count": 262145,
+    "exact_sum": 1.0,
+    "fft_length": 1048576,
+    "omitted_periodic_energy_ratio": 7.812922765828017e-20
+  },
+  "measurement_contract": {
+    "source_rate_hz": 44100,
+    "output_rate_hz": 176400,
+    "stimulus_headroom_dbfs": -12.0,
+    "packet_window": "Hann",
+    "packet_cycles": 8.0,
+    "guard_source_frames": 131072,
+    "analysis_tail_ms": 4000.0,
+    "impulse_alignment": "principal absolute-energy peak",
+    "packet_alignment": "principal-peak onset bounds",
+    "reconstruction_filter": "production SincResampler path with no secondary filter"
+  },
+  "timing": {
+    "candidate": {
+      "pre_energy_db_total": -5.397198021672218,
+      "maximum_pre_lobe_db_peak": -25.8736711343421,
+      "post_energy_db_total": -2.5749325632431015,
+      "maximum_post_lobe_db_peak": -10.326909542465492,
+      "main_lobe_width_us": 60.65620263088849,
+      "step_overshoot_percent": 12.253788099146057,
+      "step_undershoot_percent": 7.455271540832507,
+      "decay_80_ms": 2.7437641723356005,
+      "decay_120_ms": 3.8718820861678003,
+      "centroid_relative_to_peak_ms": 0.07026745503617039
+    },
+    "delta_vs_split_phase_e2v3": {
+      "pre_energy_db_total": -0.15390300595626716,
+      "maximum_pre_lobe_db_peak": -7.622799823453221,
+      "post_energy_db_total": -0.1810414406330807,
+      "maximum_post_lobe_db_peak": -2.5746952201876816,
+      "main_lobe_width_us": -8.08681362499157,
+      "step_overshoot_percentage_points": -1.7283444147205174,
+      "step_undershoot_percentage_points": -3.9566522727630558,
+      "decay_120_ms": -0.37981859410430907
+    },
+    "dominates_e2v3_on_all_frozen_metrics": true
+  },
+  "frequency": {
+    "passband_ripple_20hz_20khz_db": 2.2231418376134896e-8,
+    "gain_20khz_db_dc": -8.760987187720232e-9,
+    "gain_22050hz_db_dc": -179.71434160579958,
+    "maximum_stopband_db_24p1khz_nyquist": -176.72619500394248,
+    "maximum_first_image_db_24p1_64p1khz": -204.73062602135263
+  },
+  "packet_validation": {
+    "production_frequencies_hz": [5000, 10000, 15000, 18000, 20000],
+    "production_failure_count": 0,
+    "holdout_cell_count": 21,
+    "holdout_failure_count": 0,
+    "native_48khz_failure_count": 0,
+    "native_48khz_runtime_contract_identical": true
+  },
+  "determinism": {
+    "timing_report_sha256": "5403cf5ac9383edbe30957533ad266d79be7b8d8525517c7f21afc31c03fc3a6",
+    "group_delay_sha256": "3390b8b31b9d8c0ea716f0e91d28a054724aa2f77df14eca6ce29f053d7057f6",
+    "timing_reports_byte_identical": true,
+    "group_delay_reports_byte_identical": true,
+    "dsd128_native_hashes_identical": true
+  },
+  "dsd_validation": {
+    "rates": [64, 128, 256],
+    "modulators": ["Standard", "EcBeam2"],
+    "cell_count": 14,
+    "hard_failure_count": 0,
+    "diagnostic_hard_failure_count": 0,
+    "dsd128_cell_count": 6,
+    "dsd128_hard_failure_count": 0,
+    "dsd128_restart_positive_excess_reduction_vs_p6_fraction": 0.135194,
+    "high_frequency_stress_unexpected_spur_absolute_floor_dbfs": -190.0
+  },
+  "capacity_conclusion": {
+    "million_tap_repeat_required": false,
+    "reason": "262145-, 524289-, and 1048577-tap realizations of the same target produced invariant timing and packet results; finite support was not the active constraint."
+  },
+  "promotion": {
+    "production_asset_integrated": true,
+    "ui_exposed": true,
+    "production_default": false,
+    "default_runtime_name": "SplitPhase128kE2v3",
+    "reason": "The P17 candidate improves every frozen impulse and step metric versus E2v3, passes production and holdout packets, preserves the frequency response contract, and has zero structural DSD failures."
+  }
+}

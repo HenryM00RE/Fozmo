@@ -17,9 +17,9 @@ pub fn routes() -> Router<AppState> {
 }
 
 async fn get_eq(State(state): State<AppState>) -> Json<EqConfig> {
+    let zone_id = state.zones().active_zone_id();
     let player = state.zones().active_player();
-    let cfg = player.eq_config();
-    Json(cfg)
+    Json(playback_config_for_zone(&state, &zone_id, &player).eq)
 }
 
 async fn set_eq(

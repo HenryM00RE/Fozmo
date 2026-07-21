@@ -450,6 +450,29 @@ pub fn coherent_level_sweep(
     headroom_db: f64,
     guard_frames: usize,
 ) -> Result<StereoSignal, SignalError> {
+    coherent_level_sections(headroom_db, guard_frames, &[0, 1, 2, 3])
+}
+
+/// Generate one section of the coherent level sweep for fast table tuning.
+pub fn coherent_level_probe(
+    headroom_db: f64,
+    guard_frames: usize,
+    effective_dbfs: f64,
+) -> Result<StereoSignal, SignalError> {
+    let index = LEVEL_SWEEP_EFFECTIVE_DBFS
+        .iter()
+        .position(|candidate| (candidate - effective_dbfs).abs() < 1.0e-12)
+        .ok_or(SignalError::InvalidMetadata(
+            "level probe must select -6, -20, -60, or -100 dBFS",
+        ))?;
+    coherent_level_sections(headroom_db, guard_frames, &[index])
+}
+
+fn coherent_level_sections(
+    headroom_db: f64,
+    guard_frames: usize,
+    level_indices: &[usize],
+) -> Result<StereoSignal, SignalError> {
     let headroom_gain = checked_headroom_gain(headroom_db)?;
     checked_filter_guard_frames(guard_frames)?;
     let (fft_bin, actual_hz) = coherent_carrier(
@@ -458,15 +481,16 @@ pub fn coherent_level_sweep(
         LEVEL_SWEEP_ANALYZE_FRAMES,
     );
     let section_frames = guard_frames * 2 + LEVEL_SWEEP_ANALYZE_FRAMES;
-    let total_frames = LEVEL_SWEEP_EFFECTIVE_DBFS.len() * section_frames;
+    let total_frames = level_indices.len() * section_frames;
     let mut left = Vec::with_capacity(total_frames);
-    let mut ranges = Vec::with_capacity(LEVEL_SWEEP_EFFECTIVE_DBFS.len() * 3);
-    let mut carriers = Vec::with_capacity(LEVEL_SWEEP_EFFECTIVE_DBFS.len());
+    let mut ranges = Vec::with_capacity(level_indices.len() * 3);
+    let mut carriers = Vec::with_capacity(level_indices.len());
 
-    for (index, effective_dbfs) in LEVEL_SWEEP_EFFECTIVE_DBFS.into_iter().enumerate() {
+    for (section, &index) in level_indices.iter().enumerate() {
+        let effective_dbfs = LEVEL_SWEEP_EFFECTIVE_DBFS[index];
         let effective_amplitude = dbfs_to_amplitude(effective_dbfs);
         let source_amplitude = effective_amplitude / headroom_gain;
-        let section_start = index * section_frames;
+        let section_start = section * section_frames;
         let analysis_start = section_start + guard_frames;
         let analysis_end = analysis_start + LEVEL_SWEEP_ANALYZE_FRAMES;
         let section_end = analysis_end + guard_frames;
@@ -1135,6 +1159,40 @@ mod tests {
             );
             assert_close(fitted_source, carrier.source_amplitude, 2.0e-12);
         }
+    }
+
+    #[test]
+    fn level_probe_keeps_one_declared_section() {
+        let signal = coherent_level_probe(-4.0, TEST_GUARD_FRAMES, -60.0).unwrap();
+        let section = 2 * TEST_GUARD_FRAMES + LEVEL_SWEEP_ANALYZE_FRAMES;
+        assert_eq!(signal.frames(), section);
+        assert_eq!(signal.carriers.len(), 1);
+        assert_eq!(signal.carriers[0].name, "level_-60_dbfs");
+        assert_close(signal.carriers[0].effective_dbfs(), -60.0, 2.0e-12);
+        assert_partition(
+            &signal,
+            &[
+                (
+                    LEVEL_PRE_GUARD_RANGE_NAMES[2],
+                    RangePurpose::Guard,
+                    0,
+                    TEST_GUARD_FRAMES,
+                ),
+                (
+                    LEVEL_ANALYSIS_RANGE_NAMES[2],
+                    RangePurpose::Analyze,
+                    TEST_GUARD_FRAMES,
+                    TEST_GUARD_FRAMES + LEVEL_SWEEP_ANALYZE_FRAMES,
+                ),
+                (
+                    LEVEL_POST_GUARD_RANGE_NAMES[2],
+                    RangePurpose::Guard,
+                    TEST_GUARD_FRAMES + LEVEL_SWEEP_ANALYZE_FRAMES,
+                    section,
+                ),
+            ],
+        );
+        assert!(coherent_level_probe(-4.0, TEST_GUARD_FRAMES, -30.0).is_err());
     }
 
     #[test]

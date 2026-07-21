@@ -2,15 +2,15 @@
 //!
 //! Chains together:
 //!   1. [`SincResampler`] — integer cascade pushing 44.1/48 kHz f64 PCM up to the DSD rate
-//!      (2.8224 MHz for DSD64, 5.6448 MHz for DSD128, 11.2896 MHz for DSD256).
+//!      (2.8224 MHz for DSD64 through 45.1584 MHz for measurement-only DSD1024).
 //!   2. [`CrfbModulator`] — one per channel, runs the upsampled f64 through a 7th-order
 //!      delta-sigma loop and emits a 1-bit stream.
 //!   3. [`DopPacker`] — repacks the bit streams into DoP frames (24-bit values with
 //!      0x05/0xFA marker in the top 8 bits).
 //!
 //! Output is interleaved stereo `i32` at DSD_rate/16 — the same wire format that a
-//! standard 24-bit/176.4 kHz (DSD64), 24-bit/352.8 kHz (DSD128) or 24-bit/705.6 kHz
-//! (DSD256) PCM endpoint expects.
+//! standard 24-bit/176.4 kHz (DSD64) through 24-bit/2.8224 MHz (DSD1024) PCM endpoint
+//! expects. DSD512 and DSD1024 are currently exposed only to measurement callers.
 //!
 //! The modulate stage is pipelined one block deep: each `modulate_*` call hands the
 //! freshly upsampled block to two persistent per-channel worker threads and packs the
@@ -38,7 +38,8 @@ use crate::audio::dsd::delta_sigma::{
 use crate::audio::dsd::dop::DopPacker;
 use crate::audio::dsd::dsd_coeffs::{
     CRFB_OSR64_OBG165, CRFB7_EC_OSR64, CRFB7_EC_OSR64_OBG144, CRFB7_EC_OSR128, CRFB7_EC_OSR256,
-    CRFB7_STANDARD_OSR64, CRFB7_STANDARD_OSR128, CRFB7_STANDARD_OSR256, ModulatorCoeffs,
+    CRFB7_STANDARD_OSR64, CRFB7_STANDARD_OSR128, CRFB7_STANDARD_OSR256, CRFB7_STANDARD_OSR512,
+    CRFB7_STANDARD_OSR1024, ModulatorCoeffs,
 };
 use crate::audio::dsd::native_dsd::{NativeDsdOrder, NativeDsdPacker};
 use crate::audio::dsp::resampler::{FilterType, SincResampler};
@@ -74,6 +75,7 @@ pub(crate) fn ecbeam2_filter_supported(filter_type: FilterType) -> bool {
             | FilterType::SplitPhase128kV3
             | FilterType::SplitPhase128kV4
             | FilterType::SplitPhase128kE2v3
+            | FilterType::SplitPhase128kE3
             | FilterType::SmoothPhase128k
     )
 }
@@ -109,6 +111,7 @@ pub fn dsd_source_window_to_modulator_samples(
             | FilterType::SplitPhase128kV3
             | FilterType::SplitPhase128kV4
             | FilterType::SplitPhase128kE2v3
+            | FilterType::SplitPhase128kE3
             | FilterType::IntegratedPhase128k
             | FilterType::IntegratedPhase128kV2
             | FilterType::IntegratedPhase128kV3
@@ -184,6 +187,10 @@ pub enum DsdRate {
     Dsd64,
     Dsd128,
     Dsd256,
+    /// Measurement-only until the transport/UI capability work is complete.
+    Dsd512,
+    /// Measurement-only until the transport/UI capability work is complete.
+    Dsd1024,
 }
 
 #[derive(Clone, Copy)]
@@ -212,6 +219,7 @@ fn ecbeam2_production_policy(dsd_rate: DsdRate) -> Option<EcBeam2ProductionPolic
             coeffs: crate::audio::dsd::delta_sigma::ecbeam2_dsd256_production_coefficients(),
             name: "ECBEAM2_OSR256_OBG164_INPUT468_V1",
         },
+        DsdRate::Dsd512 | DsdRate::Dsd1024 => return None,
     };
     Some(EcBeam2ProductionPolicy {
         config: ecbeam2_production_config(),
@@ -219,8 +227,8 @@ fn ecbeam2_production_policy(dsd_rate: DsdRate) -> Option<EcBeam2ProductionPolic
     })
 }
 
-fn default_coeffs_for_mode(rate: DsdRate, mode: ModulatorMode) -> NamedModulatorCoeffs {
-    match (rate, mode) {
+fn default_coeffs_for_mode(rate: DsdRate, mode: ModulatorMode) -> Option<NamedModulatorCoeffs> {
+    Some(match (rate, mode) {
         (DsdRate::Dsd64, ModulatorMode::Standard) => NamedModulatorCoeffs {
             coeffs: &CRFB7_STANDARD_OSR64,
             name: "CRFB7_STANDARD_OSR64",
@@ -232,6 +240,14 @@ fn default_coeffs_for_mode(rate: DsdRate, mode: ModulatorMode) -> NamedModulator
         (DsdRate::Dsd256, ModulatorMode::Standard) => NamedModulatorCoeffs {
             coeffs: &CRFB7_STANDARD_OSR256,
             name: "CRFB7_STANDARD_OSR256",
+        },
+        (DsdRate::Dsd512, ModulatorMode::Standard) => NamedModulatorCoeffs {
+            coeffs: &CRFB7_STANDARD_OSR512,
+            name: "CRFB7_STANDARD_OSR512",
+        },
+        (DsdRate::Dsd1024, ModulatorMode::Standard) => NamedModulatorCoeffs {
+            coeffs: &CRFB7_STANDARD_OSR1024,
+            name: "CRFB7_STANDARD_OSR1024",
         },
         (DsdRate::Dsd64, ModulatorMode::Ec) => NamedModulatorCoeffs {
             coeffs: &CRFB7_EC_OSR64,
@@ -245,7 +261,8 @@ fn default_coeffs_for_mode(rate: DsdRate, mode: ModulatorMode) -> NamedModulator
             coeffs: &CRFB7_EC_OSR256,
             name: "CRFB7_EC_OSR256",
         },
-    }
+        (DsdRate::Dsd512 | DsdRate::Dsd1024, ModulatorMode::Ec) => return None,
+    })
 }
 
 impl DsdRate {
@@ -254,6 +271,8 @@ impl DsdRate {
             DsdRate::Dsd64 => 2_822_400,
             DsdRate::Dsd128 => 5_644_800,
             DsdRate::Dsd256 => 11_289_600,
+            DsdRate::Dsd512 => 22_579_200,
+            DsdRate::Dsd1024 => 45_158_400,
         }
     }
 
@@ -262,11 +281,20 @@ impl DsdRate {
             DsdRate::Dsd64 => 64,
             DsdRate::Dsd128 => 128,
             DsdRate::Dsd256 => 256,
+            DsdRate::Dsd512 => 512,
+            DsdRate::Dsd1024 => 1024,
         }
     }
 
-    pub fn coeffs_for_mode(self, mode: ModulatorMode) -> &'static ModulatorCoeffs {
-        default_coeffs_for_mode(self, mode).coeffs
+    pub fn coeffs_for_mode(self, mode: ModulatorMode) -> Option<&'static ModulatorCoeffs> {
+        default_coeffs_for_mode(self, mode).map(|table| table.coeffs)
+    }
+
+    /// Whether this rate has a calibrated table for the requested production
+    /// modulator. The two experimental high rates intentionally support only
+    /// the plain hard-sign Standard path.
+    pub fn supports_modulator(self, modulator: DsdModulator) -> bool {
+        !matches!(self, DsdRate::Dsd512 | DsdRate::Dsd1024) || modulator == DsdModulator::Standard
     }
 
     /// DSD wire rate for a given PCM source rate. DSD rates are *fixed* per family:
@@ -274,7 +302,8 @@ impl DsdRate {
     /// * 44.1 kHz family (44.1 / 88.2 / 176.4 / 352.8 kHz) → 2.8224 MHz (DSD64),
     ///   5.6448 MHz (DSD128) or 11.2896 MHz (DSD256).
     /// * 48 kHz family (48 / 96 / 192 / 384 kHz) → 3.072 MHz (DSD64), 6.144 MHz
-    ///   (DSD128) or 12.288 MHz (DSD256).
+    ///   (DSD128), 12.288 MHz (DSD256), 24.576 MHz (DSD512), or 49.152 MHz
+    ///   (DSD1024).
     ///
     /// Returns `None` if the source is in neither family or the implied upsample
     /// ratio isn't a power of two ≥ 2 (the cascade can't reach it). High-rate
@@ -297,6 +326,8 @@ impl DsdRate {
             DsdRate::Dsd64 => base,
             DsdRate::Dsd128 => base * 2,
             DsdRate::Dsd256 => base * 4,
+            DsdRate::Dsd512 => base * 8,
+            DsdRate::Dsd1024 => base * 16,
         };
         if target <= source_rate {
             return None;
@@ -753,9 +784,6 @@ fn select_modulator_coeffs(
         if dsd_modulator == DsdModulator::EcBeam2 {
             return Err("EcBeam2 coefficient overrides are not supported");
         }
-        if modulator_mode != ModulatorMode::Ec {
-            return Err("DSD coefficient override is only supported for EC modulators");
-        }
         if coeffs.osr != dsd_rate.oversample() {
             return Err("DSD coefficient override OSR does not match the selected DSD rate");
         }
@@ -772,10 +800,13 @@ fn select_modulator_coeffs(
             .map(|policy| policy.coefficients)
             .ok_or("EcBeam2 has no production policy for the selected DSD rate");
     }
-    Ok(
+    if let Some(coefficients) =
         production_ec_coeffs_for(filter_type, dsd_rate, dsd_modulator, experiment_tweaks)
-            .unwrap_or_else(|| default_coeffs_for_mode(dsd_rate, modulator_mode)),
-    )
+    {
+        return Ok(coefficients);
+    }
+    default_coeffs_for_mode(dsd_rate, modulator_mode)
+        .ok_or("DSD512 and DSD1024 currently support only the Standard modulator")
 }
 
 enum ModJob {
@@ -1254,7 +1285,9 @@ impl DsdUpsampler {
         // capped fractional polyphase path.
         let is_44k_dsd_target = target_rate == DsdRate::Dsd64.wire_rate_44k_family()
             || target_rate == DsdRate::Dsd128.wire_rate_44k_family()
-            || target_rate == DsdRate::Dsd256.wire_rate_44k_family();
+            || target_rate == DsdRate::Dsd256.wire_rate_44k_family()
+            || target_rate == DsdRate::Dsd512.wire_rate_44k_family()
+            || target_rate == DsdRate::Dsd1024.wire_rate_44k_family();
         if is_44k_dsd_target && matches!(source_rate, 48_000 | 96_000 | 192_000) {
             Self::CrossFamily(CrossFamilyDsdChain::new(
                 filter_type,
@@ -1627,6 +1660,9 @@ impl DsdRenderer {
         coeffs_override: Option<&'static ModulatorCoeffs>,
         experiment_tweaks: DsdExperimentTweaks,
     ) -> Result<Self, &'static str> {
+        if !dsd_rate.supports_modulator(dsd_modulator) {
+            return Err("DSD512 and DSD1024 currently support only the Standard modulator");
+        }
         if dsd_modulator == DsdModulator::EcBeam2 {
             if !ecbeam2_filter_supported(filter_type) {
                 return Err("7th Order Search supports only the supported production 128k filters");
@@ -1951,6 +1987,34 @@ impl DsdRenderer {
             &mut right,
         );
         Ok((left, right))
+    }
+
+    /// Materialize the current upsampler block in the exact normalized PCM
+    /// domain entering either production modulator. This research-only probe
+    /// shares coefficient gain, mandatory headroom, block riding, and limiting
+    /// with production, then divides out the coefficient-table input peak so
+    /// Standard and EcBeam2 captures remain directly comparable in PCM units.
+    #[cfg(feature = "research-filter-assets")]
+    #[doc(hidden)]
+    pub fn research_normalized_modulator_input_block(
+        &self,
+        input_gain: f64,
+        left: &mut Vec<f64>,
+        right: &mut Vec<f64>,
+    ) {
+        prepare_modulator_input_planes(
+            &self.pcm_scratch,
+            self.coeffs,
+            self.dsd_modulator,
+            self.experiment_tweaks,
+            input_gain,
+            left,
+            right,
+        );
+        let inverse_peak = self.coeffs.input_peak.recip();
+        for sample in left.iter_mut().chain(right.iter_mut()) {
+            *sample *= inverse_peak;
+        }
     }
 
     /// Stage 2 (pipelined): hand the upsampled buffer produced by [`upsample`] to
@@ -3067,7 +3131,7 @@ mod tests {
     #[test]
     fn dsd64_renderer_uses_osr64_coefficients() {
         for mode in [ModulatorMode::Standard, ModulatorMode::Ec] {
-            assert_eq!(DsdRate::Dsd64.coeffs_for_mode(mode).osr, 64);
+            assert_eq!(DsdRate::Dsd64.coeffs_for_mode(mode).unwrap().osr, 64);
         }
     }
 
@@ -3093,6 +3157,18 @@ mod tests {
                 &CRFB7_STANDARD_OSR256,
             ),
             (
+                DsdRate::Dsd512,
+                ModulatorMode::Standard,
+                "CRFB7_STANDARD_OSR512",
+                &CRFB7_STANDARD_OSR512,
+            ),
+            (
+                DsdRate::Dsd1024,
+                ModulatorMode::Standard,
+                "CRFB7_STANDARD_OSR1024",
+                &CRFB7_STANDARD_OSR1024,
+            ),
+            (
                 DsdRate::Dsd64,
                 ModulatorMode::Ec,
                 "CRFB7_EC_OSR64",
@@ -3111,11 +3187,56 @@ mod tests {
                 &CRFB7_EC_OSR256,
             ),
         ] {
-            let selected = default_coeffs_for_mode(rate, mode);
+            let selected = default_coeffs_for_mode(rate, mode).unwrap();
             assert_eq!(selected.name, expected_name);
             assert_eq!(selected.coeffs.osr, expected_coeffs.osr);
             assert_eq!(selected.coeffs.obg, expected_coeffs.obg);
             assert_eq!(selected.coeffs.input_peak, expected_coeffs.input_peak);
+        }
+        assert!(default_coeffs_for_mode(DsdRate::Dsd512, ModulatorMode::Ec).is_none());
+        assert!(default_coeffs_for_mode(DsdRate::Dsd1024, ModulatorMode::Ec).is_none());
+    }
+
+    #[test]
+    fn dsd512_and_dsd1024_are_standard_only_measurement_rates() {
+        for (rate, wire_rate, table_name, obg) in [
+            (DsdRate::Dsd512, 22_579_200, "CRFB7_STANDARD_OSR512", 1.50),
+            (DsdRate::Dsd1024, 45_158_400, "CRFB7_STANDARD_OSR1024", 1.60),
+        ] {
+            let renderer = DsdRenderer::new_with_dsd_modulator(
+                FilterType::Minimum16k,
+                44_100,
+                rate,
+                DsdModulator::Standard,
+            )
+            .expect("high-rate Standard renderer");
+            assert_eq!(renderer.dop_frame_rate() * 16, wire_rate);
+            assert_eq!(renderer.coefficient_table_name(), table_name);
+            assert_eq!(renderer.coefficient_osr(), rate.oversample());
+            assert_eq!(renderer.coefficient_obg(), obg);
+
+            assert_eq!(
+                DsdRenderer::new_with_dsd_modulator(
+                    FilterType::Minimum16k,
+                    44_100,
+                    rate,
+                    DsdModulator::EcDepth2,
+                )
+                .err()
+                .unwrap(),
+                "DSD512 and DSD1024 currently support only the Standard modulator"
+            );
+            assert_eq!(
+                DsdRenderer::new_with_dsd_modulator(
+                    FilterType::Minimum16k,
+                    44_100,
+                    rate,
+                    DsdModulator::EcBeam2,
+                )
+                .err()
+                .unwrap(),
+                "DSD512 and DSD1024 currently support only the Standard modulator"
+            );
         }
     }
 
@@ -3219,18 +3340,17 @@ mod tests {
         assert_eq!(custom_tweaks.seed_left, Some(custom_seeds[0]));
         assert_eq!(custom_tweaks.seed_right, Some(custom_seeds[1]));
 
-        let standard_override_error = select_modulator_coeffs(
+        let standard_override = select_modulator_coeffs(
             FilterType::Split128k,
             DsdRate::Dsd64,
             DsdModulator::Standard,
             Some(&CRFB7_EC_OSR64),
             DsdExperimentTweaks::default(),
         )
-        .err();
-        assert_eq!(
-            standard_override_error,
-            Some("DSD coefficient override is only supported for EC modulators")
-        );
+        .expect("standard custom-coefficient table");
+        assert_eq!(standard_override.name, "custom_override");
+        assert_eq!(standard_override.coeffs.osr, CRFB7_EC_OSR64.osr);
+        assert_eq!(standard_override.coeffs.obg, CRFB7_EC_OSR64.obg);
     }
 
     #[test]
@@ -3572,6 +3692,7 @@ mod tests {
     fn modulator_input_limiter_catches_intersample_overs() {
         let input_peak = DsdRate::Dsd128
             .coeffs_for_mode(ModulatorMode::Ec)
+            .unwrap()
             .input_peak;
         assert_eq!(
             limit_modulator_input(0.5 * input_peak, input_peak),
@@ -4714,6 +4835,22 @@ mod tests {
         assert_eq!(
             DsdRate::Dsd256.wire_rate_for_source(48_000),
             Some(12_288_000)
+        );
+        assert_eq!(
+            DsdRate::Dsd512.wire_rate_for_source(44_100),
+            Some(22_579_200)
+        );
+        assert_eq!(
+            DsdRate::Dsd512.wire_rate_for_source(48_000),
+            Some(24_576_000)
+        );
+        assert_eq!(
+            DsdRate::Dsd1024.wire_rate_for_source(44_100),
+            Some(45_158_400)
+        );
+        assert_eq!(
+            DsdRate::Dsd1024.wire_rate_for_source(48_000),
+            Some(49_152_000)
         );
         // Out-of-family sources rejected (e.g. 22.05 kHz isn't a 44.1 multiple
         // that fits the cascade with a power-of-two ratio).

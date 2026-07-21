@@ -1,8 +1,11 @@
 #[path = "dsd_public/analysis.rs"]
 mod analysis;
+#[path = "dsd_public/external_product.rs"]
+mod external_product;
 #[path = "dsd_public/signals.rs"]
 mod signals;
 
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -15,24 +18,34 @@ use analysis::{
 };
 use clap::Parser;
 use fozmo::audio::dsd::delta_sigma::DsdModulator;
+use fozmo::audio::dsd::dsd_coeffs::{
+    CRFB_OSR512_OBG120, CRFB_OSR512_OBG130, CRFB_OSR512_OBG140, CRFB_OSR512_OBG145,
+    CRFB_OSR512_OBG150, CRFB_OSR512_OBG160, CRFB_OSR1024_OBG140, CRFB_OSR1024_OBG150,
+    CRFB_OSR1024_OBG160, ModulatorCoeffs,
+};
 use fozmo::audio::dsd::dsd_render::{
     DSD_PRODUCTION_POLICY_VERSION, DsdRate, DsdRenderer, dsd_source_window_to_modulator_samples,
 };
 use fozmo::audio::dsd::native_dsd::NativeDsdOrder;
+#[cfg(feature = "research-filter-assets")]
+use fozmo::audio::dsp::resampler::install_research_e3_character_file;
 use fozmo::audio::dsp::resampler::{DEFAULT_FILTER_TYPE, FilterType};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-const REPORT_SCHEMA_VERSION: &str = "dsd-public-quality-report-v4";
-const MEASUREMENT_VERSION: &str = "dsd-public-quality-v4";
+const REPORT_SCHEMA_VERSION: &str = "dsd-public-quality-report-v5";
+const MEASUREMENT_VERSION: &str = "dsd-public-quality-v5";
 const MATRIX_VERSION: &str = "dsd-public-matrix-28-v6";
 const SCORE_VERSION: &str = "dsd-public-production-score-v3";
 const SCORE_CLAIM: &str = "Fozmo PCM-to-DSD production-path score using Split Phase E2v3";
 const CANONICAL_PRODUCTION_CELL_COUNT: usize = 28;
 const CHUNK_FRAMES: usize = 1024;
 const SPECTRAL_ANALYSIS_FRAMES: usize = 65_536;
-const CANONICAL_CARGO_FEATURES: &str =
+#[cfg(not(feature = "research-filter-assets"))]
+const REQUIRED_CARGO_FEATURES: &str =
     "airplay-helper,default,experimental-dsd256,hegel,local-library,pcm-output,qobuz,sonos,upnp";
+#[cfg(feature = "research-filter-assets")]
+const REQUIRED_CARGO_FEATURES: &str = "airplay-helper,default,experimental-dsd256,hegel,local-library,pcm-output,qobuz,research-filter-assets,sonos,upnp";
 const PRODUCTION_HEADROOM_DB: f64 = -4.0;
 const SEARCH_HEADROOM_DB: f64 = -2.0;
 const DENSITY_LIMIT: f64 = 0.010;
@@ -68,7 +81,7 @@ struct Cli {
     #[arg(long, default_value = "SplitPhase128kE2v3")]
     filter: String,
 
-    /// Comma-separated DSD rates to exercise: 64, 128, and/or 256.
+    /// Comma-separated DSD rates to exercise. DSD512/1024 are Standard-only diagnostics.
     #[arg(long, default_value = "64,128,256")]
     rates: String,
 
@@ -84,9 +97,55 @@ struct Cli {
     #[arg(long)]
     dsd256_only: bool,
 
+    /// Run only hi-res reconstruction cells from the selected rates.
+    #[arg(long)]
+    hires_only: bool,
+
+    /// Measurement-only Standard coefficient OBG override (DSD512 also supports 1.45).
+    #[arg(long)]
+    standard_obg: Option<f64>,
+
+    /// Run only one coherent level section (-6, -20, -60, or -100 dBFS).
+    #[arg(long)]
+    level_probe_dbfs: Option<f64>,
+
     /// Return a non-zero status when any structural hard gate fails.
     #[arg(long)]
     check: bool,
+
+    /// Frozen v5 E2v3 report whose restart envelopes are the comparison reference.
+    #[arg(long)]
+    transition_envelope_reference: Option<PathBuf>,
+
+    /// Frozen RMS tolerance subtracted in power before positive excess is accumulated.
+    #[arg(long, default_value_t = 0.0)]
+    transition_envelope_tolerance_rms: f64,
+
+    /// Research-only E3 character coefficient file loaded at process startup.
+    #[cfg(feature = "research-filter-assets")]
+    #[arg(long)]
+    experimental_character_file: Option<PathBuf>,
+
+    /// Required SHA-256 for --experimental-character-file.
+    #[cfg(feature = "research-filter-assets")]
+    #[arg(long)]
+    experimental_character_sha256: Option<String>,
+
+    /// Add an unnamed external product's EC DSD128 path as diagnostic cells.
+    #[arg(long)]
+    external_upsampler: Option<PathBuf>,
+
+    /// External-product interpolation preset used before its EC modulator.
+    #[arg(long, default_value = "megaextreme")]
+    external_preset: String,
+}
+
+struct ExternalProductConfig {
+    executable: PathBuf,
+    preset: String,
+    work_dir: PathBuf,
+    source_bit_offset: isize,
+    modulator_input_peak: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,6 +190,9 @@ struct BenchReport {
     sinad_definition: &'static str,
     unknown_spur_definition: &'static str,
     transition_definition: &'static str,
+    transition_envelope_version: &'static str,
+    transition_envelope_reference: Option<TransitionEnvelopeReferenceMetadata>,
+    research_character: Option<ResearchCharacterMetadata>,
     rolling_density_window_seconds: f64,
     density_hard_gate_scope: &'static str,
     stress_clean_mute_source_frames: usize,
@@ -161,6 +223,21 @@ struct BenchReport {
     hard_failure_count: usize,
     /// Structural failures from optional Linear Phase diagnostic cells.
     diagnostic_hard_failure_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct TransitionEnvelopeReferenceMetadata {
+    path: String,
+    sha256: String,
+    tolerance_rms: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ResearchCharacterMetadata {
+    path: String,
+    sha256: String,
+    coefficient_count: usize,
+    dc_sum: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -410,6 +487,8 @@ struct StressChannelReport {
     restart_residual_rms_1ms_dbfs: f64,
     restart_residual_rms_10ms_dbfs: f64,
     restart_residual_rms_50ms_dbfs: f64,
+    transition_envelope: analysis::TransitionEnvelopeMetrics,
+    transition_envelope_excess_vs_reference: Option<analysis::TransitionEnvelopeExcessMetrics>,
     transition_residual_peak: f64,
     transition_residual_peak_dbfs: f64,
     end_to_end_recovery_time_ms: Option<f64>,
@@ -431,6 +510,7 @@ struct StressTransitionAnalysis {
     restart_residual_rms_1ms_dbfs: f64,
     restart_residual_rms_10ms_dbfs: f64,
     restart_residual_rms_50ms_dbfs: f64,
+    transition_envelope: analysis::TransitionEnvelopeMetrics,
     transition_residual_peak: f64,
 }
 
@@ -487,6 +567,7 @@ struct RenderedCell {
     full_fixture_density: [WholeDensityMetrics; 2],
     health: HealthReport,
     hard_failures: Vec<String>,
+    source_bit_offset: Option<isize>,
 }
 
 fn main() -> ExitCode {
@@ -518,9 +599,41 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
     require_canonical_build()?;
     reject_filter_overrides()?;
+    if !cli.transition_envelope_tolerance_rms.is_finite()
+        || cli.transition_envelope_tolerance_rms < 0.0
+    {
+        return Err("--transition-envelope-tolerance-rms must be finite and non-negative".into());
+    }
+    let transition_envelope_reference = cli
+        .transition_envelope_reference
+        .as_deref()
+        .map(|path| load_transition_envelope_reference(path, cli.transition_envelope_tolerance_rms))
+        .transpose()?;
     let selected = parse_modulators(&cli.modulator)?;
     let selected_filter = parse_filter(&cli.filter)?;
+    #[cfg(feature = "research-filter-assets")]
+    let research_character = install_research_character(&cli, selected_filter)?;
+    #[cfg(not(feature = "research-filter-assets"))]
+    let research_character: Option<ResearchCharacterMetadata> = None;
     let selected_rates = parse_rates(&cli.rates)?;
+    validate_tuning_options(&cli, &selected, &selected_rates)?;
+    if cli.external_upsampler.is_some()
+        && (!selected_rates.contains(&DsdRate::Dsd128)
+            || !selected.contains(&DsdModulator::EcBeam2))
+    {
+        return Err("--external-upsampler requires --rates 128 and EcBeam2 in --modulator".into());
+    }
+    let external_config = cli
+        .external_upsampler
+        .clone()
+        .map(|executable| {
+            prepare_external_product_config(
+                executable,
+                cli.external_preset.clone(),
+                cli.out.join("external-product-exchange"),
+            )
+        })
+        .transpose()?;
     let mut matrix = build_matrix(
         &selected,
         cli.include_linear_reference,
@@ -533,6 +646,12 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
     if cli.dsd256_only {
         matrix.retain(|cell| cell.dsd_rate == DsdRate::Dsd256);
     }
+    if cli.hires_only {
+        matrix.retain(|cell| cell.scenario == Scenario::HiresReconstruction);
+    }
+    if cli.level_probe_dbfs.is_some() {
+        matrix.retain(|cell| cell.scenario == Scenario::LevelSweep);
+    }
     let mut selected_filters = Vec::new();
     for cell in &matrix {
         let filter = cell.filter.as_name().to_string();
@@ -541,7 +660,7 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
         }
     }
     let attempted_production_cell_count = matrix.iter().filter(|cell| !cell.diagnostic).count();
-    let attempted_diagnostic_cell_count = matrix.iter().filter(|cell| cell.diagnostic).count();
+    let mut attempted_diagnostic_cell_count = matrix.iter().filter(|cell| cell.diagnostic).count();
     let mut cells = Vec::with_capacity(matrix.len());
     let mut execution_failures = Vec::new();
     let mut production_execution_failure_count = 0;
@@ -556,7 +675,8 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
             dsd_rate_name(spec.dsd_rate),
             spec.modulator.as_name()
         );
-        match run_cell(spec) {
+        let coeffs_override = standard_coeffs_override(spec, cli.standard_obg)?;
+        match run_cell(spec, cli.level_probe_dbfs, coeffs_override) {
             Ok(cell) => cells.push(cell),
             Err(error) => {
                 if spec.diagnostic {
@@ -574,6 +694,72 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
                 ));
             }
         }
+    }
+
+    if let Some(config) = &external_config {
+        let mut scenarios = vec![
+            Scenario::LevelSweep,
+            Scenario::IdleTinySignal,
+            Scenario::HighFrequencyRatedStress,
+            Scenario::HighFrequencyMatchedStress,
+        ];
+        if cli.level_probe_dbfs.is_some() {
+            scenarios.retain(|scenario| *scenario == Scenario::LevelSweep);
+        }
+        if scenarios.contains(&Scenario::IdleTinySignal) {
+            let idle_reference = CellSpec {
+                scenario: Scenario::IdleTinySignal,
+                source_rate: signals::SOURCE_RATE_44K1_HZ,
+                dsd_rate: DsdRate::Dsd128,
+                modulator: DsdModulator::EcBeam2,
+                filter: selected_filter,
+                diagnostic: true,
+            };
+            attempted_diagnostic_cell_count += 1;
+            match run_cell(idle_reference, None, None) {
+                Ok(cell) => cells.push(cell),
+                Err(error) => {
+                    diagnostic_execution_failure_count += 1;
+                    execution_failures.push(format!("diagnostic DSD128 EcBeam2 idle: {error}"));
+                }
+            }
+        }
+        for scenario in scenarios {
+            attempted_diagnostic_cell_count += 1;
+            let spec = CellSpec {
+                scenario,
+                source_rate: signals::SOURCE_RATE_44K1_HZ,
+                dsd_rate: DsdRate::Dsd128,
+                modulator: DsdModulator::EcBeam2,
+                filter: selected_filter,
+                diagnostic: true,
+            };
+            eprintln!(
+                "[external] {} ExternalProduct:{} DSD128 ExternalProductEcInferred",
+                scenario.as_name(),
+                config.preset
+            );
+            match run_external_product_cell(spec, cli.level_probe_dbfs, config) {
+                Ok(cell) => cells.push(cell),
+                Err(error) => {
+                    diagnostic_execution_failure_count += 1;
+                    execution_failures.push(format!(
+                        "diagnostic {} ExternalProduct:{} DSD128 ExternalProductEcInferred: {error}",
+                        scenario.as_name(),
+                        config.preset
+                    ));
+                }
+            }
+        }
+        selected_filters.push(format!("ExternalProduct:{}", config.preset));
+    }
+
+    if let Some((_, reference)) = &transition_envelope_reference {
+        apply_transition_envelope_reference(
+            &mut cells,
+            reference,
+            cli.transition_envelope_tolerance_rms,
+        )?;
     }
 
     let successful_production_cell_count = cells.iter().filter(|cell| !cell.diagnostic).count();
@@ -607,7 +793,12 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
         dbfs_reference: "full-scale-sine: peak amplitude 1.0 and RMS 1/sqrt(2) are both 0 dBFS",
         sinad_definition: "declared carrier power divided by every other in-band component, including declared distortion products",
         unknown_spur_definition: "Blackman-Harris-4 integrated main-lobe power after joint least-squares removal of declared carriers/products and DC; lines unresolved from a declared frequency are absorbed by that fit",
-        transition_definition: "zero-input transition, clean-center mute, and recovered-carrier-model restart residuals are separate; fixed-window RMS, waveform peak, and excess above settled program peak are also reported",
+        transition_definition: "zero-input transition, clean-center mute, and recovered-carrier-model restart residuals are separate; a fixed 0-50 ms, 2 ms sliding mean-square restart envelope is serialized in linear power for frozen-reference comparison; percentile first-crossing recovery remains a secondary diagnostic",
+        transition_envelope_version: analysis::TRANSITION_ENVELOPE_VERSION,
+        transition_envelope_reference: transition_envelope_reference
+            .as_ref()
+            .map(|(metadata, _)| metadata.clone()),
+        research_character,
         rolling_density_window_seconds: ROLLING_DENSITY_WINDOW_SECONDS,
         density_hard_gate_scope: "whole fixture plus idle silence, stress clean-mute, and declared DC sections; analyzed AC-section density remains diagnostic",
         stress_clean_mute_source_frames: signals::STRESS_MUTE_FRAMES,
@@ -667,6 +858,11 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
         selected_modulators: selected
             .iter()
             .map(|modulator| modulator.as_name().to_string())
+            .chain(
+                external_config
+                    .is_some()
+                    .then(|| "ExternalProductEcInferred".to_string()),
+            )
             .collect(),
         selected_filters,
         include_linear_reference: cli.include_linear_reference,
@@ -681,6 +877,174 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
     };
     let paths = write_artifacts(&report, &cli.out)?;
     Ok((report, paths))
+}
+
+#[cfg(feature = "research-filter-assets")]
+fn install_research_character(
+    cli: &Cli,
+    selected_filter: FilterType,
+) -> Result<Option<ResearchCharacterMetadata>, String> {
+    let (path, expected_sha256) = match (
+        cli.experimental_character_file.as_deref(),
+        cli.experimental_character_sha256.as_deref(),
+    ) {
+        (None, None) => return Ok(None),
+        (Some(_), None) => {
+            return Err(
+                "--experimental-character-file requires --experimental-character-sha256".into(),
+            );
+        }
+        (None, Some(_)) => {
+            return Err(
+                "--experimental-character-sha256 requires --experimental-character-file".into(),
+            );
+        }
+        (Some(path), Some(expected_sha256)) => (path, expected_sha256),
+    };
+    if selected_filter != FilterType::SplitPhase128kE3 {
+        return Err(
+            "research character assets may only be used with --filter SplitPhase128kE3".into(),
+        );
+    }
+    let installed = install_research_e3_character_file(path, expected_sha256)?;
+    eprintln!(
+        "loaded research E3 character {} (sha256 {})",
+        path.display(),
+        installed.sha256
+    );
+    Ok(Some(ResearchCharacterMetadata {
+        path: path.display().to_string(),
+        sha256: installed.sha256,
+        coefficient_count: installed.coefficient_count,
+        dc_sum: installed.dc_sum,
+    }))
+}
+
+type TransitionEnvelopeReferenceMap =
+    HashMap<(String, String, String), analysis::TransitionEnvelopeMetrics>;
+
+fn load_transition_envelope_reference(
+    path: &Path,
+    tolerance_rms: f64,
+) -> Result<
+    (
+        TransitionEnvelopeReferenceMetadata,
+        TransitionEnvelopeReferenceMap,
+    ),
+    String,
+> {
+    let bytes = fs::read(path)
+        .map_err(|error| format!("could not read transition-envelope reference: {error}"))?;
+    let root: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("invalid transition-envelope reference JSON: {error}"))?;
+    let version = root
+        .get("transition_envelope_version")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "transition-envelope reference has no contract version".to_string())?;
+    if version != analysis::TRANSITION_ENVELOPE_VERSION {
+        return Err(format!(
+            "transition-envelope reference version {version:?} does not match {:?}",
+            analysis::TRANSITION_ENVELOPE_VERSION
+        ));
+    }
+    let cells = root
+        .get("cells")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "transition-envelope reference has no cells".to_string())?;
+    let mut reference = HashMap::new();
+    for cell in cells {
+        let scenario = cell
+            .get("scenario")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let modulator = cell
+            .get("modulator")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let measurements = cell
+            .get("measurements")
+            .and_then(serde_json::Value::as_object);
+        if measurements
+            .and_then(|value| value.get("kind"))
+            .and_then(serde_json::Value::as_str)
+            != Some("high_frequency_stress")
+        {
+            continue;
+        }
+        let channels = measurements
+            .and_then(|value| value.get("channels"))
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| "stress reference cell has no channels".to_string())?;
+        for channel in channels {
+            let channel_name = channel
+                .get("channel")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "stress reference channel has no name".to_string())?;
+            let envelope_value = channel
+                .get("transition_envelope")
+                .cloned()
+                .ok_or_else(|| "stress reference channel has no envelope".to_string())?;
+            let envelope: analysis::TransitionEnvelopeMetrics =
+                serde_json::from_value(envelope_value).map_err(|error| {
+                    format!("invalid {scenario}/{modulator}/{channel_name} envelope: {error}")
+                })?;
+            let key = (
+                scenario.to_string(),
+                modulator.to_string(),
+                channel_name.to_string(),
+            );
+            if reference.insert(key.clone(), envelope).is_some() {
+                return Err(format!(
+                    "duplicate transition-envelope reference for {}/{}/{}",
+                    key.0, key.1, key.2
+                ));
+            }
+        }
+    }
+    if reference.is_empty() {
+        return Err("transition-envelope reference contains no stress envelopes".to_string());
+    }
+    Ok((
+        TransitionEnvelopeReferenceMetadata {
+            path: path.display().to_string(),
+            sha256: sha256_bytes(&bytes),
+            tolerance_rms,
+        },
+        reference,
+    ))
+}
+
+fn apply_transition_envelope_reference(
+    cells: &mut [CellReport],
+    reference: &TransitionEnvelopeReferenceMap,
+    tolerance_rms: f64,
+) -> Result<(), String> {
+    for cell in cells {
+        let ScenarioMeasurements::HighFrequencyStress { channels, .. } = &mut cell.measurements
+        else {
+            continue;
+        };
+        for channel in channels {
+            let key = (
+                cell.scenario.clone(),
+                cell.modulator.clone(),
+                channel.channel.to_string(),
+            );
+            let reference_envelope = reference.get(&key).ok_or_else(|| {
+                format!(
+                    "transition-envelope reference is missing {}/{}/{}",
+                    key.0, key.1, key.2
+                )
+            })?;
+            channel.transition_envelope_excess_vs_reference =
+                Some(analysis::compare_transition_envelopes(
+                    &channel.transition_envelope,
+                    reference_envelope,
+                    tolerance_rms,
+                )?);
+        }
+    }
+    Ok(())
 }
 
 fn structural_failure_counts(
@@ -733,11 +1097,11 @@ fn require_canonical_build() -> Result<(), String> {
             env!("FOZMO_BUILD_RUSTFLAGS_DISPLAY")
         ));
     }
-    if !env!("FOZMO_BUILD_CARGO_FEATURES").eq(CANONICAL_CARGO_FEATURES) {
+    if !env!("FOZMO_BUILD_CARGO_FEATURES").eq(REQUIRED_CARGO_FEATURES) {
         failures.push(format!(
             "build Cargo features were {}, expected {}",
             env!("FOZMO_BUILD_CARGO_FEATURES"),
-            CANONICAL_CARGO_FEATURES
+            REQUIRED_CARGO_FEATURES
         ));
     }
     if env!("FOZMO_BUILD_SOURCE_SNAPSHOT_SHA256") == "unavailable" {
@@ -814,8 +1178,10 @@ fn parse_filter(value: &str) -> Result<FilterType, String> {
         "split128k" => Ok(FilterType::Split128k),
         "splitphase" | "split-phase" | "splitphase128ke2v3" | "splitphasee2v3"
         | "split-phase-e2v3" => Ok(FilterType::SplitPhase128kE2v3),
+        "splitphase128ke3" | "splitphasee3" | "split-phase-e3" | "splitphaseb"
+        | "split-phase-b" => Ok(FilterType::SplitPhase128kE3),
         _ => Err(format!(
-            "unsupported filter {value}; use Split128k or SplitPhase128kE2v3"
+            "unsupported filter {value}; use Split128k, SplitPhase128kE2v3, or SplitPhaseB"
         )),
     }
 }
@@ -831,9 +1197,11 @@ fn parse_rates(value: &str) -> Result<Vec<DsdRate>, String> {
             "64" | "dsd64" => DsdRate::Dsd64,
             "128" | "dsd128" => DsdRate::Dsd128,
             "256" | "dsd256" => DsdRate::Dsd256,
+            "512" | "dsd512" => DsdRate::Dsd512,
+            "1024" | "dsd1024" => DsdRate::Dsd1024,
             _ => {
                 return Err(format!(
-                    "unsupported DSD rate {token}; use 64, 128, and/or 256"
+                    "unsupported DSD rate {token}; use 64, 128, 256, 512, and/or 1024"
                 ));
             }
         };
@@ -845,6 +1213,60 @@ fn parse_rates(value: &str) -> Result<Vec<DsdRate>, String> {
         return Err("--rates must select at least one DSD rate".to_string());
     }
     Ok(rates)
+}
+
+fn validate_tuning_options(
+    cli: &Cli,
+    modulators: &[DsdModulator],
+    rates: &[DsdRate],
+) -> Result<(), String> {
+    if cli.standard_obg.is_some()
+        && (modulators != [DsdModulator::Standard]
+            || rates
+                .iter()
+                .any(|rate| !matches!(rate, DsdRate::Dsd512 | DsdRate::Dsd1024)))
+    {
+        return Err("--standard-obg requires Standard only and DSD512 and/or DSD1024".to_string());
+    }
+    if let Some(level) = cli.level_probe_dbfs
+        && !signals::LEVEL_SWEEP_EFFECTIVE_DBFS
+            .iter()
+            .any(|candidate| (candidate - level).abs() < 1.0e-12)
+    {
+        return Err("--level-probe-dbfs must be -6, -20, -60, or -100".to_string());
+    }
+    if cli.hires_only && cli.level_probe_dbfs.is_some() {
+        return Err("--hires-only and --level-probe-dbfs cannot be combined".to_string());
+    }
+    Ok(())
+}
+
+fn standard_coeffs_override(
+    spec: CellSpec,
+    obg: Option<f64>,
+) -> Result<Option<&'static ModulatorCoeffs>, String> {
+    let Some(obg) = obg else {
+        return Ok(None);
+    };
+    let matches = |candidate: f64| (candidate - obg).abs() < 1.0e-12;
+    let coeffs = match spec.dsd_rate {
+        DsdRate::Dsd512 if matches(1.20) => &CRFB_OSR512_OBG120,
+        DsdRate::Dsd512 if matches(1.30) => &CRFB_OSR512_OBG130,
+        DsdRate::Dsd512 if matches(1.40) => &CRFB_OSR512_OBG140,
+        DsdRate::Dsd512 if matches(1.45) => &CRFB_OSR512_OBG145,
+        DsdRate::Dsd512 if matches(1.50) => &CRFB_OSR512_OBG150,
+        DsdRate::Dsd512 if matches(1.60) => &CRFB_OSR512_OBG160,
+        DsdRate::Dsd1024 if matches(1.40) => &CRFB_OSR1024_OBG140,
+        DsdRate::Dsd1024 if matches(1.50) => &CRFB_OSR1024_OBG150,
+        DsdRate::Dsd1024 if matches(1.60) => &CRFB_OSR1024_OBG160,
+        _ => {
+            return Err(format!(
+                "no measurement Standard OBG {obg:.3} table for {}",
+                dsd_rate_name(spec.dsd_rate)
+            ));
+        }
+    };
+    Ok(Some(coeffs))
 }
 
 fn build_matrix(
@@ -914,6 +1336,29 @@ fn build_matrix(
                     modulator,
                     filter,
                     diagnostic,
+                });
+            }
+        }
+        for dsd_rate in [DsdRate::Dsd512, DsdRate::Dsd1024]
+            .into_iter()
+            .filter(|rate| rates.contains(rate))
+        {
+            if selected.contains(&DsdModulator::Standard) {
+                matrix.push(CellSpec {
+                    scenario: Scenario::LevelSweep,
+                    source_rate: signals::SOURCE_RATE_44K1_HZ,
+                    dsd_rate,
+                    modulator: DsdModulator::Standard,
+                    filter,
+                    diagnostic: true,
+                });
+                matrix.push(CellSpec {
+                    scenario: Scenario::HiresReconstruction,
+                    source_rate: signals::SOURCE_RATE_176K4_HZ,
+                    dsd_rate,
+                    modulator: DsdModulator::Standard,
+                    filter,
+                    diagnostic: true,
                 });
             }
         }
@@ -1410,12 +1855,39 @@ fn average(values: impl IntoIterator<Item = f64>, label: &str) -> Result<f64, St
     Ok(values.iter().sum::<f64>() / values.len() as f64)
 }
 
-fn run_cell(spec: CellSpec) -> Result<CellReport, String> {
+fn run_cell(
+    spec: CellSpec,
+    level_probe_dbfs: Option<f64>,
+    coeffs_override: Option<&'static ModulatorCoeffs>,
+) -> Result<CellReport, String> {
     let headroom_db = headroom_db(spec.modulator);
     let filter = spec.filter;
-    let filter_guard_frames = filter_guard_frames(filter);
-    let signal = match spec.scenario {
-        Scenario::LevelSweep => signals::coherent_level_sweep(headroom_db, filter_guard_frames),
+    let signal = signal_for_spec(spec, headroom_db, level_probe_dbfs)?;
+    if signal.sample_rate_hz != spec.source_rate {
+        return Err("fixture source rate does not match matrix".to_string());
+    }
+    let profile = profile_for(spec.scenario);
+    let rendered = render_signal(
+        &signal,
+        spec.dsd_rate,
+        spec.modulator,
+        filter,
+        coeffs_override,
+    )?;
+    finish_cell(spec, headroom_db, signal, rendered, profile, None)
+}
+
+fn signal_for_spec(
+    spec: CellSpec,
+    headroom_db: f64,
+    level_probe_dbfs: Option<f64>,
+) -> Result<signals::StereoSignal, String> {
+    let filter_guard_frames = filter_guard_frames(spec.filter);
+    match spec.scenario {
+        Scenario::LevelSweep => match level_probe_dbfs {
+            Some(level) => signals::coherent_level_probe(headroom_db, filter_guard_frames, level),
+            None => signals::coherent_level_sweep(headroom_db, filter_guard_frames),
+        },
         Scenario::IdleTinySignal => signals::idle_tiny_signal(headroom_db, filter_guard_frames),
         Scenario::HighFrequencyRatedStress => {
             signals::high_frequency_stress(headroom_db, filter_guard_frames)
@@ -1425,12 +1897,17 @@ fn run_cell(spec: CellSpec) -> Result<CellReport, String> {
         }
         Scenario::HiresReconstruction => signals::hires_multitone(headroom_db, filter_guard_frames),
     }
-    .map_err(|error| error.to_string())?;
-    if signal.sample_rate_hz != spec.source_rate {
-        return Err("fixture source rate does not match matrix".to_string());
-    }
-    let profile = profile_for(spec.scenario);
-    let rendered = render_signal(&signal, spec.dsd_rate, spec.modulator, filter)?;
+    .map_err(|error| error.to_string())
+}
+
+fn finish_cell(
+    spec: CellSpec,
+    headroom_db: f64,
+    signal: signals::StereoSignal,
+    rendered: RenderedCell,
+    profile: ReconstructionProfile,
+    external_labels: Option<(&str, &str)>,
+) -> Result<CellReport, String> {
     let mut hard_failures = rendered.hard_failures.clone();
     let (measurements, mut structural_summary) = match spec.scenario {
         Scenario::LevelSweep => {
@@ -1447,15 +1924,27 @@ fn run_cell(spec: CellSpec) -> Result<CellReport, String> {
     structural_summary.health_pass = hard_failures.is_empty();
     Ok(CellReport {
         scenario: spec.scenario.as_name().to_string(),
-        modulator: spec.modulator.as_name().to_string(),
+        modulator: external_labels
+            .map(|labels| labels.0.to_string())
+            .unwrap_or_else(|| spec.modulator.as_name().to_string()),
         diagnostic: spec.diagnostic,
-        comparison_class: comparison_class(spec),
+        comparison_class: if external_labels.is_some() {
+            if spec.scenario == Scenario::HighFrequencyRatedStress {
+                "external_vendor_rated_input"
+            } else {
+                "external_vendor_level_matched"
+            }
+        } else {
+            comparison_class(spec)
+        },
         level_matched_across_modulators: !matches!(
             spec.scenario,
             Scenario::HighFrequencyRatedStress
         ),
-        production_default_filter: filter == DEFAULT_FILTER_TYPE,
-        filter: filter.as_name().to_string(),
+        production_default_filter: external_labels.is_none() && spec.filter == DEFAULT_FILTER_TYPE,
+        filter: external_labels
+            .map(|labels| labels.1.to_string())
+            .unwrap_or_else(|| spec.filter.as_name().to_string()),
         headroom_db,
         source_rate: signal.sample_rate_hz,
         dsd_rate: dsd_rate_name(spec.dsd_rate).to_string(),
@@ -1488,6 +1977,7 @@ fn render_signal(
     dsd_rate: DsdRate,
     modulator: DsdModulator,
     filter: FilterType,
+    coeffs_override: Option<&'static ModulatorCoeffs>,
 ) -> Result<RenderedCell, String> {
     signal.validate().map_err(|error| error.to_string())?;
     analysis::validate_finite(&signal.left, "left source")?;
@@ -1504,9 +1994,14 @@ fn render_signal(
         return Err("fixed matrix unexpectedly produced a partial native byte".to_string());
     }
     let expected_bytes = expected_bits / 8;
-    let mut renderer =
-        DsdRenderer::new_with_dsd_modulator(filter, signal.sample_rate_hz, dsd_rate, modulator)
-            .map_err(str::to_string)?;
+    let mut renderer = DsdRenderer::new_with_dsd_modulator_and_coeffs(
+        filter,
+        signal.sample_rate_hz,
+        dsd_rate,
+        modulator,
+        coeffs_override,
+    )
+    .map_err(str::to_string)?;
     renderer.set_native_order(NativeDsdOrder::MsbFirst);
     let input_gain = 10.0f64.powf(signal.headroom_db / 20.0);
     let mut left = Vec::with_capacity(expected_bytes);
@@ -1590,7 +2085,208 @@ fn render_signal(
         full_fixture_density,
         health,
         hard_failures,
+        source_bit_offset: None,
     })
+}
+
+fn prepare_external_product_config(
+    executable: PathBuf,
+    preset: String,
+    work_dir: PathBuf,
+) -> Result<ExternalProductConfig, String> {
+    if !executable.is_file() {
+        return Err(format!(
+            "external-product upsampler does not exist: {}",
+            executable.display()
+        ));
+    }
+    fs::create_dir_all(&work_dir).map_err(|error| error.to_string())?;
+    let frames = 16_384usize;
+    let impulse_index = 4_096usize;
+    let mut impulse = vec![0.0; frames];
+    impulse[impulse_index] = 0.25;
+    let input = work_dir.join("alignment-impulse-f32.wav");
+    external_product::write_stereo_float_wav(&input, 44_100, &impulse, &impulse, 1.0)
+        .map_err(|error| format!("could not write external-product alignment WAV: {error}"))?;
+    let first = external_product::render_ec_dsd128(
+        &executable,
+        &preset,
+        &input,
+        &work_dir.join("alignment-impulse-a.dsf"),
+    )?;
+    let second = external_product::render_ec_dsd128(
+        &executable,
+        &preset,
+        &input,
+        &work_dir.join("alignment-impulse-b.dsf"),
+    )?;
+    if first.left_msb != second.left_msb || first.right_msb != second.right_msb {
+        return Err("external-product EC alignment renders were not deterministic".into());
+    }
+    let decimation = first.wire_rate / AUDIO_BAND.output_rate;
+    let usable_bits = first.sample_count / decimation as usize * decimation as usize;
+    let (left, _) = analysis::reconstruct_stereo_window(
+        &first.left_msb,
+        &first.right_msb,
+        first.wire_rate,
+        0..usable_bits,
+        AUDIO_BAND,
+        1.0,
+    )?;
+    let peak = left
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.abs().total_cmp(&b.abs()))
+        .map(|(index, _)| index)
+        .ok_or_else(|| "external-product alignment reconstruction was empty")?;
+    let source_bit = impulse_index
+        .checked_mul((first.wire_rate / 44_100) as usize)
+        .ok_or_else(|| "external-product alignment source index overflowed")?;
+    let rendered_bit = peak
+        .checked_mul(decimation as usize)
+        .ok_or_else(|| "external-product alignment output index overflowed")?;
+    let source_bit_offset = isize::try_from(rendered_bit)
+        .and_then(|rendered| isize::try_from(source_bit).map(|source| rendered - source))
+        .map_err(|_| "external-product alignment offset does not fit isize")?;
+    if source_bit_offset < 0 {
+        return Err(format!(
+            "external-product alignment unexpectedly preceded the source by {source_bit_offset} bits"
+        ));
+    }
+    let tone_frames = 44_100usize;
+    let tone_amplitude = 0.1;
+    let tone = (0..tone_frames)
+        .map(|index| {
+            tone_amplitude * (std::f64::consts::TAU * 1_000.0 * index as f64 / 44_100.0).sin()
+        })
+        .collect::<Vec<_>>();
+    let tone_input = work_dir.join("gain-calibration-1khz-f32.wav");
+    external_product::write_stereo_float_wav(&tone_input, 44_100, &tone, &tone, 1.0).map_err(
+        |error| format!("could not write external-product gain-calibration WAV: {error}"),
+    )?;
+    let tone_render = external_product::render_ec_dsd128(
+        &executable,
+        &preset,
+        &tone_input,
+        &work_dir.join("gain-calibration-1khz.dsf"),
+    )?;
+    let ratio = (tone_render.wire_rate / 44_100) as usize;
+    let start = 11_025usize
+        .checked_mul(ratio)
+        .and_then(|value| value.checked_add_signed(source_bit_offset))
+        .ok_or_else(|| "external-product gain-calibration start overflowed")?;
+    let end = 33_075usize
+        .checked_mul(ratio)
+        .and_then(|value| value.checked_add_signed(source_bit_offset))
+        .ok_or_else(|| "external-product gain-calibration end overflowed")?;
+    let (tone_left, _) = analysis::reconstruct_stereo_window(
+        &tone_render.left_msb,
+        &tone_render.right_msb,
+        tone_render.wire_rate,
+        start..end,
+        AUDIO_BAND,
+        1.0,
+    )?;
+    let carrier = analysis::measure_windowed_carrier(
+        &tone_left,
+        AUDIO_BAND.output_rate,
+        "external_product_gain_calibration",
+        1_000.0,
+        tone_amplitude,
+    )?;
+    let modulator_input_peak = 10.0f64.powf(carrier.gain_error_db / 20.0);
+    if !(0.5..=1.0).contains(&modulator_input_peak) {
+        return Err(format!(
+            "external-product measured gain calibration {modulator_input_peak:.9} was outside 0.5..1.0"
+        ));
+    }
+    Ok(ExternalProductConfig {
+        executable,
+        preset,
+        work_dir,
+        source_bit_offset,
+        modulator_input_peak,
+    })
+}
+
+fn run_external_product_cell(
+    spec: CellSpec,
+    level_probe_dbfs: Option<f64>,
+    config: &ExternalProductConfig,
+) -> Result<CellReport, String> {
+    if spec.dsd_rate != DsdRate::Dsd128 || spec.source_rate != 44_100 {
+        return Err("external-product comparison supports only 44.1 kHz to DSD128".into());
+    }
+    let headroom_db = headroom_db(DsdModulator::EcBeam2);
+    let signal = signal_for_spec(spec, headroom_db, level_probe_dbfs)?;
+    let id = format!("{}-external-product-ec", spec.scenario.as_name());
+    let input = config.work_dir.join(format!("{id}.wav"));
+    let output = config.work_dir.join(format!("{id}.dsf"));
+    let input_gain = 10.0f64.powf(headroom_db / 20.0);
+    external_product::write_stereo_float_wav(
+        &input,
+        signal.sample_rate_hz,
+        &signal.left,
+        &signal.right,
+        input_gain,
+    )
+    .map_err(|error| format!("could not write external-product fixture WAV: {error}"))?;
+    let external =
+        external_product::render_ec_dsd128(&config.executable, &config.preset, &input, &output)?;
+    let left = external.left_msb;
+    let right = external.right_msb;
+    let full_fixture_density = [whole_density_metrics(&left), whole_density_metrics(&right)];
+    let mut hard_failures = Vec::new();
+    for (channel, density) in ["left", "right"].into_iter().zip(full_fixture_density) {
+        if !density.density.is_finite() || density.deviation > DENSITY_LIMIT {
+            hard_failures.push(format!(
+                "whole-fixture {channel} bit-density deviation {:.9} exceeded {:.6}",
+                density.deviation, DENSITY_LIMIT
+            ));
+        }
+    }
+    let native_dsd_sha256 = [sha256_bytes(&left), sha256_bytes(&right)];
+    let bytes = [left.len(), right.len()];
+    let rendered = RenderedCell {
+        left,
+        right,
+        native_bytes_before_idle: bytes,
+        native_bytes_after_idle: bytes,
+        expected_bits: signal.frames().saturating_mul(128),
+        wire_rate: external.wire_rate,
+        filter: spec.filter,
+        modulator_input_peak: config.modulator_input_peak,
+        render_seconds: external.elapsed_seconds,
+        renderer_configuration: RendererConfiguration {
+            production_policy_version: "external-product-v1-ec-selector-enabled",
+            coefficient_table:
+                "External product order-7 EF H_inf=1.4; EC identity inferred from vendor selector"
+                    .into(),
+            coefficient_osr: 128,
+            coefficient_obg: 1.4,
+            coefficient_input_peak: config.modulator_input_peak,
+            lookahead_depth: 0,
+            isi_penalty: 0.0,
+            chunk_source_frames: signal.frames(),
+            seeds_hex: ["not exposed".into(), "not exposed".into()],
+        },
+        native_dsd_sha256,
+        full_fixture_density,
+        health: HealthReport::default(),
+        hard_failures,
+        source_bit_offset: Some(config.source_bit_offset),
+    };
+    finish_cell(
+        spec,
+        headroom_db,
+        signal,
+        rendered,
+        AUDIO_BAND,
+        Some((
+            "ExternalProductEcInferred",
+            &format!("ExternalProduct:{}", config.preset),
+        )),
+    )
 }
 
 fn collect_health(renderer: &DsdRenderer) -> HealthReport {
@@ -1708,12 +2404,8 @@ fn analyze_level_sweep(
         let source_range = signal
             .range(carrier.analysis_ranges[0])
             .ok_or_else(|| "level carrier references a missing range".to_string())?;
-        let bits = source_to_bit_range(
-            rendered.filter,
-            source_range.frames(),
-            signal.sample_rate_hz,
-            rendered.wire_rate,
-        )?;
+        let bits =
+            rendered_source_to_bit_range(rendered, source_range.frames(), signal.sample_rate_hz)?;
         let (left, right) = analysis::reconstruct_stereo_window(
             &rendered.left,
             &rendered.right,
@@ -1787,12 +2479,8 @@ fn analyze_idle(
         let source_range = signal
             .range(range_name)
             .ok_or_else(|| format!("idle fixture is missing {range_name}"))?;
-        let bits = source_to_bit_range(
-            rendered.filter,
-            source_range.frames(),
-            signal.sample_rate_hz,
-            rendered.wire_rate,
-        )?;
+        let bits =
+            rendered_source_to_bit_range(rendered, source_range.frames(), signal.sample_rate_hz)?;
         let (left, right) = analysis::reconstruct_stereo_window(
             &rendered.left,
             &rendered.right,
@@ -1940,25 +2628,13 @@ fn analyze_stress(
     let clean_mute_range = signal
         .range(clean_mute_range_name)
         .ok_or_else(|| "stress fixture is missing its clean mute range".to_string())?;
-    let steady_bits = source_to_bit_range(
-        rendered.filter,
-        steady_range.frames(),
-        signal.sample_rate_hz,
-        rendered.wire_rate,
-    )?;
+    let steady_bits =
+        rendered_source_to_bit_range(rendered, steady_range.frames(), signal.sample_rate_hz)?;
     let transition_source = mute_range.start..recovery_range.end;
-    let transition_bits = source_to_bit_range(
-        rendered.filter,
-        transition_source,
-        signal.sample_rate_hz,
-        rendered.wire_rate,
-    )?;
-    let clean_mute_bits = source_to_bit_range(
-        rendered.filter,
-        clean_mute_range.frames(),
-        signal.sample_rate_hz,
-        rendered.wire_rate,
-    )?;
+    let transition_bits =
+        rendered_source_to_bit_range(rendered, transition_source, signal.sample_rate_hz)?;
+    let clean_mute_bits =
+        rendered_source_to_bit_range(rendered, clean_mute_range.frames(), signal.sample_rate_hz)?;
     let (steady_left, steady_right) = analysis::reconstruct_stereo_window(
         &rendered.left,
         &rendered.right,
@@ -2103,6 +2779,8 @@ fn analyze_stress(
             restart_residual_rms_1ms_dbfs: transition.restart_residual_rms_1ms_dbfs,
             restart_residual_rms_10ms_dbfs: transition.restart_residual_rms_10ms_dbfs,
             restart_residual_rms_50ms_dbfs: transition.restart_residual_rms_50ms_dbfs,
+            transition_envelope: transition.transition_envelope,
+            transition_envelope_excess_vs_reference: None,
             transition_residual_peak: transition.transition_residual_peak,
             transition_residual_peak_dbfs,
             end_to_end_recovery_time_ms,
@@ -2157,6 +2835,8 @@ fn analyze_stress_transition(
     let clean_mute_mean_square =
         clean_mute.iter().map(|sample| sample * sample).sum::<f64>() / clean_mute.len() as f64;
     let restart_residual_peak = analysis::max_abs(&restart_residual);
+    let transition_envelope =
+        analysis::analyze_transition_envelope(&restart_residual, sample_rate)?;
     let settled_program_peak = analysis::max_abs(steady_samples).max(analysis::max_abs(
         &transition_samples[recovered_fit_range.clone()],
     ));
@@ -2186,6 +2866,7 @@ fn analyze_stress_transition(
             sample_rate,
             0.050,
         )?,
+        transition_envelope,
         transition_residual_peak: zero_input_transition_peak.max(restart_residual_peak),
     })
 }
@@ -2219,12 +2900,8 @@ fn analyze_hires(
     let source_range = signal
         .range(signals::HIRES_ANALYSIS_RANGE)
         .ok_or_else(|| "hi-res fixture is missing its analysis range".to_string())?;
-    let bits = source_to_bit_range(
-        rendered.filter,
-        source_range.frames(),
-        signal.sample_rate_hz,
-        rendered.wire_rate,
-    )?;
+    let bits =
+        rendered_source_to_bit_range(rendered, source_range.frames(), signal.sample_rate_hz)?;
     let (left, right) = analysis::reconstruct_stereo_window(
         &rendered.left,
         &rendered.right,
@@ -2316,6 +2993,39 @@ fn gate_channel(
     }
 }
 
+fn rendered_source_to_bit_range(
+    rendered: &RenderedCell,
+    source: std::ops::Range<usize>,
+    source_rate: u32,
+) -> Result<std::ops::Range<usize>, String> {
+    if let Some(offset) = rendered.source_bit_offset {
+        let ratio = usize::try_from(rendered.wire_rate / source_rate)
+            .map_err(|_| "external source/DSD ratio does not fit usize")?;
+        if rendered.wire_rate % source_rate != 0 {
+            return Err("external source rate is not an integer divisor of DSD rate".into());
+        }
+        let start = source
+            .start
+            .checked_mul(ratio)
+            .and_then(|value| value.checked_add_signed(offset))
+            .ok_or_else(|| "external source-to-bit start overflowed")?;
+        let end = source
+            .end
+            .checked_mul(ratio)
+            .and_then(|value| value.checked_add_signed(offset))
+            .ok_or_else(|| "external source-to-bit end overflowed")?;
+        if start >= end || end > rendered.left.len().saturating_mul(8) {
+            return Err(format!(
+                "external source-to-bit range {start}..{end} exceeds {} bits",
+                rendered.left.len().saturating_mul(8)
+            ));
+        }
+        Ok(start..end)
+    } else {
+        source_to_bit_range(rendered.filter, source, source_rate, rendered.wire_rate)
+    }
+}
+
 fn source_to_bit_range(
     filter: FilterType,
     source: std::ops::Range<usize>,
@@ -2358,7 +3068,9 @@ fn headroom_db(modulator: DsdModulator) -> f64 {
 fn filter_guard_frames(filter: FilterType) -> usize {
     match filter {
         FilterType::SincExtreme32k => LINEAR_FILTER_GUARD_FRAMES,
-        FilterType::Split128k | FilterType::SplitPhase128kE2v3 => SPLIT_FILTER_GUARD_FRAMES,
+        FilterType::Split128k | FilterType::SplitPhase128kE2v3 | FilterType::SplitPhase128kE3 => {
+            SPLIT_FILTER_GUARD_FRAMES
+        }
         _ => LINEAR_FILTER_GUARD_FRAMES,
     }
 }
@@ -2383,6 +3095,8 @@ fn dsd_rate_name(rate: DsdRate) -> &'static str {
         DsdRate::Dsd64 => "DSD64",
         DsdRate::Dsd128 => "DSD128",
         DsdRate::Dsd256 => "DSD256",
+        DsdRate::Dsd512 => "DSD512",
+        DsdRate::Dsd1024 => "DSD1024",
     }
 }
 
@@ -2463,6 +3177,24 @@ fn markdown_summary(report: &BenchReport) -> String {
         report.dbfs_reference,
         report.rolling_density_window_seconds * 1000.0,
     ));
+    if let Some(character) = &report.research_character {
+        output.push_str(&format!(
+            "Research E3 character: `{}`; SHA-256 `{}`; {} binary64 coefficients; DC sum `{:.17}`.\n\n",
+            character.path,
+            character.sha256,
+            character.coefficient_count,
+            character.dc_sum,
+        ));
+    }
+    if let Some(reference) = &report.transition_envelope_reference {
+        output.push_str(&format!(
+            "Transition-envelope contract `{}` uses frozen reference `{}` (SHA-256 `{}`) with RMS tolerance `{:.3e}`.\n\n",
+            report.transition_envelope_version,
+            reference.path,
+            reference.sha256,
+            reference.tolerance_rms,
+        ));
+    }
     output.push_str("Rated stress preserves each modulator's production headroom and is not a loudness-matched comparison. Use only `matched_effective_peak` stress rows for direct cross-modulator comparison. `SplitPhase128kE2v3` is the only canonical and scoring Split Phase path; optional `SincExtreme32k` cells are a non-scoring Linear Phase diagnostic limited to modulators that support it. Every production modulator is scored at DSD64, DSD128, and DSD256.\n\n");
 
     output.push_str("## Split Phase E2v3 production-path scores\n\n");
@@ -2667,6 +3399,50 @@ fn markdown_summary(report: &BenchReport) -> String {
                 channel.restart_residual_rms_50ms_dbfs,
                 fmt_option(channel.end_to_end_recovery_time_ms),
             ));
+        }
+    }
+
+    output.push_str("\n## Fixed-reference transition envelopes\n\n");
+    output.push_str("| Filter | Modulator | Input contract | Channel | Interval ms | Residual RMS dBFS | Max RMS dBFS | P95 RMS dBFS | Positive excess power-seconds | Max excess power dBFS |\n");
+    output.push_str("| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |\n");
+    for cell in &report.cells {
+        let ScenarioMeasurements::HighFrequencyStress {
+            level_contract,
+            channels,
+        } = &cell.measurements
+        else {
+            continue;
+        };
+        for channel in channels {
+            for (index, interval) in channel.transition_envelope.intervals.iter().enumerate() {
+                let excess = channel
+                    .transition_envelope_excess_vs_reference
+                    .as_ref()
+                    .and_then(|metrics| metrics.intervals.get(index));
+                output.push_str(&format!(
+                    "| {} | {} | {} | {} | {:.0}â€“{:.0} | {:.2} | {:.2} | {:.2} | {} | {} |\n",
+                    cell.filter,
+                    cell.modulator,
+                    level_contract,
+                    channel.channel,
+                    interval.start_ms,
+                    interval.end_ms,
+                    interval.residual_rms_dbfs,
+                    interval.maximum_sliding_rms_dbfs,
+                    interval.percentile_95_sliding_rms_dbfs,
+                    excess.map_or_else(
+                        || "â€”".to_string(),
+                        |metrics| format!(
+                            "{:.9e}",
+                            metrics.integrated_positive_excess_power_linear_seconds
+                        )
+                    ),
+                    excess.map_or_else(
+                        || "â€”".to_string(),
+                        |metrics| format!("{:.2}", metrics.maximum_excess_power_dbfs)
+                    ),
+                ));
+            }
         }
     }
 
@@ -3040,6 +3816,39 @@ mod tests {
     }
 
     #[test]
+    fn high_rate_matrix_is_standard_only_and_diagnostic() {
+        let matrix = build_matrix(
+            &[
+                DsdModulator::Standard,
+                DsdModulator::EcDepth2,
+                DsdModulator::EcBeam,
+                DsdModulator::EcBeam2,
+            ],
+            false,
+            DEFAULT_FILTER_TYPE,
+            &[DsdRate::Dsd512, DsdRate::Dsd1024],
+        );
+        assert_eq!(matrix.len(), 4);
+        assert!(
+            matrix
+                .iter()
+                .all(|cell| { cell.modulator == DsdModulator::Standard && cell.diagnostic })
+        );
+        for rate in [DsdRate::Dsd512, DsdRate::Dsd1024] {
+            assert!(
+                matrix
+                    .iter()
+                    .any(|cell| { cell.dsd_rate == rate && cell.scenario == Scenario::LevelSweep })
+            );
+            assert!(matrix.iter().any(|cell| {
+                cell.dsd_rate == rate
+                    && cell.scenario == Scenario::HiresReconstruction
+                    && cell.source_rate == signals::SOURCE_RATE_176K4_HZ
+            }));
+        }
+    }
+
+    #[test]
     fn rate_comparison_adds_a_noncanonical_dsd128_hires_cell_per_selected_modulator() {
         let selected = [DsdModulator::Standard, DsdModulator::EcBeam2];
         let mut matrix = build_matrix(
@@ -3079,8 +3888,13 @@ mod tests {
         );
         assert!(parse_filter("Linear").is_err());
         assert_eq!(
-            parse_rates("64,128").unwrap(),
-            vec![DsdRate::Dsd64, DsdRate::Dsd128]
+            parse_rates("64,128,512,1024").unwrap(),
+            vec![
+                DsdRate::Dsd64,
+                DsdRate::Dsd128,
+                DsdRate::Dsd512,
+                DsdRate::Dsd1024,
+            ]
         );
         assert!(parse_rates("").is_err());
         assert!(
@@ -3096,6 +3910,38 @@ mod tests {
         assert!(Cli::try_parse_from(["dsd_public_quality", "--include-linear-reference"]).is_ok());
         assert!(Cli::try_parse_from(["dsd_public_quality", "--include-rate-comparison"]).is_ok());
         assert!(Cli::try_parse_from(["dsd_public_quality", "--dsd256-only"]).is_ok());
+        assert!(Cli::try_parse_from(["dsd_public_quality", "--hires-only"]).is_ok());
+        assert!(
+            Cli::try_parse_from([
+                "dsd_public_quality",
+                "--rates",
+                "512",
+                "--modulator",
+                "Standard",
+                "--standard-obg",
+                "1.5",
+                "--level-probe-dbfs=-60",
+            ])
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn dsd512_standard_tuning_tables_are_explicit() {
+        let spec = CellSpec {
+            scenario: Scenario::LevelSweep,
+            source_rate: signals::SOURCE_RATE_44K1_HZ,
+            dsd_rate: DsdRate::Dsd512,
+            modulator: DsdModulator::Standard,
+            filter: DEFAULT_FILTER_TYPE,
+            diagnostic: true,
+        };
+        for obg in [1.20, 1.30, 1.40, 1.45, 1.50, 1.60] {
+            let selected = standard_coeffs_override(spec, Some(obg)).unwrap().unwrap();
+            assert_eq!(selected.osr, 512);
+            assert!((selected.obg - obg).abs() < 1.0e-12);
+        }
+        assert!(standard_coeffs_override(spec, Some(1.55)).is_err());
     }
 
     #[test]
@@ -3181,7 +4027,7 @@ mod tests {
     #[test]
     fn canonical_build_rejects_explicit_target_feature_disables() {
         #[cfg(feature = "default")]
-        assert_eq!(env!("FOZMO_BUILD_CARGO_FEATURES"), CANONICAL_CARGO_FEATURES);
+        assert_eq!(env!("FOZMO_BUILD_CARGO_FEATURES"), REQUIRED_CARGO_FEATURES);
         assert!(!rustflags_disable_target_features("-C target-cpu=native"));
         assert!(!rustflags_disable_target_features(
             "-Ctarget-cpu=native -Ctarget-feature=+aes,+neon"

@@ -1216,6 +1216,9 @@ impl DsdExperimentConfig {
                 ..DsdExperimentTweaks::default()
             },
             (DsdRate::Dsd256, _) => self.dsd256_tweaks,
+            (DsdRate::Dsd512 | DsdRate::Dsd1024, _) => {
+                unreachable!("ECBeam2 harness has no DSD512/1024 matrix")
+            }
         };
         if dsd_modulator.is_adaptive() {
             tweaks.ec4a_decision_trace_window_bits = self.ec4a_decision_trace_window_bits;
@@ -11780,7 +11783,8 @@ fn minimum_measurement_frames(filter: FilterType) -> usize {
         | FilterType::Split128kV2
         | FilterType::SplitPhase128kV3
         | FilterType::SplitPhase128kV4
-        | FilterType::SplitPhase128kE2v3 => 131_072,
+        | FilterType::SplitPhase128kE2v3
+        | FilterType::SplitPhase128kE3 => 131_072,
         FilterType::IntegratedPhase128k
         | FilterType::IntegratedPhase128kV2
         | FilterType::IntegratedPhase128kV3
@@ -13622,6 +13626,8 @@ fn dsd_rate_name(rate: DsdRate) -> &'static str {
         DsdRate::Dsd64 => "DSD64",
         DsdRate::Dsd128 => "DSD128",
         DsdRate::Dsd256 => "DSD256",
+        DsdRate::Dsd512 => "DSD512",
+        DsdRate::Dsd1024 => "DSD1024",
     }
 }
 
