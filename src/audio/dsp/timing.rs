@@ -66,6 +66,9 @@ pub struct PacketTimingMetrics {
     pub onset_reference: &'static str,
     pub nominal_onset_index: f64,
     pub onset_pre_echo_energy_db_total: f64,
+    pub onset_pre_echo_energy_db_0_0p5ms: f64,
+    pub onset_pre_echo_energy_db_0p5_2ms: f64,
+    pub onset_pre_echo_energy_db_2_8ms: f64,
     pub onset_post_decay_energy_db_total: f64,
     pub maximum_onset_pre_echo_db_peak: f64,
     pub maximum_onset_post_decay_db_peak: f64,
@@ -355,6 +358,12 @@ pub fn analyze_quadrature_packet(
         &[]
     };
     let onset_pre_energy = onset_pre.iter().map(|value| value * value).sum::<f64>();
+    let onset_pre_energy_0_0p5ms =
+        pre_onset_window_energy(&envelope, onset_start, sample_rate, 0.0, 0.5);
+    let onset_pre_energy_0p5_2ms =
+        pre_onset_window_energy(&envelope, onset_start, sample_rate, 0.5, 2.0);
+    let onset_pre_energy_2_8ms =
+        pre_onset_window_energy(&envelope, onset_start, sample_rate, 2.0, 8.0);
     let onset_post_energy = onset_post.iter().map(|value| value * value).sum::<f64>();
     let maximum_onset_pre = onset_pre.iter().copied().fold(0.0, f64::max);
     let maximum_onset_post = onset_post.iter().copied().fold(0.0, f64::max);
@@ -372,10 +381,31 @@ pub fn analyze_quadrature_packet(
         onset_reference: "principal impulse peak plus nominal source packet bounds",
         nominal_onset_index,
         onset_pre_echo_energy_db_total: power_ratio_db(onset_pre_energy, energy),
+        onset_pre_echo_energy_db_0_0p5ms: power_ratio_db(onset_pre_energy_0_0p5ms, energy),
+        onset_pre_echo_energy_db_0p5_2ms: power_ratio_db(onset_pre_energy_0p5_2ms, energy),
+        onset_pre_echo_energy_db_2_8ms: power_ratio_db(onset_pre_energy_2_8ms, energy),
         onset_post_decay_energy_db_total: power_ratio_db(onset_post_energy, energy),
         maximum_onset_pre_echo_db_peak: amplitude_ratio_db(maximum_onset_pre, peak),
         maximum_onset_post_decay_db_peak: amplitude_ratio_db(maximum_onset_post, peak),
     }
+}
+
+fn pre_onset_window_energy(
+    envelope: &[f64],
+    onset: usize,
+    sample_rate: f64,
+    near_ms: f64,
+    far_ms: f64,
+) -> f64 {
+    debug_assert!(near_ms >= 0.0 && far_ms >= near_ms);
+    let near_samples = (near_ms / 1000.0 * sample_rate).round() as usize;
+    let far_samples = (far_ms / 1000.0 * sample_rate).round() as usize;
+    let start = onset.saturating_sub(far_samples).min(envelope.len());
+    let end = onset.saturating_sub(near_samples).min(envelope.len());
+    envelope[start.min(end)..end]
+        .iter()
+        .map(|value| value * value)
+        .sum()
 }
 
 pub fn step_response_excursions(
@@ -661,5 +691,26 @@ mod tests {
         );
         assert!((metrics.maximum_onset_pre_echo_db_peak + 20.0).abs() < 1e-12);
         assert!((metrics.maximum_onset_post_decay_db_peak - 20.0 * 0.2_f64.log10()).abs() < 1e-12);
+    }
+
+    #[test]
+    fn packet_pre_onset_windows_are_disjoint_and_onset_referenced() {
+        let mut left = vec![0.0; 24];
+        left[2] = 0.1;
+        left[7] = 0.2;
+        left[9] = 0.3;
+        left[10] = 1.0;
+        let metrics =
+            analyze_quadrature_packet(1_000.0, 8.0, 0.001, &left, &[0.0; 24], 1_000.0, 10.0);
+        let energy = 1.14_f64;
+        assert!(
+            (metrics.onset_pre_echo_energy_db_0_0p5ms - 10.0 * (0.09_f64 / energy).log10()).abs()
+                < 1e-12
+        );
+        assert_eq!(metrics.onset_pre_echo_energy_db_0p5_2ms, -300.0);
+        assert!(
+            (metrics.onset_pre_echo_energy_db_2_8ms - 10.0 * (0.05_f64 / energy).log10()).abs()
+                < 1e-12
+        );
     }
 }

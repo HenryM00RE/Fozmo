@@ -525,3 +525,79 @@ There is no runtime enum, manifest, coefficient, or default-filter change.
 E2v3 remains the production default, and `p6d-local-0145` remains the separate
 research timing frontier while failing P9's strict production packet-parity
 contract.
+
+## P10 windowed-packet timing campaign
+
+P10 tests the hypothesis left by P9: its full pre-onset energy sum was treating
+diffuse numerical-floor energy like a conspicuous pre-echo. The native and
+Python packet analyzers now report three disjoint onset-referenced windows:
+0-0.5, 0.5-2, and 2-8 ms before the principal response peak. Maximum packet
+pre-echo remains strictly limited to E2v3 plus 0.10 dB. Integrated energy uses
+the worse of the original E2-relative tolerance and calibrated absolute
+ceilings of -48, -60, and -85 dB respectively. The legacy full pre-onset sum
+remains report-only.
+
+This calibration is deliberately not a way to admit P6. E2v3 and the P9
+research point pass the new contract, while `p6d-local-0145` still fails eleven
+cells because its 15-20 kHz pre-echo is both concentrated and materially above
+the absolute energy ceilings.
+
+`e3_p10_joint_search.py` measures 96 exactly phase-closed group-delay
+coordinates, eleven C5-continuous magnitude controls, and twelve cleanup-stage
+halfband directions. Random raw high-dimensional motion exposed two important
+constraints before the final funnel:
+
+- cleanup movement large enough to affect timing destroys rejection; the
+  complete legal `1e-7` coefficient box can move maximum pre-lobe by at most
+  `0.0000345 dB` in the local model;
+- unsmoothed joint directions create quiet 8-11 ms tails, so the production
+  screen retains the 40 least-curvature phase modes and keeps magnitude and
+  cleanup frozen until a real phase finalist exists.
+
+The deterministic 8,192-point phase screen then found 3,032 linearly safe
+directions, exact-tested 384, retained 374 static-safe candidates, packet-tested
+96, and found 18 production-frequency-safe candidates. Twelve received the
+21-cell holdout suite spanning 7, 12, 13.5, 16, 17, 19, and 19.5 kHz at four,
+eight, and sixteen cycles. One candidate, `p10-moderate-05711`, passes every
+production and holdout packet cell.
+
+The research-enabled native runtime bench confirms:
+
+| Native metric | E2v3 | P10 `05711` | Delta |
+| --- | ---: | ---: | ---: |
+| Maximum pre-lobe | -18.2509 dB | -18.5706 dB | -0.3197 dB |
+| Pre-energy | -5.2433 dB | -5.2853 dB | -0.0421 dB |
+| Maximum post-lobe | -7.7522 dB | -7.7687 dB | -0.0165 dB |
+| Post-energy | -2.3939 dB | -2.3742 dB | +0.0197 dB |
+| Main-lobe width | 68.7430 us | 68.8336 us | +0.0905 us |
+| Runtime step overshoot | 13.9821% | 13.8200% | -0.1621 points |
+| Runtime step undershoot | 11.4119% | 11.2165% | -0.1954 points |
+| Decay to -120 dB | 4.2517 ms | 5.7086 ms | +1.4569 ms |
+
+Maximum packet-pre-echo deltas at 5, 10, 15, 18, and 20 kHz are approximately
+`+0.065`, `+0.074`, `+0.005`, `-0.002`, and `-0.002 dB`. The character keeps
+the E2v3 magnitude, passes the complete frequency contract, and has SHA-256
+`37e868cea2ff76b9d4295733ddf1ae01469a22c78c432f6c35e2b0390e7b9b08`.
+
+Bounded moderate magnitude refinement improves the holdout-safe pre-lobe by
+only another roughly `0.004 dB`. The explicitly non-promotable aggressive
+family reaches the same holdout-safe result and mainly creates longer decay.
+Magnitude freedom is therefore not the active limit under the packet contract.
+
+Finally, `e3_p10_holdout_refine.py` builds a local Jacobian around `05711` using
+all 26 production and holdout packet peaks. Those constraints have rank 26 in
+the 35-dimensional smooth training nullspace, leaving nine formal dimensions.
+However, the projected maximum-pre-lobe gradient norm is only
+`6.57e-6 dB` per full local unit, and 384 exact trials move the incumbent by at
+most `0.0000104 dB`. Once meaningful packet peaks are protected across
+frequency and packet duration, the remaining deterministic static phase space
+is timing-null at practical precision.
+
+`e3-p10-best-safe-research.f64le` is therefore archived only as the best
+production-packet-safe research point. It does not satisfy the frozen 2 dB plus
+three-secondary replacement threshold and is not embedded. Conditional DSD and
+real-time promotion gates are not run. The million-tap experiment is not
+repeated because P8 and P9 already showed support-invariant results and P10
+produced no new edge-energy or omitted-support evidence. E2v3 remains the
+production default; P6 remains the separate raw-timing research frontier while
+failing the production packet contract.

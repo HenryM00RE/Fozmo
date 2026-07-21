@@ -28,6 +28,9 @@ INTEGER_RATIO = int(OUTPUT_RATE_HZ / SOURCE_RATE_HZ)
 class PacketMetrics:
     frequency_hz: float
     onset_pre_echo_energy_db_total: float
+    onset_pre_echo_energy_db_0_0p5ms: float
+    onset_pre_echo_energy_db_0p5_2ms: float
+    onset_pre_echo_energy_db_2_8ms: float
     onset_post_decay_energy_db_total: float
     maximum_onset_pre_echo_db_peak: float
     maximum_onset_post_decay_db_peak: float
@@ -45,8 +48,12 @@ def _amplitude_db(value: float, reference: float) -> float:
     return max(20.0 * math.log10(value / reference), -300.0)
 
 
-def _packet(frequency_hz: float) -> tuple[np.ndarray, np.ndarray]:
-    samples = max(round(PACKET_CYCLES / frequency_hz * SOURCE_RATE_HZ), 3)
+def _packet(
+    frequency_hz: float, cycles: float = PACKET_CYCLES
+) -> tuple[np.ndarray, np.ndarray]:
+    if cycles <= 0.0:
+        raise ValueError("packet cycles must be positive")
+    samples = max(round(cycles / frequency_hz * SOURCE_RATE_HZ), 3)
     index = np.arange(samples, dtype=np.float64)
     window = 0.5 - 0.5 * np.cos(2.0 * np.pi * index / (samples - 1))
     phase = 2.0 * np.pi * frequency_hz * index / SOURCE_RATE_HZ
@@ -64,8 +71,12 @@ def _convolve_upsampled(source: np.ndarray, response: np.ndarray) -> np.ndarray:
     return np.fft.irfft(spectrum, fft_length)[:output_length]
 
 
-def _measure_packet(response: np.ndarray, frequency_hz: float) -> PacketMetrics:
-    packet_i, packet_q = _packet(frequency_hz)
+def _measure_packet(
+    response: np.ndarray,
+    frequency_hz: float,
+    cycles: float = PACKET_CYCLES,
+) -> PacketMetrics:
+    packet_i, packet_q = _packet(frequency_hz, cycles)
     output_i = _convolve_upsampled(packet_i, response)
     output_q = _convolve_upsampled(packet_q, response)
     envelope = np.hypot(output_i, output_q)
@@ -79,6 +90,15 @@ def _measure_packet(response: np.ndarray, frequency_hz: float) -> PacketMetrics:
     return PacketMetrics(
         frequency_hz=frequency_hz,
         onset_pre_echo_energy_db_total=_power_db(float(np.dot(pre, pre)), energy),
+        onset_pre_echo_energy_db_0_0p5ms=_power_db(
+            _pre_onset_window_energy(envelope, onset_start, 0.0, 0.5), energy
+        ),
+        onset_pre_echo_energy_db_0p5_2ms=_power_db(
+            _pre_onset_window_energy(envelope, onset_start, 0.5, 2.0), energy
+        ),
+        onset_pre_echo_energy_db_2_8ms=_power_db(
+            _pre_onset_window_energy(envelope, onset_start, 2.0, 8.0), energy
+        ),
         onset_post_decay_energy_db_total=_power_db(float(np.dot(post, post)), energy),
         maximum_onset_pre_echo_db_peak=_amplitude_db(
             float(np.max(pre)) if pre.size else 0.0, peak
@@ -87,6 +107,17 @@ def _measure_packet(response: np.ndarray, frequency_hz: float) -> PacketMetrics:
             float(np.max(post)) if post.size else 0.0, peak
         ),
     )
+
+
+def _pre_onset_window_energy(
+    envelope: np.ndarray, onset: int, near_ms: float, far_ms: float
+) -> float:
+    near_samples = round(near_ms / 1000.0 * OUTPUT_RATE_HZ)
+    far_samples = round(far_ms / 1000.0 * OUTPUT_RATE_HZ)
+    start = max(onset - far_samples, 0)
+    end = max(onset - near_samples, 0)
+    window = envelope[start:end]
+    return float(np.dot(window, window))
 
 
 def _packet_set(response: np.ndarray) -> list[dict[str, float]]:

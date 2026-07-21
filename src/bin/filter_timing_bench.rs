@@ -73,6 +73,8 @@ struct Configuration {
     packet_window: &'static str,
     packet_cycles: f64,
     packet_frequencies_hz: Vec<f64>,
+    packet_energy_contract: &'static str,
+    packet_pre_echo_windows_ms: [[f64; 2]; 3],
     guard_source_frames: usize,
     analysis_tail_ms: f64,
     passband_gain_control: &'static str,
@@ -236,6 +238,8 @@ fn main() -> Result<(), String> {
             packet_window: "Hann",
             packet_cycles: args.packet_cycles,
             packet_frequencies_hz: PACKET_FREQUENCIES_HZ.to_vec(),
+            packet_energy_contract: "p10-windowed-v1",
+            packet_pre_echo_windows_ms: [[0.0, 0.5], [0.5, 2.0], [2.0, 8.0]],
             guard_source_frames: args.guard_source_frames,
             analysis_tail_ms: args.tail_ms,
             passband_gain_control: "each measured impulse is DC-normalized to the common integer interpolation ratio",
@@ -441,12 +445,14 @@ fn markdown_report(report: &Report) -> String {
         ));
     }
     text.push_str("\n## Windowed tone packets\n\nThe historical columns split energy around the quadrature-envelope centroid. The onset columns use the principal impulse peak plus the nominal source-packet bounds and are the actual pre-echo/post-decay measures.\n\n");
-    text.push_str("| Filter | Frequency (Hz) | Before centroid (dB total) | Max before centroid (dB peak) | After centroid (dB total) | Max after centroid (dB peak) | Onset pre-echo (dB total) | Onset post-decay (dB total) |\n");
-    text.push_str("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n");
+    text.push_str("| Filter | Frequency (Hz) | Before centroid (dB total) | Max before centroid (dB peak) | After centroid (dB total) | Max after centroid (dB peak) | Onset pre-echo (dB total) | 0-0.5 ms pre (dB total) | 0.5-2 ms pre (dB total) | 2-8 ms pre (dB total) | Max onset pre (dB peak) | Onset post-decay (dB total) |\n");
+    text.push_str(
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n",
+    );
     for filter in &report.filters {
         for packet in &filter.tone_packets {
             text.push_str(&format!(
-                "| {} | {:.0} | {:.2} | {:.2} | {:.2} | {:.2} | {:.2} | {:.2} |\n",
+                "| {} | {:.0} | {:.2} | {:.2} | {:.2} | {:.2} | {:.2} | {:.2} | {:.2} | {:.2} | {:.2} | {:.2} |\n",
                 filter.display_name,
                 packet.frequency_hz,
                 packet.pre_echo_energy_db_total,
@@ -454,6 +460,10 @@ fn markdown_report(report: &Report) -> String {
                 packet.post_echo_energy_db_total,
                 packet.maximum_post_echo_db_peak,
                 packet.onset_pre_echo_energy_db_total,
+                packet.onset_pre_echo_energy_db_0_0p5ms,
+                packet.onset_pre_echo_energy_db_0p5_2ms,
+                packet.onset_pre_echo_energy_db_2_8ms,
+                packet.maximum_onset_pre_echo_db_peak,
                 packet.onset_post_decay_energy_db_total,
             ));
         }

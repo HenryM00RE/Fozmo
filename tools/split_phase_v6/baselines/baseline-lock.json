@@ -174,6 +174,26 @@
     "e3_p9_best_valid_native_timing": {
       "path": "tools/split_phase_v6/baselines/e3-p9-best-valid-native-timing.json",
       "sha256": "026107ee70dd04368bb6171c51b4d3c560e3fcd828f4526f66b470369eb3788c"
+    },
+    "e3_p10_packet_contract": {
+      "path": "tools/split_phase_v6/baselines/e3-p10-packet-contract.json",
+      "sha256": "630f8206c5210294ebe80744bff338825ae8f0d0563843d7ab0da3733b75f9ab"
+    },
+    "e3_p10_sensitivity": {
+      "path": "tools/split_phase_v6/baselines/e3-p10-sensitivity.json",
+      "sha256": "5b3c49a37167893f59491e9743e293b39585be7da9c1cd922f45dfc0d0e7cea2"
+    },
+    "e3_p10_campaign_summary": {
+      "path": "tools/split_phase_v6/baselines/e3-p10-campaign-summary.json",
+      "sha256": "aa3a1441f65be8b9fe79e65f76a2cc9d2e1fe15c89e9d7cffda25a420e50aed6"
+    },
+    "e3_p10_best_safe_native_timing": {
+      "path": "tools/split_phase_v6/baselines/e3-p10-best-safe-native-timing.json",
+      "sha256": "a96e67c6eca01da0b9f06a9fee1eb3fa8dffbdd0417c27ad81ec10c229d2714b"
+    },
+    "e3_p10_best_safe_group_delay": {
+      "path": "tools/split_phase_v6/baselines/e3-p10-best-safe-group-delay.csv",
+      "sha256": "59ab990b0a8a2fdd6d357d48bb9fdb15a1cccaaadeb87b3b5c5e6e0d822397a4"
     }
   },
   "current_e3_asset": {
@@ -196,6 +216,17 @@
     "character_path": "tools/split_phase_v6/baselines/e3-p9-best-valid-research.f64le",
     "character_sha256": "3ffaf9b1cf5a407d080b6c378f8286517441449ed2e87919bca32491b23a907c",
     "native_timing_report_sha256": "026107ee70dd04368bb6171c51b4d3c560e3fcd828f4526f66b470369eb3788c",
+    "clear_replacement": false,
+    "embedded": false,
+    "production_promoted": false
+  },
+  "e3_p10_best_safe_research_only": {
+    "candidate_identifier": "p10-moderate-05711",
+    "character_path": "tools/split_phase_v6/baselines/e3-p10-best-safe-research.f64le",
+    "character_sha256": "37e868cea2ff76b9d4295733ddf1ae01469a22c78c432f6c35e2b0390e7b9b08",
+    "native_timing_report_sha256": "a96e67c6eca01da0b9f06a9fee1eb3fa8dffbdd0417c27ad81ec10c229d2714b",
+    "campaign_summary_sha256": "aa3a1441f65be8b9fe79e65f76a2cc9d2e1fe15c89e9d7cffda25a420e50aed6",
+    "production_and_holdout_packets_pass": true,
     "clear_replacement": false,
     "embedded": false,
     "production_promoted": false
@@ -305,5 +336,15 @@
     "tools/split_phase_v6/test_e3_p9_feasibility.py": "5266e12508d97b8261c6a770cad07c0a30e3d117c019bdf2c7fe87a05addb1fb",
     "tools/split_phase_v6/test_e3_p9_timing_search.py": "4e74508f17719f693ad1d49719a78feea6e52e269784355cb334a37adbda4abc",
     "tools/split_phase_v6/test_e3_p9_nonlinear_refine.py": "63048e3171cc0d439d7da59ceeea02174cbfe12e0f09c3dafe545031f8003d7e"
+  },
+  "e3_p10_measurement_and_search_sources": {
+    "src/audio/dsp/timing.rs": "97e5f46f42e5e7e1290fc1cdd84d230d914aca5f020ab876b3c4fc667400e625",
+    "src/bin/filter_timing_bench.rs": "d8d640312392b0d4ba3885c96d1b7793cd27e4eed55181769485e3cd2177865a",
+    "tools/split_phase_v6/evaluate_e3_packets.py": "39548f1190573f5ef2b3458842f2492fef00f9ba9d7602d02747293d71002e3e",
+    "tools/split_phase_v6/e3_p10_packet_contract.py": "b68326e4903e669a19e3659276fb1b82b22b19f630a4c77b3a42ec602208473b",
+    "tools/split_phase_v6/e3_p10_joint_search.py": "7825ea11e8ec0c88f82a0e965077d55f71b799e1715abec1f384456967d09416",
+    "tools/split_phase_v6/e3_p10_magnitude_refine.py": "09517731295ea0deb0c59eece1747123332a7895424f68ee6b620e12a73c3835",
+    "tools/split_phase_v6/e3_p10_holdout_refine.py": "895513aa53f45882f295b2925eabc95dad97de1ef99f99abd17286b63b2e0c43",
+    "tools/split_phase_v6/freeze_e3_p10.py": "b02c92e8066bf2bd466b4793dde646dff36546cbb1bcbc457b405a337bb73969"
   }
 }
