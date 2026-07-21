@@ -1107,6 +1107,7 @@ fn filter_ids_are_backward_compatible() {
     assert_eq!(FilterType::SplitPhase128kV3.as_id(), 35);
     assert_eq!(FilterType::SplitPhase128kV4.as_id(), 36);
     assert_eq!(FilterType::SplitPhase128kE2v3.as_id(), 37);
+    assert_eq!(FilterType::SplitPhase128kE3.as_id(), 38);
     assert_eq!(FilterType::from_id(0), Some(FilterType::Split128k));
     assert_eq!(FilterType::from_id(2), Some(FilterType::Split128k));
     assert_eq!(FilterType::from_id(11), Some(FilterType::Split128k));
@@ -1136,6 +1137,7 @@ fn filter_ids_are_backward_compatible() {
         FilterType::from_id(37),
         Some(FilterType::SplitPhase128kE2v3)
     );
+    assert_eq!(FilterType::from_id(38), Some(FilterType::SplitPhase128kE3));
     assert_eq!(FilterType::SincExtreme32k.as_name(), "SincExtreme32k");
     assert_eq!(FilterType::LinearPhase128k.as_name(), "LinearPhase128k");
     assert_eq!(FilterType::Minimum16k.as_name(), "Minimum16k");
@@ -1147,6 +1149,7 @@ fn filter_ids_are_backward_compatible() {
         FilterType::SplitPhase128kE2v3.as_name(),
         "SplitPhase128kE2v3"
     );
+    assert_eq!(FilterType::SplitPhase128kE3.as_name(), "SplitPhase128kE3");
     assert_eq!(
         FilterType::from_name("Split128k"),
         Some(FilterType::SplitPhase128kE2v3)
@@ -1170,6 +1173,10 @@ fn filter_ids_are_backward_compatible() {
     assert_eq!(
         FilterType::from_name("SplitPhase128kV5E2v3"),
         Some(FilterType::SplitPhase128kE2v3)
+    );
+    assert_eq!(
+        FilterType::from_name("SplitPhase128kE3"),
+        Some(FilterType::SplitPhase128kE3)
     );
     assert_eq!(
         serde_json::from_str::<FilterType>("\"SplitPhase128kV3\"").unwrap(),
@@ -3092,6 +3099,32 @@ fn planner_extends_split_phase_e2v3_to_512x_with_terminal_cleanup() {
 }
 
 #[test]
+fn planner_routes_split_phase_e3_to_its_experimental_bundle() {
+    let plan = build_integer_stage_plan(44_100, 11_289_600, FilterType::SplitPhase128kE3, 1_000.0)
+        .expect("Split Phase E3 256x plan");
+    assert!(matches!(
+        plan.stages[0],
+        StageSpec::Character2x {
+            phase_mode: PhaseMode::FrozenSplitPhase(FrozenFilterVersion::E3),
+            coefficient_source: CharacterCoefficientSource::Frozen(FrozenFilterVersion::E3),
+            ..
+        }
+    ));
+    for (stage_index, stage) in plan.stages.iter().enumerate().skip(1) {
+        assert!(matches!(
+            stage,
+            StageSpec::CleanupHalfband2x {
+                coefficient_source: CleanupCoefficientSource::Frozen {
+                    version: FrozenFilterVersion::E3,
+                    stage_index: asset_stage,
+                },
+                ..
+            } if *asset_stage == stage_index as u8
+        ));
+    }
+}
+
+#[test]
 fn split_phase_v4_generated_constants_match_embedded_assets() {
     let assets = split_phase_v4_assets();
     assert_eq!(
@@ -3197,6 +3230,61 @@ fn split_phase_e2v3_generated_constants_match_embedded_assets() {
         (
             &assets.rational_tables.phase_160_147,
             SPLIT_PHASE_E2V3_RATIONAL_160_147_SHA256,
+        ),
+    ] {
+        let bytes = values
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect::<Vec<_>>();
+        assert_eq!(format!("{:x}", Sha256::digest(&bytes)), expected);
+    }
+}
+
+#[test]
+fn split_phase_e3_generated_constants_match_embedded_assets() {
+    let assets = split_phase_e3_assets();
+    assert_eq!(
+        assets.character.len(),
+        SPLIT_PHASE_E3_CHARACTER_COEFFICIENTS
+    );
+    assert_eq!(
+        assets.alignment.full_rate_origin,
+        SPLIT_PHASE_E3_FULL_RATE_ORIGIN
+    );
+    assert_eq!(assets.alignment.phase0_prepad, SPLIT_PHASE_E3_PHASE0_PREPAD);
+    assert_eq!(assets.alignment.phase1_prepad, SPLIT_PHASE_E3_PHASE1_PREPAD);
+    assert_eq!(
+        assets.alignment.decimation_prepad,
+        SPLIT_PHASE_E3_DECIMATION_PREPAD
+    );
+    let bytes = assets
+        .character
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&bytes)),
+        SPLIT_PHASE_E3_CHARACTER_SHA256
+    );
+    for (index, cleanup) in assets.cleanups.iter().enumerate() {
+        assert_eq!(cleanup.len(), SPLIT_PHASE_E3_CLEANUP_COEFFICIENTS[index]);
+        let bytes = cleanup
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            format!("{:x}", Sha256::digest(&bytes)),
+            SPLIT_PHASE_E3_CLEANUP_SHA256[index]
+        );
+    }
+    for (values, expected) in [
+        (
+            &assets.rational_tables.phase_147_160,
+            SPLIT_PHASE_E3_RATIONAL_147_160_SHA256,
+        ),
+        (
+            &assets.rational_tables.phase_160_147,
+            SPLIT_PHASE_E3_RATIONAL_160_147_SHA256,
         ),
     ] {
         let bytes = values
@@ -3534,6 +3622,7 @@ fn frozen_split_phase_partitioned_runtime_rejects_2x_image_and_alias_below_145_d
     for (filter, label) in [
         (FilterType::SplitPhase128kV4, "SPLIT_PHASE_V4_RUNTIME"),
         (FilterType::SplitPhase128kE2v3, "SPLIT_PHASE_E2V3_RUNTIME"),
+        (FilterType::SplitPhase128kE3, "SPLIT_PHASE_E3_RUNTIME"),
     ] {
         let input_omega = PI / 2.0;
         let interpolated = run_tone(filter, 44_100, 88_200, INTERPOLATION_FRAMES, input_omega);
@@ -3622,6 +3711,10 @@ fn frozen_split_phase_rational_runtime_rejects_image_and_reverse_alias_below_145
         (
             FilterType::SplitPhase128kE2v3,
             "SPLIT_PHASE_E2V3_RATIONAL_RUNTIME",
+        ),
+        (
+            FilterType::SplitPhase128kE3,
+            "SPLIT_PHASE_E3_RATIONAL_RUNTIME",
         ),
     ] {
         let upsampled = run_tone(filter, 44_100, 48_000, 88_200, 20_000.0);

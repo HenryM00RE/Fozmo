@@ -20,10 +20,14 @@ const EXTERNAL_PRESETS: [(&str, &str); 3] = [
     ("megaextreme", "External Product Hybrid 1M"),
     ("megaorganik", "External Product Minimum 1M"),
 ];
-const FOZMO_FILTERS: [(FilterType, &str); 4] = [
+const FOZMO_FILTERS: [(FilterType, &str); 5] = [
     (FilterType::LinearPhase128k, "Fozmo Linear Phase"),
     (FilterType::MinimumPhaseCompact128k, "Fozmo Minimum Phase"),
     (FilterType::SplitPhase128kE2v3, "Fozmo Split Phase"),
+    (
+        FilterType::SplitPhase128kE3,
+        "Fozmo Split Phase E3 (experimental)",
+    ),
     (FilterType::SmoothPhase128k, "Fozmo Smooth Phase"),
 ];
 const TONES: [f64; 5] = [5_000.0, 10_000.0, 15_000.0, 18_000.0, 20_000.0];
@@ -175,7 +179,7 @@ fn main() -> Result<(), String> {
             packet_cycles: args.packet_cycles,
             external_dither_control: "not exposed; CLI reports TPDF at one 24-bit LSB",
             dither_mitigation: "subtract a same-length rendered-silence control; flag -120 dB decay as PCM24-floor-sensitive",
-            alignment: "impulse principal peak; packet quadrature-envelope energy centroid",
+            alignment: "impulse principal peak; packet historical centroid plus principal-peak nominal onset bounds",
         },
         external_executable_sha256: sha256_file(&exe).map_err(|e| e.to_string())?,
         results: rows,
@@ -353,6 +357,7 @@ fn analyze_result(
             &i,
             &q,
             args.output_rate as f64,
+            impulse.peak_index as f64,
         ));
     }
     Ok(ResultRow {
@@ -414,7 +419,7 @@ fn markdown(report: &Report) -> String {
         let m = &row.impulse;
         s.push_str(&format!("| {} | {} | {:.2} dB | {:.2} dB | {:.2} dB | {:.2} dB | {} | {} | {:.2} us | {:.3}% | {:.3}% | {:.4} ms |\n", row.display_name, row.deterministic, m.pre_peak_energy_db_total, m.maximum_pre_ringing_lobe_db_peak, m.post_peak_energy_db_total, m.maximum_post_ringing_lobe_db_peak, decay(m.decay_time_to_minus_80_db_ms, m.decay_minus_80_db_censored), decay(m.decay_time_to_minus_120_db_ms, m.decay_minus_120_db_censored), m.main_lobe_width_us, m.step_response_overshoot_percent, m.step_response_undershoot_percent, m.energy_centroid_relative_to_peak_ms));
     }
-    s.push_str("\n## Tone packets: pre/post integrated energy (dB total)\n\n| Filter | 5 kHz | 10 kHz | 15 kHz | 18 kHz | 20 kHz |\n| --- | ---: | ---: | ---: | ---: | ---: |\n");
+    s.push_str("\n## Tone packets: energy before/after envelope centroid (dB total)\n\n| Filter | 5 kHz | 10 kHz | 15 kHz | 18 kHz | 20 kHz |\n| --- | ---: | ---: | ---: | ---: | ---: |\n");
     for row in &report.results {
         s.push_str(&format!("| {}", row.display_name));
         for p in &row.packets {
@@ -425,13 +430,24 @@ fn markdown(report: &Report) -> String {
         }
         s.push_str(" |\n");
     }
-    s.push_str("\n## Tone packets: maximum pre/post lobe (dB peak)\n\n| Filter | 5 kHz | 10 kHz | 15 kHz | 18 kHz | 20 kHz |\n| --- | ---: | ---: | ---: | ---: | ---: |\n");
+    s.push_str("\n## Tone packets: maximum before/after-centroid lobe (dB peak)\n\n| Filter | 5 kHz | 10 kHz | 15 kHz | 18 kHz | 20 kHz |\n| --- | ---: | ---: | ---: | ---: | ---: |\n");
     for row in &report.results {
         s.push_str(&format!("| {}", row.display_name));
         for p in &row.packets {
             s.push_str(&format!(
                 " | {:.2} / {:.2}",
                 p.maximum_pre_echo_db_peak, p.maximum_post_echo_db_peak
+            ));
+        }
+        s.push_str(" |\n");
+    }
+    s.push_str("\n## Tone packets: onset-referenced pre-echo/post-decay energy (dB total)\n\n| Filter | 5 kHz | 10 kHz | 15 kHz | 18 kHz | 20 kHz |\n| --- | ---: | ---: | ---: | ---: | ---: |\n");
+    for row in &report.results {
+        s.push_str(&format!("| {}", row.display_name));
+        for p in &row.packets {
+            s.push_str(&format!(
+                " | {:.2} / {:.2}",
+                p.onset_pre_echo_energy_db_total, p.onset_post_decay_energy_db_total
             ));
         }
         s.push_str(" |\n");

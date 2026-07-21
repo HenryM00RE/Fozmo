@@ -75,6 +75,7 @@ pub(crate) fn ecbeam2_filter_supported(filter_type: FilterType) -> bool {
             | FilterType::SplitPhase128kV3
             | FilterType::SplitPhase128kV4
             | FilterType::SplitPhase128kE2v3
+            | FilterType::SplitPhase128kE3
             | FilterType::SmoothPhase128k
     )
 }
@@ -110,6 +111,7 @@ pub fn dsd_source_window_to_modulator_samples(
             | FilterType::SplitPhase128kV3
             | FilterType::SplitPhase128kV4
             | FilterType::SplitPhase128kE2v3
+            | FilterType::SplitPhase128kE3
             | FilterType::IntegratedPhase128k
             | FilterType::IntegratedPhase128kV2
             | FilterType::IntegratedPhase128kV3

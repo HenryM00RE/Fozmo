@@ -11,10 +11,11 @@ use fozmo::audio::dsp::timing::{
 };
 use serde::Serialize;
 
-const PRODUCTION_FILTERS: [FilterType; 4] = [
+const BENCH_FILTERS: [FilterType; 5] = [
     FilterType::LinearPhase128k,
     FilterType::MinimumPhaseCompact128k,
     FilterType::SplitPhase128kE2v3,
+    FilterType::SplitPhase128kE3,
     FilterType::SmoothPhase128k,
 ];
 const PACKET_FREQUENCIES_HZ: [f64; 5] = [5_000.0, 10_000.0, 15_000.0, 18_000.0, 20_000.0];
@@ -24,7 +25,9 @@ const SUMMARY_GROUP_DELAY_HZ: [f64; 7] = [
 const CHUNK_FRAMES: usize = 4096;
 
 #[derive(Debug, Parser)]
-#[command(about = "Measure temporal behavior of Fozmo's production reconstruction filters")]
+#[command(
+    about = "Measure temporal behavior of Fozmo reconstruction filters and experimental candidates"
+)]
 struct Args {
     #[arg(long, default_value_t = 44_100)]
     source_rate: u32,
@@ -66,6 +69,7 @@ struct Configuration {
     transition_bandwidth_control: &'static str,
     impulse_alignment: &'static str,
     packet_alignment: &'static str,
+    group_delay_method: &'static str,
     reconstruction_filter: &'static str,
     packet_reconstruction_floor_db_peak: f64,
     analysis_window: &'static str,
@@ -139,7 +143,8 @@ fn main() -> Result<(), String> {
         impulse.step_response_overshoot_percent = overshoot;
         impulse.step_response_undershoot_percent = undershoot;
 
-        let convolution_response = trim_below(&impulse_response, -160.0, 512);
+        let (convolution_response, convolution_start) = trim_below(&impulse_response, -160.0, 512);
+        let nominal_packet_onset = impulse.peak_index.saturating_sub(convolution_start) as f64;
         let mut packets = Vec::with_capacity(PACKET_FREQUENCIES_HZ.len());
         for frequency in PACKET_FREQUENCIES_HZ {
             let (packet_i, packet_q) =
@@ -154,6 +159,7 @@ fn main() -> Result<(), String> {
                 &output_i,
                 &output_q,
                 args.output_rate as f64,
+                nominal_packet_onset,
             ));
         }
 
@@ -201,7 +207,8 @@ fn main() -> Result<(), String> {
             passband_gain_control: "each measured impulse is DC-normalized to the common integer interpolation ratio",
             transition_bandwidth_control: "intrinsic production response; common rates and 20 kHz analysis band, with no additional equalizer",
             impulse_alignment: "principal absolute-energy peak",
-            packet_alignment: "quadrature-envelope energy centroid",
+            packet_alignment: "historical quadrature-envelope centroid plus principal-peak nominal onset bounds",
+            group_delay_method: "local linear derivative of the unwrapped transfer-function phase",
             reconstruction_filter: "the production SincResampler path only; no secondary reconstruction filter",
             packet_reconstruction_floor_db_peak: -160.0,
             analysis_window: "full fixed guard plus tail capture; 10 ms threshold hold for decay censoring",
@@ -254,15 +261,15 @@ fn validate_args(args: &Args) -> Result<usize, String> {
 
 fn selected_filters(names: &[String]) -> Result<Vec<FilterType>, String> {
     if names.is_empty() {
-        return Ok(PRODUCTION_FILTERS.to_vec());
+        return Ok(BENCH_FILTERS.to_vec());
     }
     let mut filters = Vec::new();
     for name in names {
-        let filter = PRODUCTION_FILTERS
+        let filter = BENCH_FILTERS
             .iter()
             .copied()
             .find(|filter| filter.as_name().eq_ignore_ascii_case(name))
-            .ok_or_else(|| format!("{name} is not a current production filter"))?;
+            .ok_or_else(|| format!("{name} is not a supported timing-bench filter"))?;
         if !filters.contains(&filter) {
             filters.push(filter);
         }
@@ -303,7 +310,7 @@ fn make_quadrature_packet(
     (i, q)
 }
 
-fn trim_below(response: &[f64], threshold_db: f64, margin: usize) -> &[f64] {
+fn trim_below(response: &[f64], threshold_db: f64, margin: usize) -> (&[f64], usize) {
     let peak = response.iter().map(|value| value.abs()).fold(0.0, f64::max);
     let threshold = peak * 10.0_f64.powf(threshold_db / 20.0);
     let first = response
@@ -317,7 +324,7 @@ fn trim_below(response: &[f64], threshold_db: f64, margin: usize) -> &[f64] {
         .unwrap_or(response.len().saturating_sub(1))
         .saturating_add(margin)
         .min(response.len().saturating_sub(1));
-    &response[first..=last]
+    (&response[first..=last], first)
 }
 
 fn group_delay_grid(source_rate: u32) -> Vec<f64> {
@@ -354,6 +361,7 @@ fn display_name(filter: FilterType) -> &'static str {
         FilterType::LinearPhase128k => "Linear Phase",
         FilterType::MinimumPhaseCompact128k => "Minimum Phase",
         FilterType::SplitPhase128kE2v3 => "Split Phase",
+        FilterType::SplitPhase128kE3 => "Split Phase E3 (experimental)",
         FilterType::SmoothPhase128k => "Smooth Phase",
         _ => unreachable!("production filter list is closed"),
     }
@@ -373,7 +381,7 @@ fn write_report(out: &Path, report: &Report) -> std::io::Result<()> {
 fn markdown_report(report: &Report) -> String {
     let c = &report.configuration;
     let mut text = format!(
-        "# Production filter timing\n\nSource: {} Hz  \nOutput: {} Hz  \nHeadroom: {:.1} dBFS  \nPacket: {:.1}-cycle Hann window  \nAlignment: impulse by principal peak; packets by energy centroid  \n\n",
+        "# Filter timing\n\nSource: {} Hz  \nOutput: {} Hz  \nHeadroom: {:.1} dBFS  \nPacket: {:.1}-cycle Hann window  \nAlignment: impulse by principal peak; packets by historical centroid and actual onset bounds  \n\n",
         c.source_rate_hz, c.output_rate_hz, c.stimulus_headroom_dbfs, c.packet_cycles
     );
     text.push_str("## Impulse and step metrics\n\n");
@@ -398,19 +406,21 @@ fn markdown_report(report: &Report) -> String {
             m.energy_centroid_relative_to_peak_ms,
         ));
     }
-    text.push_str("\n## Windowed tone packets\n\nEnergy outside the nominal packet window is measured after aligning its quadrature envelope by energy centroid.\n\n");
-    text.push_str("| Filter | Frequency (Hz) | Pre-echo energy (dB total) | Max pre-echo (dB peak) | Post-echo energy (dB total) | Max post-echo (dB peak) |\n");
-    text.push_str("| --- | ---: | ---: | ---: | ---: | ---: |\n");
+    text.push_str("\n## Windowed tone packets\n\nThe historical columns split energy around the quadrature-envelope centroid. The onset columns use the principal impulse peak plus the nominal source-packet bounds and are the actual pre-echo/post-decay measures.\n\n");
+    text.push_str("| Filter | Frequency (Hz) | Before centroid (dB total) | Max before centroid (dB peak) | After centroid (dB total) | Max after centroid (dB peak) | Onset pre-echo (dB total) | Onset post-decay (dB total) |\n");
+    text.push_str("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n");
     for filter in &report.filters {
         for packet in &filter.tone_packets {
             text.push_str(&format!(
-                "| {} | {:.0} | {:.2} | {:.2} | {:.2} | {:.2} |\n",
+                "| {} | {:.0} | {:.2} | {:.2} | {:.2} | {:.2} | {:.2} | {:.2} |\n",
                 filter.display_name,
                 packet.frequency_hz,
                 packet.pre_echo_energy_db_total,
                 packet.maximum_pre_echo_db_peak,
                 packet.post_echo_energy_db_total,
                 packet.maximum_post_echo_db_peak,
+                packet.onset_pre_echo_energy_db_total,
+                packet.onset_post_decay_energy_db_total,
             ));
         }
     }
@@ -474,8 +484,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn production_filter_selection_defaults_to_picker_set() {
-        assert_eq!(selected_filters(&[]).unwrap(), PRODUCTION_FILTERS);
+    fn filter_selection_defaults_to_bench_set() {
+        assert_eq!(selected_filters(&[]).unwrap(), BENCH_FILTERS);
     }
 
     #[test]

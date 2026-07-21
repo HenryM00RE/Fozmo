@@ -63,6 +63,12 @@ pub struct PacketTimingMetrics {
     pub post_echo_energy_db_total: f64,
     pub maximum_pre_echo_db_peak: f64,
     pub maximum_post_echo_db_peak: f64,
+    pub onset_reference: &'static str,
+    pub nominal_onset_index: f64,
+    pub onset_pre_echo_energy_db_total: f64,
+    pub onset_post_decay_energy_db_total: f64,
+    pub maximum_onset_pre_echo_db_peak: f64,
+    pub maximum_onset_post_decay_db_peak: f64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -167,18 +173,22 @@ pub fn group_delay_curve(
     fft.process(&mut input, &mut spectrum)
         .expect("real FFT dimensions should match");
 
-    let mut moment_input = fft.make_input_vec();
-    for (index, value) in response.iter().copied().enumerate() {
-        moment_input[index] = (index as f64 - peak_index as f64) * value;
-    }
-    let mut moment_spectrum = fft.make_output_vec();
-    fft.process(&mut moment_input, &mut moment_spectrum)
-        .expect("real FFT dimensions should match");
     let peak_magnitude = spectrum
         .iter()
         .map(|value| value.norm())
         .fold(0.0, f64::max);
     let bin_hz = sample_rate / fft_len as f64;
+    let bin_omega = 2.0 * std::f64::consts::PI / fft_len as f64;
+    let mut phase = Vec::with_capacity(spectrum.len());
+    let mut previous = spectrum[0].arg();
+    phase.push(previous);
+    for transfer in spectrum.iter().skip(1) {
+        let raw = transfer.arg();
+        let delta = (raw - previous + std::f64::consts::PI).rem_euclid(2.0 * std::f64::consts::PI)
+            - std::f64::consts::PI;
+        previous += delta;
+        phase.push(previous);
+    }
 
     frequencies_hz
         .iter()
@@ -192,13 +202,26 @@ pub fn group_delay_curve(
             if magnitude <= peak_magnitude * 1e-5 {
                 return None;
             }
-            let relative_delay_samples = (moment_spectrum[bin] / transfer).re;
+            let first = bin.saturating_sub(4).max(1);
+            let last = bin.saturating_add(4).min(spectrum.len().saturating_sub(2));
+            if first >= last {
+                return None;
+            }
+            let center = 0.5 * (first + last) as f64;
+            let mut covariance = 0.0;
+            let mut variance = 0.0;
+            for index in first..=last {
+                let x = index as f64 - center;
+                covariance += x * phase[index];
+                variance += x * x;
+            }
+            let absolute_delay_samples = -(covariance / variance) / bin_omega;
+            let relative_delay_samples = absolute_delay_samples - peak_index as f64;
             let relative_delay_ms = relative_delay_samples / sample_rate * 1000.0;
             Some(GroupDelayPoint {
                 frequency_hz: frequency,
                 magnitude_db: amplitude_ratio_db(magnitude, peak_magnitude),
-                absolute_group_delay_ms: relative_delay_ms
-                    + peak_index as f64 / sample_rate * 1000.0,
+                absolute_group_delay_ms: absolute_delay_samples / sample_rate * 1000.0,
                 group_delay_relative_to_peak_ms: relative_delay_ms,
             })
         })
@@ -289,6 +312,7 @@ pub fn analyze_quadrature_packet(
     left: &[f64],
     right: &[f64],
     sample_rate: f64,
+    nominal_onset_index: f64,
 ) -> PacketTimingMetrics {
     assert_eq!(left.len(), right.len());
     assert!(!left.is_empty());
@@ -320,17 +344,37 @@ pub fn analyze_quadrature_packet(
     let post_energy = post.iter().map(|value| value * value).sum::<f64>();
     let max_pre = pre.iter().copied().fold(0.0, f64::max);
     let max_post = post.iter().copied().fold(0.0, f64::max);
+    let onset_start = nominal_onset_index.ceil().clamp(0.0, envelope.len() as f64) as usize;
+    let onset_end = (nominal_onset_index + nominal_output_samples)
+        .floor()
+        .clamp(0.0, envelope.len().saturating_sub(1) as f64) as usize;
+    let onset_pre = &envelope[..onset_start];
+    let onset_post = if onset_end + 1 < envelope.len() {
+        &envelope[onset_end + 1..]
+    } else {
+        &[]
+    };
+    let onset_pre_energy = onset_pre.iter().map(|value| value * value).sum::<f64>();
+    let onset_post_energy = onset_post.iter().map(|value| value * value).sum::<f64>();
+    let maximum_onset_pre = onset_pre.iter().copied().fold(0.0, f64::max);
+    let maximum_onset_post = onset_post.iter().copied().fold(0.0, f64::max);
 
     PacketTimingMetrics {
         frequency_hz,
         cycles,
         nominal_duration_ms: nominal_duration_seconds * 1000.0,
-        alignment: "energy_centroid",
+        alignment: "energy_centroid (historical envelope split)",
         energy_centroid_index: centroid,
         pre_echo_energy_db_total: power_ratio_db(pre_energy, energy),
         post_echo_energy_db_total: power_ratio_db(post_energy, energy),
         maximum_pre_echo_db_peak: amplitude_ratio_db(max_pre, peak),
         maximum_post_echo_db_peak: amplitude_ratio_db(max_post, peak),
+        onset_reference: "principal impulse peak plus nominal source packet bounds",
+        nominal_onset_index,
+        onset_pre_echo_energy_db_total: power_ratio_db(onset_pre_energy, energy),
+        onset_post_decay_energy_db_total: power_ratio_db(onset_post_energy, energy),
+        maximum_onset_pre_echo_db_peak: amplitude_ratio_db(maximum_onset_pre, peak),
+        maximum_onset_post_decay_db_peak: amplitude_ratio_db(maximum_onset_post, peak),
     }
 }
 
@@ -598,5 +642,24 @@ mod tests {
         for (actual, expected) in output.iter().zip(expected) {
             assert!((actual - expected).abs() < 1e-12);
         }
+    }
+
+    #[test]
+    fn packet_onset_metrics_use_nominal_bounds_not_centroid() {
+        let metrics =
+            analyze_quadrature_packet(1.0, 1.0, 1.0, &[0.1, 1.0, 1.0, 0.2], &[0.0; 4], 1.0, 1.0);
+        let total_energy = 2.05_f64;
+        assert!(
+            (metrics.onset_pre_echo_energy_db_total - 10.0 * (0.01_f64 / total_energy).log10())
+                .abs()
+                < 1e-12
+        );
+        assert!(
+            (metrics.onset_post_decay_energy_db_total - 10.0 * (0.04_f64 / total_energy).log10())
+                .abs()
+                < 1e-12
+        );
+        assert!((metrics.maximum_onset_pre_echo_db_peak + 20.0).abs() < 1e-12);
+        assert!((metrics.maximum_onset_post_decay_db_peak - 20.0 * 0.2_f64.log10()).abs() < 1e-12);
     }
 }

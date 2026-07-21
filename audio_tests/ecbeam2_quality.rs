@@ -1942,6 +1942,12 @@ fn parse_selectable_filters_arg(
                     filter: FilterType::SplitPhase128kE2v3,
                 }
             }
+            "SplitPhaseE3" | "split-phase-e3" | "SplitPhase128kE3" => {
+                harness::SelectableDsdFilter {
+                    name: "SplitPhaseE3",
+                    filter: FilterType::SplitPhase128kE3,
+                }
+            }
             "LinearPhase" | "linear-phase" | "linear" | "SincExtreme32k" | "sinc-extreme32k" => {
                 harness::SelectableDsdFilter {
                     name: "LinearPhase",

@@ -2,11 +2,13 @@
 
 The timing bench measures the exact `SincResampler` implementation used by
 Fozmo rather than analyzing design-time coefficient prototypes. It covers the
-four filters currently exposed by the product:
+four filters currently exposed by the product, plus explicitly labelled
+experimental candidates:
 
 - Linear Phase (`LinearPhase128k`)
 - Minimum Phase (`MinimumPhaseCompact128k`)
 - Split Phase (`SplitPhase128kE2v3`)
+- Split Phase E3 (`SplitPhase128kE3`, experimental and not the default)
 - Smooth Phase (`SmoothPhase128k`)
 
 Run the canonical 44.1 kHz to 176.4 kHz comparison with an optimized build:
@@ -34,8 +36,10 @@ Every filter receives the same source rate, output rate, -12 dBFS default
 stimulus level, 131,072-frame guard, four-second analysis tail, packet shape,
 frequency grid, and analysis window. The measured impulse is normalized to the
 common interpolation DC gain. Responses are aligned by their measured
-principal peak for impulse metrics and by the quadrature-envelope energy
-centroid for tone-packet metrics. Nominal buffer latency is reported as runtime
+principal peak for impulse metrics. Tone-packet reports retain the historical
+energy-centroid split for continuity and also provide stricter onset-referenced
+measures whose bounds start at the principal impulse peak and end after the
+nominal source-packet duration. Nominal buffer latency is reported as runtime
 metadata but is never used to align responses.
 
 The production filter itself is the reconstruction filter under test; no
@@ -60,9 +64,9 @@ The impulse measurement reports:
   of the captured suffix remains below it.
 - Null-to-null main-lobe width.
 - Energy centroid relative to the principal peak.
-- Group delay from the exact frequency-domain moment identity
-  `Re(sum(n h[n] exp(-jwn)) / H(w))`, expressed both absolutely and relative to
-  the measured peak. Bins below -100 dB of the maximum response are masked.
+- Group delay from a local linear derivative of the unwrapped transfer-function
+  phase, expressed both absolutely and relative to the measured peak. Bins
+  below -100 dB of the maximum response are masked.
 
 Step overshoot and undershoot come from a separate direct source-rate 0-to-1
 step through the production resampler. They are not inferred by cumulatively
@@ -72,9 +76,11 @@ conversion.
 The musical-transient probes are eight-cycle Hann-windowed quadrature packets
 at 5, 10, 15, 18, and 20 kHz. The quadrature pair gives a phase-independent
 amplitude envelope. For each packet, the bench reports integrated energy and
-the maximum envelope before and after the nominal packet window once that
-window is centered on the measured energy centroid. The packets are rebuilt
-from the captured production impulse on the integer output grid. Integer
+the maximum envelope both around the historical centroid-centred window and
+outside the actual onset/end bounds. The onset-referenced columns are the
+promotion metrics for pre-echo and post-decay; the centroid columns remain a
+temporal-asymmetry diagnostic. The packets are rebuilt from the captured
+production impulse on the integer output grid. Integer
 interpolation makes this reconstruction phase-exact; the captured impulse is
 trimmed only outside its first and last -160 dB peak-relative excursions, well
 below the deepest reported -120 dB timing threshold.
@@ -86,7 +92,7 @@ stable comparison contract.
 ## External-product static-filter comparison
 
 `external_filter_bench` runs an external product's offline `upsampler.exe`
-against all four Fozmo production filters. The configured static set contains
+against the Fozmo production filters and labelled E3 experiment. The configured static set contains
 one linear-phase, one hybrid-phase, and one minimum-phase preset. Adaptive
 presets are deliberately excluded from this ranking.
 

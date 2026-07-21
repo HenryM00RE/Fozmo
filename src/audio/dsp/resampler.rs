@@ -118,6 +118,10 @@ include!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/assets/filters/split_phase_e2v3/generated.rs"
 ));
+include!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/assets/filters/split_phase_e3/generated.rs"
+));
 const INTEGRATED128K_TAPS_TOTAL: usize = 131_071;
 const INTEGRATED128K_PRODUCTION_CUTOFF: f64 = 0.468_750;
 const INTEGRATED128K_PRODUCTION_BETA: f64 = 22.400;
@@ -281,6 +285,7 @@ pub enum FilterType {
     SplitPhase128kV3,
     SplitPhase128kV4,
     SplitPhase128kE2v3,
+    SplitPhase128kE3,
     IntegratedPhase128k,
     IntegratedPhase128kV2,
     IntegratedPhase128kV3,
@@ -309,6 +314,7 @@ impl FilterType {
             FilterType::SplitPhase128kV3 => 35,
             FilterType::SplitPhase128kV4 => 36,
             FilterType::SplitPhase128kE2v3 => 37,
+            FilterType::SplitPhase128kE3 => 38,
             FilterType::IntegratedPhase128k => 22,
             FilterType::IntegratedPhase128kV2 => 23,
             FilterType::IntegratedPhase128kV3 => 24,
@@ -334,6 +340,7 @@ impl FilterType {
             35 => Some(FilterType::SplitPhase128kV3),
             36 => Some(FilterType::SplitPhase128kV4),
             37 => Some(FilterType::SplitPhase128kE2v3),
+            38 => Some(FilterType::SplitPhase128kE3),
             22 => Some(FilterType::IntegratedPhase128k),
             23 => Some(FilterType::IntegratedPhase128kV2),
             24 => Some(FilterType::IntegratedPhase128kV3),
@@ -359,6 +366,7 @@ impl FilterType {
             FilterType::SplitPhase128kV3 => "SplitPhase128kV3",
             FilterType::SplitPhase128kV4 => "SplitPhase128kV4",
             FilterType::SplitPhase128kE2v3 => "SplitPhase128kE2v3",
+            FilterType::SplitPhase128kE3 => "SplitPhase128kE3",
             FilterType::IntegratedPhase128k => "IntegratedPhase128k",
             FilterType::IntegratedPhase128kV2 => "IntegratedPhase128kV2",
             FilterType::IntegratedPhase128kV3 => "IntegratedPhase128kV3",
@@ -378,6 +386,9 @@ impl FilterType {
             "SincExtreme32k" => Some(FilterType::SincExtreme32k),
             "LinearPhase128k" => Some(FilterType::LinearPhase128k),
             "Minimum16k" => Some(FilterType::Minimum16k),
+            "SplitPhase128kE3" | "SplitPhaseE3" | "split-phase-e3" => {
+                Some(FilterType::SplitPhase128kE3)
+            }
             "Split128k"
             | "Split128kTap"
             | "Split128k-Tap"
@@ -430,7 +441,8 @@ impl FilterType {
                 .clamp(0.40, 0.49),
             FilterType::SplitPhase128kV3
             | FilterType::SplitPhase128kV4
-            | FilterType::SplitPhase128kE2v3 => 0.0,
+            | FilterType::SplitPhase128kE2v3
+            | FilterType::SplitPhase128kE3 => 0.0,
             FilterType::IntegratedPhase128k
             | FilterType::IntegratedPhase128kV2
             | FilterType::IntegratedPhase128kV3
@@ -465,7 +477,8 @@ impl FilterType {
                 .clamp(8.0, 32.0),
             FilterType::SplitPhase128kV3
             | FilterType::SplitPhase128kV4
-            | FilterType::SplitPhase128kE2v3 => 0.0,
+            | FilterType::SplitPhase128kE2v3
+            | FilterType::SplitPhase128kE3 => 0.0,
             FilterType::IntegratedPhase128k
             | FilterType::IntegratedPhase128kV2
             | FilterType::IntegratedPhase128kV3
@@ -509,6 +522,7 @@ impl FilterType {
                 | Self::SplitPhase128kV3
                 | Self::SplitPhase128kV4
                 | Self::SplitPhase128kE2v3
+                | Self::SplitPhase128kE3
                 | Self::IntegratedPhase128k
                 | Self::IntegratedPhase128kV2
                 | Self::IntegratedPhase128kV3
@@ -535,6 +549,7 @@ impl FilterType {
                 | Self::SplitPhase128kV3
                 | Self::SplitPhase128kV4
                 | Self::SplitPhase128kE2v3
+                | Self::SplitPhase128kE3
                 | Self::IntegratedPhase128k
                 | Self::IntegratedPhase128kV2
                 | Self::IntegratedPhase128kV3
@@ -547,6 +562,7 @@ impl FilterType {
             Self::SplitPhase128kV3 => Some(FrozenFilterVersion::V3),
             Self::SplitPhase128kV4 => Some(FrozenFilterVersion::V4),
             Self::SplitPhase128kE2v3 => Some(FrozenFilterVersion::E2v3),
+            Self::SplitPhase128kE3 => Some(FrozenFilterVersion::E3),
             _ => None,
         }
     }
@@ -639,6 +655,7 @@ pub enum FrozenFilterVersion {
     V3,
     V4,
     E2v3,
+    E3,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1320,7 +1337,8 @@ fn first_stage_spec(family: FilterType) -> StageSpec {
         | FilterType::Split128kV2
         | FilterType::SplitPhase128kV3
         | FilterType::SplitPhase128kV4
-        | FilterType::SplitPhase128kE2v3 => 131_073,
+        | FilterType::SplitPhase128kE2v3
+        | FilterType::SplitPhase128kE3 => 131_073,
         FilterType::IntegratedPhase128k
         | FilterType::IntegratedPhase128kV2
         | FilterType::IntegratedPhase128kV3
@@ -1344,6 +1362,7 @@ fn first_stage_spec(family: FilterType) -> StageSpec {
         | FilterType::SplitPhase128kV3
         | FilterType::SplitPhase128kV4
         | FilterType::SplitPhase128kE2v3
+        | FilterType::SplitPhase128kE3
         | FilterType::IntegratedPhase128k
         | FilterType::IntegratedPhase128kV2
         | FilterType::IntegratedPhase128kV3
@@ -1392,6 +1411,7 @@ fn phase_mode_for_filter(family: FilterType) -> PhaseMode {
         FilterType::SplitPhase128kV3 => PhaseMode::FrozenSplitPhase(FrozenFilterVersion::V3),
         FilterType::SplitPhase128kV4 => PhaseMode::FrozenSplitPhase(FrozenFilterVersion::V4),
         FilterType::SplitPhase128kE2v3 => PhaseMode::FrozenSplitPhase(FrozenFilterVersion::E2v3),
+        FilterType::SplitPhase128kE3 => PhaseMode::FrozenSplitPhase(FrozenFilterVersion::E3),
         filter @ (FilterType::IntegratedPhase128k
         | FilterType::IntegratedPhase128kV2
         | FilterType::IntegratedPhase128kV3
@@ -1436,6 +1456,7 @@ fn cleanup_stage_spec(stage_idx: usize, family: FilterType) -> StageSpec {
         | FilterType::SplitPhase128kV3
         | FilterType::SplitPhase128kV4
         | FilterType::SplitPhase128kE2v3
+        | FilterType::SplitPhase128kE3
         | FilterType::IntegratedPhase128k
         | FilterType::IntegratedPhase128kV2
         | FilterType::IntegratedPhase128kV3
@@ -2677,6 +2698,7 @@ impl PolyphaseResampler {
             | FilterType::SplitPhase128kV3
             | FilterType::SplitPhase128kV4
             | FilterType::SplitPhase128kE2v3
+            | FilterType::SplitPhase128kE3
             | FilterType::IntegratedPhase128k
             | FilterType::IntegratedPhase128kV2
             | FilterType::IntegratedPhase128kV3
@@ -3959,11 +3981,108 @@ fn split_phase_e2v3_assets() -> &'static FrozenFilterAssetBundle {
     })
 }
 
+fn split_phase_e3_assets() -> &'static FrozenFilterAssetBundle {
+    static ASSETS: OnceLock<FrozenFilterAssetBundle> = OnceLock::new();
+    ASSETS.get_or_init(|| FrozenFilterAssetBundle {
+        character: decode_f64le_asset(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/assets/filters/split_phase_e3/character_full_rate.f64le"
+            )),
+            SPLIT_PHASE_E3_CHARACTER_COEFFICIENTS,
+            "Split Phase E3 character",
+        ),
+        cleanups: [
+            decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_e3/cleanup_stage_1.f64le"
+                )),
+                SPLIT_PHASE_E3_CLEANUP_COEFFICIENTS[0],
+                "Split Phase E3 cleanup stage 1",
+            ),
+            decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_e3/cleanup_stage_2.f64le"
+                )),
+                SPLIT_PHASE_E3_CLEANUP_COEFFICIENTS[1],
+                "Split Phase E3 cleanup stage 2",
+            ),
+            decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_e3/cleanup_stage_3.f64le"
+                )),
+                SPLIT_PHASE_E3_CLEANUP_COEFFICIENTS[2],
+                "Split Phase E3 cleanup stage 3",
+            ),
+            decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_e3/cleanup_stage_4.f64le"
+                )),
+                SPLIT_PHASE_E3_CLEANUP_COEFFICIENTS[3],
+                "Split Phase E3 cleanup stage 4",
+            ),
+            decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_e3/cleanup_stage_5.f64le"
+                )),
+                SPLIT_PHASE_E3_CLEANUP_COEFFICIENTS[4],
+                "Split Phase E3 cleanup stage 5",
+            ),
+            decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_e3/cleanup_stage_6.f64le"
+                )),
+                SPLIT_PHASE_E3_CLEANUP_COEFFICIENTS[5],
+                "Split Phase E3 cleanup stage 6",
+            ),
+            decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_e3/cleanup_stage_7.f64le"
+                )),
+                SPLIT_PHASE_E3_CLEANUP_COEFFICIENTS[6],
+                "Split Phase E3 cleanup stage 7",
+            ),
+        ],
+        rational_tables: FrozenRationalTables {
+            phase_147_160: decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_e3/rational_147_160.f64le"
+                )),
+                SPLIT_PHASE_E3_RATIONAL_147_160_COEFFICIENTS,
+                "Split Phase E3 rational 147/160",
+            ),
+            phase_160_147: decode_f64le_asset(
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/assets/filters/split_phase_e3/rational_160_147.f64le"
+                )),
+                SPLIT_PHASE_E3_RATIONAL_160_147_COEFFICIENTS,
+                "Split Phase E3 rational 160/147",
+            ),
+        },
+        alignment: FrozenAlignment {
+            full_rate_origin: SPLIT_PHASE_E3_FULL_RATE_ORIGIN,
+            phase0_prepad: SPLIT_PHASE_E3_PHASE0_PREPAD,
+            phase1_prepad: SPLIT_PHASE_E3_PHASE1_PREPAD,
+            decimation_prepad: SPLIT_PHASE_E3_DECIMATION_PREPAD,
+        },
+    })
+}
+
 fn frozen_filter_assets(version: FrozenFilterVersion) -> &'static FrozenFilterAssetBundle {
     match version {
         FrozenFilterVersion::V3 => split_phase_v3_assets(),
         FrozenFilterVersion::V4 => split_phase_v4_assets(),
         FrozenFilterVersion::E2v3 => split_phase_e2v3_assets(),
+        FrozenFilterVersion::E3 => split_phase_e3_assets(),
     }
 }
 

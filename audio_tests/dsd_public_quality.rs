@@ -938,8 +938,9 @@ fn parse_filter(value: &str) -> Result<FilterType, String> {
         "split128k" => Ok(FilterType::Split128k),
         "splitphase" | "split-phase" | "splitphase128ke2v3" | "splitphasee2v3"
         | "split-phase-e2v3" => Ok(FilterType::SplitPhase128kE2v3),
+        "splitphase128ke3" | "splitphasee3" | "split-phase-e3" => Ok(FilterType::SplitPhase128kE3),
         _ => Err(format!(
-            "unsupported filter {value}; use Split128k or SplitPhase128kE2v3"
+            "unsupported filter {value}; use Split128k, SplitPhase128kE2v3, or SplitPhase128kE3"
         )),
     }
 }
@@ -2821,7 +2822,9 @@ fn headroom_db(modulator: DsdModulator) -> f64 {
 fn filter_guard_frames(filter: FilterType) -> usize {
     match filter {
         FilterType::SincExtreme32k => LINEAR_FILTER_GUARD_FRAMES,
-        FilterType::Split128k | FilterType::SplitPhase128kE2v3 => SPLIT_FILTER_GUARD_FRAMES,
+        FilterType::Split128k | FilterType::SplitPhase128kE2v3 | FilterType::SplitPhase128kE3 => {
+            SPLIT_FILTER_GUARD_FRAMES
+        }
         _ => LINEAR_FILTER_GUARD_FRAMES,
     }
 }

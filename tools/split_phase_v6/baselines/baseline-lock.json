@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "project": "Split Phase E3",
+  "baseline_commit": "c91c8efd8814d4b2f418a1b080bf65036ea55549",
+  "e2v3_manifest": {
+    "path": "assets/filters/split_phase_e2v3/manifest.json",
+    "sha256": "f37804e0694f585a6ee01231333c8d8d61018d5473795340f4ca6724b9b536c9"
+  },
+  "reports": {
+    "fozmo_native_timing": {
+      "path": "tools/split_phase_v6/baselines/fozmo-production-timing-c91.json",
+      "sha256": "ac128485a53d2075e465845c5a643180f08d3dd58f3b8cf16e21702d59098a33"
+    },
+    "external_pcm24_static_filters": {
+      "path": "tools/filter_timing/baselines/external-product-static-filters-pcm24.json",
+      "sha256": "c728532c46267bff9f326917ae8785dbeb62744c170467a5dc5ef59eb2ff1f5b"
+    },
+    "e3_p3_native_timing": {
+      "path": "tools/split_phase_v6/baselines/e3-p3-native-timing.json",
+      "sha256": "abdb40df542dc53348635b7393e6dcc53bc8f548ed258168445aecba4be2bde5"
+    },
+    "e3_p3_onset_timing": {
+      "path": "tools/split_phase_v6/baselines/e3-p3-onset-timing.json",
+      "sha256": "82e42e13bef6d047f6a6b88059b83c3a904dd55a1a29998d42ff4efa4dcd4181"
+    },
+    "e3_phase_search_packet_qualification": {
+      "path": "tools/split_phase_v6/baselines/e3-phase-search-packet-qualification.json",
+      "sha256": "c761130f99427254c7d6743de78dfe96a85078466dd3145ce2e73fb399ff48f0"
+    },
+    "e3_p2_packet_phase_search": {
+      "path": "tools/split_phase_v6/baselines/e3-p2-packet-phase-search.json",
+      "sha256": "edd226e339d8e7d8eb912580ab25da00293f1013ff7087aa13417e04dbf95bf9"
+    },
+    "e3_p3_0900_native_timing": {
+      "path": "tools/split_phase_v6/baselines/e3-p3-0900-native-timing.json",
+      "sha256": "ae66b47606e3e893e3ff173fc776ae74708b7605508ce27aa5aa0b001e1383f8"
+    },
+    "e3_p3_dsd128_e2v3": {
+      "path": "tools/split_phase_v6/baselines/e3-p3-dsd128-e2v3.json",
+      "sha256": "d26e54ea7e29ea869c7a8362979c32e1dc62237900dc5b4d3be895a1e5fae885"
+    },
+    "e3_p3_dsd128_0900": {
+      "path": "tools/split_phase_v6/baselines/e3-p3-dsd128-0900.json",
+      "sha256": "f2d2f9574bda68351ede7ec8190dd99e2611fc504a495be8667739de9b746303"
+    }
+  },
+  "current_e3_asset": {
+    "candidate_identifier": "refine-0900",
+    "character_sha256": "ae37e2a5838a7510283a0e1a675cfc3eea264628f1a7d62a0e7744a2abb7505b",
+    "manifest_sha256": "80dd328fcd864dcabca336740adeab8fd023d935dc2f38598132bf91884c6fb9",
+    "experimental_audit_sha256": "c2e2e848ec06592a83f265bac72333d21c2c86b6a5cfa71f4d952661b549283a",
+    "production_promoted": false
+  },
+  "external_product": {
+    "version_label": "2.5.16",
+    "executable_sha256": "2ebb6d0edcc7d4555b114571ff46e9a6e1a3056e3e8cf8e625eb70f1e10aec5e",
+    "preset": "megaextreme",
+    "source_rate_hz": 44100,
+    "output_rate_hz": 176400,
+    "headroom_dbfs": -12.0,
+    "output_format": "signed PCM24 WAV",
+    "dither_control": "not exposed; CLI reports one-LSB TPDF",
+    "alignment": "impulse principal peak; packet quadrature-envelope energy centroid",
+    "analysis_tail_ms": 6000.0,
+    "packet_cycles": 8.0,
+    "renders_sha256": {
+      "impulse.wav": "1cc8bcf22aafe7cf35e4530cae87fe0fd026504ec7ec647305cae38369771393",
+      "impulse-repeat.wav": "1cc8bcf22aafe7cf35e4530cae87fe0fd026504ec7ec647305cae38369771393",
+      "silence.wav": "b160d68b35ad5e66f0a8040c4489704bb1785cbe160ba0df55de8a8c399b4251",
+      "silence-repeat.wav": "b160d68b35ad5e66f0a8040c4489704bb1785cbe160ba0df55de8a8c399b4251",
+      "step.wav": "e6d6d68dcd7c4d95d6e59fd3a106efac25e8f132ff048eb772a889bd50127714",
+      "tone-5000-i.wav": "a1c4a25ae41a7092b6a7889e5b0499baf6f6568ae3165e82b281a40c81e6a9d4",
+      "tone-5000-q.wav": "ae38832cda357248750d4e453958a5607188f1a18a44e2e11150e5553941b571",
+      "tone-10000-i.wav": "6f9d23ef018f9d872318ada13880b0481a3356f418373dd9476395fcabf2b35d",
+      "tone-10000-q.wav": "6d61c6cf681b9fd52a74ae1ee4284b870d2cd3c536780643230fa8fe006df01d",
+      "tone-15000-i.wav": "2d488ea60c7ebf67000bc2322622ece2cd5d736154a8c49bf81a93fa70840794",
+      "tone-15000-q.wav": "49933be36abbbd7a6ba861767bf250d70ede4e325b98ac4910170447ac97de36",
+      "tone-18000-i.wav": "357857938a1f50b22b96c4490b619f0a04b0934cebe890f5704c796158370446",
+      "tone-18000-q.wav": "a36153e32f57de1248fe7194680cdb432c24116a97a7e0bfd1a28e9695203158",
+      "tone-20000-i.wav": "0f835f9741a3eaf93b10480ef138105cd5ea16d5db3d936adaad10865e75bd89",
+      "tone-20000-q.wav": "d03b1d1d5a9c34e93e4138062ec0a30420d5fff73d73a843564f79862af598ba"
+    }
+  },
+  "baseline_benchmark_sources": {
+    "src/bin/filter_timing_bench.rs": "dcc5545968d6878d34a8223571820289f5168e60abc9ef8febe6d231378c6a38",
+    "src/bin/external_filter_bench.rs": "ab9a0c4cef33535daf86fe7780e87dba1e3743c333ba59a116c57bb689d6b08a",
+    "src/audio/dsp/timing.rs": "d71ec2e14df08570ff63818d7d6bd7baefb974cd1e4b832bdac9a8bece779210",
+    "tools/split_phase_v6/evaluate_e3_packets.py": "4e91f305138debfb236e872c355d762d12ceeab1c8e369f0bb63d5642988ede4"
+  },
+  "e3_report_sources": {
+    "src/bin/filter_timing_bench.rs": "93b4537df7dc913e63aa5a111216254f50966d7a69d58da5913283bad9bb608c",
+    "src/bin/external_filter_bench.rs": "e3ef18f087b3ef0b0cd37acf3fd54c22ded0589139b9e4fedb337efc48d8ef64",
+    "src/audio/dsp/timing.rs": "27fb24f10e3f53058f5a2aa45dc504f1f15d3dcc71cb9c08e746c12de45438e9"
+  },
+  "e3_frontier_search_sources": {
+    "tools/split_phase_v6/e3_packet_phase_search.py": "bb67651b24bc16d4b3cd3d7709455385bca16d8784fa13d121f81445f7378edd",
+    "tools/split_phase_v6/e3_phase_refine_search.py": "2237042c65a66324be4b939ba3fd106dacdb11a511dadf156c9a1b12ce2f3ce4",
+    "tools/split_phase_v6/export_e3_experimental.py": "da36fe83d2890dcc06695314720c02ecbfd4813d8a1ee31797e37bdd455c014c"
+  }
+}

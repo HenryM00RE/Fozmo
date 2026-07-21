@@ -1,0 +1,110 @@
+{
+  "format_version": 1,
+  "identity": "SplitPhase128kE3-P3-experimental",
+  "runtime_name": "SplitPhase128kE3",
+  "stable_id": 38,
+  "experimental": true,
+  "production_promoted": false,
+  "accepted_full_pipeline": false,
+  "endianness": "little",
+  "scalar": "IEEE-754 binary64",
+  "source": {
+    "baseline_runtime_name": "SplitPhase128kE2v3",
+    "baseline_manifest_sha256": "f37804e0694f585a6ee01231333c8d8d61018d5473795340f4ca6724b9b536c9",
+    "phase_search_report_sha256": "c2e2e848ec06592a83f265bac72333d21c2c86b6a5cfa71f4d952661b549283a",
+    "candidate_identifier": "refine-0900"
+  },
+  "alignment": {
+    "full_rate_origin": 2530,
+    "phase0_prepad": 129807,
+    "phase1_prepad": 129807,
+    "decimation_prepad": 259614
+  },
+  "files": {
+    "character": {
+      "file": "character_full_rate.f64le",
+      "coefficient_count": 262145,
+      "byte_length": 2097160,
+      "sha256": "ae37e2a5838a7510283a0e1a675cfc3eea264628f1a7d62a0e7744a2abb7505b"
+    },
+    "cleanups": [
+      {
+        "file": "cleanup_stage_1.f64le",
+        "coefficient_count": 509,
+        "byte_length": 4072,
+        "sha256": "55bd3926117717b80b4b318cc45afe01c524a0e63ed86487fafdd2a8b771d0ca"
+      },
+      {
+        "file": "cleanup_stage_2.f64le",
+        "coefficient_count": 253,
+        "byte_length": 2024,
+        "sha256": "bbf2ae79f755f8ac900375915e3f32e3bf174a4e1ee43c329e7f1e1c6adbc7eb"
+      },
+      {
+        "file": "cleanup_stage_3.f64le",
+        "coefficient_count": 125,
+        "byte_length": 1000,
+        "sha256": "7c729685ad9e5d7b906102dbf5f04e43d04553c1603ffd4b5419931286629cce"
+      },
+      {
+        "file": "cleanup_stage_4.f64le",
+        "coefficient_count": 61,
+        "byte_length": 488,
+        "sha256": "99960da2cc15896ac5e6536506ebb2c4b5c86d0a92de538b576a3084a774d7a3"
+      },
+      {
+        "file": "cleanup_stage_5.f64le",
+        "coefficient_count": 61,
+        "byte_length": 488,
+        "sha256": "d2750ce9c152349d84a27eae6cba42a565634c0c3789e17039cf845e773c6f8b"
+      },
+      {
+        "file": "cleanup_stage_6.f64le",
+        "coefficient_count": 61,
+        "byte_length": 488,
+        "sha256": "25b760182a9b6db96093146c08e734c9ae6c59c203b86bf84eb14ab24d868fb3"
+      },
+      {
+        "file": "cleanup_stage_7.f64le",
+        "coefficient_count": 61,
+        "byte_length": 488,
+        "sha256": "e2d0ec6b97e8d87bfa8c7f75b6392c44b4e7c2a7ade0b8371a84ba7580f6c0f7"
+      }
+    ],
+    "rational_147_160": {
+      "file": "rational_147_160.f64le",
+      "coefficient_count": 164000,
+      "byte_length": 1312000,
+      "sha256": "f45046de28e7d9503c0dccb5ea2899acacdeb0fcca943f11f610d8bf6ce4dc2f"
+    },
+    "rational_160_147": {
+      "file": "rational_160_147.f64le",
+      "coefficient_count": 301203,
+      "byte_length": 2409624,
+      "sha256": "61e61100da7863faa6eb0505b8ee84224b1dd9da00f386432424899f034dab59"
+    }
+  },
+  "proxy_timing_metrics": {
+    "pre_energy_db_total": -4.85614618315799,
+    "maximum_pre_lobe_db_peak": -22.835289368003764,
+    "post_energy_db_total": -2.852009010367376,
+    "maximum_post_lobe_db_peak": -8.70395773435314,
+    "main_lobe_width_us": 61.9356154437451,
+    "step_overshoot_percent": 9.12014098848064,
+    "step_undershoot_percent": 8.901034086707806,
+    "decay_80_ms": 3.8151927437641726,
+    "decay_120_ms": 6.587301587301587,
+    "centroid_relative_to_peak_ms": 0.06385350038467415,
+    "tail_energy_db_at_1_ms": -20.52815722919696,
+    "tail_energy_db_at_2_ms": -33.06911298519395,
+    "tail_energy_db_at_4_ms": -81.15856750101825,
+    "tail_energy_db_at_8_ms": -113.31945207509948,
+    "tail_energy_db_at_16_ms": -130.65927581769589
+  },
+  "promotion_requirements": [
+    "exact native and matched-band timing reports",
+    "complete interpolation and decimation certification",
+    "complete EcBeam2 and standard-modulator DSD matrix",
+    "determinism and real-time target verification"
+  ]
+}
