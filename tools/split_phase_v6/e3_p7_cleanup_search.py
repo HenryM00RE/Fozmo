@@ -145,8 +145,13 @@ def _frequency_model(
     }
 
 
+def _frequency_fft_length(response_size: int, baseline_size: int) -> int:
+    required = max(response_size, baseline_size)
+    return 1 << max(20, (required - 1).bit_length())
+
+
 def _frequency_metrics(response: np.ndarray, baseline: np.ndarray) -> dict[str, float]:
-    fft_length = 1 << 20
+    fft_length = _frequency_fft_length(response.size, baseline.size)
     candidate_spectrum = np.fft.rfft(response, fft_length)
     baseline_spectrum = np.fft.rfft(baseline, fft_length)
     frequency = np.fft.rfftfreq(fft_length, 1.0 / OUTPUT_RATE_HZ)

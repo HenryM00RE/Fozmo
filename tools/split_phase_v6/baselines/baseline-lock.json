@@ -138,6 +138,42 @@
     "e3_p8_cleanup_support": {
       "path": "tools/split_phase_v6/baselines/e3-p8-cleanup-support.json",
       "sha256": "3c05f1c3f07aff88168193276642c5ae43126468367ae60f9eca2ef38a1280ba"
+    },
+    "e3_p9_fresh_baseline": {
+      "path": "tools/split_phase_v6/baselines/e3-p9-fresh-baseline.json",
+      "sha256": "180c0811b99b96ebdca5cb2ebdc2fff3aa9b0346145884f453065ae15073fae5"
+    },
+    "e3_p9_feasibility_sparse": {
+      "path": "tools/split_phase_v6/baselines/e3-p9-feasibility-sparse.json",
+      "sha256": "6bd36a7bd70af2b17569c27b023cc5ffd0a44fba988dc1024cbb985e709eaf0e"
+    },
+    "e3_p9_feasibility_dense": {
+      "path": "tools/split_phase_v6/baselines/e3-p9-feasibility-dense.json",
+      "sha256": "83813661b8144cb15e35fabbd645df7ec42e43a2b458d5eddfb2a22f8bf271cc"
+    },
+    "e3_p9_timing_search_sparse": {
+      "path": "tools/split_phase_v6/baselines/e3-p9-timing-search-sparse.json",
+      "sha256": "cd138dd23e66f9b4bf4e68e4e52eb74ddce73ea513dab6ce74f79ce378697360"
+    },
+    "e3_p9_timing_search_dense": {
+      "path": "tools/split_phase_v6/baselines/e3-p9-timing-search-dense.json",
+      "sha256": "f4cf6adf7bd9f1ed56a1cc31849707b16c4bb285be2fc8054c7c33c1e53f1bbb"
+    },
+    "e3_p9_nonlinear_multistart": {
+      "path": "tools/split_phase_v6/baselines/e3-p9-nonlinear-multistart.json",
+      "sha256": "262875ce4175e05bf1c191262eabc6d77d46c937ce2d93d1116fd5183d5a3c79"
+    },
+    "e3_p9_nonlinear_boundary": {
+      "path": "tools/split_phase_v6/baselines/e3-p9-nonlinear-boundary.json",
+      "sha256": "ae509b07cad184cfa5b5b6c925198367ee138f66d095103682e1a382566824d1"
+    },
+    "e3_p9_support_frequency": {
+      "path": "tools/split_phase_v6/baselines/e3-p9-support-frequency.json",
+      "sha256": "86d22b68cf17d61102b126b71c2c24eb9c319fd8bbd79b9a898650b3acf6f0fa"
+    },
+    "e3_p9_best_valid_native_timing": {
+      "path": "tools/split_phase_v6/baselines/e3-p9-best-valid-native-timing.json",
+      "sha256": "026107ee70dd04368bb6171c51b4d3c560e3fcd828f4526f66b470369eb3788c"
     }
   },
   "current_e3_asset": {
@@ -154,6 +190,31 @@
     "exact_transition_audit_sha256": "771f70e8ba7506b37e034a0466e9e6c5cdb2c5c74db53cfa8c2cfc071076e143",
     "embedded": false,
     "production_promoted": false
+  },
+  "e3_p9_best_valid_research_only": {
+    "candidate_identifier": "nonlinear-01-side_energy",
+    "character_path": "tools/split_phase_v6/baselines/e3-p9-best-valid-research.f64le",
+    "character_sha256": "3ffaf9b1cf5a407d080b6c378f8286517441449ed2e87919bca32491b23a907c",
+    "native_timing_report_sha256": "026107ee70dd04368bb6171c51b4d3c560e3fcd828f4526f66b470369eb3788c",
+    "clear_replacement": false,
+    "embedded": false,
+    "production_promoted": false
+  },
+  "e3_p9_reproducibility": {
+    "release_benchmark_executable_sha256": "38df594549a489b0ba63f14b53cbac9b1d1ad6417dbc22c02b4ad7a5130263e5",
+    "independent_native_report_sha256": [
+      "180c0811b99b96ebdca5cb2ebdc2fff3aa9b0346145884f453065ae15073fae5",
+      "180c0811b99b96ebdca5cb2ebdc2fff3aa9b0346145884f453065ae15073fae5"
+    ],
+    "independent_group_delay_csv_sha256": [
+      "a17ea2be75c83124394f8b59031d32b28990e7513d4c46bc78a305a47e2ca738",
+      "a17ea2be75c83124394f8b59031d32b28990e7513d4c46bc78a305a47e2ca738"
+    ],
+    "best_valid_native_report_sha256": [
+      "026107ee70dd04368bb6171c51b4d3c560e3fcd828f4526f66b470369eb3788c",
+      "026107ee70dd04368bb6171c51b4d3c560e3fcd828f4526f66b470369eb3788c"
+    ],
+    "exact_repeat_match": true
   },
   "external_product": {
     "version_label": "2.5.16",
@@ -233,5 +294,16 @@
     "tools/split_phase_v6/e3_p8_cleanup_support.py": "31045ca722ed650152d0c0249fc3d971ccf8efee72ab0e683a7b7172df238efc",
     "tools/split_phase_v6/test_e3_p8_capacity.py": "c36e5cbb9a1366e4ce04cd5f684b5d99fbc703a1c1a25846eaa6aa48b738bd33",
     "tools/split_phase_v6/test_e3_p8_cleanup_support.py": "ea6e3b7435fcb4a3ff739573cdb4d4999365252bcb7098440d38dd6152b6a8aa"
+  },
+  "e3_p9_measurement_and_search_sources": {
+    "src/bin/filter_timing_bench.rs": "f3b7e98dc90ac8c98cc0b51c6df053ae29282f2bbe3aecbce4d5983eb1daf975",
+    "tools/split_phase_v6/e3_p7_cleanup_search.py": "26304d10a68f3598c061d57533b710dd3f4360cdab4f95ff64c67a67d94d8da0",
+    "tools/split_phase_v6/e3_p9_feasibility.py": "ee408fd9712167aa1a23d22aa85c7d690c8656d5435344324684d73fb49f9470",
+    "tools/split_phase_v6/e3_p9_timing_search.py": "51e5b5ace32c638db1664d8cb8c62974d8d1c9cfd64f01014f4a5587d7d41040",
+    "tools/split_phase_v6/e3_p9_nonlinear_refine.py": "78c6664373a0ea5876de38e66453457cbd298c911b1240b446e8da5d94a1c1a1",
+    "tools/split_phase_v6/e3_p9_support_frequency_audit.py": "e2142a3ffad0fca18def4be3a35a81983dc9f007bc200aeb5d4f99efda9b5aa9",
+    "tools/split_phase_v6/test_e3_p9_feasibility.py": "5266e12508d97b8261c6a770cad07c0a30e3d117c019bdf2c7fe87a05addb1fb",
+    "tools/split_phase_v6/test_e3_p9_timing_search.py": "4e74508f17719f693ad1d49719a78feea6e52e269784355cb334a37adbda4abc",
+    "tools/split_phase_v6/test_e3_p9_nonlinear_refine.py": "63048e3171cc0d439d7da59ceeea02174cbfe12e0f09c3dafe545031f8003d7e"
   }
 }

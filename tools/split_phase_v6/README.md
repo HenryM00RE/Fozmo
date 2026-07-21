@@ -440,3 +440,88 @@ P8 therefore finds no capacity-bound route beyond `p6d-local-0145`. No P8
 candidate becomes an incumbent, exact DSD finalist testing is not warranted,
 and final production assets are not regenerated. E2v3 remains the production
 default and `p6d-local-0145` remains the immutable E3 research frontier.
+
+## P9 timing-first replacement campaign
+
+P9 tests a stricter product question than P6-P8: can one deterministic static
+filter deliver a clearly material timing improvement while preserving the
+production E2v3 onset behaviour? `e3_p9_feasibility.py` therefore anchors every
+hard gate to a fresh E2v3 build rather than treating the packet-regressing P6
+incumbent as the safety reference. Integrated onset pre-echo and maximum onset
+pre-echo at 5, 10, 15, 18, and 20 kHz may each move by at most `+0.10 dB`.
+Core timing tolerances are frozen, passband movement below 18 kHz is limited to
+`0.001 dB`, and the deliberately relaxed stopband floor is `-150 dB`.
+
+A replacement must improve maximum pre-lobe by at least `2 dB` and improve at
+least three of maximum post-lobe (`0.25 dB`), either side-energy metric
+(`0.10 dB`), main-lobe width (`2 us`), overshoot (`0.5` percentage point), or
+undershoot (`0.5` percentage point). This prevents a candidate from becoming
+the incumbent on numerical trivia.
+
+The fresh native E2v3/P6 report is exactly reproducible across two independent
+output directories. Both JSON reports hash to
+`180c0811b99b96ebdca5cb2ebdc2fff3aa9b0346145884f453065ae15073fae5`,
+both group-delay CSVs hash to
+`a17ea2be75c83124394f8b59031d32b28990e7513d4c46bc78a305a47e2ca738`,
+and the release benchmark executable hashes to
+`38df594549a489b0ba63f14b53cbac9b1d1ad6417dbc22c02b4ad7a5130263e5`.
+The E2-to-P6 phase homotopy can retain the strict packet contract only through
+an interpolation fraction of `0.004216965`; that amount moves maximum pre-lobe
+by only a few hundredths of a decibel. The full P6 timing point remains far
+outside the production packet envelope, particularly at 15, 18, and 20 kHz.
+
+Two deterministic Sobol searches then use sparse and dense compact phase grids
+plus bounded top-octave micro-apodization. The dense grid has 20 phase and eight
+magnitude coordinates. It evaluates 8,192 linearized points and exact-tests
+256 static and 64 packet candidates at each of 262,145, 524,289, and 1,048,577
+taps. It produces 81 exact packet-safe records but zero clear replacements.
+Its strongest pre-lobe result is only `0.01758 dB` better than E2v3.
+
+`e3_p9_nonlinear_refine.py` adds an exact seven-dimensional packet-null timing
+subspace, three independent starts, three objectives, feasible-iterate
+retention, and deterministic boundary recovery. The best exact/native valid
+point is `nonlinear-01-side_energy`:
+
+| Native metric | E2v3 delta |
+| --- | ---: |
+| Maximum pre-lobe | `-0.07969 dB` |
+| Maximum post-lobe | `-0.01612 dB` |
+| Pre-energy | `-0.01316 dB` |
+| Post-energy | `+0.00465 dB` |
+| Main-lobe width | `-0.0293 us` |
+| Step overshoot | `-0.0266 percentage point` |
+| Step undershoot | `-0.0641 percentage point` |
+| Decay to -120 dB | `-0.0850 ms` |
+| Worst onset packet | `+0.08921 dB` at 18 kHz |
+
+That is a valid but immaterial movement: it reaches only four percent of the
+required pre-lobe effect and no secondary promotion threshold. Exact segment
+backtracking confirms the active boundary. A representative rejected endpoint
+improves pre-lobe by only `0.08522 dB`, but already increases decay by
+`0.26644 ms` and violates the 18 kHz integrated packet gate. The complete
+multi-start and boundary reports preserve both valid and rejected endpoints.
+
+P9 explicitly performs the requested million-tap reference even though P8 did
+not find evidence that support was binding. Timing differences between the
+262,145-tap result and the two longer supports are about `1e-12`, and packet
+differences are at most `2.13e-10 dB`. The support-aware spectral audit covers
+the complete million-tap response with a 2,097,152-point FFT:
+
+| Character taps | Stopband maximum | Passband delta below 18 kHz |
+| ---: | ---: | ---: |
+| 262,145 | `-176.72619493 dB` | `0.000004965 dB` |
+| 524,289 | `-176.72619343 dB` | `0.000004965 dB` |
+| 1,048,577 | `-176.72619377 dB` | `0.000004965 dB` |
+
+The million-tap realization therefore improves neither timing nor meaningful
+noise rejection for this target. `e3-p9-best-valid-research.f64le` is retained
+only to make the native cross-check reproducible; it is not an incumbent or a
+shipping asset. Its SHA-256 is
+`3ffaf9b1cf5a407d080b6c378f8286517441449ed2e87919bca32491b23a907c`.
+
+No P9 candidate reaches the predeclared replacement effect size, so the
+conditional DSD, real-time, and final-asset gates are intentionally not run.
+There is no runtime enum, manifest, coefficient, or default-filter change.
+E2v3 remains the production default, and `p6d-local-0145` remains the separate
+research timing frontier while failing P9's strict production packet-parity
+contract.
