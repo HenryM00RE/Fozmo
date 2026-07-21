@@ -32,7 +32,7 @@ upnp = []
 experimental_dsd256 = []
 dev-secrets-file = []
 ecbeam2_observer = []
-# Research-only runtime replacement of the experimental E3 character asset.
+# Research-only runtime replacement of the Split Phase B character asset.
 # Normal production builds do not compile the loader or expose its CLI flags.
 research-filter-assets = []
 
@@ -121,11 +121,6 @@ path = "src/bin/dsd_modulator_bench.rs"
 [[bin]]
 name = "dsd_public_quality"
 path = "audio_tests/dsd_public_quality.rs"
-
-[[bin]]
-name = "e3_transition_probe"
-path = "audio_tests/e3_transition_probe.rs"
-required-features = ["research-filter-assets"]
 
 [[test]]
 name = "audio_smoke"

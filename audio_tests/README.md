@@ -50,10 +50,10 @@ with a frozen report using linear-power positive excess, and
 The existing percentile-derived first-crossing recovery time remains a
 secondary diagnostic.
 
-The optional `research-filter-assets` Cargo feature adds an E3-only,
-hash-verified `--experimental-character-file` loader for offline research. It
-is not compiled into ordinary product or canonical bench builds and does not
-replace E2v3 cleanup or rational assets.
+The optional `research-filter-assets` Cargo feature adds a Split Phase B-only,
+hash-verified `--experimental-character-file` loader for offline filter work.
+It is not compiled into ordinary product or canonical bench builds and does
+not replace the frozen cleanup or rational assets.
 
 Add `--include-rate-comparison` for non-scoring DSD128 hi-res cells. This runs
 the same 176.4 kHz four-carrier fixture used at DSD256, allowing a direct raw

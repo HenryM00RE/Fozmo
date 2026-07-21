@@ -123,6 +123,7 @@ export const filterOptions = [
   ['LinearPhase128k', 'Linear Phase'],
   ['MinimumPhaseCompact128k', 'Minimum Phase'],
   ['SplitPhase128kE2v3', 'Split Phase'],
+  ['SplitPhase128kE3', 'Split Phase B'],
   ['SmoothPhase128k', 'Smooth Phase']
 ] as const;
 
@@ -235,6 +236,7 @@ export function ecBeam2FilterSupported(filterType: unknown) {
     filterType === 'SplitPhase128kV3' ||
     filterType === 'SplitPhase128kV4' ||
     filterType === 'SplitPhase128kE2v3' ||
+    filterType === 'SplitPhase128kE3' ||
     filterType === 'SmoothPhase128k'
   );
 }
@@ -709,6 +711,7 @@ export function compactFilterName(name: unknown) {
     SplitPhase128kV3: 'Split Phase',
     SplitPhase128kV4: 'Split Phase',
     SplitPhase128kE2v3: 'Split Phase',
+    SplitPhase128kE3: 'Split Phase B',
     IntegratedPhase128k: 'Integrated Phase 1',
     IntegratedPhase128kV2: 'Integrated Phase 2',
     IntegratedPhase128kV3: 'Integrated Phase 3',

@@ -92,8 +92,8 @@ squared before subtraction. Reference contract/version mismatches and missing
 cells fail closed. Decibels are presentation only; optimizer inputs remain
 linear power.
 
-`research-filter-assets` is a non-production Cargo feature for exact E3
-candidate reruns. It adds `--experimental-character-file` and
+`research-filter-assets` is a non-production Cargo feature for exact Split
+Phase B candidate reruns. It adds `--experimental-character-file` and
 `--experimental-character-sha256`, requires the E3 filter, validates exact
 length, finite binary64 values, SHA-256, and DC normalization, and records the
 loaded identity in JSON and Markdown. Normal builds expose neither flag.

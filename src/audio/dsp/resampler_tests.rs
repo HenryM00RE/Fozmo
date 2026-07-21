@@ -1179,6 +1179,14 @@ fn filter_ids_are_backward_compatible() {
         Some(FilterType::SplitPhase128kE3)
     );
     assert_eq!(
+        FilterType::from_name("SplitPhaseB"),
+        Some(FilterType::SplitPhase128kE3)
+    );
+    assert_eq!(
+        serde_json::from_str::<FilterType>("\"split-phase-b\"").unwrap(),
+        FilterType::SplitPhase128kE3
+    );
+    assert_eq!(
         serde_json::from_str::<FilterType>("\"SplitPhase128kV3\"").unwrap(),
         FilterType::SplitPhase128kV3
     );
@@ -3054,7 +3062,7 @@ fn planner_routes_split_phase_v4_to_its_frozen_bundle() {
 }
 
 #[test]
-fn planner_routes_split_phase_e2v3_to_its_experimental_bundle() {
+fn planner_routes_split_phase_e2v3_to_its_frozen_bundle() {
     let plan =
         build_integer_stage_plan(44_100, 11_289_600, FilterType::SplitPhase128kE2v3, 1_000.0)
             .expect("Split Phase E2v3 256x plan");
@@ -3099,9 +3107,9 @@ fn planner_extends_split_phase_e2v3_to_512x_with_terminal_cleanup() {
 }
 
 #[test]
-fn planner_routes_split_phase_e3_to_its_experimental_bundle() {
+fn planner_routes_split_phase_b_to_its_frozen_bundle() {
     let plan = build_integer_stage_plan(44_100, 11_289_600, FilterType::SplitPhase128kE3, 1_000.0)
-        .expect("Split Phase E3 256x plan");
+        .expect("Split Phase B 256x plan");
     assert!(matches!(
         plan.stages[0],
         StageSpec::Character2x {
@@ -3293,6 +3301,38 @@ fn split_phase_e3_generated_constants_match_embedded_assets() {
             .collect::<Vec<_>>();
         assert_eq!(format!("{:x}", Sha256::digest(&bytes)), expected);
     }
+}
+
+#[test]
+fn split_phase_b_manifest_matches_the_promoted_asset() {
+    let asset_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/filters/split_phase_e3");
+    let manifest: serde_json::Value = serde_json::from_slice(
+        &fs::read(asset_dir.join("manifest.json")).expect("Split Phase B manifest"),
+    )
+    .expect("valid Split Phase B manifest JSON");
+    assert_eq!(manifest["runtime_name"], "SplitPhase128kE3");
+    assert_eq!(manifest["display_name"], "Split Phase B");
+    assert_eq!(manifest["experimental"], false);
+    assert_eq!(manifest["production_promoted"], true);
+    assert_eq!(manifest["accepted_full_pipeline"], true);
+    assert_eq!(
+        manifest["files"]["character"]["sha256"],
+        SPLIT_PHASE_E3_CHARACTER_SHA256
+    );
+
+    let certification: serde_json::Value = serde_json::from_slice(
+        &fs::read(asset_dir.join("certification.json")).expect("Split Phase B certification"),
+    )
+    .expect("valid Split Phase B certification JSON");
+    assert_eq!(
+        certification["promotion"]["production_asset_integrated"],
+        true
+    );
+    assert_eq!(certification["promotion"]["ui_exposed"], true);
+    assert_eq!(
+        certification["candidate"]["character_sha256"],
+        SPLIT_PHASE_E3_CHARACTER_SHA256
+    );
 }
 
 #[test]

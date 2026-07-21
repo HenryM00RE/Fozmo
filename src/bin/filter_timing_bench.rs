@@ -399,7 +399,7 @@ fn display_name(filter: FilterType) -> &'static str {
         FilterType::LinearPhase128k => "Linear Phase",
         FilterType::MinimumPhaseCompact128k => "Minimum Phase",
         FilterType::SplitPhase128kE2v3 => "Split Phase",
-        FilterType::SplitPhase128kE3 => "Split Phase E3 (experimental)",
+        FilterType::SplitPhase128kE3 => "Split Phase B",
         FilterType::SmoothPhase128k => "Smooth Phase",
         _ => unreachable!("production filter list is closed"),
     }

@@ -24,10 +24,7 @@ const FOZMO_FILTERS: [(FilterType, &str); 5] = [
     (FilterType::LinearPhase128k, "Fozmo Linear Phase"),
     (FilterType::MinimumPhaseCompact128k, "Fozmo Minimum Phase"),
     (FilterType::SplitPhase128kE2v3, "Fozmo Split Phase"),
-    (
-        FilterType::SplitPhase128kE3,
-        "Fozmo Split Phase E3 (experimental)",
-    ),
+    (FilterType::SplitPhase128kE3, "Fozmo Split Phase B"),
     (FilterType::SmoothPhase128k, "Fozmo Smooth Phase"),
 ];
 const TONES: [f64; 5] = [5_000.0, 10_000.0, 15_000.0, 18_000.0, 20_000.0];

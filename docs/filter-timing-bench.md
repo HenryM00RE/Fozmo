@@ -2,13 +2,12 @@
 
 The timing bench measures the exact `SincResampler` implementation used by
 Fozmo rather than analyzing design-time coefficient prototypes. It covers the
-four filters currently exposed by the product, plus explicitly labelled
-experimental candidates:
+five filters currently exposed by the product:
 
 - Linear Phase (`LinearPhase128k`)
 - Minimum Phase (`MinimumPhaseCompact128k`)
 - Split Phase (`SplitPhase128kE2v3`)
-- Split Phase E3 (`SplitPhase128kE3`, experimental and not the default)
+- Split Phase B (`SplitPhase128kE3`)
 - Smooth Phase (`SmoothPhase128k`)
 
 Run the canonical 44.1 kHz to 176.4 kHz comparison with an optimized build:

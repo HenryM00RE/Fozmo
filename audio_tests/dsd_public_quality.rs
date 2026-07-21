@@ -1178,9 +1178,10 @@ fn parse_filter(value: &str) -> Result<FilterType, String> {
         "split128k" => Ok(FilterType::Split128k),
         "splitphase" | "split-phase" | "splitphase128ke2v3" | "splitphasee2v3"
         | "split-phase-e2v3" => Ok(FilterType::SplitPhase128kE2v3),
-        "splitphase128ke3" | "splitphasee3" | "split-phase-e3" => Ok(FilterType::SplitPhase128kE3),
+        "splitphase128ke3" | "splitphasee3" | "split-phase-e3" | "splitphaseb"
+        | "split-phase-b" => Ok(FilterType::SplitPhase128kE3),
         _ => Err(format!(
-            "unsupported filter {value}; use Split128k, SplitPhase128kE2v3, or SplitPhase128kE3"
+            "unsupported filter {value}; use Split128k, SplitPhase128kE2v3, or SplitPhaseB"
         )),
     }
 }

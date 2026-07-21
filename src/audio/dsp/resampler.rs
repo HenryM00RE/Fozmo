@@ -289,6 +289,7 @@ pub enum FilterType {
     SplitPhase128kV3,
     SplitPhase128kV4,
     SplitPhase128kE2v3,
+    #[serde(alias = "SplitPhaseB", alias = "split-phase-b")]
     SplitPhase128kE3,
     IntegratedPhase128k,
     IntegratedPhase128kV2,
@@ -390,9 +391,8 @@ impl FilterType {
             "SincExtreme32k" => Some(FilterType::SincExtreme32k),
             "LinearPhase128k" => Some(FilterType::LinearPhase128k),
             "Minimum16k" => Some(FilterType::Minimum16k),
-            "SplitPhase128kE3" | "SplitPhaseE3" | "split-phase-e3" => {
-                Some(FilterType::SplitPhase128kE3)
-            }
+            "SplitPhase128kE3" | "SplitPhaseE3" | "split-phase-e3" | "SplitPhaseB"
+            | "split-phase-b" => Some(FilterType::SplitPhase128kE3),
             "Split128k"
             | "Split128kTap"
             | "Split128k-Tap"
@@ -3794,7 +3794,7 @@ fn split_phase_e3_character_asset() -> Arc<[f64]> {
             "/assets/filters/split_phase_e3/character_full_rate.f64le"
         )),
         SPLIT_PHASE_E3_CHARACTER_COEFFICIENTS,
-        "Split Phase E3 character",
+        "Split Phase B character",
     )
 }
 
@@ -4096,7 +4096,7 @@ fn split_phase_e3_assets() -> &'static FrozenFilterAssetBundle {
                     "/assets/filters/split_phase_e3/cleanup_stage_1.f64le"
                 )),
                 SPLIT_PHASE_E3_CLEANUP_COEFFICIENTS[0],
-                "Split Phase E3 cleanup stage 1",
+                "Split Phase B cleanup stage 1",
             ),
             decode_f64le_asset(
                 include_bytes!(concat!(
@@ -4104,7 +4104,7 @@ fn split_phase_e3_assets() -> &'static FrozenFilterAssetBundle {
                     "/assets/filters/split_phase_e3/cleanup_stage_2.f64le"
                 )),
                 SPLIT_PHASE_E3_CLEANUP_COEFFICIENTS[1],
-                "Split Phase E3 cleanup stage 2",
+                "Split Phase B cleanup stage 2",
             ),
             decode_f64le_asset(
                 include_bytes!(concat!(
@@ -4112,7 +4112,7 @@ fn split_phase_e3_assets() -> &'static FrozenFilterAssetBundle {
                     "/assets/filters/split_phase_e3/cleanup_stage_3.f64le"
                 )),
                 SPLIT_PHASE_E3_CLEANUP_COEFFICIENTS[2],
-                "Split Phase E3 cleanup stage 3",
+                "Split Phase B cleanup stage 3",
             ),
             decode_f64le_asset(
                 include_bytes!(concat!(
@@ -4120,7 +4120,7 @@ fn split_phase_e3_assets() -> &'static FrozenFilterAssetBundle {
                     "/assets/filters/split_phase_e3/cleanup_stage_4.f64le"
                 )),
                 SPLIT_PHASE_E3_CLEANUP_COEFFICIENTS[3],
-                "Split Phase E3 cleanup stage 4",
+                "Split Phase B cleanup stage 4",
             ),
             decode_f64le_asset(
                 include_bytes!(concat!(
@@ -4128,7 +4128,7 @@ fn split_phase_e3_assets() -> &'static FrozenFilterAssetBundle {
                     "/assets/filters/split_phase_e3/cleanup_stage_5.f64le"
                 )),
                 SPLIT_PHASE_E3_CLEANUP_COEFFICIENTS[4],
-                "Split Phase E3 cleanup stage 5",
+                "Split Phase B cleanup stage 5",
             ),
             decode_f64le_asset(
                 include_bytes!(concat!(
@@ -4136,7 +4136,7 @@ fn split_phase_e3_assets() -> &'static FrozenFilterAssetBundle {
                     "/assets/filters/split_phase_e3/cleanup_stage_6.f64le"
                 )),
                 SPLIT_PHASE_E3_CLEANUP_COEFFICIENTS[5],
-                "Split Phase E3 cleanup stage 6",
+                "Split Phase B cleanup stage 6",
             ),
             decode_f64le_asset(
                 include_bytes!(concat!(
@@ -4144,7 +4144,7 @@ fn split_phase_e3_assets() -> &'static FrozenFilterAssetBundle {
                     "/assets/filters/split_phase_e3/cleanup_stage_7.f64le"
                 )),
                 SPLIT_PHASE_E3_CLEANUP_COEFFICIENTS[6],
-                "Split Phase E3 cleanup stage 7",
+                "Split Phase B cleanup stage 7",
             ),
         ],
         rational_tables: FrozenRationalTables {
@@ -4154,7 +4154,7 @@ fn split_phase_e3_assets() -> &'static FrozenFilterAssetBundle {
                     "/assets/filters/split_phase_e3/rational_147_160.f64le"
                 )),
                 SPLIT_PHASE_E3_RATIONAL_147_160_COEFFICIENTS,
-                "Split Phase E3 rational 147/160",
+                "Split Phase B rational 147/160",
             ),
             phase_160_147: decode_f64le_asset(
                 include_bytes!(concat!(
@@ -4162,7 +4162,7 @@ fn split_phase_e3_assets() -> &'static FrozenFilterAssetBundle {
                     "/assets/filters/split_phase_e3/rational_160_147.f64le"
                 )),
                 SPLIT_PHASE_E3_RATIONAL_160_147_COEFFICIENTS,
-                "Split Phase E3 rational 160/147",
+                "Split Phase B rational 160/147",
             ),
         },
         alignment: FrozenAlignment {
