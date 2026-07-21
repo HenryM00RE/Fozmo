@@ -32,6 +32,9 @@ upnp = []
 experimental_dsd256 = []
 dev-secrets-file = []
 ecbeam2_observer = []
+# Research-only runtime replacement of the experimental E3 character asset.
+# Normal production builds do not compile the loader or expose its CLI flags.
+research-filter-assets = []
 
 [profile.release]
 opt-level = 3

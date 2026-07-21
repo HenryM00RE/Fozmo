@@ -5,6 +5,7 @@ mod external_product;
 #[path = "dsd_public/signals.rs"]
 mod signals;
 
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -26,20 +27,25 @@ use fozmo::audio::dsd::dsd_render::{
     DSD_PRODUCTION_POLICY_VERSION, DsdRate, DsdRenderer, dsd_source_window_to_modulator_samples,
 };
 use fozmo::audio::dsd::native_dsd::NativeDsdOrder;
+#[cfg(feature = "research-filter-assets")]
+use fozmo::audio::dsp::resampler::install_research_e3_character_file;
 use fozmo::audio::dsp::resampler::{DEFAULT_FILTER_TYPE, FilterType};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-const REPORT_SCHEMA_VERSION: &str = "dsd-public-quality-report-v4";
-const MEASUREMENT_VERSION: &str = "dsd-public-quality-v4";
+const REPORT_SCHEMA_VERSION: &str = "dsd-public-quality-report-v5";
+const MEASUREMENT_VERSION: &str = "dsd-public-quality-v5";
 const MATRIX_VERSION: &str = "dsd-public-matrix-28-v6";
 const SCORE_VERSION: &str = "dsd-public-production-score-v3";
 const SCORE_CLAIM: &str = "Fozmo PCM-to-DSD production-path score using Split Phase E2v3";
 const CANONICAL_PRODUCTION_CELL_COUNT: usize = 28;
 const CHUNK_FRAMES: usize = 1024;
 const SPECTRAL_ANALYSIS_FRAMES: usize = 65_536;
-const CANONICAL_CARGO_FEATURES: &str =
+#[cfg(not(feature = "research-filter-assets"))]
+const REQUIRED_CARGO_FEATURES: &str =
     "airplay-helper,default,experimental-dsd256,hegel,local-library,pcm-output,qobuz,sonos,upnp";
+#[cfg(feature = "research-filter-assets")]
+const REQUIRED_CARGO_FEATURES: &str = "airplay-helper,default,experimental-dsd256,hegel,local-library,pcm-output,qobuz,research-filter-assets,sonos,upnp";
 const PRODUCTION_HEADROOM_DB: f64 = -4.0;
 const SEARCH_HEADROOM_DB: f64 = -2.0;
 const DENSITY_LIMIT: f64 = 0.010;
@@ -107,6 +113,24 @@ struct Cli {
     #[arg(long)]
     check: bool,
 
+    /// Frozen v5 E2v3 report whose restart envelopes are the comparison reference.
+    #[arg(long)]
+    transition_envelope_reference: Option<PathBuf>,
+
+    /// Frozen RMS tolerance subtracted in power before positive excess is accumulated.
+    #[arg(long, default_value_t = 0.0)]
+    transition_envelope_tolerance_rms: f64,
+
+    /// Research-only E3 character coefficient file loaded at process startup.
+    #[cfg(feature = "research-filter-assets")]
+    #[arg(long)]
+    experimental_character_file: Option<PathBuf>,
+
+    /// Required SHA-256 for --experimental-character-file.
+    #[cfg(feature = "research-filter-assets")]
+    #[arg(long)]
+    experimental_character_sha256: Option<String>,
+
     /// Add an unnamed external product's EC DSD128 path as diagnostic cells.
     #[arg(long)]
     external_upsampler: Option<PathBuf>,
@@ -166,6 +190,9 @@ struct BenchReport {
     sinad_definition: &'static str,
     unknown_spur_definition: &'static str,
     transition_definition: &'static str,
+    transition_envelope_version: &'static str,
+    transition_envelope_reference: Option<TransitionEnvelopeReferenceMetadata>,
+    research_character: Option<ResearchCharacterMetadata>,
     rolling_density_window_seconds: f64,
     density_hard_gate_scope: &'static str,
     stress_clean_mute_source_frames: usize,
@@ -196,6 +223,21 @@ struct BenchReport {
     hard_failure_count: usize,
     /// Structural failures from optional Linear Phase diagnostic cells.
     diagnostic_hard_failure_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct TransitionEnvelopeReferenceMetadata {
+    path: String,
+    sha256: String,
+    tolerance_rms: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ResearchCharacterMetadata {
+    path: String,
+    sha256: String,
+    coefficient_count: usize,
+    dc_sum: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -445,6 +487,8 @@ struct StressChannelReport {
     restart_residual_rms_1ms_dbfs: f64,
     restart_residual_rms_10ms_dbfs: f64,
     restart_residual_rms_50ms_dbfs: f64,
+    transition_envelope: analysis::TransitionEnvelopeMetrics,
+    transition_envelope_excess_vs_reference: Option<analysis::TransitionEnvelopeExcessMetrics>,
     transition_residual_peak: f64,
     transition_residual_peak_dbfs: f64,
     end_to_end_recovery_time_ms: Option<f64>,
@@ -466,6 +510,7 @@ struct StressTransitionAnalysis {
     restart_residual_rms_1ms_dbfs: f64,
     restart_residual_rms_10ms_dbfs: f64,
     restart_residual_rms_50ms_dbfs: f64,
+    transition_envelope: analysis::TransitionEnvelopeMetrics,
     transition_residual_peak: f64,
 }
 
@@ -554,8 +599,22 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
     require_canonical_build()?;
     reject_filter_overrides()?;
+    if !cli.transition_envelope_tolerance_rms.is_finite()
+        || cli.transition_envelope_tolerance_rms < 0.0
+    {
+        return Err("--transition-envelope-tolerance-rms must be finite and non-negative".into());
+    }
+    let transition_envelope_reference = cli
+        .transition_envelope_reference
+        .as_deref()
+        .map(|path| load_transition_envelope_reference(path, cli.transition_envelope_tolerance_rms))
+        .transpose()?;
     let selected = parse_modulators(&cli.modulator)?;
     let selected_filter = parse_filter(&cli.filter)?;
+    #[cfg(feature = "research-filter-assets")]
+    let research_character = install_research_character(&cli, selected_filter)?;
+    #[cfg(not(feature = "research-filter-assets"))]
+    let research_character: Option<ResearchCharacterMetadata> = None;
     let selected_rates = parse_rates(&cli.rates)?;
     validate_tuning_options(&cli, &selected, &selected_rates)?;
     if cli.external_upsampler.is_some()
@@ -695,6 +754,14 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
         selected_filters.push(format!("ExternalProduct:{}", config.preset));
     }
 
+    if let Some((_, reference)) = &transition_envelope_reference {
+        apply_transition_envelope_reference(
+            &mut cells,
+            reference,
+            cli.transition_envelope_tolerance_rms,
+        )?;
+    }
+
     let successful_production_cell_count = cells.iter().filter(|cell| !cell.diagnostic).count();
     let successful_diagnostic_cell_count = cells.iter().filter(|cell| cell.diagnostic).count();
     let failed_production_cell_count = production_execution_failure_count;
@@ -726,7 +793,12 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
         dbfs_reference: "full-scale-sine: peak amplitude 1.0 and RMS 1/sqrt(2) are both 0 dBFS",
         sinad_definition: "declared carrier power divided by every other in-band component, including declared distortion products",
         unknown_spur_definition: "Blackman-Harris-4 integrated main-lobe power after joint least-squares removal of declared carriers/products and DC; lines unresolved from a declared frequency are absorbed by that fit",
-        transition_definition: "zero-input transition, clean-center mute, and recovered-carrier-model restart residuals are separate; fixed-window RMS, waveform peak, and excess above settled program peak are also reported",
+        transition_definition: "zero-input transition, clean-center mute, and recovered-carrier-model restart residuals are separate; a fixed 0-50 ms, 2 ms sliding mean-square restart envelope is serialized in linear power for frozen-reference comparison; percentile first-crossing recovery remains a secondary diagnostic",
+        transition_envelope_version: analysis::TRANSITION_ENVELOPE_VERSION,
+        transition_envelope_reference: transition_envelope_reference
+            .as_ref()
+            .map(|(metadata, _)| metadata.clone()),
+        research_character,
         rolling_density_window_seconds: ROLLING_DENSITY_WINDOW_SECONDS,
         density_hard_gate_scope: "whole fixture plus idle silence, stress clean-mute, and declared DC sections; analyzed AC-section density remains diagnostic",
         stress_clean_mute_source_frames: signals::STRESS_MUTE_FRAMES,
@@ -807,6 +879,174 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
     Ok((report, paths))
 }
 
+#[cfg(feature = "research-filter-assets")]
+fn install_research_character(
+    cli: &Cli,
+    selected_filter: FilterType,
+) -> Result<Option<ResearchCharacterMetadata>, String> {
+    let (path, expected_sha256) = match (
+        cli.experimental_character_file.as_deref(),
+        cli.experimental_character_sha256.as_deref(),
+    ) {
+        (None, None) => return Ok(None),
+        (Some(_), None) => {
+            return Err(
+                "--experimental-character-file requires --experimental-character-sha256".into(),
+            );
+        }
+        (None, Some(_)) => {
+            return Err(
+                "--experimental-character-sha256 requires --experimental-character-file".into(),
+            );
+        }
+        (Some(path), Some(expected_sha256)) => (path, expected_sha256),
+    };
+    if selected_filter != FilterType::SplitPhase128kE3 {
+        return Err(
+            "research character assets may only be used with --filter SplitPhase128kE3".into(),
+        );
+    }
+    let installed = install_research_e3_character_file(path, expected_sha256)?;
+    eprintln!(
+        "loaded research E3 character {} (sha256 {})",
+        path.display(),
+        installed.sha256
+    );
+    Ok(Some(ResearchCharacterMetadata {
+        path: path.display().to_string(),
+        sha256: installed.sha256,
+        coefficient_count: installed.coefficient_count,
+        dc_sum: installed.dc_sum,
+    }))
+}
+
+type TransitionEnvelopeReferenceMap =
+    HashMap<(String, String, String), analysis::TransitionEnvelopeMetrics>;
+
+fn load_transition_envelope_reference(
+    path: &Path,
+    tolerance_rms: f64,
+) -> Result<
+    (
+        TransitionEnvelopeReferenceMetadata,
+        TransitionEnvelopeReferenceMap,
+    ),
+    String,
+> {
+    let bytes = fs::read(path)
+        .map_err(|error| format!("could not read transition-envelope reference: {error}"))?;
+    let root: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("invalid transition-envelope reference JSON: {error}"))?;
+    let version = root
+        .get("transition_envelope_version")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "transition-envelope reference has no contract version".to_string())?;
+    if version != analysis::TRANSITION_ENVELOPE_VERSION {
+        return Err(format!(
+            "transition-envelope reference version {version:?} does not match {:?}",
+            analysis::TRANSITION_ENVELOPE_VERSION
+        ));
+    }
+    let cells = root
+        .get("cells")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "transition-envelope reference has no cells".to_string())?;
+    let mut reference = HashMap::new();
+    for cell in cells {
+        let scenario = cell
+            .get("scenario")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let modulator = cell
+            .get("modulator")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let measurements = cell
+            .get("measurements")
+            .and_then(serde_json::Value::as_object);
+        if measurements
+            .and_then(|value| value.get("kind"))
+            .and_then(serde_json::Value::as_str)
+            != Some("high_frequency_stress")
+        {
+            continue;
+        }
+        let channels = measurements
+            .and_then(|value| value.get("channels"))
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| "stress reference cell has no channels".to_string())?;
+        for channel in channels {
+            let channel_name = channel
+                .get("channel")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "stress reference channel has no name".to_string())?;
+            let envelope_value = channel
+                .get("transition_envelope")
+                .cloned()
+                .ok_or_else(|| "stress reference channel has no envelope".to_string())?;
+            let envelope: analysis::TransitionEnvelopeMetrics =
+                serde_json::from_value(envelope_value).map_err(|error| {
+                    format!("invalid {scenario}/{modulator}/{channel_name} envelope: {error}")
+                })?;
+            let key = (
+                scenario.to_string(),
+                modulator.to_string(),
+                channel_name.to_string(),
+            );
+            if reference.insert(key.clone(), envelope).is_some() {
+                return Err(format!(
+                    "duplicate transition-envelope reference for {}/{}/{}",
+                    key.0, key.1, key.2
+                ));
+            }
+        }
+    }
+    if reference.is_empty() {
+        return Err("transition-envelope reference contains no stress envelopes".to_string());
+    }
+    Ok((
+        TransitionEnvelopeReferenceMetadata {
+            path: path.display().to_string(),
+            sha256: sha256_bytes(&bytes),
+            tolerance_rms,
+        },
+        reference,
+    ))
+}
+
+fn apply_transition_envelope_reference(
+    cells: &mut [CellReport],
+    reference: &TransitionEnvelopeReferenceMap,
+    tolerance_rms: f64,
+) -> Result<(), String> {
+    for cell in cells {
+        let ScenarioMeasurements::HighFrequencyStress { channels, .. } = &mut cell.measurements
+        else {
+            continue;
+        };
+        for channel in channels {
+            let key = (
+                cell.scenario.clone(),
+                cell.modulator.clone(),
+                channel.channel.to_string(),
+            );
+            let reference_envelope = reference.get(&key).ok_or_else(|| {
+                format!(
+                    "transition-envelope reference is missing {}/{}/{}",
+                    key.0, key.1, key.2
+                )
+            })?;
+            channel.transition_envelope_excess_vs_reference =
+                Some(analysis::compare_transition_envelopes(
+                    &channel.transition_envelope,
+                    reference_envelope,
+                    tolerance_rms,
+                )?);
+        }
+    }
+    Ok(())
+}
+
 fn structural_failure_counts(
     cell_failures: impl IntoIterator<Item = (bool, usize)>,
     production_execution_failures: usize,
@@ -857,11 +1097,11 @@ fn require_canonical_build() -> Result<(), String> {
             env!("FOZMO_BUILD_RUSTFLAGS_DISPLAY")
         ));
     }
-    if !env!("FOZMO_BUILD_CARGO_FEATURES").eq(CANONICAL_CARGO_FEATURES) {
+    if !env!("FOZMO_BUILD_CARGO_FEATURES").eq(REQUIRED_CARGO_FEATURES) {
         failures.push(format!(
             "build Cargo features were {}, expected {}",
             env!("FOZMO_BUILD_CARGO_FEATURES"),
-            CANONICAL_CARGO_FEATURES
+            REQUIRED_CARGO_FEATURES
         ));
     }
     if env!("FOZMO_BUILD_SOURCE_SNAPSHOT_SHA256") == "unavailable" {
@@ -2538,6 +2778,8 @@ fn analyze_stress(
             restart_residual_rms_1ms_dbfs: transition.restart_residual_rms_1ms_dbfs,
             restart_residual_rms_10ms_dbfs: transition.restart_residual_rms_10ms_dbfs,
             restart_residual_rms_50ms_dbfs: transition.restart_residual_rms_50ms_dbfs,
+            transition_envelope: transition.transition_envelope,
+            transition_envelope_excess_vs_reference: None,
             transition_residual_peak: transition.transition_residual_peak,
             transition_residual_peak_dbfs,
             end_to_end_recovery_time_ms,
@@ -2592,6 +2834,8 @@ fn analyze_stress_transition(
     let clean_mute_mean_square =
         clean_mute.iter().map(|sample| sample * sample).sum::<f64>() / clean_mute.len() as f64;
     let restart_residual_peak = analysis::max_abs(&restart_residual);
+    let transition_envelope =
+        analysis::analyze_transition_envelope(&restart_residual, sample_rate)?;
     let settled_program_peak = analysis::max_abs(steady_samples).max(analysis::max_abs(
         &transition_samples[recovered_fit_range.clone()],
     ));
@@ -2621,6 +2865,7 @@ fn analyze_stress_transition(
             sample_rate,
             0.050,
         )?,
+        transition_envelope,
         transition_residual_peak: zero_input_transition_peak.max(restart_residual_peak),
     })
 }
@@ -2931,6 +3176,24 @@ fn markdown_summary(report: &BenchReport) -> String {
         report.dbfs_reference,
         report.rolling_density_window_seconds * 1000.0,
     ));
+    if let Some(character) = &report.research_character {
+        output.push_str(&format!(
+            "Research E3 character: `{}`; SHA-256 `{}`; {} binary64 coefficients; DC sum `{:.17}`.\n\n",
+            character.path,
+            character.sha256,
+            character.coefficient_count,
+            character.dc_sum,
+        ));
+    }
+    if let Some(reference) = &report.transition_envelope_reference {
+        output.push_str(&format!(
+            "Transition-envelope contract `{}` uses frozen reference `{}` (SHA-256 `{}`) with RMS tolerance `{:.3e}`.\n\n",
+            report.transition_envelope_version,
+            reference.path,
+            reference.sha256,
+            reference.tolerance_rms,
+        ));
+    }
     output.push_str("Rated stress preserves each modulator's production headroom and is not a loudness-matched comparison. Use only `matched_effective_peak` stress rows for direct cross-modulator comparison. `SplitPhase128kE2v3` is the only canonical and scoring Split Phase path; optional `SincExtreme32k` cells are a non-scoring Linear Phase diagnostic limited to modulators that support it. Every production modulator is scored at DSD64, DSD128, and DSD256.\n\n");
 
     output.push_str("## Split Phase E2v3 production-path scores\n\n");
@@ -3135,6 +3398,50 @@ fn markdown_summary(report: &BenchReport) -> String {
                 channel.restart_residual_rms_50ms_dbfs,
                 fmt_option(channel.end_to_end_recovery_time_ms),
             ));
+        }
+    }
+
+    output.push_str("\n## Fixed-reference transition envelopes\n\n");
+    output.push_str("| Filter | Modulator | Input contract | Channel | Interval ms | Residual RMS dBFS | Max RMS dBFS | P95 RMS dBFS | Positive excess power-seconds | Max excess power dBFS |\n");
+    output.push_str("| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |\n");
+    for cell in &report.cells {
+        let ScenarioMeasurements::HighFrequencyStress {
+            level_contract,
+            channels,
+        } = &cell.measurements
+        else {
+            continue;
+        };
+        for channel in channels {
+            for (index, interval) in channel.transition_envelope.intervals.iter().enumerate() {
+                let excess = channel
+                    .transition_envelope_excess_vs_reference
+                    .as_ref()
+                    .and_then(|metrics| metrics.intervals.get(index));
+                output.push_str(&format!(
+                    "| {} | {} | {} | {} | {:.0}â€“{:.0} | {:.2} | {:.2} | {:.2} | {} | {} |\n",
+                    cell.filter,
+                    cell.modulator,
+                    level_contract,
+                    channel.channel,
+                    interval.start_ms,
+                    interval.end_ms,
+                    interval.residual_rms_dbfs,
+                    interval.maximum_sliding_rms_dbfs,
+                    interval.percentile_95_sliding_rms_dbfs,
+                    excess.map_or_else(
+                        || "â€”".to_string(),
+                        |metrics| format!(
+                            "{:.9e}",
+                            metrics.integrated_positive_excess_power_linear_seconds
+                        )
+                    ),
+                    excess.map_or_else(
+                        || "â€”".to_string(),
+                        |metrics| format!("{:.2}", metrics.maximum_excess_power_dbfs)
+                    ),
+                ));
+            }
         }
     }
 
@@ -3719,7 +4026,7 @@ mod tests {
     #[test]
     fn canonical_build_rejects_explicit_target_feature_disables() {
         #[cfg(feature = "default")]
-        assert_eq!(env!("FOZMO_BUILD_CARGO_FEATURES"), CANONICAL_CARGO_FEATURES);
+        assert_eq!(env!("FOZMO_BUILD_CARGO_FEATURES"), REQUIRED_CARGO_FEATURES);
         assert!(!rustflags_disable_target_features("-C target-cpu=native"));
         assert!(!rustflags_disable_target_features(
             "-Ctarget-cpu=native -Ctarget-feature=+aes,+neon"

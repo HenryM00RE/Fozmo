@@ -43,6 +43,18 @@ Any reduced `--rates` or `--modulator` selection is noncanonical, reports
 `Split128k` implementation remains selectable only for non-scoring historical
 comparisons.
 
+Version 5 reports also serialize a fixed 2 ms restart-error envelope over
+0-50 ms. `--transition-envelope-reference PATH` compares each stress channel
+with a frozen report using linear-power positive excess, and
+`--transition-envelope-tolerance-rms` supplies the frozen numerical tolerance.
+The existing percentile-derived first-crossing recovery time remains a
+secondary diagnostic.
+
+The optional `research-filter-assets` Cargo feature adds an E3-only,
+hash-verified `--experimental-character-file` loader for offline research. It
+is not compiled into ordinary product or canonical bench builds and does not
+replace E2v3 cleanup or rational assets.
+
 Add `--include-rate-comparison` for non-scoring DSD128 hi-res cells. This runs
 the same 176.4 kHz four-carrier fixture used at DSD256, allowing a direct raw
 DSD128/DSD256 comparison without changing the canonical matrix or scores.

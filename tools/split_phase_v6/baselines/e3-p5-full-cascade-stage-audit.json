@@ -1,0 +1,1541 @@
+{
+  "schema_version": 1,
+  "identity": "SplitPhase128kE3-P5-full-cascade-stage-impulse-envelope-audit",
+  "production_promoted": false,
+  "measurement": {
+    "kind": "exact finite-support effective LTI impulse cascade",
+    "normalization": "independent principal absolute peak per stage",
+    "sliding_window_ms": 2.0,
+    "intervals_ms": [
+      [
+        0.0,
+        2.0
+      ],
+      [
+        2.0,
+        5.0
+      ],
+      [
+        5.0,
+        10.0
+      ],
+      [
+        10.0,
+        25.0
+      ],
+      [
+        25.0,
+        50.0
+      ]
+    ],
+    "trim_before_peak_ms": 25.0,
+    "trim_after_peak_ms": 100.0,
+    "limitation": "isolates interpolation stages; Standard and EcBeam2 reconstructed restart envelopes are measured by dsd_public_quality v5"
+  },
+  "reference": {
+    "name": "SplitPhase128kE2v3",
+    "character_path": "C:\\Users\\Henry\\OneDrive\\Documents\\GitHub\\Fozmo\\assets\\filters\\split_phase_e2v3\\character_full_rate.f64le",
+    "character_sha256": "6fffcf7322e3d170e3160c3527772cdc78894e34d21d22bba16b279574d6b0cb",
+    "cleanup_sha256": {
+      "1": "55bd3926117717b80b4b318cc45afe01c524a0e63ed86487fafdd2a8b771d0ca",
+      "2": "bbf2ae79f755f8ac900375915e3f32e3bf174a4e1ee43c329e7f1e1c6adbc7eb",
+      "3": "7c729685ad9e5d7b906102dbf5f04e43d04553c1603ffd4b5419931286629cce",
+      "4": "99960da2cc15896ac5e6536506ebb2c4b5c86d0a92de538b576a3084a774d7a3",
+      "5": "d2750ce9c152349d84a27eae6cba42a565634c0c3789e17039cf845e773c6f8b",
+      "6": "25b760182a9b6db96093146c08e734c9ae6c59c203b86bf84eb14ab24d868fb3"
+    }
+  },
+  "candidates": [
+    {
+      "name": "refine-0900",
+      "character_path": "C:\\Users\\Henry\\OneDrive\\Documents\\GitHub\\Fozmo\\tools\\split_phase_v6\\work-e3-p3\\pareto\\refine-0900.f64le",
+      "character_sha256": "ae37e2a5838a7510283a0e1a675cfc3eea264628f1a7d62a0e7744a2abb7505b",
+      "stages": [
+        {
+          "stage": "character",
+          "sample_rate_hz": 88200,
+          "integer_ratio_from_source": 2,
+          "candidate_principal_peak_index": 2205,
+          "reference_principal_peak_index": 2205,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -17.511681356314767,
+              "residual_energy_peak_normalized_seconds": 3.5389623884827585e-05,
+              "maximum_sliding_rms_db_peak_relative": -17.511681356314764,
+              "integrated_envelope_power_peak_normalized_seconds": 1.6469907109677244e-06,
+              "reference_residual_rms_db_peak_relative": -16.62812949646531,
+              "residual_rms_delta_db": -0.883551859849458,
+              "maximum_positive_excess_power_peak_normalized": 1.1322592388199581e-05,
+              "integrated_positive_excess_power_peak_normalized_seconds": 5.6091852438962925e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -51.69223653392753,
+              "residual_energy_peak_normalized_seconds": 2.0349494968000546e-08,
+              "maximum_sliding_rms_db_peak_relative": -49.91497930710277,
+              "integrated_envelope_power_peak_normalized_seconds": 2.6000377871968697e-09,
+              "reference_residual_rms_db_peak_relative": -54.76655200306475,
+              "residual_rms_delta_db": 3.0743154691372254,
+              "maximum_positive_excess_power_peak_normalized": 5.702123339554585e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.665799798787116e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.4287442807273,
+              "residual_energy_peak_normalized_seconds": 4.529972611649537e-15,
+              "maximum_sliding_rms_db_peak_relative": -116.83150024413291,
+              "integrated_envelope_power_peak_normalized_seconds": 1.5731450018828876e-15,
+              "reference_residual_rms_db_peak_relative": -157.29152810434758,
+              "residual_rms_delta_db": 36.862783823620276,
+              "maximum_positive_excess_power_peak_normalized": 2.073828482677827e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.5730162654468224e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -144.85098159302345,
+              "residual_energy_peak_normalized_seconds": 4.9090007647135925e-17,
+              "maximum_sliding_rms_db_peak_relative": -137.92949568334518,
+              "integrated_envelope_power_peak_normalized_seconds": 2.928965620397408e-17,
+              "reference_residual_rms_db_peak_relative": -188.89765564105005,
+              "residual_rms_delta_db": 44.0466740480266,
+              "maximum_positive_excess_power_peak_normalized": 1.610832679365227e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 2.928965620397408e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -168.98908526297393,
+              "residual_energy_peak_normalized_seconds": 3.1552333406204703e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.52091897971627,
+              "residual_rms_delta_db": 39.53183371674234,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "stage": "cleanup_1",
+          "sample_rate_hz": 176400,
+          "integer_ratio_from_source": 4,
+          "candidate_principal_peak_index": 4410,
+          "reference_principal_peak_index": 4410,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -19.091022431916787,
+              "residual_energy_peak_normalized_seconds": 2.4670268796578138e-05,
+              "maximum_sliding_rms_db_peak_relative": -19.09102243191678,
+              "integrated_envelope_power_peak_normalized_seconds": 1.310997000113817e-06,
+              "reference_residual_rms_db_peak_relative": -17.98209083181598,
+              "residual_rms_delta_db": -1.1089316001008065,
+              "maximum_positive_excess_power_peak_normalized": 9.975746460770246e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 5.131116589597657e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -52.19470169364367,
+              "residual_energy_peak_normalized_seconds": 1.8092014280542052e-08,
+              "maximum_sliding_rms_db_peak_relative": -50.437958458476764,
+              "integrated_envelope_power_peak_normalized_seconds": 2.1931566958865484e-09,
+              "reference_residual_rms_db_peak_relative": -55.69247764321979,
+              "residual_rms_delta_db": 3.4977759495761163,
+              "maximum_positive_excess_power_peak_normalized": 5.000261779452427e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.4239532586392234e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.85265703732027,
+              "residual_energy_peak_normalized_seconds": 4.108698756321528e-15,
+              "maximum_sliding_rms_db_peak_relative": -117.2654264714062,
+              "integrated_envelope_power_peak_normalized_seconds": 1.4019687080497337e-15,
+              "reference_residual_rms_db_peak_relative": -157.80627698816647,
+              "residual_rms_delta_db": 36.9536199508462,
+              "maximum_positive_excess_power_peak_normalized": 1.87671848474019e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.4019141357951716e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -145.29563878434953,
+              "residual_energy_peak_normalized_seconds": 4.431261510326299e-17,
+              "maximum_sliding_rms_db_peak_relative": -138.3855051644493,
+              "integrated_envelope_power_peak_normalized_seconds": 2.5896731372841946e-17,
+              "reference_residual_rms_db_peak_relative": -189.37655051696507,
+              "residual_rms_delta_db": 44.08091173261553,
+              "maximum_positive_excess_power_peak_normalized": 1.45027207114774e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 2.5896731372841946e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -169.4267535782816,
+              "residual_energy_peak_normalized_seconds": 2.852756153581254e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.9566549777531,
+              "residual_rms_delta_db": 39.5299013994715,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "stage": "cleanup_2",
+          "sample_rate_hz": 352800,
+          "integer_ratio_from_source": 8,
+          "candidate_principal_peak_index": 8820,
+          "reference_principal_peak_index": 8820,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -19.34955227794751,
+              "residual_energy_peak_normalized_seconds": 2.3244536826350902e-05,
+              "maximum_sliding_rms_db_peak_relative": -19.349552277947513,
+              "integrated_envelope_power_peak_normalized_seconds": 1.2750793575975092e-06,
+              "reference_residual_rms_db_peak_relative": -18.179541165555452,
+              "residual_rms_delta_db": -1.1700111123920571,
+              "maximum_positive_excess_power_peak_normalized": 9.898211206569546e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 5.1415817362696634e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -52.238369578085006,
+              "residual_energy_peak_normalized_seconds": 1.7911012353678436e-08,
+              "maximum_sliding_rms_db_peak_relative": -50.481626271455056,
+              "integrated_envelope_power_peak_normalized_seconds": 2.1674151907070825e-09,
+              "reference_residual_rms_db_peak_relative": -55.69822006036265,
+              "residual_rms_delta_db": 3.459850482277645,
+              "maximum_positive_excess_power_peak_normalized": 4.915152572525798e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.4096832197195445e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.85987198795027,
+              "residual_energy_peak_normalized_seconds": 4.101878626282669e-15,
+              "maximum_sliding_rms_db_peak_relative": -117.27212663297098,
+              "integrated_envelope_power_peak_normalized_seconds": 1.3967300782776126e-15,
+              "reference_residual_rms_db_peak_relative": -157.82250295731936,
+              "residual_rms_delta_db": 36.96263096936909,
+              "maximum_positive_excess_power_peak_normalized": 1.873915564741476e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3967169843597643e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -145.3027880972416,
+              "residual_energy_peak_normalized_seconds": 4.423972812306186e-17,
+              "maximum_sliding_rms_db_peak_relative": -138.3953112098916,
+              "integrated_envelope_power_peak_normalized_seconds": 2.512635114413798e-17,
+              "reference_residual_rms_db_peak_relative": -189.38523747927206,
+              "residual_rms_delta_db": 44.08244938203046,
+              "maximum_positive_excess_power_peak_normalized": 1.4470011591205155e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 2.512635114413798e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -169.42921972880984,
+              "residual_energy_peak_normalized_seconds": 2.8511366697393356e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.9565673857959,
+              "residual_rms_delta_db": 39.52734765698605,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "stage": "cleanup_3",
+          "sample_rate_hz": 705600,
+          "integer_ratio_from_source": 16,
+          "candidate_principal_peak_index": 17640,
+          "reference_principal_peak_index": 17640,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -19.481368910157258,
+              "residual_energy_peak_normalized_seconds": 2.2533650320908292e-05,
+              "maximum_sliding_rms_db_peak_relative": -19.481368910157254,
+              "integrated_envelope_power_peak_normalized_seconds": 1.2592448212103147e-06,
+              "reference_residual_rms_db_peak_relative": -18.278733267429153,
+              "residual_rms_delta_db": -1.2026356427281044,
+              "maximum_positive_excess_power_peak_normalized": 9.91043552335816e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 5.14432136729832e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -52.22022894970117,
+              "residual_energy_peak_normalized_seconds": 1.7994483724445535e-08,
+              "maximum_sliding_rms_db_peak_relative": -50.45835736282128,
+              "integrated_envelope_power_peak_normalized_seconds": 2.168978749728282e-09,
+              "reference_residual_rms_db_peak_relative": -55.69456230188912,
+              "residual_rms_delta_db": 3.474333352187948,
+              "maximum_positive_excess_power_peak_normalized": 4.955063690270011e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.4107044307189618e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.86430723369767,
+              "residual_energy_peak_normalized_seconds": 4.097691708440936e-15,
+              "maximum_sliding_rms_db_peak_relative": -117.27451663109845,
+              "integrated_envelope_power_peak_normalized_seconds": 1.3945139814264419e-15,
+              "reference_residual_rms_db_peak_relative": -157.83077598950865,
+              "residual_rms_delta_db": 36.96646875581098,
+              "maximum_positive_excess_power_peak_normalized": 1.873045541015855e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3945139814264419e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -145.30634893312853,
+              "residual_energy_peak_normalized_seconds": 4.420347027150238e-17,
+              "maximum_sliding_rms_db_peak_relative": -138.41343059717056,
+              "integrated_envelope_power_peak_normalized_seconds": 2.3695459517167467e-17,
+              "reference_residual_rms_db_peak_relative": -189.38962458637116,
+              "residual_rms_delta_db": 44.08327565324262,
+              "maximum_positive_excess_power_peak_normalized": 1.4409766395304936e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 2.3695459517167467e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -169.43037308148104,
+              "residual_energy_peak_normalized_seconds": 2.8503795959967334e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.95649140334015,
+              "residual_rms_delta_db": 39.526118321859116,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "stage": "cleanup_4",
+          "sample_rate_hz": 1411200,
+          "integer_ratio_from_source": 32,
+          "candidate_principal_peak_index": 35280,
+          "reference_principal_peak_index": 35280,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -19.418471837889083,
+              "residual_energy_peak_normalized_seconds": 2.2862370465113216e-05,
+              "maximum_sliding_rms_db_peak_relative": -19.41847183788908,
+              "integrated_envelope_power_peak_normalized_seconds": 1.257888004145096e-06,
+              "reference_residual_rms_db_peak_relative": -18.33079868394549,
+              "residual_rms_delta_db": -1.0876731539435944,
+              "maximum_positive_excess_power_peak_normalized": 9.946439715444492e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 5.172656365518746e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -52.21546346647942,
+              "residual_energy_peak_normalized_seconds": 1.8014239783715006e-08,
+              "maximum_sliding_rms_db_peak_relative": -50.45359181209494,
+              "integrated_envelope_power_peak_normalized_seconds": 2.166540631478167e-09,
+              "reference_residual_rms_db_peak_relative": -55.69692856502569,
+              "residual_rms_delta_db": 3.4814650985462663,
+              "maximum_positive_excess_power_peak_normalized": 4.9671455144788675e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.4111324355403136e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.86718500552686,
+              "residual_energy_peak_normalized_seconds": 4.094977348445904e-15,
+              "maximum_sliding_rms_db_peak_relative": -117.27765864813719,
+              "integrated_envelope_power_peak_normalized_seconds": 1.3929549596058097e-15,
+              "reference_residual_rms_db_peak_relative": -157.83495258661884,
+              "residual_rms_delta_db": 36.96776758109198,
+              "maximum_positive_excess_power_peak_normalized": 1.8716909272956603e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3929549596058097e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -145.3094920735596,
+              "residual_energy_peak_normalized_seconds": 4.417149025437519e-17,
+              "maximum_sliding_rms_db_peak_relative": -138.43625621813896,
+              "integrated_envelope_power_peak_normalized_seconds": 2.1257822256030596e-17,
+              "reference_residual_rms_db_peak_relative": -189.39182906730198,
+              "residual_rms_delta_db": 44.08233699374239,
+              "maximum_positive_excess_power_peak_normalized": 1.4334230314253192e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 2.1257822256030596e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -169.43468483005603,
+              "residual_energy_peak_normalized_seconds": 2.84755109557298e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.95644563400626,
+              "residual_rms_delta_db": 39.52176080395023,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "stage": "cleanup_5",
+          "sample_rate_hz": 2822400,
+          "integer_ratio_from_source": 64,
+          "candidate_principal_peak_index": 70560,
+          "reference_principal_peak_index": 70560,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -19.453005752011833,
+              "residual_energy_peak_normalized_seconds": 2.2685314660974276e-05,
+              "maximum_sliding_rms_db_peak_relative": -19.453005752011872,
+              "integrated_envelope_power_peak_normalized_seconds": 1.2536090358848758e-06,
+              "reference_residual_rms_db_peak_relative": -18.357839831511647,
+              "residual_rms_delta_db": -1.095165920500186,
+              "maximum_positive_excess_power_peak_normalized": 9.945016848627064e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 5.175232261883115e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -52.22985316586127,
+              "residual_energy_peak_normalized_seconds": 1.7952530768703653e-08,
+              "maximum_sliding_rms_db_peak_relative": -50.4692637991206,
+              "integrated_envelope_power_peak_normalized_seconds": 2.1597764379072186e-09,
+              "reference_residual_rms_db_peak_relative": -55.699367188620016,
+              "residual_rms_delta_db": 3.4695140227587444,
+              "maximum_positive_excess_power_peak_normalized": 4.938157660801259e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.4073650021761353e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.86824418064214,
+              "residual_energy_peak_normalized_seconds": 4.0939787704234406e-15,
+              "maximum_sliding_rms_db_peak_relative": -117.2791525647461,
+              "integrated_envelope_power_peak_normalized_seconds": 1.3915740925815314e-15,
+              "reference_residual_rms_db_peak_relative": -157.83705092626204,
+              "residual_rms_delta_db": 36.9688067456199,
+              "maximum_positive_excess_power_peak_normalized": 1.871047200650491e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3915740925815314e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -145.31037224903162,
+              "residual_energy_peak_normalized_seconds": 4.4162539018647344e-17,
+              "maximum_sliding_rms_db_peak_relative": -138.49462011938562,
+              "integrated_envelope_power_peak_normalized_seconds": 1.763096394052151e-17,
+              "reference_residual_rms_db_peak_relative": -189.39293404290325,
+              "residual_rms_delta_db": 44.08256179387163,
+              "maximum_positive_excess_power_peak_normalized": 1.414288428520901e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.763096394052151e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -169.4349745087699,
+              "residual_energy_peak_normalized_seconds": 2.847361167433437e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.95642080640388,
+              "residual_rms_delta_db": 39.521446297633986,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "stage": "cleanup_6",
+          "sample_rate_hz": 5644800,
+          "integer_ratio_from_source": 128,
+          "candidate_principal_peak_index": 141120,
+          "reference_principal_peak_index": 141120,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -19.504540208952832,
+              "residual_energy_peak_normalized_seconds": 2.241771594490769e-05,
+              "maximum_sliding_rms_db_peak_relative": -19.50454020895281,
+              "integrated_envelope_power_peak_normalized_seconds": 1.2494911100312517e-06,
+              "reference_residual_rms_db_peak_relative": -18.397715045063958,
+              "residual_rms_delta_db": -1.1068251638888746,
+              "maximum_positive_excess_power_peak_normalized": 9.942691287042916e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 5.175477473597469e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -52.237939705653176,
+              "residual_energy_peak_normalized_seconds": 1.7919134355014156e-08,
+              "maximum_sliding_rms_db_peak_relative": -50.47735036570173,
+              "integrated_envelope_power_peak_normalized_seconds": 2.1564131252024204e-09,
+              "reference_residual_rms_db_peak_relative": -55.70063343533478,
+              "residual_rms_delta_db": 3.462693729681604,
+              "maximum_positive_excess_power_peak_normalized": 4.9226373078632985e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.4054602195817835e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.87026416390655,
+              "residual_energy_peak_normalized_seconds": 4.092075028599972e-15,
+              "maximum_sliding_rms_db_peak_relative": -117.28146126923153,
+              "integrated_envelope_power_peak_normalized_seconds": 1.3894054560035558e-15,
+              "reference_residual_rms_db_peak_relative": -157.8403728502327,
+              "residual_rms_delta_db": 36.97010868632616,
+              "maximum_positive_excess_power_peak_normalized": 1.870052818433927e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3894054560035558e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -145.312065871917,
+              "residual_energy_peak_normalized_seconds": 4.41453202631979e-17,
+              "maximum_sliding_rms_db_peak_relative": -138.71096037259323,
+              "integrated_envelope_power_peak_normalized_seconds": 1.0382716246451505e-17,
+              "reference_residual_rms_db_peak_relative": -189.39475676910692,
+              "residual_rms_delta_db": 44.082690897189906,
+              "maximum_positive_excess_power_peak_normalized": 1.3455627715279843e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.0382716246451505e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -169.43577427930177,
+              "residual_energy_peak_normalized_seconds": 2.8468368628470555e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.95654296320996,
+              "residual_rms_delta_db": 39.52076868390819,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "recovery-0575",
+      "character_path": "C:\\Users\\Henry\\OneDrive\\Documents\\GitHub\\Fozmo\\tools\\split_phase_v6\\work-e3-p4\\pareto\\recovery-0575.f64le",
+      "character_sha256": "30b71f4f227e4be379163ddf03f63af31759d7676adc4ba995c0b11c7eeff28b",
+      "stages": [
+        {
+          "stage": "character",
+          "sample_rate_hz": 88200,
+          "integer_ratio_from_source": 2,
+          "candidate_principal_peak_index": 2205,
+          "reference_principal_peak_index": 2205,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -17.51989424294451,
+              "residual_energy_peak_normalized_seconds": 3.532276226651269e-05,
+              "maximum_sliding_rms_db_peak_relative": -17.519894242944513,
+              "integrated_envelope_power_peak_normalized_seconds": 1.643704029435828e-06,
+              "reference_residual_rms_db_peak_relative": -16.62812949646531,
+              "residual_rms_delta_db": -0.8917647464792005,
+              "maximum_positive_excess_power_peak_normalized": 1.0992384573067909e-05,
+              "integrated_positive_excess_power_peak_normalized_seconds": 5.413331504307069e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -51.72194711376,
+              "residual_energy_peak_normalized_seconds": 2.0210756859375302e-08,
+              "maximum_sliding_rms_db_peak_relative": -49.94469017967706,
+              "integrated_envelope_power_peak_normalized_seconds": 2.5822648861526024e-09,
+              "reference_residual_rms_db_peak_relative": -54.76655200306475,
+              "residual_rms_delta_db": 3.0446048893047504,
+              "maximum_positive_excess_power_peak_normalized": 5.63266083817495e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.6480268977428489e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.4325833104161,
+              "residual_energy_peak_normalized_seconds": 4.525970024485179e-15,
+              "maximum_sliding_rms_db_peak_relative": -116.82778250726649,
+              "integrated_envelope_power_peak_normalized_seconds": 1.5610208618071515e-15,
+              "reference_residual_rms_db_peak_relative": -157.29152810434758,
+              "residual_rms_delta_db": 36.85894479393147,
+              "maximum_positive_excess_power_peak_normalized": 2.075604839517227e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.5608921253710863e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -145.01124576762325,
+              "residual_energy_peak_normalized_seconds": 4.7311496167744235e-17,
+              "maximum_sliding_rms_db_peak_relative": -138.07264845339495,
+              "integrated_envelope_power_peak_normalized_seconds": 2.818189347568262e-17,
+              "reference_residual_rms_db_peak_relative": -188.89765564105005,
+              "residual_rms_delta_db": 43.8864098734268,
+              "maximum_positive_excess_power_peak_normalized": 1.558601732524907e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 2.818189347568262e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -170.60085538881305,
+              "residual_energy_peak_normalized_seconds": 2.1769801534463273e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.52091897971627,
+              "residual_rms_delta_db": 37.920063590903226,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "stage": "cleanup_1",
+          "sample_rate_hz": 176400,
+          "integer_ratio_from_source": 4,
+          "candidate_principal_peak_index": 4410,
+          "reference_principal_peak_index": 4410,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -19.10414210610703,
+              "residual_energy_peak_normalized_seconds": 2.4595854427905958e-05,
+              "maximum_sliding_rms_db_peak_relative": -19.10414210610704,
+              "integrated_envelope_power_peak_normalized_seconds": 1.307557231473016e-06,
+              "reference_residual_rms_db_peak_relative": -17.98209083181598,
+              "residual_rms_delta_db": -1.1220512742910493,
+              "maximum_positive_excess_power_peak_normalized": 9.69224249100831e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 4.935216793881523e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -52.22678778749032,
+              "residual_energy_peak_normalized_seconds": 1.7958841292877184e-08,
+              "maximum_sliding_rms_db_peak_relative": -50.47004475236298,
+              "integrated_envelope_power_peak_normalized_seconds": 2.176814408312098e-09,
+              "reference_residual_rms_db_peak_relative": -55.69247764321979,
+              "residual_rms_delta_db": 3.4656898557294653,
+              "maximum_positive_excess_power_peak_normalized": 4.9337136162671255e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.4076109710647732e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.85911812204644,
+              "residual_energy_peak_normalized_seconds": 4.1025907087443434e-15,
+              "maximum_sliding_rms_db_peak_relative": -117.26442524832083,
+              "integrated_envelope_power_peak_normalized_seconds": 1.3900869475221639e-15,
+              "reference_residual_rms_db_peak_relative": -157.80627698816647,
+              "residual_rms_delta_db": 36.947158866120034,
+              "maximum_positive_excess_power_peak_normalized": 1.8771512515622536e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3900323752676017e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -145.45761183282835,
+              "residual_energy_peak_normalized_seconds": 4.269038542262191e-17,
+              "maximum_sliding_rms_db_peak_relative": -138.53809319916155,
+              "integrated_envelope_power_peak_normalized_seconds": 2.4829791021104516e-17,
+              "reference_residual_rms_db_peak_relative": -189.37655051696507,
+              "residual_rms_delta_db": 43.91893868413672,
+              "maximum_positive_excess_power_peak_normalized": 1.400201956269461e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 2.4829791021104516e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -171.04506212687141,
+              "residual_energy_peak_normalized_seconds": 1.9653223632595765e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.9566549777531,
+              "residual_rms_delta_db": 37.911592850881675,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "stage": "cleanup_2",
+          "sample_rate_hz": 352800,
+          "integer_ratio_from_source": 8,
+          "candidate_principal_peak_index": 8820,
+          "reference_principal_peak_index": 8820,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -19.36346454775764,
+              "residual_energy_peak_normalized_seconds": 2.3170193986074186e-05,
+              "maximum_sliding_rms_db_peak_relative": -19.363464547757655,
+              "integrated_envelope_power_peak_normalized_seconds": 1.2717449631460448e-06,
+              "reference_residual_rms_db_peak_relative": -18.179541165555452,
+              "residual_rms_delta_db": -1.1839233822021882,
+              "maximum_positive_excess_power_peak_normalized": 9.613288377274762e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 4.945973160287501e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -52.2703757986309,
+              "residual_energy_peak_normalized_seconds": 1.7779498686662724e-08,
+              "maximum_sliding_rms_db_peak_relative": -50.5136326884592,
+              "integrated_envelope_power_peak_normalized_seconds": 2.1512627565419207e-09,
+              "reference_residual_rms_db_peak_relative": -55.69822006036265,
+              "residual_rms_delta_db": 3.4278442617317495,
+              "maximum_positive_excess_power_peak_normalized": 4.849433597292036e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3935307855543834e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.86604515843055,
+              "residual_energy_peak_normalized_seconds": 4.096052255179098e-15,
+              "maximum_sliding_rms_db_peak_relative": -117.27090818258974,
+              "integrated_envelope_power_peak_normalized_seconds": 1.3848000713697358e-15,
+              "reference_residual_rms_db_peak_relative": -157.82250295731936,
+              "residual_rms_delta_db": 36.956457798888806,
+              "maximum_positive_excess_power_peak_normalized": 1.8744414267520068e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3847869774518875e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -145.46478594452577,
+              "residual_energy_peak_normalized_seconds": 4.261992337778743e-17,
+              "maximum_sliding_rms_db_peak_relative": -138.53809319916155,
+              "integrated_envelope_power_peak_normalized_seconds": 2.4129979592569268e-17,
+              "reference_residual_rms_db_peak_relative": -189.38523747927206,
+              "residual_rms_delta_db": 43.92045153474629,
+              "maximum_positive_excess_power_peak_normalized": 1.400201956269461e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 2.4129979592569268e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -171.04846461226856,
+              "residual_energy_peak_normalized_seconds": 1.9637832320611291e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.9565673857959,
+              "residual_rms_delta_db": 37.90810277352733,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "stage": "cleanup_3",
+          "sample_rate_hz": 705600,
+          "integer_ratio_from_source": 16,
+          "candidate_principal_peak_index": 17640,
+          "reference_principal_peak_index": 17640,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -19.495717183816474,
+              "residual_energy_peak_normalized_seconds": 2.245932621827543e-05,
+              "maximum_sliding_rms_db_peak_relative": -19.495717183816467,
+              "integrated_envelope_power_peak_normalized_seconds": 1.2559608616878008e-06,
+              "reference_residual_rms_db_peak_relative": -18.278733267429153,
+              "residual_rms_delta_db": -1.2169839163873206,
+              "maximum_positive_excess_power_peak_normalized": 9.628337357332252e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 4.949236125195546e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -52.25228371216315,
+              "residual_energy_peak_normalized_seconds": 1.786215750946488e-08,
+              "maximum_sliding_rms_db_peak_relative": -50.49041232559027,
+              "integrated_envelope_power_peak_normalized_seconds": 2.1528145809209737e-09,
+              "reference_residual_rms_db_peak_relative": -55.69456230188912,
+              "residual_rms_delta_db": 3.442278589725973,
+              "maximum_positive_excess_power_peak_normalized": 4.8888918112768095e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.394540261911653e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.8703685887132,
+              "residual_energy_peak_normalized_seconds": 4.091976637065189e-15,
+              "maximum_sliding_rms_db_peak_relative": -117.27316241042045,
+              "integrated_envelope_power_peak_normalized_seconds": 1.38286243744035e-15,
+              "reference_residual_rms_db_peak_relative": -157.83077598950865,
+              "residual_rms_delta_db": 36.96040740079545,
+              "maximum_positive_excess_power_peak_normalized": 1.8736296867093217e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.38286243744035e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -145.4683798377082,
+              "residual_energy_peak_normalized_seconds": 4.2584668936536956e-17,
+              "maximum_sliding_rms_db_peak_relative": -138.54204568559868,
+              "integrated_envelope_power_peak_normalized_seconds": 2.274047477211689e-17,
+              "reference_residual_rms_db_peak_relative": -189.38962458637116,
+              "residual_rms_delta_db": 43.92124474866296,
+              "maximum_positive_excess_power_peak_normalized": 1.3989282210783546e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 2.274047477211689e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -171.0500605323884,
+              "residual_energy_peak_normalized_seconds": 1.9630617249887577e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.95649140334015,
+              "residual_rms_delta_db": 37.906430870951766,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "stage": "cleanup_4",
+          "sample_rate_hz": 1411200,
+          "integer_ratio_from_source": 32,
+          "candidate_principal_peak_index": 35280,
+          "reference_principal_peak_index": 35280,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -19.432462176070068,
+              "residual_energy_peak_normalized_seconds": 2.278884025110053e-05,
+              "maximum_sliding_rms_db_peak_relative": -19.432462176070054,
+              "integrated_envelope_power_peak_normalized_seconds": 1.2546478159216285e-06,
+              "reference_residual_rms_db_peak_relative": -18.33079868394549,
+              "residual_rms_delta_db": -1.1016634921245796,
+              "maximum_positive_excess_power_peak_normalized": 9.664935614578198e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 4.977495648069784e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -52.247405579659315,
+              "residual_energy_peak_normalized_seconds": 1.7882232119874864e-08,
+              "maximum_sliding_rms_db_peak_relative": -50.48553412582575,
+              "integrated_envelope_power_peak_normalized_seconds": 2.1504632992545745e-09,
+              "reference_residual_rms_db_peak_relative": -55.69692856502569,
+              "residual_rms_delta_db": 3.4495229853663716,
+              "maximum_positive_excess_power_peak_normalized": 4.901132929188706e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3950551033167205e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.87316734089264,
+              "residual_energy_peak_normalized_seconds": 4.089340467456942e-15,
+              "maximum_sliding_rms_db_peak_relative": -117.27602895406255,
+              "integrated_envelope_power_peak_normalized_seconds": 1.3809966109533972e-15,
+              "reference_residual_rms_db_peak_relative": -157.83495258661884,
+              "residual_rms_delta_db": 36.961785245726205,
+              "maximum_positive_excess_power_peak_normalized": 1.8723934128494416e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3809966109533972e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -145.47137264335566,
+              "residual_energy_peak_normalized_seconds": 4.255533314255579e-17,
+              "maximum_sliding_rms_db_peak_relative": -138.59948559741963,
+              "integrated_envelope_power_peak_normalized_seconds": 2.0332046722594206e-17,
+              "reference_residual_rms_db_peak_relative": -189.39182906730198,
+              "residual_rms_delta_db": 43.92045642394632,
+              "maximum_positive_excess_power_peak_normalized": 1.3805477746890962e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 2.0332046722594206e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -171.0540097494284,
+              "residual_energy_peak_normalized_seconds": 1.9612774441959263e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.95644563400626,
+              "residual_rms_delta_db": 37.90243588457787,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "stage": "cleanup_5",
+          "sample_rate_hz": 2822400,
+          "integer_ratio_from_source": 64,
+          "candidate_principal_peak_index": 70560,
+          "reference_principal_peak_index": 70560,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -19.467105246343227,
+              "residual_energy_peak_normalized_seconds": 2.2611785561082026e-05,
+              "maximum_sliding_rms_db_peak_relative": -19.467105246343223,
+              "integrated_envelope_power_peak_normalized_seconds": 1.2503823775842025e-06,
+              "reference_residual_rms_db_peak_relative": -18.357839831511647,
+              "residual_rms_delta_db": -1.1092654148315795,
+              "maximum_positive_excess_power_peak_normalized": 9.663483838685881e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 4.980046677579927e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -52.261759069946606,
+              "residual_energy_peak_normalized_seconds": 1.7821123888326284e-08,
+              "maximum_sliding_rms_db_peak_relative": -50.50116990281269,
+              "integrated_envelope_power_peak_normalized_seconds": 2.143748705453652e-09,
+              "reference_residual_rms_db_peak_relative": -55.699367188620016,
+              "residual_rms_delta_db": 3.4376081186734098,
+              "maximum_positive_excess_power_peak_normalized": 4.872457149019183e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3913372697225683e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.87419810108699,
+              "residual_energy_peak_normalized_seconds": 4.088370013219528e-15,
+              "maximum_sliding_rms_db_peak_relative": -117.27726559910832,
+              "integrated_envelope_power_peak_normalized_seconds": 1.379723696857654e-15,
+              "reference_residual_rms_db_peak_relative": -157.83705092626204,
+              "residual_rms_delta_db": 36.96285282517505,
+              "maximum_positive_excess_power_peak_normalized": 1.871860328387074e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.379723696857654e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -145.47225985030596,
+              "residual_energy_peak_normalized_seconds": 4.2546640531272925e-17,
+              "maximum_sliding_rms_db_peak_relative": -138.6528491121692,
+              "integrated_envelope_power_peak_normalized_seconds": 1.669838364619562e-17,
+              "reference_residual_rms_db_peak_relative": -189.39293404290325,
+              "residual_rms_delta_db": 43.92067419259729,
+              "maximum_positive_excess_power_peak_normalized": 1.3636882195261162e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.669838364619562e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -171.05441024585846,
+              "residual_energy_peak_normalized_seconds": 1.9610965880186554e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.95642080640388,
+              "residual_rms_delta_db": 37.90201056054542,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "stage": "cleanup_6",
+          "sample_rate_hz": 5644800,
+          "integer_ratio_from_source": 128,
+          "candidate_principal_peak_index": 141120,
+          "reference_principal_peak_index": 141120,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -19.518847238487474,
+              "residual_energy_peak_normalized_seconds": 2.2343986431244226e-05,
+              "maximum_sliding_rms_db_peak_relative": -19.518847238487467,
+              "integrated_envelope_power_peak_normalized_seconds": 1.2462661929063464e-06,
+              "reference_residual_rms_db_peak_relative": -18.397715045063958,
+              "residual_rms_delta_db": -1.1211321934235166,
+              "maximum_positive_excess_power_peak_normalized": 9.660677887503346e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 4.980082273393238e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -52.26986956897462,
+              "residual_energy_peak_normalized_seconds": 1.7787873793150848e-08,
+              "maximum_sliding_rms_db_peak_relative": -50.50928042829416,
+              "integrated_envelope_power_peak_normalized_seconds": 2.1403902189145732e-09,
+              "reference_residual_rms_db_peak_relative": -55.70063343533478,
+              "residual_rms_delta_db": 3.4307638663601594,
+              "maximum_positive_excess_power_peak_normalized": 4.8570099534782215e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3894373132939365e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.87621740817389,
+              "residual_energy_peak_normalized_seconds": 4.086469515770757e-15,
+              "maximum_sliding_rms_db_peak_relative": -117.28011096647442,
+              "integrated_envelope_power_peak_normalized_seconds": 1.3775846433932293e-15,
+              "reference_residual_rms_db_peak_relative": -157.8403728502327,
+              "residual_rms_delta_db": 36.964155442058825,
+              "maximum_positive_excess_power_peak_normalized": 1.870634343223867e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3775846433932293e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -145.474005745554,
+              "residual_energy_peak_normalized_seconds": 4.2529539911378485e-17,
+              "maximum_sliding_rms_db_peak_relative": -138.91048000381193,
+              "integrated_envelope_power_peak_normalized_seconds": 9.509451579883699e-18,
+              "reference_residual_rms_db_peak_relative": -189.39475676910692,
+              "residual_rms_delta_db": 43.920751023552924,
+              "maximum_positive_excess_power_peak_normalized": 1.2851446115342113e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 9.509451579883699e-18
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -171.0554151264708,
+              "residual_energy_peak_normalized_seconds": 1.960642877448659e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.95654296320996,
+              "residual_rms_delta_db": 37.901127836739164,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "recovery-2047",
+      "character_path": "C:\\Users\\Henry\\OneDrive\\Documents\\GitHub\\Fozmo\\tools\\split_phase_v6\\work-e3-p4\\pareto\\recovery-2047.f64le",
+      "character_sha256": "becb577bfa00f364a760bbc54b6291ef9e7549a8c5ac8ff3a800a2f1379d0387",
+      "stages": [
+        {
+          "stage": "character",
+          "sample_rate_hz": 88200,
+          "integer_ratio_from_source": 2,
+          "candidate_principal_peak_index": 2205,
+          "reference_principal_peak_index": 2205,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -17.51748178212285,
+              "residual_energy_peak_normalized_seconds": 3.534238914550363e-05,
+              "maximum_sliding_rms_db_peak_relative": -17.517481782122847,
+              "integrated_envelope_power_peak_normalized_seconds": 1.6457438380642398e-06,
+              "reference_residual_rms_db_peak_relative": -16.62812949646531,
+              "residual_rms_delta_db": -0.8893522856575409,
+              "maximum_positive_excess_power_peak_normalized": 1.0974689310643375e-05,
+              "integrated_positive_excess_power_peak_normalized_seconds": 5.403614345200518e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -51.73565797205383,
+              "residual_energy_peak_normalized_seconds": 2.0147051268841466e-08,
+              "maximum_sliding_rms_db_peak_relative": -49.95839082905141,
+              "integrated_envelope_power_peak_normalized_seconds": 2.5708374818420747e-09,
+              "reference_residual_rms_db_peak_relative": -54.76655200306475,
+              "residual_rms_delta_db": 3.0308940310109236,
+              "maximum_positive_excess_power_peak_normalized": 5.600839514139568e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.6365994934323205e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.40717783426983,
+              "residual_energy_peak_normalized_seconds": 4.55252375808332e-15,
+              "maximum_sliding_rms_db_peak_relative": -116.80884196419723,
+              "integrated_envelope_power_peak_normalized_seconds": 1.5813179346548175e-15,
+              "reference_residual_rms_db_peak_relative": -157.29152810434758,
+              "residual_rms_delta_db": 36.884350270077746,
+              "maximum_positive_excess_power_peak_normalized": 2.084678389509391e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.5811891982187524e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -144.84777010590835,
+              "residual_energy_peak_normalized_seconds": 4.9126321769832e-17,
+              "maximum_sliding_rms_db_peak_relative": -137.92201897862518,
+              "integrated_envelope_power_peak_normalized_seconds": 2.933405597036808e-17,
+              "reference_residual_rms_db_peak_relative": -188.89765564105005,
+              "residual_rms_delta_db": 44.0498855351417,
+              "maximum_positive_excess_power_peak_normalized": 1.61360823692679e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 2.933405597036808e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -170.3709992782871,
+              "residual_energy_peak_normalized_seconds": 2.295303298763547e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.52091897971627,
+              "residual_rms_delta_db": 38.149919701429184,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "stage": "cleanup_1",
+          "sample_rate_hz": 176400,
+          "integer_ratio_from_source": 4,
+          "candidate_principal_peak_index": 4410,
+          "reference_principal_peak_index": 4410,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -19.0996045239731,
+              "residual_energy_peak_normalized_seconds": 2.4621566021847584e-05,
+              "maximum_sliding_rms_db_peak_relative": -19.099604523973092,
+              "integrated_envelope_power_peak_normalized_seconds": 1.3097557818228033e-06,
+              "reference_residual_rms_db_peak_relative": -17.98209083181598,
+              "residual_rms_delta_db": -1.117513692157118,
+              "maximum_positive_excess_power_peak_normalized": 9.684427414749529e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 4.934557598741379e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -52.23816373126884,
+              "residual_energy_peak_normalized_seconds": 1.7911861319621742e-08,
+              "maximum_sliding_rms_db_peak_relative": -50.48141979389338,
+              "integrated_envelope_power_peak_normalized_seconds": 2.167748512952287e-09,
+              "reference_residual_rms_db_peak_relative": -55.69247764321979,
+              "residual_rms_delta_db": 3.4543139119509476,
+              "maximum_positive_excess_power_peak_normalized": 4.910239158115179e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3985450757049618e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.83221473213486,
+              "residual_energy_peak_normalized_seconds": 4.128084049480403e-15,
+              "maximum_sliding_rms_db_peak_relative": -117.24396246496086,
+              "integrated_envelope_power_peak_normalized_seconds": 1.4088006665082713e-15,
+              "reference_residual_rms_db_peak_relative": -157.80627698816647,
+              "residual_rms_delta_db": 36.974062256031615,
+              "maximum_positive_excess_power_peak_normalized": 1.886017939242206e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.4087460942537096e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -145.29339222713736,
+              "residual_energy_peak_normalized_seconds": 4.433554345761893e-17,
+              "maximum_sliding_rms_db_peak_relative": -138.3757212104547,
+              "integrated_envelope_power_peak_normalized_seconds": 2.584307198401229e-17,
+              "reference_residual_rms_db_peak_relative": -189.37655051696507,
+              "residual_rms_delta_db": 44.08315828982771,
+              "maximum_positive_excess_power_peak_normalized": 1.453542983174964e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 2.584307198401229e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -170.81363133285254,
+              "residual_energy_peak_normalized_seconds": 2.0728929542848065e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.9566549777531,
+              "residual_rms_delta_db": 38.14302364490055,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "stage": "cleanup_2",
+          "sample_rate_hz": 352800,
+          "integer_ratio_from_source": 8,
+          "candidate_principal_peak_index": 8820,
+          "reference_principal_peak_index": 8820,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -19.358663245432524,
+              "residual_energy_peak_normalized_seconds": 2.319582374368509e-05,
+              "maximum_sliding_rms_db_peak_relative": -19.358663245432535,
+              "integrated_envelope_power_peak_normalized_seconds": 1.2739068944457759e-06,
+              "reference_residual_rms_db_peak_relative": -18.179541165555452,
+              "residual_rms_delta_db": -1.1791220798770716,
+              "maximum_positive_excess_power_peak_normalized": 9.608044288160907e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 4.945042590896844e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -52.28159013849471,
+              "residual_energy_peak_normalized_seconds": 1.7733647738866375e-08,
+              "maximum_sliding_rms_db_peak_relative": -50.524846137706746,
+              "integrated_envelope_power_peak_normalized_seconds": 2.1422646630498427e-09,
+              "reference_residual_rms_db_peak_relative": -55.69822006036265,
+              "residual_rms_delta_db": 3.416629921867944,
+              "maximum_positive_excess_power_peak_normalized": 4.826523280744782e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3845326920623056e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.83926713746608,
+              "residual_energy_peak_normalized_seconds": 4.121385991349876e-15,
+              "maximum_sliding_rms_db_peak_relative": -117.2505077299403,
+              "integrated_envelope_power_peak_normalized_seconds": 1.4034708642711321e-15,
+              "reference_residual_rms_db_peak_relative": -157.82250295731936,
+              "residual_rms_delta_db": 36.98323581985328,
+              "maximum_positive_excess_power_peak_normalized": 1.8832678570531626e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.4034577703532838e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -145.3006326117007,
+              "residual_energy_peak_normalized_seconds": 4.4261690585446823e-17,
+              "maximum_sliding_rms_db_peak_relative": -138.38701234642488,
+              "integrated_envelope_power_peak_normalized_seconds": 2.5148481006383912e-17,
+              "reference_residual_rms_db_peak_relative": -189.38523747927206,
+              "residual_rms_delta_db": 44.08460486757136,
+              "maximum_positive_excess_power_peak_normalized": 1.4497688539127824e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 2.5148481006383912e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -170.81701799337165,
+              "residual_energy_peak_normalized_seconds": 2.0712771271130796e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.9565673857959,
+              "residual_rms_delta_db": 38.13954939242424,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "stage": "cleanup_3",
+          "sample_rate_hz": 705600,
+          "integer_ratio_from_source": 16,
+          "candidate_principal_peak_index": 17640,
+          "reference_principal_peak_index": 17640,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -19.49076772298945,
+              "residual_energy_peak_normalized_seconds": 2.2484936703087176e-05,
+              "maximum_sliding_rms_db_peak_relative": -19.490767722989467,
+              "integrated_envelope_power_peak_normalized_seconds": 1.2581061788389078e-06,
+              "reference_residual_rms_db_peak_relative": -18.278733267429153,
+              "residual_rms_delta_db": -1.2120344555602962,
+              "maximum_positive_excess_power_peak_normalized": 9.621788746386667e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 4.948277661174256e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -52.26361115433855,
+              "residual_energy_peak_normalized_seconds": 1.781562942125114e-08,
+              "maximum_sliding_rms_db_peak_relative": -50.50173885471325,
+              "integrated_envelope_power_peak_normalized_seconds": 2.1438098272868254e-09,
+              "reference_residual_rms_db_peak_relative": -55.69456230188912,
+              "residual_rms_delta_db": 3.430951147550573,
+              "maximum_positive_excess_power_peak_normalized": 4.865626701893281e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.385535508277505e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.84363599341636,
+              "residual_energy_peak_normalized_seconds": 4.1172421007610396e-15,
+              "maximum_sliding_rms_db_peak_relative": -117.25300417519603,
+              "integrated_envelope_power_peak_normalized_seconds": 1.4014754334736966e-15,
+              "reference_residual_rms_db_peak_relative": -157.83077598950865,
+              "residual_rms_delta_db": 36.987139996092296,
+              "maximum_positive_excess_power_peak_normalized": 1.8823465504626936e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.4014754334736966e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -145.30424921966343,
+              "residual_energy_peak_normalized_seconds": 4.4224846795055415e-17,
+              "maximum_sliding_rms_db_peak_relative": -138.40736397167694,
+              "integrated_envelope_power_peak_normalized_seconds": 2.3665620481370284e-17,
+              "reference_residual_rms_db_peak_relative": -189.38962458637116,
+              "residual_rms_delta_db": 44.08537536670772,
+              "maximum_positive_excess_power_peak_normalized": 1.442990935025207e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 2.3665620481370284e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -170.81860616705717,
+              "residual_energy_peak_normalized_seconds": 2.0705198192123557e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.95649140334015,
+              "residual_rms_delta_db": 38.13788523628298,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "stage": "cleanup_4",
+          "sample_rate_hz": 1411200,
+          "integer_ratio_from_source": 32,
+          "candidate_principal_peak_index": 35280,
+          "reference_principal_peak_index": 35280,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -19.427716593911565,
+              "residual_energy_peak_normalized_seconds": 2.2813755470165206e-05,
+              "maximum_sliding_rms_db_peak_relative": -19.427716593911562,
+              "integrated_envelope_power_peak_normalized_seconds": 1.2567531156601604e-06,
+              "reference_residual_rms_db_peak_relative": -18.33079868394549,
+              "residual_rms_delta_db": -1.096917909966077,
+              "maximum_positive_excess_power_peak_normalized": 9.656629046146285e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 4.9758754571606074e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -52.25892682690276,
+              "residual_energy_peak_normalized_seconds": 1.783485583753841e-08,
+              "maximum_sliding_rms_db_peak_relative": -50.49705445945288,
+              "integrated_envelope_power_peak_normalized_seconds": 2.141404149627661e-09,
+              "reference_residual_rms_db_peak_relative": -55.69692856502569,
+              "residual_rms_delta_db": 3.438001738122928,
+              "maximum_positive_excess_power_peak_normalized": 4.877443671992316e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3859959536898072e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.84653998242172,
+              "residual_energy_peak_normalized_seconds": 4.114489952220975e-15,
+              "maximum_sliding_rms_db_peak_relative": -117.25596207590974,
+              "integrated_envelope_power_peak_normalized_seconds": 1.3995129816086866e-15,
+              "reference_residual_rms_db_peak_relative": -157.83495258661884,
+              "residual_rms_delta_db": 36.98841260419712,
+              "maximum_positive_excess_power_peak_normalized": 1.8810649549541823e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3995129816086866e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -145.3073585653123,
+              "residual_energy_peak_normalized_seconds": 4.4193195202198726e-17,
+              "maximum_sliding_rms_db_peak_relative": -138.4431273637001,
+              "integrated_envelope_power_peak_normalized_seconds": 2.1299594051419473e-17,
+              "reference_residual_rms_db_peak_relative": -189.39182906730198,
+              "residual_rms_delta_db": 44.08447050198967,
+              "maximum_positive_excess_power_peak_normalized": 1.4311569489937665e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 2.1299594051419473e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -170.82268942509103,
+              "residual_energy_peak_normalized_seconds": 2.0685740211841044e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.95644563400626,
+              "residual_rms_delta_db": 38.13375620891523,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "stage": "cleanup_5",
+          "sample_rate_hz": 2822400,
+          "integer_ratio_from_source": 64,
+          "candidate_principal_peak_index": 70560,
+          "reference_principal_peak_index": 70560,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -19.462322894584464,
+              "residual_energy_peak_normalized_seconds": 2.2636698857956993e-05,
+              "maximum_sliding_rms_db_peak_relative": -19.462322894584478,
+              "integrated_envelope_power_peak_normalized_seconds": 1.252482865288467e-06,
+              "reference_residual_rms_db_peak_relative": -18.357839831511647,
+              "residual_rms_delta_db": -1.1044830630728164,
+              "maximum_positive_excess_power_peak_normalized": 9.65485107879546e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 4.978447101539788e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -52.273195502440224,
+              "residual_energy_peak_normalized_seconds": 1.7774256618768897e-08,
+              "maximum_sliding_rms_db_peak_relative": -50.51260542725656,
+              "integrated_envelope_power_peak_normalized_seconds": 2.134707928603855e-09,
+              "reference_residual_rms_db_peak_relative": -55.699367188620016,
+              "residual_rms_delta_db": 3.426171686179792,
+              "maximum_positive_excess_power_peak_normalized": 4.849026563895704e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3822964928727715e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.84758242233845,
+              "residual_energy_peak_normalized_seconds": 4.113502466995111e-15,
+              "maximum_sliding_rms_db_peak_relative": -117.25747563838844,
+              "integrated_envelope_power_peak_normalized_seconds": 1.3983287753664977e-15,
+              "reference_residual_rms_db_peak_relative": -157.83705092626204,
+              "residual_rms_delta_db": 36.98946850392359,
+              "maximum_positive_excess_power_peak_normalized": 1.880409498026193e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3983287753664977e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -145.30825199485818,
+              "residual_energy_peak_normalized_seconds": 4.4184104723968976e-17,
+              "maximum_sliding_rms_db_peak_relative": -138.49693986206645,
+              "integrated_envelope_power_peak_normalized_seconds": 1.7660869045932258e-17,
+              "reference_residual_rms_db_peak_relative": -189.39293404290325,
+              "residual_rms_delta_db": 44.08468204804507,
+              "maximum_positive_excess_power_peak_normalized": 1.4135332015209787e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.7660869045932258e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -170.8230879947035,
+              "residual_energy_peak_normalized_seconds": 2.0683841884900624e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.95642080640388,
+              "residual_rms_delta_db": 38.13333281170037,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        },
+        {
+          "stage": "cleanup_6",
+          "sample_rate_hz": 5644800,
+          "integer_ratio_from_source": 128,
+          "candidate_principal_peak_index": 141120,
+          "reference_principal_peak_index": 141120,
+          "alignment": "independent principal absolute peak",
+          "intervals": [
+            {
+              "start_ms": 0.0,
+              "end_ms": 2.0,
+              "residual_rms_db_peak_relative": -19.513974058126763,
+              "residual_energy_peak_normalized_seconds": 2.2369072494600196e-05,
+              "maximum_sliding_rms_db_peak_relative": -19.513974058126752,
+              "integrated_envelope_power_peak_normalized_seconds": 1.2483718665514434e-06,
+              "reference_residual_rms_db_peak_relative": -18.397715045063958,
+              "residual_rms_delta_db": -1.1162590130628054,
+              "maximum_positive_excess_power_peak_normalized": 9.65224532195253e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 4.978679578930527e-09
+            },
+            {
+              "start_ms": 2.0,
+              "end_ms": 5.0,
+              "residual_rms_db_peak_relative": -52.28123638762325,
+              "residual_energy_peak_normalized_seconds": 1.774137834454898e-08,
+              "maximum_sliding_rms_db_peak_relative": -50.520646340065255,
+              "integrated_envelope_power_peak_normalized_seconds": 2.1313753339539765e-09,
+              "reference_residual_rms_db_peak_relative": -55.70063343533478,
+              "residual_rms_delta_db": 3.419397047711527,
+              "maximum_positive_excess_power_peak_normalized": 4.833765263689532e-06,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3804224283333398e-09
+            },
+            {
+              "start_ms": 5.0,
+              "end_ms": 10.0,
+              "residual_rms_db_peak_relative": -120.84958416584813,
+              "residual_energy_peak_normalized_seconds": 4.1116069145858925e-15,
+              "maximum_sliding_rms_db_peak_relative": -117.25962159920633,
+              "integrated_envelope_power_peak_normalized_seconds": 1.3962857008965071e-15,
+              "reference_residual_rms_db_peak_relative": -157.8403728502327,
+              "residual_rms_delta_db": 36.99078868438458,
+              "maximum_positive_excess_power_peak_normalized": 1.8794805688162885e-12,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.3962857008965071e-15
+            },
+            {
+              "start_ms": 10.0,
+              "end_ms": 25.0,
+              "residual_rms_db_peak_relative": -145.30997237480003,
+              "residual_energy_peak_normalized_seconds": 4.4166605447099613e-17,
+              "maximum_sliding_rms_db_peak_relative": -138.72235064279158,
+              "integrated_envelope_power_peak_normalized_seconds": 1.0362347808514259e-17,
+              "reference_residual_rms_db_peak_relative": -189.39475676910692,
+              "residual_rms_delta_db": 44.084784394306894,
+              "maximum_positive_excess_power_peak_normalized": 1.3420383788616808e-14,
+              "integrated_positive_excess_power_peak_normalized_seconds": 1.0362347808514259e-17
+            },
+            {
+              "start_ms": 25.0,
+              "end_ms": 50.0,
+              "residual_rms_db_peak_relative": -170.82405587709746,
+              "residual_energy_peak_normalized_seconds": 2.0679232732219824e-19,
+              "maximum_sliding_rms_db_peak_relative": -3000.0,
+              "integrated_envelope_power_peak_normalized_seconds": 0.0,
+              "reference_residual_rms_db_peak_relative": -208.95654296320996,
+              "residual_rms_delta_db": 38.13248708611249,
+              "maximum_positive_excess_power_peak_normalized": 0.0,
+              "integrated_positive_excess_power_peak_normalized_seconds": 0.0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

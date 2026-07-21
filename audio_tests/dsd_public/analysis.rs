@@ -3,10 +3,20 @@ use std::ops::Range;
 
 use fozmo::audio::dsp::resampler::{FilterType, SincResampler};
 use realfft::RealFftPlanner;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub const RECONSTRUCTION_ALGORITHM_VERSION: &str =
     "reconstruction-v2-sinc-runtime-context-bh-spurs-sine-dbfs";
+pub const TRANSITION_ENVELOPE_VERSION: &str = "transition-envelope-v1-fixed-2ms-rms-0-50ms";
+const TRANSITION_ENVELOPE_WINDOW_SECONDS: f64 = 0.002;
+const TRANSITION_ENVELOPE_TRACE_SECONDS: f64 = 0.050;
+const TRANSITION_ENVELOPE_INTERVALS_MS: [(f64, f64); 5] = [
+    (0.0, 2.0),
+    (2.0, 5.0),
+    (5.0, 10.0),
+    (10.0, 25.0),
+    (25.0, 50.0),
+];
 /// The SincExtreme32k downsampling cascade reports about 99 ms of latency for
 /// the 176.4 kHz decoder. Keep a fixed floor as well as a margin over the
 /// runtime value so a windowed decode never substitutes zeroes inside the
@@ -143,6 +153,48 @@ pub struct DensityMetrics {
     pub deviation: f64,
     pub rolling_max_deviation: f64,
     pub rolling_window_bits: usize,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TransitionEnvelopeIntervalMetrics {
+    pub start_ms: f64,
+    pub end_ms: f64,
+    /// Integral of squared residual amplitude over physical time.
+    pub residual_energy_linear_seconds: f64,
+    pub residual_rms_dbfs: f64,
+    /// Integral of the 2 ms sliding mean-square envelope over physical time.
+    pub integrated_envelope_power_linear_seconds: f64,
+    pub maximum_sliding_rms_dbfs: f64,
+    pub percentile_95_sliding_rms_dbfs: f64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TransitionEnvelopeMetrics {
+    pub version: String,
+    pub sample_rate_hz: u32,
+    pub sliding_window_ms: f64,
+    pub trace_duration_ms: f64,
+    pub intervals: Vec<TransitionEnvelopeIntervalMetrics>,
+    /// Candidate-independent optimizer input: sliding 2 ms mean-square values
+    /// whose first sample is aligned exactly to the restart event.
+    pub sliding_mean_square_trace: Vec<f64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TransitionEnvelopeExcessIntervalMetrics {
+    pub start_ms: f64,
+    pub end_ms: f64,
+    pub maximum_excess_power_linear: f64,
+    pub maximum_excess_power_dbfs: f64,
+    pub integrated_positive_excess_power_linear_seconds: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TransitionEnvelopeExcessMetrics {
+    pub version: String,
+    pub tolerance_rms: f64,
+    pub total_positive_excess_power_linear_seconds: f64,
+    pub intervals: Vec<TransitionEnvelopeExcessIntervalMetrics>,
 }
 
 /// A sinusoidal least-squares model whose phase origin is the first sample of
@@ -684,6 +736,130 @@ pub fn estimate_recovery_time_ms_from_separate_windows(
         }
     }
     Ok(None)
+}
+
+/// Measure a fixed 0-50 ms restart residual using a 2 ms sliding RMS envelope.
+///
+/// Unlike `estimate_recovery_time_ms_from_separate_windows`, this contract has
+/// no candidate-derived threshold. The serialized linear mean-square trace can
+/// therefore be compared sample-for-sample with a frozen E2v3 reference and
+/// used as a smooth optimizer objective.
+pub fn analyze_transition_envelope(
+    restart_residual: &[f64],
+    sample_rate: u32,
+) -> Result<TransitionEnvelopeMetrics, String> {
+    validate_analysis_input(restart_residual, sample_rate)?;
+    let window =
+        ((sample_rate as f64 * TRANSITION_ENVELOPE_WINDOW_SECONDS).round() as usize).max(16);
+    let trace_samples =
+        ((sample_rate as f64 * TRANSITION_ENVELOPE_TRACE_SECONDS).round() as usize).max(1);
+    let required = trace_samples.saturating_add(window).saturating_sub(1);
+    if restart_residual.len() < required {
+        return Err(format!(
+            "transition residual has {} samples, fewer than the required {required}",
+            restart_residual.len()
+        ));
+    }
+
+    let prefix = squared_prefix(restart_residual);
+    let sliding_mean_square_trace = (0..trace_samples)
+        .map(|start| ((prefix[start + window] - prefix[start]) / window as f64).max(0.0))
+        .collect::<Vec<_>>();
+
+    let intervals = TRANSITION_ENVELOPE_INTERVALS_MS
+        .iter()
+        .map(|&(start_ms, end_ms)| {
+            let start = ((start_ms / 1000.0) * sample_rate as f64).round() as usize;
+            let end = ((end_ms / 1000.0) * sample_rate as f64).round() as usize;
+            let residual = &restart_residual[start..end];
+            let residual_sum_squares = residual.iter().map(|sample| sample * sample).sum::<f64>();
+            let residual_mean_square = residual_sum_squares / residual.len().max(1) as f64;
+            let envelope = &sliding_mean_square_trace[start..end];
+            let mut sorted = envelope.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            let maximum_power = envelope.iter().copied().fold(0.0, f64::max);
+            let percentile_95_power = percentile(&sorted, 0.95);
+            TransitionEnvelopeIntervalMetrics {
+                start_ms,
+                end_ms,
+                residual_energy_linear_seconds: residual_sum_squares / sample_rate as f64,
+                residual_rms_dbfs: rms_dbfs_full_scale_sine(residual_mean_square.sqrt()),
+                integrated_envelope_power_linear_seconds: envelope.iter().sum::<f64>()
+                    / sample_rate as f64,
+                maximum_sliding_rms_dbfs: rms_dbfs_full_scale_sine(maximum_power.sqrt()),
+                percentile_95_sliding_rms_dbfs: rms_dbfs_full_scale_sine(
+                    percentile_95_power.sqrt(),
+                ),
+            }
+        })
+        .collect();
+
+    Ok(TransitionEnvelopeMetrics {
+        version: TRANSITION_ENVELOPE_VERSION.to_string(),
+        sample_rate_hz: sample_rate,
+        sliding_window_ms: TRANSITION_ENVELOPE_WINDOW_SECONDS * 1000.0,
+        trace_duration_ms: TRANSITION_ENVELOPE_TRACE_SECONDS * 1000.0,
+        intervals,
+        sliding_mean_square_trace,
+    })
+}
+
+/// Compare a candidate envelope with a frozen reference in linear power.
+/// `tolerance_rms` is frozen by the measurement contract and is subtracted in
+/// power before positive excess is accumulated.
+pub fn compare_transition_envelopes(
+    candidate: &TransitionEnvelopeMetrics,
+    reference: &TransitionEnvelopeMetrics,
+    tolerance_rms: f64,
+) -> Result<TransitionEnvelopeExcessMetrics, String> {
+    if candidate.version != reference.version
+        || candidate.sample_rate_hz != reference.sample_rate_hz
+        || candidate.sliding_mean_square_trace.len() != reference.sliding_mean_square_trace.len()
+        || candidate.intervals.len() != reference.intervals.len()
+        || !tolerance_rms.is_finite()
+        || tolerance_rms < 0.0
+    {
+        return Err("incompatible transition-envelope reference".to_string());
+    }
+    let tolerance_power = tolerance_rms * tolerance_rms;
+    let sample_rate = candidate.sample_rate_hz as f64;
+    let mut total_positive_excess = 0.0;
+    let mut intervals = Vec::with_capacity(candidate.intervals.len());
+    for (candidate_interval, reference_interval) in
+        candidate.intervals.iter().zip(&reference.intervals)
+    {
+        if candidate_interval.start_ms != reference_interval.start_ms
+            || candidate_interval.end_ms != reference_interval.end_ms
+        {
+            return Err("transition-envelope interval definitions differ".to_string());
+        }
+        let start = ((candidate_interval.start_ms / 1000.0) * sample_rate).round() as usize;
+        let end = ((candidate_interval.end_ms / 1000.0) * sample_rate).round() as usize;
+        let mut maximum_excess = 0.0_f64;
+        let mut integrated_positive_excess = 0.0;
+        for (&candidate_power, &reference_power) in candidate.sliding_mean_square_trace[start..end]
+            .iter()
+            .zip(&reference.sliding_mean_square_trace[start..end])
+        {
+            let excess = (candidate_power - reference_power - tolerance_power).max(0.0);
+            maximum_excess = maximum_excess.max(excess);
+            integrated_positive_excess += excess / sample_rate;
+        }
+        total_positive_excess += integrated_positive_excess;
+        intervals.push(TransitionEnvelopeExcessIntervalMetrics {
+            start_ms: candidate_interval.start_ms,
+            end_ms: candidate_interval.end_ms,
+            maximum_excess_power_linear: maximum_excess,
+            maximum_excess_power_dbfs: full_scale_sine_power_dbfs(maximum_excess),
+            integrated_positive_excess_power_linear_seconds: integrated_positive_excess,
+        });
+    }
+    Ok(TransitionEnvelopeExcessMetrics {
+        version: TRANSITION_ENVELOPE_VERSION.to_string(),
+        tolerance_rms,
+        total_positive_excess_power_linear_seconds: total_positive_excess,
+        intervals,
+    })
 }
 
 fn squared_prefix(samples: &[f64]) -> Vec<f64> {
@@ -1448,5 +1624,42 @@ mod tests {
             estimate_recovery_time_ms(&samples, sample_rate, 0..1_000, 1_500, 3_000, &[frequency])
                 .unwrap();
         assert_eq!(recovery, None);
+    }
+
+    #[test]
+    fn transition_envelope_uses_fixed_physical_intervals() {
+        let sample_rate = 10_000;
+        let len = 600;
+        let residual = (0..len)
+            .map(|index| (-index as f64 / 75.0).exp() * 0.1)
+            .collect::<Vec<_>>();
+        let metrics = analyze_transition_envelope(&residual, sample_rate).unwrap();
+        assert_eq!(metrics.version, TRANSITION_ENVELOPE_VERSION);
+        assert_eq!(metrics.sliding_mean_square_trace.len(), 500);
+        assert_eq!(metrics.intervals.len(), 5);
+        assert_eq!(metrics.intervals[0].start_ms, 0.0);
+        assert_eq!(metrics.intervals[4].end_ms, 50.0);
+        assert!(
+            metrics.intervals[0].maximum_sliding_rms_dbfs
+                > metrics.intervals[4].maximum_sliding_rms_dbfs
+        );
+        assert!(
+            metrics.intervals[0].residual_energy_linear_seconds
+                > metrics.intervals[4].residual_energy_linear_seconds
+        );
+    }
+
+    #[test]
+    fn identical_transition_envelopes_have_zero_positive_excess() {
+        let residual = vec![1.0e-6; 600];
+        let metrics = analyze_transition_envelope(&residual, 10_000).unwrap();
+        let excess = compare_transition_envelopes(&metrics, &metrics, 0.0).unwrap();
+        assert_eq!(excess.total_positive_excess_power_linear_seconds, 0.0);
+        assert!(
+            excess
+                .intervals
+                .iter()
+                .all(|interval| interval.maximum_excess_power_linear == 0.0)
+        );
     }
 }

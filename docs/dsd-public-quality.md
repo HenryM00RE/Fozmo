@@ -56,6 +56,8 @@ The CLI is intentionally narrow:
 --hires-only
 --standard-obg OBG
 --level-probe-dbfs LEVEL
+--transition-envelope-reference PATH
+--transition-envelope-tolerance-rms RMS
 --external-upsampler PATH
 --external-preset PRESET
 ```
@@ -73,6 +75,28 @@ DSD512 and DSD1024 selections are non-scoring Standard-only diagnostics.
 `--standard-obg` selects a checked-in high-rate Standard candidate table, and
 `--level-probe-dbfs` restricts a tuning run to one declared coherent level.
 Neither option changes the canonical matrix or application UI.
+
+## Fixed-reference restart envelope
+
+Report schema v5 keeps the existing first-crossing recovery time but demotes
+it to a secondary diagnostic. For every high-frequency stress channel, the
+bench subtracts the settled carrier model and serializes a 2 ms sliding
+mean-square trace aligned to restart over the first 50 ms. It reports residual
+energy, maximum RMS, and 95th-percentile RMS in fixed 0-2, 2-5, 5-10, 10-25,
+and 25-50 ms intervals.
+
+When `--transition-envelope-reference` names a frozen v5 report, the bench
+requires a matching scenario/modulator/channel and computes maximum and
+integrated positive excess in linear power. The optional RMS tolerance is
+squared before subtraction. Reference contract/version mismatches and missing
+cells fail closed. Decibels are presentation only; optimizer inputs remain
+linear power.
+
+`research-filter-assets` is a non-production Cargo feature for exact E3
+candidate reruns. It adds `--experimental-character-file` and
+`--experimental-character-sha256`, requires the E3 filter, validates exact
+length, finite binary64 values, SHA-256, and DC normalization, and records the
+loaded identity in JSON and Markdown. Normal builds expose neither flag.
 
 For example, a focused Split Phase check across DSD64 and DSD128 is:
 

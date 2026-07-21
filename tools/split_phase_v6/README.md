@@ -152,3 +152,86 @@ runs. On Windows, coefficient swaps for an `include_bytes!` asset must update
 the destination timestamp before invoking Cargo; otherwise an older copied
 timestamp can incorrectly reuse a previously embedded coefficient set. Native
 DSD hashes must change before a candidate run is accepted as valid evidence.
+
+## Fixed-reference DSD transition contract
+
+P5 starts by freezing `transition-envelope-v1-fixed-2ms-rms-0-50ms`. The
+contract serializes the 2 ms sliding mean-square restart trace and fixed
+0-2, 2-5, 5-10, 10-25, and 25-50 ms interval metrics in linear power. A
+frozen E2v3 report is the comparison reference; the candidate-derived
+first-crossing recovery threshold remains in reports only as a secondary
+diagnostic. Two clean E2v3 renders produced identical traces and native DSD
+hashes. The frozen numerical tolerance is `2e-9` RMS, which removes only
+rebuild-scale floating-point noise (about -175 dBFS).
+
+Research builds can load one hash-addressed E3 character at process startup:
+
+```powershell
+$env:RUSTFLAGS = "-C target-cpu=native"
+cargo run --locked --release --features research-filter-assets `
+  --bin dsd_public_quality -- `
+  --filter SplitPhase128kE3 --rates 128 --modulator Standard,EcBeam2 `
+  --experimental-character-file path\to\candidate.f64le `
+  --experimental-character-sha256 64_HEX_DIGITS `
+  --transition-envelope-reference tools\split_phase_v6\baselines\e3-p5-transition-envelope-e2v3-dsd128.json `
+  --transition-envelope-tolerance-rms 2e-9
+```
+
+The loader is absent from normal builds and accepts only 262,145 finite
+binary64 coefficients with the declared SHA-256 and DC sum within `1e-12` of
+one. Cleanup and rational assets remain frozen. The report records the path,
+hash, coefficient count, and measured DC sum.
+
+The first exact audit shows that all three E3 finalists improve the immediate
+0-2 ms residual RMS by about 0.20 dB but regress 2-5 ms by about 3.24-3.28 dB.
+The later difference is already very small in absolute terms: about -117 dBFS
+from 5-10 ms in the worst rated cell and about -142 dBFS from 10-25 ms. This
+confirms that the old roughly 5 ms recovery-time loss is threshold-sensitive,
+but it does not satisfy the proposed fixed-interval non-regression rule.
+`refine-0900` therefore remains the incumbent and P5 must explicitly reduce
+the 2-5 ms envelope while preserving the better immediate restart event.
+
+`summarize_e3_transition_envelopes.py` regenerates the compact, hash-addressed
+candidate audit from full v5 reports. The frozen E2v3 reference and summary
+are stored under `baselines/`; no E3 production promotion is implied.
+
+`e3_full_cascade_stage_audit.py` separately propagates the exact finite-support
+character response through all six frozen DSD128 cleanup stages and evaluates
+principal-peak-aligned physical-time impulse envelopes at every native stage
+rate. It shows that the 2-5 ms penalty is already present at the 88.2 kHz
+character stage (about 3.03-3.07 dB). Cleanup stage 1 raises it to about
+3.42-3.50 dB, while stages 2-6 leave it effectively unchanged. The low-level
+5-25 ms difference has the same origin. The P5 character search is therefore
+the correct next move; cleanup stage 1 becomes a co-optimization target only
+after the structural character search produces a finalist.
+
+## P5 constrained group-delay screen
+
+`e3_p5_group_delay_search.py` replaces local phase controls with four
+degree-five group-delay spline families. Each family has exact delay, slope,
+and curvature continuity at both joins plus an exact integrated phase-closure
+equality. The deterministic screen uses an unscrambled Sobol sequence in the
+constraint nullspace, preserves the E2v3 magnitude target and 262,145-sample
+support, and applies every impulse guard plus 5/10/15/18/20 kHz packet gates.
+
+The full run evaluated 4,096 candidates. 2,385 passed the structural/impulse
+guards, 55 of the top packet-tested designs passed all five packet gates, and
+32 hash-addressed finalists were retained. `p5-d-0861` led the 2-5 ms proxy;
+`p5-c-0383` was the best broad stage-envelope candidate and simultaneously
+improved post-lobe, post-energy, width, overshoot, undershoot, and every packet
+cell versus `refine-0900`.
+
+Four finalists were rerun through the exact Standard/EcBeam2 DSD128 path with
+the frozen E2v3 envelope. All had zero structural failures and reduced average
+2-5 ms residual by 0.047-0.084 dB versus `refine-0900`. None reduced the
+primary pointwise positive-excess loss: their 0-2 ms positive excess increased
+by roughly 11-19 percent. `p5-c-0383`, despite the strongest multi-metric
+filter-only case, increased it by 19.1 percent. This demonstrates that the
+principal-peak impulse envelope remains an insufficient surrogate for the
+restarted-carrier waveform after reconstruction.
+
+P5 is therefore complete as a structural screen but has no promoted winner.
+`refine-0900` remains the immutable E3 incumbent. The next loop should capture
+the exact filter-only restarted-carrier waveform entering the modulator and
+use its fixed-reference positive excess in finalist selection. P6 bounded
+magnitude movement should wait until that surrogate mismatch is closed.

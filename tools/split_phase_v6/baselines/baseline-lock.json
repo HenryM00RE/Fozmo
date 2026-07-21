@@ -70,6 +70,30 @@
     "e3_p4_line0575_0500_dsd128": {
       "path": "tools/split_phase_v6/baselines/e3-p4-line0575-0500-dsd128.json",
       "sha256": "8a36e7f446b7eba471d80fda1e1ac55e3572085fe6b19555efa74e2319bc8b1f"
+    },
+    "e3_p5_transition_envelope_e2v3_dsd128": {
+      "path": "tools/split_phase_v6/baselines/e3-p5-transition-envelope-e2v3-dsd128.json",
+      "sha256": "10c1438dca247ee7f33a11e77851d402c197a9b7b40eb7d752cf6f341a10c3fe"
+    },
+    "e3_p5_transition_envelope_audit": {
+      "path": "tools/split_phase_v6/baselines/e3-p5-transition-envelope-audit.json",
+      "sha256": "4ce44e1eab43a282ec89d94fb0d0ce618a0ae247905f204073b09ab3e1dd10fe"
+    },
+    "e3_p5_full_cascade_stage_audit": {
+      "path": "tools/split_phase_v6/baselines/e3-p5-full-cascade-stage-audit.json",
+      "sha256": "a408b2cba55ddde81b8071157d0ad5c94109ff86f3d3f1e79cd941d045719a34"
+    },
+    "e3_p5_group_delay_search": {
+      "path": "tools/split_phase_v6/baselines/e3-p5-group-delay-search.json",
+      "sha256": "6e10f5392bc6c92075bb8e08448cd9bfa30046e2d4fbc8c5aa5b6ace668a5b7d"
+    },
+    "e3_p5_finalist_transition_envelope_audit": {
+      "path": "tools/split_phase_v6/baselines/e3-p5-finalist-transition-envelope-audit.json",
+      "sha256": "ca735fba9f884ad5488fd415f358c3272453d0f430737290ac3b7653e0f06b26"
+    },
+    "e3_p5_all_finalists_stage_audit": {
+      "path": "tools/split_phase_v6/baselines/e3-p5-all-finalists-stage-audit.json",
+      "sha256": "8886fbdf0e9340069eec933c67781aae6c09fd90a6553102c8892d157ded7aa3"
     }
   },
   "current_e3_asset": {
@@ -125,5 +149,13 @@
     "tools/split_phase_v6/e3_phase_refine_search.py": "2237042c65a66324be4b939ba3fd106dacdb11a511dadf156c9a1b12ce2f3ce4",
     "tools/split_phase_v6/e3_recovery_phase_search.py": "c27e7a76c8164c5e3d9849cee6fa42f68368f60240b49847e75623a73ac8d748",
     "tools/split_phase_v6/export_e3_experimental.py": "da36fe83d2890dcc06695314720c02ecbfd4813d8a1ee31797e37bdd455c014c"
+  },
+  "e3_p5_measurement_sources": {
+    "audio_tests/dsd_public/analysis.rs": "df5d7f00c2259f45477cded9229de4439a4196d8f6e1acb883a6f5f76c596a42",
+    "audio_tests/dsd_public_quality.rs": "d5669590cc1c896d8aedc00179d66d2d2094371a31ae37c2d2e39b8dbfe08aa3",
+    "src/audio/dsp/resampler.rs": "9b4b42cfa8abc893a6c63c96a8b54db2b4eca46cc3fc76c6b1c167e79fbddc93",
+    "tools/split_phase_v6/summarize_e3_transition_envelopes.py": "81d3367ff781e7e4b5a17f0cf18b382b867b679c166ae6e7c48625c2ca86e872",
+    "tools/split_phase_v6/e3_full_cascade_stage_audit.py": "f4d5bc3c84a098f7caae68a4e211ada036f018e6db5cf6138bcece7316d1f5ca",
+    "tools/split_phase_v6/e3_p5_group_delay_search.py": "38e79dcf9b6ff96075d64202cdbe936b9e6a017ebee80e0a0090673155ca790c"
   }
 }

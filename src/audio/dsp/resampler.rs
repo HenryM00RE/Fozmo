@@ -1,7 +1,11 @@
 use realfft::num_complex::Complex64;
 use realfft::{ComplexToReal, RealFftPlanner, RealToComplex};
+#[cfg(feature = "research-filter-assets")]
+use sha2::{Digest, Sha256};
 use std::f64::consts::PI;
 use std::sync::{Arc, OnceLock};
+#[cfg(feature = "research-filter-assets")]
+use std::{fs, path::Path};
 
 const DEFAULT_LATENCY_BUDGET_MS: f64 = 100.0;
 const POLYPHASE_PHASES: usize = 4096;
@@ -3693,6 +3697,107 @@ struct FrozenFilterAssetBundle {
     alignment: FrozenAlignment,
 }
 
+static SPLIT_PHASE_E3_ASSETS: OnceLock<FrozenFilterAssetBundle> = OnceLock::new();
+
+#[cfg(feature = "research-filter-assets")]
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResearchE3CharacterMetadata {
+    pub sha256: String,
+    pub coefficient_count: usize,
+    pub dc_sum: f64,
+}
+
+#[cfg(feature = "research-filter-assets")]
+static RESEARCH_E3_CHARACTER: OnceLock<(Arc<[f64]>, ResearchE3CharacterMetadata)> = OnceLock::new();
+
+/// Install one research E3 character before constructing any E3 resampler.
+///
+/// This API is deliberately absent from normal builds. A process may install
+/// exactly one hash-addressed candidate, and the frozen E2v3 cleanup/rational
+/// assets remain unchanged.
+#[cfg(feature = "research-filter-assets")]
+pub fn install_research_e3_character_file(
+    path: &Path,
+    expected_sha256: &str,
+) -> Result<ResearchE3CharacterMetadata, String> {
+    if SPLIT_PHASE_E3_ASSETS.get().is_some() {
+        return Err(
+            "E3 assets were initialized before the research candidate was installed".into(),
+        );
+    }
+    if RESEARCH_E3_CHARACTER.get().is_some() {
+        return Err("a research E3 character is already installed in this process".into());
+    }
+    let expected = expected_sha256.trim().to_ascii_lowercase();
+    if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("expected research character SHA-256 must contain 64 hex digits".into());
+    }
+    let bytes = fs::read(path).map_err(|error| {
+        format!(
+            "could not read research E3 character {}: {error}",
+            path.display()
+        )
+    })?;
+    let expected_bytes = SPLIT_PHASE_E3_CHARACTER_COEFFICIENTS * size_of::<f64>();
+    if bytes.len() != expected_bytes {
+        return Err(format!(
+            "research E3 character has {} bytes, expected {expected_bytes}",
+            bytes.len()
+        ));
+    }
+    let actual = format!("{:x}", Sha256::digest(&bytes));
+    if actual != expected {
+        return Err(format!(
+            "research E3 character SHA-256 mismatch: expected {expected}, got {actual}"
+        ));
+    }
+    let coefficients = bytes
+        .chunks_exact(size_of::<f64>())
+        .enumerate()
+        .map(|(index, chunk)| {
+            let encoded: [u8; 8] = chunk.try_into().expect("f64 asset chunk size");
+            let value = f64::from_le_bytes(encoded);
+            if value.is_finite() {
+                Ok(value)
+            } else {
+                Err(format!(
+                    "research E3 character contains a non-finite value at coefficient {index}"
+                ))
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let dc_sum = coefficients.iter().sum::<f64>();
+    if (dc_sum - 1.0).abs() > 1.0e-12 {
+        return Err(format!(
+            "research E3 character DC sum {dc_sum:.17} differs from 1.0 by more than 1e-12"
+        ));
+    }
+    let metadata = ResearchE3CharacterMetadata {
+        sha256: actual,
+        coefficient_count: coefficients.len(),
+        dc_sum,
+    };
+    RESEARCH_E3_CHARACTER
+        .set((coefficients.into(), metadata.clone()))
+        .map_err(|_| "a research E3 character is already installed".to_string())?;
+    Ok(metadata)
+}
+
+fn split_phase_e3_character_asset() -> Arc<[f64]> {
+    #[cfg(feature = "research-filter-assets")]
+    if let Some((character, _)) = RESEARCH_E3_CHARACTER.get() {
+        return Arc::clone(character);
+    }
+    decode_f64le_asset(
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/filters/split_phase_e3/character_full_rate.f64le"
+        )),
+        SPLIT_PHASE_E3_CHARACTER_COEFFICIENTS,
+        "Split Phase E3 character",
+    )
+}
+
 fn split_phase_v3_assets() -> &'static FrozenFilterAssetBundle {
     static ASSETS: OnceLock<FrozenFilterAssetBundle> = OnceLock::new();
     ASSETS.get_or_init(|| FrozenFilterAssetBundle {
@@ -3982,16 +4087,8 @@ fn split_phase_e2v3_assets() -> &'static FrozenFilterAssetBundle {
 }
 
 fn split_phase_e3_assets() -> &'static FrozenFilterAssetBundle {
-    static ASSETS: OnceLock<FrozenFilterAssetBundle> = OnceLock::new();
-    ASSETS.get_or_init(|| FrozenFilterAssetBundle {
-        character: decode_f64le_asset(
-            include_bytes!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/assets/filters/split_phase_e3/character_full_rate.f64le"
-            )),
-            SPLIT_PHASE_E3_CHARACTER_COEFFICIENTS,
-            "Split Phase E3 character",
-        ),
+    SPLIT_PHASE_E3_ASSETS.get_or_init(|| FrozenFilterAssetBundle {
+        character: split_phase_e3_character_asset(),
         cleanups: [
             decode_f64le_asset(
                 include_bytes!(concat!(
