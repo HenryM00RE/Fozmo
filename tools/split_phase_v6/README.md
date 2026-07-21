@@ -400,3 +400,43 @@ local frontier is therefore considered saturated; an alternating joint search
 is not justified without evidence of a material interaction. Any further
 engineering search should move to the explicitly separate P8 structural-
 capacity experiments rather than select numerical trivia.
+
+## P8 structural-capacity audit
+
+`e3_p8_capacity_audit.py` reconstructs the exact `p6d-local-0145` complex
+target from its frozen spline coordinates and independently reproduces the
+incumbent within `7e-18` per coefficient across the tested NumPy runtimes. It
+then audits the three proposed magnitude-model orders and realizes the same
+target at both 262,145 and 524,289 character taps through the complete timing,
+packet, rejection, and twelve-fixture counterfactual contracts.
+
+The magnitude autocorrelation energy omitted above order 512 is only
+`3.74e-19`; increasing to 768 and 1,024 reduces it to `2.65e-19` and
+`2.04e-19`. Maximum passband representation error is already only
+`4.22e-8` dB at order 512 and falls to `2.85e-8` dB at order 1,024. Direct
+truncated-autocorrelation realizations are retained only as a diagnostic: they
+do not meet the frozen stopband gate and therefore are not filter candidates.
+The omitted energy and passband results show no evidence that a costly new
+768/1,024-order PSD solve would unlock the timing frontier.
+
+Doubling the character support to 524,289 taps is numerically inert. Pre-lobe,
+post-lobe, main-lobe width, decay, and every packet cell are unchanged at the
+reported precision. Post-energy moves by `1.3e-15` dB and the worst primary
+counterfactual cell improves by roughly `3.1e-12` dB. The one-million-tap
+reference is therefore not run: the campaign explicitly requires evidence
+that finite support is binding before that experiment.
+
+`e3_p8_cleanup_support.py` expands cleanup stage 1 from 509 taps to 765 and
+1,021 taps while preserving its exact halfband structure, centre, symmetry,
+DC, and branch sums. Eight pinned Clarabel solves cover four trust radii at
+both supports. The longer filters reduce the isolated cleanup Chebyshev error
+from `7.83e-9` to as little as `1.31e-10` and `2.48e-11`, proving that cleanup
+frequency capacity expands. Six candidates pass the complete full-cascade
+guards, but none produces a meaningful timing or restart effect: the best
+worst-fixture restart movement is about `2.7e-9` dB and static movements are
+around `1e-8` dB.
+
+P8 therefore finds no capacity-bound route beyond `p6d-local-0145`. No P8
+candidate becomes an incumbent, exact DSD finalist testing is not warranted,
+and final production assets are not regenerated. E2v3 remains the production
+default and `p6d-local-0145` remains the immutable E3 research frontier.

@@ -130,6 +130,14 @@
     "e3_p7_magnitude_search": {
       "path": "tools/split_phase_v6/baselines/e3-p7-magnitude-search.json",
       "sha256": "57cebdc129fc530cfc4a1fffa220595826369fdd19b1e3b019983d9d0156f639"
+    },
+    "e3_p8_capacity_audit": {
+      "path": "tools/split_phase_v6/baselines/e3-p8-capacity-audit.json",
+      "sha256": "1674d18477ce0bd652465f908baf390c1fcebb0a78a765d52edefd152145b010"
+    },
+    "e3_p8_cleanup_support": {
+      "path": "tools/split_phase_v6/baselines/e3-p8-cleanup-support.json",
+      "sha256": "3c05f1c3f07aff88168193276642c5ae43126468367ae60f9eca2ef38a1280ba"
     }
   },
   "current_e3_asset": {
@@ -219,5 +227,11 @@
     "tools/split_phase_v6/freeze_e3_p6.py": "545ca923547e761ccccebcc5b71de9bc88be098b3ef9dd9d14fa7bd551ccab4c",
     "tools/split_phase_v6/test_e3_p7_counterfactual.py": "31948b9e7537a66f3cd69cbe59441ec708913684a7d6c09064e605888d118b33",
     "tools/split_phase_v6/test_e3_p7_magnitude.py": "cc1f3781d5b0181fdab3e045c496be5ce1b6b9dbd334763b6f031968a7477de6"
+  },
+  "e3_p8_measurement_and_search_sources": {
+    "tools/split_phase_v6/e3_p8_capacity_audit.py": "e87ff4962133af5043292129075fccee4b32f1f585c2654246a7856c70c27dae",
+    "tools/split_phase_v6/e3_p8_cleanup_support.py": "31045ca722ed650152d0c0249fc3d971ccf8efee72ab0e683a7b7172df238efc",
+    "tools/split_phase_v6/test_e3_p8_capacity.py": "c36e5cbb9a1366e4ce04cd5f684b5d99fbc703a1c1a25846eaa6aa48b738bd33",
+    "tools/split_phase_v6/test_e3_p8_cleanup_support.py": "ea6e3b7435fcb4a3ff739573cdb4d4999365252bcb7098440d38dd6152b6a8aa"
   }
 }
