@@ -2,6 +2,7 @@ import { endpoints } from '../../../shared/lib/api';
 import { Icon } from '../../../shared/ui/Icon';
 import { Menu } from '../../../shared/ui/Menu';
 import { PlayNextIcon } from '../../../shared/ui/PlayNextIcon';
+import { SongActionsMenu } from '../../../shared/ui/SongActionsMenu';
 import type { GlobalSearchRowModel } from '../globalSearchModel';
 
 function GlobalSearchArt({ row }: { row: GlobalSearchRowModel }) {
@@ -48,7 +49,7 @@ export function GlobalSearchRow({
   };
   return (
     <div
-      className={`global-search-row${active ? ' is-active' : ''}${featured ? ' is-featured' : ''}`}
+      className={`global-search-row is-${row.kind}${active ? ' is-active' : ''}${featured ? ' is-featured' : ''}`}
       tabIndex={0}
       role="button"
       aria-current={active ? 'true' : undefined}
@@ -80,6 +81,7 @@ export function GlobalSearchRow({
         runRow();
       }}
     >
+      <span className="track-row-hover-surface" aria-hidden="true" />
       <GlobalSearchArt row={row} />
       <span className="global-search-copy">
         <span className="global-search-name" title={row.title}>
@@ -135,6 +137,34 @@ export function GlobalSearchActionsMenu({
   onRun?: () => void;
 }) {
   if (!row.actions?.length) return null;
+  const runAction = (actionId: string) => {
+    const action = row.actions?.find((candidate) => candidate.id === actionId);
+    if (!action) return undefined;
+    return () => {
+      onCloseMenu();
+      onRun?.();
+      Promise.resolve(action.run()).catch(() => undefined);
+    };
+  };
+  if (row.kind === 'song') {
+    const onPlay = runAction('play');
+    const onAddNext = runAction('add-next');
+    const onAddToQueue = runAction('add-to-queue');
+    if (!onPlay || !onAddNext || !onAddToQueue) return null;
+    return (
+      <SongActionsMenu
+        ariaLabel={`Track options for ${row.title}`}
+        x={x}
+        y={y}
+        onPlay={onPlay}
+        onAddNext={onAddNext}
+        onAddToPlaylist={runAction('add-to-playlist')}
+        onGoToAlbum={runAction('go-to-album')}
+        onGoToArtist={runAction('go-to-artist')}
+        onAddToQueue={onAddToQueue}
+      />
+    );
+  }
   return (
     <Menu
       className="track-actions-menu track-actions-menu-wide is-open"

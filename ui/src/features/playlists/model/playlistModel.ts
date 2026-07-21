@@ -146,6 +146,52 @@ export function songCountLabel(count: number) {
   return `${count} song${count === 1 ? '' : 's'}`;
 }
 
+function csvCell(value: unknown) {
+  let text = String(value ?? '');
+  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+export function playlistCsv(items: QueueItem[]) {
+  const header = [
+    'Position',
+    'Title',
+    'Artist',
+    'Album',
+    'Album Artist',
+    'Duration (seconds)',
+    'Source',
+    'Filename'
+  ];
+  const rows = items.map((item, index) => {
+    const sourceKind = String(item.resolvedSource?.kind || '').toLowerCase();
+    const source = item.qobuzTrack || sourceKind.includes('qobuz') ? 'Qobuz' : 'Local';
+    const filename = item.filename || item.resolvedSource?.file_name || item.ref?.file_name || '';
+    return [
+      index + 1,
+      item.title,
+      item.artist,
+      item.album,
+      item.albumArtist || item.resolvedSource?.album_artist || '',
+      Math.max(0, Number(item.durationSecs) || 0),
+      source,
+      filename
+    ];
+  });
+  return [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
+}
+
+export function playlistCsvFilename(name: string) {
+  const invalidCharacters = '<>:"/\\|?*';
+  const stem = Array.from(name.trim(), (character) =>
+    invalidCharacters.includes(character) || character.charCodeAt(0) < 32 ? '-' : character
+  )
+    .join('')
+    .replace(/[. ]+$/g, '')
+    .slice(0, 120);
+  return `${stem || 'playlist'}.csv`;
+}
+
 export function subtitleForItem(item: QueueItem) {
   return [item.artist, item.album].filter(Boolean).join(' · ');
 }

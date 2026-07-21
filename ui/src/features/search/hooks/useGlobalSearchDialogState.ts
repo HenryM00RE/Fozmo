@@ -35,6 +35,28 @@ export function useGlobalSearchDialogState(query: string) {
     setOpenMenu(null);
   }, []);
 
+  useEffect(() => {
+    if (!openMenu) return undefined;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest('.track-actions-menu, .global-search-menu-button')) return;
+      setOpenMenu(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      setOpenMenu(null);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown, true);
+    };
+  }, [openMenu]);
+
   return {
     activeIndex,
     closeMenu,

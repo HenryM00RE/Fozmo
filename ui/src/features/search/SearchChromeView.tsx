@@ -9,6 +9,7 @@ export function SearchChromeView({ searchChrome }: SearchChromeViewProps) {
   const {
     albums,
     globalSearch,
+    onAddTrackToPlaylist,
     onOpenAlbum,
     onOpenArtist,
     onOpenQobuzAlbum,
@@ -29,6 +30,7 @@ export function SearchChromeView({ searchChrome }: SearchChromeViewProps) {
       onClose={() => globalSearch.setOpen(false)}
       onRememberSearch={globalSearch.rememberSearch}
       onRemoveRecentSearch={globalSearch.removeRecentSearch}
+      onAddTrackToPlaylist={onAddTrackToPlaylist}
       onOpenAlbum={(id) => {
         globalSearch.setOpen(false);
         onOpenAlbum(id);

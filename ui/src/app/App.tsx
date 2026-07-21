@@ -266,6 +266,7 @@ function AuthenticatedApp({
     albums,
     globalSearch,
     navigate,
+    openPlaylistPickerForItems,
     openArtistName,
     playQobuzTrack,
     playSingleTrack,

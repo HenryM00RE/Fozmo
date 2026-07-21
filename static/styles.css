@@ -74,28 +74,25 @@ body {
 }
 
 :root[data-theme="dark"] {
-    --canvas: rgb(25, 25, 25);
-    --canvas-tint: rgb(30, 30, 30);
-    --canvas-raised: rgb(30, 30, 30);
+    --canvas: rgb(21, 21, 21);
+    --canvas-tint: rgb(26, 26, 26);
+    --canvas-raised: rgb(26, 26, 26);
+    --card-bg: rgb(22, 22, 22);
     --ink: rgb(230, 228, 222);
     --ink-strong: rgb(248, 246, 240);
     --ink-muted: rgba(230, 228, 222, 0.72);
     --ink-faint: rgba(230, 228, 222, 0.48);
     --ink-whisper: rgba(230, 228, 222, 0.28);
-    --floating-menu-glass-bg: rgba(34, 34, 33, 0.62);
+    --floating-menu-glass-bg: rgba(30, 30, 29, 0.62);
     --floating-menu-glass-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.08),
         0 0 0 1px var(--line-12),
         0 10px 28px rgba(0, 0, 0, 0.3),
         0 2px 6px rgba(0, 0, 0, 0.18);
-    --app-sidebar-bg: rgb(27, 27, 27);
-    --sidebar-active-bg: linear-gradient(
-        180deg,
-        rgba(255, 255, 255, 0.085),
-        rgba(255, 255, 255, 0.052)
-    );
+    --app-sidebar-bg: rgb(23, 23, 23);
+    --sidebar-active-bg: rgb(36, 36, 36);
     --player-bar-bg: var(--canvas-tint);
-    --sidebar-divider-color: rgb(41, 41, 41);
+    --sidebar-divider-color: rgb(37, 37, 37);
 }
 
 /* Roon-style library shell */
@@ -372,7 +369,7 @@ html[data-custom-display-font="on"] .app-sidebar-brand {
 }
 
 :root[data-theme="dark"] .panel {
-    background: var(--canvas-tint);
+    background: var(--card-bg);
 }
 
 .sidebar-playlist-section {
@@ -5947,6 +5944,8 @@ body.playlist-selection-mode #playlist-grid .album-cover-play {
     justify-content: center;
     padding: min(12vh, 96px) 20px 20px;
     background: var(--modal-backdrop-bg);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
     opacity: 0;
     transition: opacity var(--dur) var(--ease-modal);
 }
@@ -5967,6 +5966,14 @@ body.playlist-selection-mode #playlist-grid .album-cover-play {
 
 .playlist-confirm-backdrop.is-open .playlist-confirm-panel {
     transform: translateY(0);
+}
+
+.playlist-settings-backdrop .playlist-confirm-panel {
+    width: min(520px, 100%);
+}
+
+.playlist-settings-backdrop .playlist-confirm-head {
+    padding: 20px 24px;
 }
 
 .playlist-confirm-head {
@@ -6008,24 +6015,32 @@ body.playlist-selection-mode #playlist-grid .album-cover-play {
 }
 
 .playlist-settings-body {
-    gap: 18px;
+    gap: 20px;
+    padding: 22px 24px 24px;
+}
+
+.playlist-settings-body > .zone-settings-field > span {
+    color: var(--ink-muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
 }
 
 .playlist-settings-meta {
     margin: 0;
     display: grid;
-    gap: 10px;
-    padding: 14px;
-    border-radius: var(--r-panel-sm);
-    background: var(--canvas-tint);
-    box-shadow: var(--deboss-input);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 32px;
+    padding: 2px 4px 0;
+    background: transparent;
+    box-shadow: none;
 }
 
 .playlist-settings-meta div {
     display: grid;
-    grid-template-columns: 96px minmax(0, 1fr);
-    gap: 12px;
-    align-items: baseline;
+    gap: 5px;
+    min-width: 0;
 }
 
 .playlist-settings-meta dt {
@@ -6051,11 +6066,37 @@ body.playlist-selection-mode #playlist-grid .album-cover-play {
 }
 
 .playlist-settings-actions {
-    justify-content: flex-end;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
 }
 
-.playlist-settings-action-spacer {
-    flex: 1 1 auto;
+.playlist-settings-actions-start,
+.playlist-settings-actions-end {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.playlist-settings-actions-start {
+    flex-wrap: wrap;
+}
+
+.playlist-settings-actions-end {
+    margin-left: auto;
+}
+
+.playlist-settings-actions .playlist-settings-export {
+    min-height: 38px;
+    padding: 0 13px;
+    background: transparent;
+    box-shadow: none;
+}
+
+.playlist-settings-actions .playlist-settings-export:hover,
+.playlist-settings-actions .playlist-settings-export:focus-visible {
+    background: transparent;
+    box-shadow: none;
 }
 
 .playlist-settings-delete {

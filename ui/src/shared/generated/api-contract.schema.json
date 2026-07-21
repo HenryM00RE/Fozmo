@@ -4753,6 +4753,22 @@
           "minimum": 0.0,
           "type": "integer"
         },
+        "eq_active_bands": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "eq_enabled": {
+          "default": null,
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "exclusive": {
           "type": "boolean"
         },

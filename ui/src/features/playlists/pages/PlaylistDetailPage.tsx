@@ -23,6 +23,8 @@ import { PlaylistCover } from '../components/PlaylistCover';
 import { PlaylistTrackArt } from '../components/PlaylistTrackArt';
 import {
   playlistCreatedAt,
+  playlistCsv,
+  playlistCsvFilename,
   playlistItems,
   playlistUpdatedAt,
   playPlaylist,
@@ -264,6 +266,23 @@ export function PlaylistDetailPage({
 
   const createdLabel = formatPlaylistDate(playlistCreatedAt(playlist));
   const updatedLabel = formatPlaylistDate(playlistUpdatedAt(playlist));
+
+  const exportPlaylistCsv = () => {
+    try {
+      const blob = new Blob([`\uFEFF${playlistCsv(items)}`], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = playlistCsvFilename(playlist.name);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setSettingsError('');
+    } catch {
+      setSettingsError('Could not export playlist');
+    }
+  };
 
   const openTrackAlbum = (item: QueueItem) => {
     const albumId = item.qobuzTrack?.album_id || item.resolvedSource?.album_id || item.albumId;
@@ -632,28 +651,34 @@ export function PlaylistDetailPage({
               </dl>
               {settingsError ? <p className="playlist-settings-error">{settingsError}</p> : null}
               <div className="playlist-confirm-actions playlist-settings-actions">
-                <button
-                  className="playlist-settings-delete"
-                  type="button"
-                  disabled={settingsBusy}
-                  title={`Delete playlist. Its ${songCountLabel(items.length)} will stay in your library.`}
-                  onClick={() => setDeleteConfirmOpen(true)}
-                >
-                  <Icon path="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                  Delete
-                </button>
-                <span className="playlist-settings-action-spacer" aria-hidden="true" />
-                <button
-                  className="pill"
-                  type="button"
-                  disabled={settingsBusy}
-                  onClick={closeSettings}
-                >
-                  Cancel
-                </button>
-                <button className="pill primary" type="submit" disabled={settingsBusy}>
-                  Save
-                </button>
+                <div className="playlist-settings-actions-start">
+                  <button
+                    className="playlist-settings-delete"
+                    type="button"
+                    disabled={settingsBusy}
+                    title={`Delete playlist. Its ${songCountLabel(items.length)} will stay in your library.`}
+                    onClick={() => setDeleteConfirmOpen(true)}
+                  >
+                    <Icon path="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                    Delete
+                  </button>
+                  <button
+                    className="pill playlist-settings-export"
+                    type="button"
+                    aria-label="Export playlist as CSV"
+                    title="Export playlist as CSV"
+                    disabled={settingsBusy}
+                    onClick={exportPlaylistCsv}
+                  >
+                    <Icon path="M12 3v12M7 8l5-5 5 5M5 21h14" />
+                    CSV
+                  </button>
+                </div>
+                <div className="playlist-settings-actions-end">
+                  <button className="pill primary" type="submit" disabled={settingsBusy}>
+                    Save
+                  </button>
+                </div>
               </div>
             </form>
           </div>

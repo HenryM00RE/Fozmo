@@ -8,6 +8,7 @@ import {
   configFromStatus,
   defaultDsdOutputModeForZone,
   dsdModulatorOptions,
+  dsdModulatorSupportsOutputMode,
   dsdRateFromOutputMode,
   dsdRateOptions,
   dspBufferOptions,
@@ -61,6 +62,9 @@ export function DspSettingsPage({
   const experimentalDsd256 = capabilityEnabled(status, 'experimental_dsd256');
   const nativeDsdAvailable = zoneSupportsNativeDsd(selectedZone);
   const dopDsdAvailable = zoneSupportsDopDsd(selectedZone);
+  const dsdRateAllowed = (value: unknown) =>
+    zoneSupportsDsdOutputMode(selectedZone, value, experimentalDsd256) &&
+    dsdModulatorSupportsOutputMode(playbackConfig.dsdModulator, value);
   const selectedOutputModeAllowed = zoneSupportsDsdOutputMode(
     selectedZone,
     playbackConfig.outputMode,
@@ -69,9 +73,10 @@ export function DspSettingsPage({
   const effectiveOutputMode = selectedOutputModeAllowed ? playbackConfig.outputMode : 'Pcm';
   const dsdOutputMode = isDsdOutputMode(effectiveOutputMode);
   const dsdRate = dsdRateFromOutputMode(effectiveOutputMode);
-  const preferredDsdRate = zoneSupportsDsdOutputMode(selectedZone, dsdRate, experimentalDsd256)
+  const preferredDsdRate = dsdRateAllowed(dsdRate)
     ? dsdRate
-    : defaultDsdOutputModeForZone(selectedZone, experimentalDsd256);
+    : (['Dsd256', 'Dsd128', 'Dsd64'] as const).find(dsdRateAllowed) ||
+      defaultDsdOutputModeForZone(selectedZone, experimentalDsd256);
   const outputFormat =
     effectiveOutputMode === 'Pcm' ? 'Pcm' : nativeDsdAvailable ? 'NativeDsd' : 'DopDsd';
   const targetRateDetail = dsdOutputMode ? 'Set the DSD output rate.' : 'Set the PCM output rate.';
@@ -80,7 +85,7 @@ export function DspSettingsPage({
     ? dsdRateOptions.map((option) => ({
         value: option.value,
         label: option.label,
-        disabled: !zoneSupportsDsdOutputMode(selectedZone, option.value, experimentalDsd256)
+        disabled: !dsdRateAllowed(option.value)
       }))
     : sampleRateOptions.map(([value, label]) => ({ value: String(value), label }));
 
@@ -339,10 +344,7 @@ export function dspApplyStatusLine(
       };
     }
     if (applyState.renderStatus === 'pending' || applyState.renderStatus === 'rendering') {
-      return {
-        kind: 'info',
-        text: 'Applying settings to the current stream — re-rendering the track. Streaming sources can take a minute; playback keeps the previous settings until the switch.'
-      };
+      return null;
     }
     if (applyState.renderStatus === 'switching') {
       return { kind: 'info', text: 'Applying settings — restarting the stream…' };

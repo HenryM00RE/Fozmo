@@ -12,6 +12,28 @@ import { GlobalSearchActionsMenu, GlobalSearchRow } from './components/GlobalSea
 import { buildGlobalSearchView } from './globalSearchModel';
 import { useGlobalSearchDialogState } from './hooks/useGlobalSearchDialogState';
 
+function GlobalSearchSkeletonRows({ count }: { count: number }) {
+  return (
+    <div className="global-search-skeleton" role="status" aria-label="Loading search results">
+      {Array.from({ length: count }, (_, index) => (
+        <div
+          className="global-search-row global-search-skeleton-row"
+          aria-hidden="true"
+          key={index}
+        >
+          <span className="global-search-skeleton-art skeleton-shimmer" />
+          <span className="global-search-copy">
+            <span className="global-search-skeleton-title skeleton-shimmer" />
+            <span className="global-search-skeleton-meta skeleton-shimmer" />
+          </span>
+          <span className="global-search-skeleton-kind skeleton-shimmer" />
+          <span className="global-search-skeleton-menu skeleton-shimmer" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function GlobalSearch({
   query,
   recentSearches,
@@ -23,6 +45,7 @@ export function GlobalSearch({
   onPlayTrack,
   onPlayQobuz,
   onOpenArtist,
+  onAddTrackToPlaylist,
   onQueueTrack,
   onQueueAlbum,
   onRememberSearch,
@@ -39,6 +62,7 @@ export function GlobalSearch({
   onPlayTrack: (track: LibraryTrack) => void;
   onPlayQobuz: (track: QobuzTrack) => void;
   onOpenArtist: (name: string) => void;
+  onAddTrackToPlaylist: (track: LibraryTrack | QobuzTrack, source: GlobalSearchSource) => void;
   onQueueTrack: (
     track: LibraryTrack | QobuzTrack,
     source: GlobalSearchSource,
@@ -73,6 +97,7 @@ export function GlobalSearch({
   }, [commitSearch, onClose, onQuery]);
   const searchView = buildGlobalSearchView({
     albums,
+    onAddTrackToPlaylist,
     onClose: closeSearch,
     onOpenAlbum,
     onOpenArtist,
@@ -275,9 +300,7 @@ export function GlobalSearch({
                     );
                   })}
                   {searchView.isLoading ? (
-                    <div className="global-search-pending">
-                      {searchView.isPartial ? 'Still checking Qobuz.' : 'Reading index.'}
-                    </div>
+                    <GlobalSearchSkeletonRows count={searchView.total ? 2 : 7} />
                   ) : null}
                   {searchView.hasMore || showAll ? (
                     <div className="global-search-more-row">

@@ -10,12 +10,10 @@ import type {
   ResolvedPlaySource
 } from '../../shared/types';
 import { Icon } from '../../shared/ui/Icon';
-import { Menu } from '../../shared/ui/Menu';
 import { actionMenuPosition } from '../../shared/ui/menuPosition';
-import { PlaybarPlayIcon } from '../../shared/ui/PlaybarPlayIcon';
-import { PlayNextIcon } from '../../shared/ui/PlayNextIcon';
 import { SelectMenu } from '../../shared/ui/SelectMenu';
 import { SetupNotice } from '../../shared/ui/SetupNotice';
+import { SongActionsMenu } from '../../shared/ui/SongActionsMenu';
 import { useActionMenuScrollLock } from '../../shared/ui/useActionMenuScrollLock';
 import { useLongPressSelection } from '../../shared/ui/useLongPressSelection';
 import {
@@ -297,80 +295,39 @@ export function SongsPage({
         )}
       </section>
       {trackMenu && pageTracks[trackMenu.index] ? (
-        <Menu
-          className="track-actions-menu track-actions-menu-wide is-open"
-          ariaLabel="Track options"
-          style={{ left: Math.max(12, trackMenu.x), top: trackMenu.y }}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <button
-            className="track-action-item has-filled-icon"
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              onPlay(pageTracks[trackMenu.index]);
-              setTrackMenu(null);
-            }}
-          >
-            <PlaybarPlayIcon className="track-action-play-icon" />
-            <span>Play</span>
-          </button>
-          <button
-            className="track-action-item"
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              const item = localTrackToQueueItem(pageTracks[trackMenu.index]);
-              addItemsToQueue([item], 'next');
-              setTrackMenu(null);
-            }}
-          >
-            <PlayNextIcon />
-            <span>Add next</span>
-          </button>
-          <button
-            className="track-action-item"
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              const item = localTrackToQueueItem(pageTracks[trackMenu.index]);
-              openPlaylistPickerForItems([item], item.title || 'Track');
-              setTrackMenu(null);
-            }}
-          >
-            <Icon path="M4 7h12M4 12h9M4 17h7M18 15v6M15 18h6" />
-            <span>Add to playlist</span>
-          </button>
-          {hasAlbumRoute(pageTracks[trackMenu.index]) ? (
-            <button
-              className="track-action-item"
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                const albumId = pageTracks[trackMenu.index].album_id;
-                if (albumId !== null && albumId !== undefined && albumId !== '')
-                  onOpenAlbum(albumId);
-                setTrackMenu(null);
-              }}
-            >
-              <Icon path="M5 4h14v16H5zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM12 12h.01" />
-              <span>Go to album</span>
-            </button>
-          ) : null}
-          <button
-            className="track-action-item"
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              const item = localTrackToQueueItem(pageTracks[trackMenu.index]);
-              addItemsToQueue([item], 'end');
-              setTrackMenu(null);
-            }}
-          >
-            <Icon path="M4 7h10M4 12h10M4 17h7M18 10v8M14 14h8" />
-            <span>Add to queue</span>
-          </button>
-        </Menu>
+        <SongActionsMenu
+          x={trackMenu.x}
+          y={trackMenu.y}
+          onPlay={() => {
+            onPlay(pageTracks[trackMenu.index]);
+            setTrackMenu(null);
+          }}
+          onAddNext={() => {
+            const item = localTrackToQueueItem(pageTracks[trackMenu.index]);
+            addItemsToQueue([item], 'next');
+            setTrackMenu(null);
+          }}
+          onAddToPlaylist={() => {
+            const item = localTrackToQueueItem(pageTracks[trackMenu.index]);
+            openPlaylistPickerForItems([item], item.title || 'Track');
+            setTrackMenu(null);
+          }}
+          onGoToAlbum={
+            hasAlbumRoute(pageTracks[trackMenu.index])
+              ? () => {
+                  const albumId = pageTracks[trackMenu.index].album_id;
+                  if (albumId !== null && albumId !== undefined && albumId !== '')
+                    onOpenAlbum(albumId);
+                  setTrackMenu(null);
+                }
+              : undefined
+          }
+          onAddToQueue={() => {
+            const item = localTrackToQueueItem(pageTracks[trackMenu.index]);
+            addItemsToQueue([item], 'end');
+            setTrackMenu(null);
+          }}
+        />
       ) : null}
     </section>
   );

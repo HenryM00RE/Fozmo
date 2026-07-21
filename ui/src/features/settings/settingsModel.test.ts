@@ -6,6 +6,7 @@ import {
   configFromStatus,
   defaultDsdOutputModeForZone,
   dsdModulatorOptions,
+  dsdModulatorSupportsOutputMode,
   ecBeam2FilterSupported,
   ecBeam2SelectableForDsdConfig,
   filterOptions,
@@ -39,30 +40,28 @@ describe('resampling filter choices', () => {
     expect(filterOptions).toEqual([
       ['LinearPhase128k', 'Linear Phase'],
       ['MinimumPhaseCompact128k', 'Minimum Phase'],
-      ['SplitPhase128kE2v3', 'Split Phase'],
-      ['SplitPhase128kE3', 'Split Phase B'],
-      ['SmoothPhase128k', 'Smooth Phase']
+      ['SplitPhase128kE3', 'Split Phase']
     ]);
-    expect(visibleFilterType('IntegratedPhase128k')).toBe('SplitPhase128kE2v3');
+    expect(visibleFilterType('IntegratedPhase128k')).toBe('SplitPhase128kE3');
     expect(visibleFilterType('SincExtreme32k')).toBe('LinearPhase128k');
     expect(visibleFilterType('LinearPhase128k')).toBe('LinearPhase128k');
     expect(visibleFilterType('Minimum16k')).toBe('MinimumPhaseCompact128k');
     expect(visibleFilterType('MinimumPhase128k')).toBe('MinimumPhaseCompact128k');
     expect(visibleFilterType('MinimumPhaseCompact128k')).toBe('MinimumPhaseCompact128k');
     expect(visibleFilterType('MinimumPhaseCompact128kV2')).toBe('MinimumPhaseCompact128k');
-    expect(visibleFilterType('Split128k')).toBe('SplitPhase128kE2v3');
-    expect(visibleFilterType('Split128kV2')).toBe('SplitPhase128kE2v3');
-    expect(visibleFilterType('SplitPhase128kV3')).toBe('SplitPhase128kE2v3');
-    expect(visibleFilterType('SplitPhase128kV4')).toBe('SplitPhase128kE2v3');
-    expect(visibleFilterType('SplitPhase128kE2v3')).toBe('SplitPhase128kE2v3');
+    expect(visibleFilterType('Split128k')).toBe('SplitPhase128kE3');
+    expect(visibleFilterType('Split128kV2')).toBe('SplitPhase128kE3');
+    expect(visibleFilterType('SplitPhase128kV3')).toBe('SplitPhase128kE3');
+    expect(visibleFilterType('SplitPhase128kV4')).toBe('SplitPhase128kE3');
+    expect(visibleFilterType('SplitPhase128kE2v3')).toBe('SplitPhase128kE3');
     expect(visibleFilterType('SplitPhase128kE3')).toBe('SplitPhase128kE3');
-    expect(visibleFilterType('SmoothPhase128k')).toBe('SmoothPhase128k');
-    expect(visibleFilterType('unknown-filter')).toBe('SplitPhase128kE2v3');
-    expect(visibleFilterType('Split16k')).toBe('SplitPhase128kE2v3');
+    expect(visibleFilterType('SmoothPhase128k')).toBe('SplitPhase128kE3');
+    expect(visibleFilterType('unknown-filter')).toBe('SplitPhase128kE3');
+    expect(visibleFilterType('Split16k')).toBe('SplitPhase128kE3');
     expect(compactFilterName('MinimumPhaseCompact128k')).toBe('Minimum Phase');
     expect(compactFilterName('Split128kV2')).toBe('Split Phase');
     expect(compactFilterName('SplitPhase128kE2v3')).toBe('Split Phase');
-    expect(compactFilterName('SplitPhase128kE3')).toBe('Split Phase B');
+    expect(compactFilterName('SplitPhase128kE3')).toBe('Split Phase');
   });
 });
 
@@ -116,7 +115,7 @@ describe('DSD modulator choices', () => {
     expect(isiPenaltyAfterDsdModulatorChange(0.01, 'Standard')).toBe(0.01);
   });
 
-  it('makes ECB2 selectable only for qualified DSD64/128/256 rates and filters', () => {
+  it('makes 7th Order Search selectable only for qualified DSD64/128 rates and filters', () => {
     expect(ecBeam2SelectableForDsdConfig('Dsd64', 'MinimumPhaseCompact128kV2', false, [])).toBe(
       true
     );
@@ -147,12 +146,12 @@ describe('DSD modulator choices', () => {
       true
     );
     expect(ecBeam2SelectableForDsdConfig('Dsd128', 'SmoothPhase128k', false, [])).toBe(true);
-    expect(ecBeam2SelectableForDsdConfig('Dsd256', 'Split128k', false, [])).toBe(true);
+    expect(ecBeam2SelectableForDsdConfig('Dsd256', 'Split128k', false, [])).toBe(false);
     expect(
       ecBeam2SelectableForDsdConfig('Dsd64', 'Split128k', true, [
         { source_rate: 176400, filter_type: 'Split128k', output_mode: 'Dsd256' }
       ])
-    ).toBe(true);
+    ).toBe(false);
     expect(ecBeam2SelectableForDsdConfig('Pcm', 'Split128k', false, [])).toBe(false);
     expect(ecBeam2FilterSupported('Minimum16k')).toBe(true);
     expect(ecBeam2FilterSupported('MinimumPhaseCompact128k')).toBe(true);
@@ -166,6 +165,9 @@ describe('DSD modulator choices', () => {
     expect(ecBeam2FilterSupported('SmoothPhase128k')).toBe(true);
     expect(ecBeam2FilterSupported('LinearPhase128k')).toBe(true);
     expect(ecBeam2FilterSupported('SincExtreme32k')).toBe(false);
+    expect(dsdModulatorSupportsOutputMode('EcBeam2', 'Dsd128')).toBe(true);
+    expect(dsdModulatorSupportsOutputMode('EcBeam2', 'Dsd256')).toBe(false);
+    expect(dsdModulatorSupportsOutputMode('Standard', 'Dsd256')).toBe(true);
   });
 });
 

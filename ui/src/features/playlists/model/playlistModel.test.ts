@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { LibraryTrack, Playlist } from '../../../shared/types';
-import { mostRecentPlaylists, playlistItems } from './playlistModel';
+import type { LibraryTrack, Playlist, QueueItem } from '../../../shared/types';
+import {
+  mostRecentPlaylists,
+  playlistCsv,
+  playlistCsvFilename,
+  playlistItems
+} from './playlistModel';
 
 describe('mostRecentPlaylists', () => {
   it('returns only the five most recently updated playlists', () => {
@@ -88,5 +93,42 @@ describe('playlistItems', () => {
 
     expect(item.albumId).toBe('qobuz-album');
     expect(item.qobuzTrack?.album_id).toBe('qobuz-album');
+  });
+});
+
+describe('playlistCsv', () => {
+  it('exports ordered playlist metadata with CSV escaping', () => {
+    const items: QueueItem[] = [
+      {
+        title: 'Song, "Part Two"',
+        artist: '=Unexpected Formula',
+        album: 'Album\nDeluxe',
+        albumArtist: 'Album Artist',
+        durationSecs: 123.5,
+        filename: 'song.flac',
+        resolvedSource: { kind: 'local_track' }
+      },
+      {
+        title: 'Streamed Song',
+        artist: 'Artist',
+        album: 'Album',
+        durationSecs: 240,
+        filename: null,
+        qobuzTrack: { id: 42, title: 'Streamed Song', artist: 'Artist', album: 'Album' }
+      }
+    ];
+
+    expect(playlistCsv(items)).toBe(
+      [
+        'Position,Title,Artist,Album,Album Artist,Duration (seconds),Source,Filename',
+        '1,"Song, ""Part Two""",\'=Unexpected Formula,"Album\nDeluxe",Album Artist,123.5,Local,song.flac',
+        '2,Streamed Song,Artist,Album,,240,Qobuz,'
+      ].join('\r\n')
+    );
+  });
+
+  it('creates a filesystem-safe CSV filename', () => {
+    expect(playlistCsvFilename('  Night/Drive: 01  ')).toBe('Night-Drive- 01.csv');
+    expect(playlistCsvFilename('...')).toBe('playlist.csv');
   });
 });

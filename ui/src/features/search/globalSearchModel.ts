@@ -66,7 +66,6 @@ export type GlobalSearchView = {
   hasMore: boolean;
   hasQuery: boolean;
   isLoading: boolean;
-  isPartial: boolean;
   rows: GlobalSearchRowModel[];
   status: string;
   topResult: GlobalSearchRowModel | null;
@@ -75,6 +74,7 @@ export type GlobalSearchView = {
 
 type BuildGlobalSearchRowsParams = {
   albums: LibraryAlbum[];
+  onAddTrackToPlaylist: (track: LibraryTrack | QobuzTrack, source: GlobalSearchSource) => void;
   onClose: () => void;
   onOpenAlbum: (id: string | number) => void;
   onOpenArtist: (name: string) => void;
@@ -428,7 +428,7 @@ function preferRow(candidate: GlobalSearchRowModel, current: GlobalSearchRowMode
 export function globalSearchStatus(query: string, results: GlobalSearchState, total: number) {
   const isLoading = results.localLoading || results.qobuzLoading;
   if (!query.trim()) return '';
-  if (isLoading) return total ? 'Updating results.' : 'Searching.';
+  if (isLoading) return '';
   if (total) return '';
   if (results.localError && results.qobuzError) return 'Search unavailable.';
   return 'No matching records.';
@@ -447,7 +447,6 @@ export function buildGlobalSearchView(params: BuildGlobalSearchViewParams): Glob
     hasMore: feedRows.length > rows.length,
     hasQuery: Boolean(params.query.trim()),
     isLoading,
-    isPartial: Boolean(total && isLoading),
     rows,
     status: globalSearchStatus(params.query, params.results, total),
     topResult,
@@ -457,6 +456,7 @@ export function buildGlobalSearchView(params: BuildGlobalSearchViewParams): Glob
 
 export function buildGlobalSearchRows({
   albums,
+  onAddTrackToPlaylist,
   onClose,
   onOpenAlbum,
   onOpenArtist,
@@ -502,17 +502,20 @@ export function buildGlobalSearchRows({
         run: () => onQueueTrack(track, source, 'next')
       },
       {
-        id: 'add-to-queue',
-        label: 'Add to queue',
-        path: 'M4 7h10M4 12h10M4 17h7M18 10v8M14 14h8',
-        run: () => onQueueTrack(track, source, 'end')
+        id: 'add-to-playlist',
+        label: 'Add to playlist',
+        path: 'M4 7h12M4 12h9M4 17h7M18 15v6M15 18h6',
+        run: () => {
+          onClose();
+          onAddTrackToPlaylist(track, source);
+        }
       }
     ];
     if (albumId) {
       actions.push({
         id: 'go-to-album',
         label: 'Go to album',
-        path: 'M5 12h14m-6-6 6 6-6 6',
+        path: 'M5 4h14v16H5zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM12 12h.01',
         run: () => {
           onClose();
           if (isQobuz) onOpenQobuzAlbum(albumId);
@@ -524,13 +527,19 @@ export function buildGlobalSearchRows({
       actions.push({
         id: 'go-to-artist',
         label: 'Go to artist',
-        path: 'M18 21a8 8 0 0 0-16 0M10 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10',
+        path: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4 20c1.8-4 4.5-6 8-6s6.2 2 8 6',
         run: () => {
           onClose();
           onOpenArtist(artistName);
         }
       });
     }
+    actions.push({
+      id: 'add-to-queue',
+      label: 'Add to queue',
+      path: 'M4 7h10M4 12h10M4 17h7M18 10v8M14 14h8',
+      run: () => onQueueTrack(track, source, 'end')
+    });
     return decorateResult(
       {
         id: `${source}:song:${String(track.id ?? track.track_id ?? track.file_name ?? title)}`,

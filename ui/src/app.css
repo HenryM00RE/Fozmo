@@ -9,6 +9,7 @@
   --track-row-divider-size: calc(1px / var(--app-ui-scale));
   --app-select-bg: rgb(242, 239, 230);
   --player-bar-bg: rgb(242, 239, 230);
+  --app-modal-backdrop-filter: blur(5px) var(--modal-backdrop-open-filter);
   --app-select-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.52), 0 0 0 1px var(--line-12, rgba(45, 45, 42, 0.12)),
     0 3px 10px rgba(45, 45, 42, 0.075), 0 1px 2px rgba(45, 45, 42, 0.055);
@@ -40,10 +41,14 @@ html[data-theme="neutral"] .react-app {
 }
 
 html[data-theme="dark"] .react-app {
-  --sidebar-divider-color: rgb(41, 41, 41);
-  --settings-card-bg: var(--canvas-tint, rgb(30, 30, 30));
-  --app-select-bg: rgb(33, 33, 33);
-  --player-bar-bg: rgb(30, 30, 30);
+  --sidebar-divider-color: rgb(37, 37, 37);
+  --settings-card-bg: rgb(26, 26, 26);
+  --album-detail-card-bg: var(--card-bg, rgb(22, 22, 22));
+  --credits-card-bg: rgb(26, 26, 26);
+  --settings-control-bg: rgb(27, 27, 27);
+  --settings-control-hover-bg: rgb(30, 30, 30);
+  --app-select-bg: var(--settings-control-bg);
+  --player-bar-bg: rgb(26, 26, 26);
   --app-select-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.055), 0 0 0 1px var(--line-12, rgba(255, 255, 255, 0.1)),
     0 4px 12px rgba(0, 0, 0, 0.18), 0 1px 2px rgba(0, 0, 0, 0.16);
@@ -645,7 +650,7 @@ body.action-menu-scroll-locked .react-app .view {
   overflow: hidden;
   border: 0;
   border-radius: var(--r-panel, 18px);
-  background: var(--floating-menu-glass-bg, rgba(34, 34, 33, 0.62));
+  background: var(--floating-menu-glass-bg, rgba(30, 30, 29, 0.62));
   box-shadow: var(--floating-menu-glass-shadow, 0 18px 54px rgba(0, 0, 0, 0.26));
   backdrop-filter: var(--floating-menu-glass-filter, blur(20px) saturate(140%));
   -webkit-backdrop-filter: var(--floating-menu-glass-filter, blur(20px) saturate(140%));
@@ -3223,11 +3228,16 @@ html[data-custom-display-font="on"]
 
 .react-app .global-search-panel {
   width: min(780px, 100%);
+  height: min(700px, calc(100dvh - 96px));
+  max-height: calc(100dvh - 96px);
   border-radius: 24px;
 }
 
 .react-app .global-search-backdrop {
   z-index: 1500;
+  align-items: flex-start;
+  justify-content: center;
+  padding: min(6vh, 48px) 24px 24px;
 }
 
 .react-app .global-search-head,
@@ -3242,6 +3252,14 @@ html[data-custom-display-font="on"]
 .react-app .global-search-status {
   min-height: 14px;
   font-size: 11.5px;
+}
+
+.react-app .global-search-body {
+  padding-top: 0;
+}
+
+.react-app .global-search-status:not(:empty) {
+  margin-top: 18px;
 }
 
 .react-app .global-search-count {
@@ -3346,37 +3364,110 @@ html[data-custom-display-font="on"]
 
 .react-app .global-search-row {
   position: relative;
-  min-height: 56px;
+  min-height: 53.5px;
   grid-template-columns: 44px minmax(0, 1fr) 54px auto;
   gap: 14px;
-  padding: 7px 8px;
+  padding: 4.75px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
   scroll-margin: 8px;
 }
 
+.react-app .global-search-row > :not(.track-row-hover-surface) {
+  position: relative;
+  z-index: 1;
+}
+
+.react-app .global-search-row:hover,
+.react-app .global-search-row:focus-visible,
 .react-app .global-search-row.is-active {
-  background: var(--row-hover, rgba(255, 255, 255, 0.06));
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--ink-muted, #a8a297) 72%, transparent);
+  background: transparent;
+  box-shadow: none;
+}
+
+.react-app .global-search-row:hover .track-row-hover-surface,
+.react-app .global-search-row:focus-visible .track-row-hover-surface,
+.react-app .global-search-row.is-active .track-row-hover-surface {
+  opacity: 1;
+}
+
+.react-app .global-search-row.is-artist .global-search-art {
+  border-radius: 50%;
+}
+
+.react-app .global-search-row:not(.is-artist) .global-search-art {
+  border-radius: 5px;
 }
 
 .react-app .global-search-row.is-featured {
-  min-height: 70px;
-  padding: 9px 8px;
+  min-height: 53.5px;
+  padding: 4.75px 8px;
   border: 0;
-  border-top: 1px solid var(--line-08, rgba(255, 255, 255, 0.08));
-  border-bottom: 1px solid var(--line-08, rgba(255, 255, 255, 0.08));
-  border-radius: 0;
+  border-radius: 10px;
   background: transparent;
 }
 
 .react-app .global-search-row.is-featured:hover,
 .react-app .global-search-row.is-featured:focus-visible,
 .react-app .global-search-row.is-featured.is-active {
-  background: var(--row-hover, rgba(255, 255, 255, 0.06));
+  background: transparent;
 }
 
 .react-app .global-search-row.is-featured .global-search-art {
-  width: 48px;
-  height: 48px;
+  width: 42px;
+  height: 42px;
+}
+
+.react-app .global-search-results {
+  padding-top: 18px;
+  padding-bottom: 10px;
+  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 14px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 14px), transparent 100%);
+}
+
+.react-app .global-search-status:not(:empty) + .global-search-results {
+  padding-top: 8px;
+}
+
+.react-app .global-search-skeleton {
+  display: grid;
+}
+
+.react-app .global-search-skeleton-row {
+  pointer-events: none;
+}
+
+.react-app .global-search-skeleton-art {
+  width: 42px;
+  height: 42px;
+  border-radius: 5px;
+}
+
+.react-app .global-search-skeleton-title {
+  width: min(280px, 62%);
+  height: 13px;
+  min-height: 13px;
+}
+
+.react-app .global-search-skeleton-meta {
+  width: min(210px, 46%);
+  height: 10px;
+  min-height: 10px;
+}
+
+.react-app .global-search-skeleton-kind {
+  width: 34px;
+  height: 10px;
+  min-height: 10px;
+  justify-self: end;
+}
+
+.react-app .global-search-skeleton-menu {
+  width: 4px;
+  height: 18px;
+  min-height: 18px;
+  justify-self: center;
 }
 
 .react-app .global-search-badges {
@@ -3932,6 +4023,13 @@ html[data-theme="dark"] .seek-slider {
   z-index: 1200;
 }
 
+/* Keep every modal above the complete app chrome so one shared backdrop can
+   dim and blur the page, including the elevated player bar. */
+.react-app .app-modal-backdrop {
+  backdrop-filter: var(--app-modal-backdrop-filter);
+  -webkit-backdrop-filter: var(--app-modal-backdrop-filter);
+}
+
 .react-app .volume-control {
   margin-right: 10px;
 }
@@ -4090,30 +4188,6 @@ html[data-theme="dark"] .seek-slider {
   border-radius: 50%;
   background: var(--ink-strong, #1f1f1f);
   transform: translateY(-50%);
-}
-
-.react-app .signal-stage span.signal-cpu-detail {
-  display: grid;
-  width: fit-content;
-  max-width: 100%;
-  grid-template-columns: max-content max-content max-content;
-  align-items: baseline;
-  justify-content: start;
-  column-gap: 5px;
-  font-variant-numeric: tabular-nums;
-}
-
-.react-app .signal-stage .signal-cpu-detail > span {
-  margin-top: 0;
-  white-space: nowrap;
-}
-
-.react-app .signal-stage .signal-cpu-percent {
-  text-align: left;
-}
-
-.react-app .signal-stage .signal-realtime-speed {
-  text-align: left;
 }
 
 .react-app .signal-source-label {
@@ -4630,7 +4704,16 @@ html[data-theme="dark"] .seek-slider {
 .react-app .credits-album-panel,
 .react-app .credits-roles-panel,
 .react-app .credits-tracks-panel {
-  background: var(--settings-card-bg, var(--canvas-tint, rgba(255, 255, 255, 0.04)));
+  background: var(
+    --credits-card-bg,
+    var(--settings-card-bg, var(--canvas-tint, rgba(255, 255, 255, 0.04)))
+  );
+}
+
+html[data-theme="dark"] .react-app .credits-album-panel,
+html[data-theme="dark"] .react-app .credits-roles-panel,
+html[data-theme="dark"] .react-app .credits-tracks-panel {
+  background: var(--credits-card-bg);
 }
 
 .react-app .album-description-backdrop {
@@ -4654,6 +4737,10 @@ html[data-theme="dark"] .seek-slider {
   border-radius: var(--r-panel, 14px);
   background: var(--canvas-raised, #202020);
   box-shadow: var(--modal-floating, 0 24px 80px rgba(0, 0, 0, 0.4));
+}
+
+html[data-theme="dark"] .react-app .album-description-panel {
+  background: var(--album-detail-card-bg);
 }
 
 .react-app .album-description-head {
@@ -6474,6 +6561,15 @@ html[data-custom-display-font="on"] .react-app .settings-sidebar .section-label 
   outline: 0;
 }
 
+html[data-theme="dark"] .react-app .settings-panel .pill:not(.primary) {
+  background: var(--settings-control-bg);
+}
+
+html[data-theme="dark"] .react-app .settings-panel .pill:not(.primary):hover,
+html[data-theme="dark"] .react-app .settings-panel .pill:not(.primary):focus-visible {
+  background: var(--settings-control-hover-bg);
+}
+
 .react-app .settings-panel .pill:disabled {
   cursor: not-allowed;
   opacity: 0.48;
@@ -6950,6 +7046,10 @@ html[data-theme="dark"] .react-app .display-font-scale-slider.is-scrubbing {
   overscroll-behavior: contain;
 }
 
+html[data-theme="dark"] .app-select-menu {
+  background: rgb(27, 27, 27);
+}
+
 .app-select-menu.is-above {
   top: auto;
 }
@@ -6977,6 +7077,10 @@ html[data-theme="dark"] .react-app .display-font-scale-slider.is-scrubbing {
 .app-select-option.is-selected {
   background: var(--menu-hover, rgba(255, 255, 255, 0.06));
   outline: 0;
+}
+
+html[data-theme="dark"] .app-select-option.is-selected {
+  background: rgb(36, 36, 36);
 }
 
 .app-select-option:disabled {
@@ -7614,6 +7718,10 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
 .react-app .toggle:disabled {
   cursor: not-allowed;
   opacity: 0.48;
+}
+
+html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
+  background: var(--settings-control-bg);
 }
 
 .react-app .hegel-number-control {
@@ -11716,8 +11824,8 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
     overflow-y: auto;
     overscroll-behavior: contain;
     background: var(--modal-backdrop-bg, rgba(0, 0, 0, 0.55));
-    backdrop-filter: blur(8px) saturate(0.88) var(--modal-backdrop-open-filter);
-    -webkit-backdrop-filter: blur(8px) saturate(0.88) var(--modal-backdrop-open-filter);
+    backdrop-filter: var(--app-modal-backdrop-filter);
+    -webkit-backdrop-filter: var(--app-modal-backdrop-filter);
     -webkit-overflow-scrolling: touch;
   }
 

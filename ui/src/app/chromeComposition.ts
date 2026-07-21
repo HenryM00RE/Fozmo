@@ -2,6 +2,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { PlaybackChromeState } from '../features/playback/model/playbackChromeState';
 import type { PlaylistChromeState } from '../features/playlists/model/playlistChromeState';
 import type { SearchChromeState } from '../features/search/model/searchChromeState';
+import { localTrackToQueueItem, qobuzTrackToQueueItem } from '../shared/lib/queue';
 import type {
   JsonRecord,
   LibraryAlbum,
@@ -97,6 +98,10 @@ export function buildPlaylistChrome({
 type BuildSearchChromeParams = {
   albums: LibraryAlbum[];
   globalSearch: SearchChromeState['globalSearch'];
+  openPlaylistPickerForItems: (
+    items: import('../shared/types').QueueItem[],
+    title?: string
+  ) => void;
   navigate: Navigate;
   openArtistName: (rawName: unknown) => void;
   playQobuzTrack: (track: QobuzTrack) => void;
@@ -108,6 +113,7 @@ type BuildSearchChromeParams = {
 export function buildSearchChrome({
   albums,
   globalSearch,
+  openPlaylistPickerForItems,
   navigate,
   openArtistName,
   playQobuzTrack,
@@ -118,6 +124,13 @@ export function buildSearchChrome({
   return {
     albums,
     globalSearch,
+    onAddTrackToPlaylist: (track, source) => {
+      const item =
+        source === 'qobuz'
+          ? qobuzTrackToQueueItem(track as QobuzTrack)
+          : localTrackToQueueItem(track as LibraryTrack);
+      openPlaylistPickerForItems([item], item.title || 'Track');
+    },
     onOpenAlbum: (id: string | number) => navigate({ view: 'album', id }),
     onOpenArtist: openArtistName,
     onOpenQobuzAlbum: (id: string | number) => navigate({ view: 'qobuz-album', id }),
