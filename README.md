@@ -22,10 +22,6 @@ See the [DSP guide](docs/dsp.md), [measurements](docs/Measurements.md), and [aud
 
 ![Home screen](docs/screenshots/home-light.png)
 
-### Album view
-
-![Album page](docs/screenshots/album-light.png)
-
 ### DSP settings
 
 ![DSP settings](docs/screenshots/dsp-dark.png)
