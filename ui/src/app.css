@@ -5232,7 +5232,7 @@ html[data-theme="dark"] .react-app .album-description-panel {
 .react-app .metadata-assigner-cover img,
 .react-app .metadata-assigner-cover svg,
 .react-app .qobuz-link-cover img,
-.react-app img.qobuz-link-cover {
+.react-app .qobuz-link-cover svg {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -5241,7 +5241,15 @@ html[data-theme="dark"] .react-app .album-description-panel {
 .react-app .qobuz-link-cover {
   width: 44px;
   height: 44px;
+  aspect-ratio: 1 / 1;
   flex: 0 0 auto;
+}
+
+.react-app img.qobuz-link-cover {
+  width: 44px;
+  height: 44px;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
 }
 
 .react-app .metadata-assigner-album-text,
@@ -6013,13 +6021,14 @@ html[data-theme="dark"] .react-app .album-description-panel {
   align-items: flex-start;
   justify-content: center;
   padding: min(6vh, 54px) 20px 24px;
+  box-sizing: border-box;
   background: var(--modal-backdrop-bg, rgba(0, 0, 0, 0.55));
   overflow-y: auto;
 }
 
 .react-app .album-metadata-editor-panel {
   width: min(1180px, 100%);
-  max-height: calc(100vh - 72px);
+  max-height: calc(100dvh - min(6vh, 54px) - 24px);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
@@ -6066,7 +6075,7 @@ html[data-theme="dark"] .react-app .album-description-panel {
   display: grid;
   gap: 14px;
   overflow: auto;
-  padding: 16px 18px;
+  padding: 16px 20px 6px;
 }
 
 .react-app .album-metadata-editor-summary {
@@ -6080,6 +6089,8 @@ html[data-theme="dark"] .react-app .album-description-panel {
 
 .react-app .album-metadata-editor-summary .metadata-assigner-cover {
   width: 76px;
+  height: 76px;
+  aspect-ratio: 1 / 1;
 }
 
 .react-app .album-metadata-editor-cover-actions {
@@ -6098,8 +6109,8 @@ html[data-theme="dark"] .react-app .album-description-panel {
 .react-app .album-metadata-editor-content {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(340px, 0.78fr) minmax(460px, 1.22fr);
-  gap: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
   align-items: start;
 }
 
@@ -6123,6 +6134,18 @@ html[data-theme="dark"] .react-app .album-description-panel {
   border: 0;
   border-radius: 0;
   background: transparent;
+}
+
+.react-app .album-metadata-editor-search-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.react-app .album-metadata-editor-search-row .zone-settings-input {
+  min-width: 0;
 }
 
 .react-app .album-metadata-editor-field-row {
@@ -6179,10 +6202,40 @@ html[data-theme="dark"] .react-app .album-description-panel {
   align-items: center;
 }
 
+.react-app .album-metadata-editor-linked-card .zone-settings-danger,
+.react-app .album-metadata-editor-panel .metadata-assigner-result .zone-settings-pill {
+  min-height: 32px;
+  padding: 0 4px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.react-app .album-metadata-editor-linked-card .zone-settings-danger {
+  color: var(--terracotta-ink, #f4b0a8);
+}
+
+.react-app .album-metadata-editor-panel .metadata-assigner-result .zone-settings-pill,
+.react-app .album-metadata-editor-panel .metadata-assigner-result .zone-settings-pill.primary {
+  color: var(--ink, #f5f0e8);
+}
+
+.react-app .album-metadata-editor-linked-card .zone-settings-danger:hover,
+.react-app .album-metadata-editor-linked-card .zone-settings-danger:focus-visible,
+.react-app .album-metadata-editor-panel .metadata-assigner-result .zone-settings-pill:hover,
+.react-app .album-metadata-editor-panel .metadata-assigner-result .zone-settings-pill:focus-visible {
+  background: transparent;
+  box-shadow: none;
+  outline: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .react-app .album-metadata-editor-tracks ol {
   max-height: min(58vh, 640px);
   display: grid;
-  gap: 4px;
+  gap: 0;
+  position: relative;
   margin: 0;
   padding: 0;
   overflow: auto;
@@ -6190,24 +6243,32 @@ html[data-theme="dark"] .react-app .album-description-panel {
 }
 
 .react-app .album-metadata-editor-track {
-  min-height: 64px;
+  position: relative;
+  min-height: 53.5px;
   display: grid;
-  grid-template-columns: 20px 26px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 20px 28px minmax(0, 1fr) auto;
+  gap: 8px;
   align-items: center;
-  padding: 8px 12px;
-  border: 1px solid var(--line-08, rgba(255, 255, 255, 0.08));
-  border-radius: 8px;
-  background: var(--canvas-tint, rgba(255, 255, 255, 0.04));
+  padding: 4.75px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
   cursor: grab;
   transition:
-    border-color var(--dur-fast, 120ms) ease,
-    box-shadow var(--dur-fast, 120ms) ease;
+    color 140ms ease,
+    opacity 140ms ease,
+    transform 140ms ease;
 }
 
-.react-app .album-metadata-editor-track:hover {
-  border-color: var(--rule, rgba(255, 255, 255, 0.18));
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+.react-app .album-metadata-editor-track > :not(.track-row-hover-surface) {
+  position: relative;
+  z-index: 1;
+}
+
+.react-app .album-metadata-editor-track:hover .track-row-hover-surface,
+.react-app .album-metadata-editor-track:focus-within .track-row-hover-surface,
+.react-app .album-metadata-editor-track.is-dragging .track-row-hover-surface {
+  opacity: 1;
 }
 
 .react-app .album-metadata-editor-track.is-dragging {
@@ -6226,19 +6287,27 @@ html[data-theme="dark"] .react-app .album-description-panel {
 }
 
 .react-app .album-metadata-editor-track:hover .album-metadata-editor-track-handle {
-  color: var(--ink-muted, #a8a297);
+  color: color-mix(in srgb, var(--ink, #f5f0e8) 82%, transparent);
 }
 
 .react-app .album-metadata-editor-track-handle svg {
-  width: 18px;
-  height: 18px;
-  fill: currentColor;
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.8;
+  stroke-linecap: round;
+}
+
+.react-app .album-metadata-editor-track-handle {
+  color: color-mix(in srgb, var(--ink, #f5f0e8) 58%, transparent);
 }
 
 .react-app .album-metadata-editor-track-number {
   color: var(--ink-muted, #a8a297);
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .react-app .album-metadata-editor-track-main {
@@ -6251,7 +6320,7 @@ html[data-theme="dark"] .react-app .album-description-panel {
 .react-app .album-metadata-editor-track-title-input {
   min-width: 0;
   width: 100%;
-  height: 28px;
+  height: 20px;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -6259,7 +6328,9 @@ html[data-theme="dark"] .react-app .album-description-panel {
   background: transparent;
   color: var(--ink, #f5f0e8);
   font: inherit;
-  font-weight: 800;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.08;
 }
 
 .react-app .album-metadata-editor-track-title-input:focus-visible {
@@ -6277,12 +6348,122 @@ html[data-theme="dark"] .react-app .album-description-panel {
 .react-app .album-metadata-editor-track-main small {
   color: var(--ink-muted, #a8a297);
   display: block;
-  line-height: 1.25;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: normal;
+  line-height: 1.08;
   padding-bottom: 1px;
+  text-transform: none;
+}
+
+.react-app .album-metadata-editor-disc {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto 34px;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-muted, #a8a297);
+  cursor: default;
+}
+
+.react-app .album-metadata-editor-disc > span {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: normal;
+  line-height: 1;
+  text-transform: none;
+}
+
+.react-app .album-metadata-editor-disc input {
+  width: 34px;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 12px;
+  outline: 0;
+  background: var(--canvas-tint, rgba(255, 255, 255, 0.04));
+  color: var(--ink, #f5f0e8);
+  box-shadow: var(--deboss-input, inset 0 0 0 1px rgba(255, 255, 255, 0.08));
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: center;
+  transition: box-shadow var(--dur-fast, 120ms) var(--ease-paper, ease);
+}
+
+.react-app .album-metadata-editor-disc input:hover {
+  box-shadow: var(
+    --app-select-shadow-active,
+    var(--deboss-input, inset 0 0 0 1px rgba(255, 255, 255, 0.08))
+  );
+}
+
+.react-app .album-metadata-editor-disc input:focus-visible {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink, #f5f0e8) 28%, transparent);
 }
 
 .react-app .album-metadata-editor-footer {
-  padding: 12px 18px;
+  padding: 8px 20px 10px;
+}
+
+@media (min-width: 821px) {
+  .react-app .album-metadata-editor-backdrop {
+    overflow: hidden;
+  }
+
+  .react-app .album-metadata-editor-body {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .react-app .album-metadata-editor-content {
+    flex: 1 1 auto;
+    align-items: stretch;
+    overflow: visible;
+  }
+
+  .react-app .album-metadata-editor-left {
+    width: min(100%, 520px);
+    min-height: 0;
+    grid-template-rows: auto minmax(0, 1fr);
+    justify-self: center;
+    overflow: visible;
+  }
+
+  .react-app .album-metadata-editor-panel .metadata-assigner-qobuz {
+    min-height: 0;
+    grid-template-rows: auto auto auto auto minmax(0, 1fr);
+    overflow: visible;
+  }
+
+  .react-app .album-metadata-editor-panel .metadata-assigner-results {
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+
+  .react-app .album-metadata-editor-local {
+    min-height: 0;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: visible;
+  }
+
+  .react-app .album-metadata-editor-tracks {
+    min-height: 0;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: visible;
+  }
+
+  .react-app .album-metadata-editor-tracks ol {
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
 }
 
 @media (max-width: 820px) {
@@ -6324,6 +6505,13 @@ html[data-theme="dark"] .react-app .album-description-panel {
 
   .react-app .metadata-assigner-result .match-row-score,
   .react-app .metadata-assigner-result .pill {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .react-app .metadata-assigner-result .zone-settings-pill,
+  .react-app .metadata-assigner-selected-card .zone-settings-pill,
+  .react-app .album-metadata-editor-linked-card .zone-settings-danger {
     grid-column: 2;
     justify-self: start;
   }

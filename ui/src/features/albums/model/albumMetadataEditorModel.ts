@@ -8,6 +8,7 @@ export type EditableAlbumTrack = LibraryTrack & {
 export function editableAlbumTracks(tracks: LibraryTrack[]) {
   return orderAlbumTracks(tracks).map((track, index) => ({
     ...track,
+    disc_number: positiveNumber(track.disc_number) || 1,
     editorKey: String(track.id ?? track.track_id ?? track.file_name ?? index)
   }));
 }
@@ -34,6 +35,16 @@ export function updateAlbumTrackTitle(
   title: string
 ) {
   return tracks.map((track) => (track.editorKey === editorKey ? { ...track, title } : track));
+}
+
+export function updateAlbumTrackDisc(
+  tracks: EditableAlbumTrack[],
+  editorKey: string,
+  discNumber: number | null
+) {
+  return tracks.map((track) =>
+    track.editorKey === editorKey ? { ...track, disc_number: discNumber } : track
+  );
 }
 
 export function albumEditorInitialTitle(album: LibraryAlbum | null) {
@@ -74,15 +85,11 @@ export function trackEditPayload(tracks: EditableAlbumTrack[]) {
 
 function discSlotPlan(tracks: EditableAlbumTrack[]) {
   const counts = new Map<number, number>();
-  tracks.forEach((track) => {
+  return tracks.map((track) => {
     const disc = positiveNumber(track.disc_number) || 1;
-    counts.set(disc, (counts.get(disc) || 0) + 1);
-  });
-  const discs = Array.from(counts.keys()).sort((a, b) => a - b);
-  if (!discs.length) return [];
-  return discs.flatMap((disc) => {
-    const count = counts.get(disc) || 0;
-    return Array.from({ length: count }, (_, index) => ({ disc, track: index + 1 }));
+    const trackNumber = (counts.get(disc) || 0) + 1;
+    counts.set(disc, trackNumber);
+    return { disc, track: trackNumber };
   });
 }
 
@@ -121,6 +128,8 @@ export function albumEditorMetadataHasChanges(
     (track, index) =>
       track.editorKey !== editedTracks[index]?.editorKey ||
       titleOf(track, 'Untitled track').trim() !==
-        titleOf(editedTracks[index], 'Untitled track').trim()
+        titleOf(editedTracks[index], 'Untitled track').trim() ||
+      (positiveNumber(track.disc_number) || 1) !==
+        (positiveNumber(editedTracks[index]?.disc_number) || 1)
   );
 }

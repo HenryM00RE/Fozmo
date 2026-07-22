@@ -28,6 +28,7 @@ import {
   editableAlbumTracks,
   moveAlbumTrack,
   trackEditPayload,
+  updateAlbumTrackDisc,
   updateAlbumTrackTitle
 } from '../model/albumMetadataEditorModel';
 
@@ -51,6 +52,7 @@ export function AlbumMetadataEditorModal({
   const [orderedTracks, setOrderedTracks] = useState<EditableAlbumTrack[]>(initialTracks);
   const [customCoverFile, setCustomCoverFile] = useState<File | null>(null);
   const [customCoverPreview, setCustomCoverPreview] = useState('');
+  const [coverDimensions, setCoverDimensions] = useState('');
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [query, setQuery] = useState(() => initialQobuzQuery(album));
   const [results, setResults] = useState<QobuzAlbumChoice[]>([]);
@@ -90,6 +92,10 @@ export function AlbumMetadataEditorModal({
     year
   );
   const coverSrc = customCoverPreview || albumArt(album);
+
+  useEffect(() => {
+    setCoverDimensions('');
+  }, [coverSrc]);
 
   useEffect(() => {
     setTitle(albumEditorInitialTitle(album));
@@ -185,6 +191,12 @@ export function AlbumMetadataEditorModal({
 
   const changeTrackTitle = (editorKey: string, nextTitle: string) => {
     setOrderedTracks((current) => updateAlbumTrackTitle(current, editorKey, nextTitle));
+  };
+
+  const changeTrackDisc = (editorKey: string, nextValue: string) => {
+    const digits = nextValue.replace(/\D/g, '').slice(0, 2);
+    const discNumber = digits ? Math.max(1, Number(digits)) : null;
+    setOrderedTracks((current) => updateAlbumTrackDisc(current, editorKey, discNumber));
   };
 
   const chooseCover = (file: File | null | undefined) => {
@@ -287,10 +299,9 @@ export function AlbumMetadataEditorModal({
         <header className="metadata-assigner-head">
           <div>
             <strong id="album-metadata-editor-title">Edit album metadata</strong>
-            <span>{titleOf(album, 'Local album')}</span>
           </div>
           <button
-            className="metadata-assigner-close"
+            className="zone-settings-close"
             type="button"
             aria-label="Close"
             onClick={onClose}
@@ -305,26 +316,35 @@ export function AlbumMetadataEditorModal({
             <div className="album-metadata-editor-left">
               <section className="album-metadata-editor-summary">
                 <div className="metadata-assigner-cover">
-                  {coverSrc ? <img alt="" src={coverSrc} /> : artFallback()}
+                  {coverSrc ? (
+                    <img
+                      alt=""
+                      src={coverSrc}
+                      onLoad={(event) => {
+                        const image = event.currentTarget;
+                        setCoverDimensions(`${image.naturalWidth}x${image.naturalHeight}`);
+                      }}
+                    />
+                  ) : (
+                    artFallback()
+                  )}
                 </div>
                 <div className="metadata-assigner-album-text">
-                  <span className="section-label">Local album</span>
-                  <strong>{titleOf(album, 'Album')}</strong>
-                  <span className="album-subtitle">
-                    {[album.album_artist || album.artist || 'Unknown artist', album.year]
-                      .filter(Boolean)
-                      .join(' / ')}
-                  </span>
+                  <strong>{coverDimensions || (coverSrc ? 'Loading dimensions...' : 'No artwork')}</strong>
                   <div className="album-metadata-editor-cover-actions">
                     <button
-                      className="pill"
+                      className="zone-settings-pill"
                       type="button"
                       onClick={() => coverInputRef.current?.click()}
                     >
                       Choose art
                     </button>
                     {customCoverFile ? (
-                      <button className="pill" type="button" onClick={clearCoverSelection}>
+                      <button
+                        className="zone-settings-pill"
+                        type="button"
+                        onClick={clearCoverSelection}
+                      >
                         Clear
                       </button>
                     ) : null}
@@ -354,8 +374,9 @@ export function AlbumMetadataEditorModal({
                   unlinking={unlinking}
                   onUnlink={unlinkQobuz}
                 />
-                <div className="metadata-assigner-search-row">
+                <div className="album-metadata-editor-search-row">
                   <input
+                    className="zone-settings-input"
                     type="search"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
@@ -368,7 +389,7 @@ export function AlbumMetadataEditorModal({
                     placeholder="Search Qobuz albums"
                   />
                   <button
-                    className="pill primary"
+                    className="zone-settings-pill primary"
                     type="button"
                     onClick={() => searchQobuz()}
                     disabled={searching}
@@ -417,9 +438,10 @@ export function AlbumMetadataEditorModal({
 
             <section className="album-metadata-editor-local">
               <div className="metadata-assigner-fields">
-                <label className="field">
-                  <span>Album title</span>
+                <label className="zone-settings-field">
+                  <span className="section-label">Album title</span>
                   <input
+                    className="zone-settings-input"
                     type="text"
                     value={title}
                     onChange={(event) => setTitle(event.target.value)}
@@ -427,18 +449,20 @@ export function AlbumMetadataEditorModal({
                   />
                 </label>
                 <div className="album-metadata-editor-field-row">
-                  <label className="field">
-                    <span>Album artist</span>
+                  <label className="zone-settings-field">
+                    <span className="section-label">Album artist</span>
                     <input
+                      className="zone-settings-input"
                       type="text"
                       value={albumArtist}
                       onChange={(event) => setAlbumArtist(event.target.value)}
                       autoComplete="off"
                     />
                   </label>
-                  <label className="field">
-                    <span>Release year</span>
+                  <label className="zone-settings-field">
+                    <span className="section-label">Release year</span>
                     <input
+                      className="zone-settings-input"
                       type="text"
                       value={year}
                       inputMode="numeric"
@@ -486,6 +510,7 @@ export function AlbumMetadataEditorModal({
                       }}
                       onDragEnd={() => setDraggingKey(null)}
                     >
+                      <span className="track-row-hover-surface" aria-hidden="true" />
                       <span className="album-metadata-editor-track-handle" aria-hidden="true">
                         <Icon path="M8 6h.01M8 12h.01M8 18h.01M16 6h.01M16 12h.01M16 18h.01" />
                       </span>
@@ -510,6 +535,25 @@ export function AlbumMetadataEditorModal({
                             'Unknown artist'}
                         </small>
                       </span>
+                      <label className="album-metadata-editor-disc">
+                        <span>Disc</span>
+                        <input
+                          className="zone-settings-input"
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={2}
+                          value={String(track.disc_number ?? '')}
+                          aria-label={`Disc number for song ${index + 1}`}
+                          onChange={(event) =>
+                            changeTrackDisc(track.editorKey, event.target.value)
+                          }
+                          onBlur={() => {
+                            if (!track.disc_number) changeTrackDisc(track.editorKey, '1');
+                          }}
+                          onMouseDown={(event) => event.stopPropagation()}
+                          autoComplete="off"
+                        />
+                      </label>
                     </li>
                   ))}
                 </ol>
@@ -519,11 +563,12 @@ export function AlbumMetadataEditorModal({
         </div>
 
         <footer className="metadata-assigner-footer album-metadata-editor-footer">
-          <button className="pill" type="button" onClick={onClose}>
+          <span className="zone-settings-spacer" />
+          <button className="zone-settings-pill" type="button" onClick={onClose}>
             Cancel
           </button>
           <button
-            className="pill primary"
+            className="zone-settings-pill primary"
             type="button"
             onClick={save}
             disabled={saving || !hasChanges}
@@ -587,7 +632,12 @@ function LinkedQobuzStatus({
               : linkedId}
           </span>
         </span>
-        <button className="pill" type="button" onClick={onUnlink} disabled={unlinking}>
+        <button
+          className="zone-settings-danger"
+          type="button"
+          onClick={onUnlink}
+          disabled={unlinking}
+        >
           {unlinking ? 'Unlinking...' : 'Unlink'}
         </button>
       </div>
@@ -622,7 +672,7 @@ function SelectedQobuz({
               .join(' / ')}
           </span>
         </span>
-        <button className="pill" type="button" onClick={onClear}>
+        <button className="zone-settings-pill" type="button" onClick={onClear}>
           Clear
         </button>
       </div>
@@ -648,8 +698,21 @@ function QobuzResult({
           {[album.artist, album.year].filter(Boolean).join(' / ')}
         </span>
       </span>
-      <span className="match-row-score">{qobuzAlbumQualityLabel(album)}</span>
-      <button className={`pill${selected ? '' : ' primary'}`} type="button" onClick={onSelect}>
+      <span className="match-row-score">
+        {[
+          album.tracks_count
+            ? `${album.tracks_count} ${album.tracks_count === 1 ? 'song' : 'songs'}`
+            : '',
+          qobuzAlbumQualityLabel(album)
+        ]
+          .filter(Boolean)
+          .join(' · ')}
+      </span>
+      <button
+        className={`zone-settings-pill${selected ? '' : ' primary'}`}
+        type="button"
+        onClick={onSelect}
+      >
         {selected ? 'Selected' : 'Select'}
       </button>
     </div>
