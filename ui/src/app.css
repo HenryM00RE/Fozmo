@@ -9,6 +9,7 @@
   --track-row-divider-size: calc(1px / var(--app-ui-scale));
   --app-select-bg: rgb(242, 239, 230);
   --player-bar-bg: rgb(242, 239, 230);
+  --app-modal-backdrop-filter: blur(5px) var(--modal-backdrop-open-filter);
   --app-select-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.52), 0 0 0 1px var(--line-12, rgba(45, 45, 42, 0.12)),
     0 3px 10px rgba(45, 45, 42, 0.075), 0 1px 2px rgba(45, 45, 42, 0.055);
@@ -40,10 +41,14 @@ html[data-theme="neutral"] .react-app {
 }
 
 html[data-theme="dark"] .react-app {
-  --sidebar-divider-color: rgb(41, 41, 41);
-  --settings-card-bg: var(--canvas-tint, rgb(30, 30, 30));
-  --app-select-bg: rgb(33, 33, 33);
-  --player-bar-bg: rgb(30, 30, 30);
+  --sidebar-divider-color: rgb(37, 37, 37);
+  --settings-card-bg: rgb(26, 26, 26);
+  --album-detail-card-bg: var(--card-bg, rgb(22, 22, 22));
+  --credits-card-bg: rgb(26, 26, 26);
+  --settings-control-bg: rgb(28, 28, 28);
+  --settings-control-hover-bg: rgb(30, 30, 30);
+  --app-select-bg: var(--settings-control-bg);
+  --player-bar-bg: rgb(26, 26, 26);
   --app-select-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.055), 0 0 0 1px var(--line-12, rgba(255, 255, 255, 0.1)),
     0 4px 12px rgba(0, 0, 0, 0.18), 0 1px 2px rgba(0, 0, 0, 0.16);
@@ -645,7 +650,7 @@ body.action-menu-scroll-locked .react-app .view {
   overflow: hidden;
   border: 0;
   border-radius: var(--r-panel, 18px);
-  background: var(--floating-menu-glass-bg, rgba(34, 34, 33, 0.62));
+  background: var(--floating-menu-glass-bg, rgba(30, 30, 29, 0.62));
   box-shadow: var(--floating-menu-glass-shadow, 0 18px 54px rgba(0, 0, 0, 0.26));
   backdrop-filter: var(--floating-menu-glass-filter, blur(20px) saturate(140%));
   -webkit-backdrop-filter: var(--floating-menu-glass-filter, blur(20px) saturate(140%));
@@ -835,9 +840,14 @@ body.action-menu-scroll-locked .react-app .view {
 
 .react-app .album-link:hover,
 .react-app .album-link:focus-visible {
-  color: var(--accent, #4a9eff);
+  color: inherit;
   text-decoration: underline;
-  outline: 0;
+}
+
+.react-app .album-link:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid var(--focus-outline, rgba(255, 255, 255, 0.16));
+  outline-offset: 2px;
 }
 
 .react-app .now-playing-album.album-link {
@@ -887,6 +897,33 @@ body.action-menu-scroll-locked .react-app .view {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.react-app .playlist-primary-action {
+  background: var(--ink, #f5f0e8);
+  color: var(--canvas, #141414);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 0 0 1px var(--ink-strong, #fff);
+}
+
+.react-app .playlist-primary-action:not(:disabled):hover,
+.react-app .playlist-primary-action:not(:disabled):focus-visible {
+  background: color-mix(in srgb, var(--canvas, #141414) 8%, var(--ink, #f5f0e8));
+  color: var(--canvas, #141414);
+  outline: 0;
+}
+
+.react-app .playlist-primary-action:not(:disabled):active {
+  background: var(--ink, #f5f0e8);
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+@media (max-width: 760px) {
+  .react-app .playlist-create-input,
+  .react-app .playlist-create-name-input {
+    font-size: 16px;
+  }
 }
 
 .react-app #recently-played-section {
@@ -2159,7 +2196,9 @@ body.recently-played-selection-mode .react-app .home-qobuz-grid .album-cover-pla
   display: flex;
   align-items: center;
   gap: 0;
+  font-size: 15px;
   font-weight: 500;
+  line-height: 1.08;
 }
 
 .react-app .songs-track-panel .file-name {
@@ -2171,6 +2210,35 @@ body.recently-played-selection-mode .react-app .home-qobuz-grid .album-cover-pla
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.react-app .songs-track-panel .album-track-duration,
+.react-app .songs-track-panel .album-track-play-count,
+.react-app .album-detail-view .album-track-panel .album-track-duration,
+.react-app .album-detail-view .album-track-panel .album-track-play-count {
+  justify-self: center;
+  text-align: center;
+}
+
+.react-app .songs-track-panel .btn-item-more,
+.react-app .album-detail-view .album-track-panel .btn-item-more {
+  justify-self: start;
+  background: transparent;
+  color: var(--ink-muted, #a8a297);
+}
+
+.react-app .songs-track-panel .btn-item-more:hover,
+.react-app .songs-track-panel .btn-item-more:focus-visible,
+.react-app .album-detail-view .album-track-panel .btn-item-more:hover,
+.react-app .album-detail-view .album-track-panel .btn-item-more:focus-visible {
+  background: var(--glass-fill, rgba(255, 255, 255, 0.08));
+  color: var(--ink, #f5f0e8);
+  outline: 0;
+}
+
+.react-app .songs-track-panel .btn-item-more:active,
+.react-app .album-detail-view .album-track-panel .btn-item-more:active {
+  background: var(--glass-fill-strong, rgba(255, 255, 255, 0.12));
 }
 
 .react-app .songs-empty-state {
@@ -2595,6 +2663,32 @@ html[data-custom-display-font="on"]
 
 .react-app .album-detail-about.artist-hero-bio-button {
   margin: 0;
+}
+
+@media (max-width: 760px) {
+  .react-app .artist-hero {
+    column-gap: 32px;
+    row-gap: 20px;
+  }
+
+  .react-app .artist-hero-meta {
+    display: contents;
+  }
+
+  .react-app .artist-hero-primary {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    align-self: center;
+  }
+
+  .react-app .artist-hero-bio {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    max-width: none;
+    margin-top: 0;
+  }
 }
 
 .react-app .artist-section-title {
@@ -3223,11 +3317,16 @@ html[data-custom-display-font="on"]
 
 .react-app .global-search-panel {
   width: min(780px, 100%);
+  height: min(700px, calc(100dvh - 96px));
+  max-height: calc(100dvh - 96px);
   border-radius: 24px;
 }
 
 .react-app .global-search-backdrop {
   z-index: 1500;
+  align-items: flex-start;
+  justify-content: center;
+  padding: min(6vh, 48px) 24px 24px;
 }
 
 .react-app .global-search-head,
@@ -3242,6 +3341,14 @@ html[data-custom-display-font="on"]
 .react-app .global-search-status {
   min-height: 14px;
   font-size: 11.5px;
+}
+
+.react-app .global-search-body {
+  padding-top: 0;
+}
+
+.react-app .global-search-status:not(:empty) {
+  margin-top: 18px;
 }
 
 .react-app .global-search-count {
@@ -3346,37 +3453,110 @@ html[data-custom-display-font="on"]
 
 .react-app .global-search-row {
   position: relative;
-  min-height: 56px;
+  min-height: 53.5px;
   grid-template-columns: 44px minmax(0, 1fr) 54px auto;
   gap: 14px;
-  padding: 7px 8px;
+  padding: 4.75px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
   scroll-margin: 8px;
 }
 
+.react-app .global-search-row > :not(.track-row-hover-surface) {
+  position: relative;
+  z-index: 1;
+}
+
+.react-app .global-search-row:hover,
+.react-app .global-search-row:focus-visible,
 .react-app .global-search-row.is-active {
-  background: var(--row-hover, rgba(255, 255, 255, 0.06));
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--ink-muted, #a8a297) 72%, transparent);
+  background: transparent;
+  box-shadow: none;
+}
+
+.react-app .global-search-row:hover .track-row-hover-surface,
+.react-app .global-search-row:focus-visible .track-row-hover-surface,
+.react-app .global-search-row.is-active .track-row-hover-surface {
+  opacity: 1;
+}
+
+.react-app .global-search-row.is-artist .global-search-art {
+  border-radius: 50%;
+}
+
+.react-app .global-search-row:not(.is-artist) .global-search-art {
+  border-radius: 5px;
 }
 
 .react-app .global-search-row.is-featured {
-  min-height: 70px;
-  padding: 9px 8px;
+  min-height: 53.5px;
+  padding: 4.75px 8px;
   border: 0;
-  border-top: 1px solid var(--line-08, rgba(255, 255, 255, 0.08));
-  border-bottom: 1px solid var(--line-08, rgba(255, 255, 255, 0.08));
-  border-radius: 0;
+  border-radius: 10px;
   background: transparent;
 }
 
 .react-app .global-search-row.is-featured:hover,
 .react-app .global-search-row.is-featured:focus-visible,
 .react-app .global-search-row.is-featured.is-active {
-  background: var(--row-hover, rgba(255, 255, 255, 0.06));
+  background: transparent;
 }
 
 .react-app .global-search-row.is-featured .global-search-art {
-  width: 48px;
-  height: 48px;
+  width: 42px;
+  height: 42px;
+}
+
+.react-app .global-search-results {
+  padding-top: 18px;
+  padding-bottom: 10px;
+  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 14px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 14px), transparent 100%);
+}
+
+.react-app .global-search-status:not(:empty) + .global-search-results {
+  padding-top: 8px;
+}
+
+.react-app .global-search-skeleton {
+  display: grid;
+}
+
+.react-app .global-search-skeleton-row {
+  pointer-events: none;
+}
+
+.react-app .global-search-skeleton-art {
+  width: 42px;
+  height: 42px;
+  border-radius: 5px;
+}
+
+.react-app .global-search-skeleton-title {
+  width: min(280px, 62%);
+  height: 13px;
+  min-height: 13px;
+}
+
+.react-app .global-search-skeleton-meta {
+  width: min(210px, 46%);
+  height: 10px;
+  min-height: 10px;
+}
+
+.react-app .global-search-skeleton-kind {
+  width: 34px;
+  height: 10px;
+  min-height: 10px;
+  justify-self: end;
+}
+
+.react-app .global-search-skeleton-menu {
+  width: 4px;
+  height: 18px;
+  min-height: 18px;
+  justify-self: center;
 }
 
 .react-app .global-search-badges {
@@ -3932,6 +4112,13 @@ html[data-theme="dark"] .seek-slider {
   z-index: 1200;
 }
 
+/* Keep every modal above the complete app chrome so one shared backdrop can
+   dim and blur the page, including the elevated player bar. */
+.react-app .app-modal-backdrop {
+  backdrop-filter: var(--app-modal-backdrop-filter);
+  -webkit-backdrop-filter: var(--app-modal-backdrop-filter);
+}
+
 .react-app .volume-control {
   margin-right: 10px;
 }
@@ -4090,30 +4277,6 @@ html[data-theme="dark"] .seek-slider {
   border-radius: 50%;
   background: var(--ink-strong, #1f1f1f);
   transform: translateY(-50%);
-}
-
-.react-app .signal-stage span.signal-cpu-detail {
-  display: grid;
-  width: fit-content;
-  max-width: 100%;
-  grid-template-columns: max-content max-content max-content;
-  align-items: baseline;
-  justify-content: start;
-  column-gap: 5px;
-  font-variant-numeric: tabular-nums;
-}
-
-.react-app .signal-stage .signal-cpu-detail > span {
-  margin-top: 0;
-  white-space: nowrap;
-}
-
-.react-app .signal-stage .signal-cpu-percent {
-  text-align: left;
-}
-
-.react-app .signal-stage .signal-realtime-speed {
-  text-align: left;
 }
 
 .react-app .signal-source-label {
@@ -4339,7 +4502,8 @@ html[data-theme="dark"] .seek-slider {
 
 .react-app .album-track-panel .song-list > .file-item.album-track-item:first-child::before,
 .react-app .songs-track-panel .song-list > .file-item.songs-track-row:first-child::before,
-.react-app .playlist-detail-view .playlist-track-list > .playlist-track-row:first-child::before {
+.react-app .playlist-detail-view .playlist-track-list > .playlist-track-row:first-child::before,
+.react-app .react-now-playing-queue > .queue-item:first-child::before {
   content: "";
   position: absolute;
   top: 0;
@@ -4363,6 +4527,10 @@ html[data-theme="dark"] .seek-slider {
   opacity: 0.5;
 }
 
+.react-app .react-now-playing-queue > .queue-item:first-child::before {
+  opacity: 0.5;
+}
+
 .react-app
   .album-track-panel
   .disc-header
@@ -4372,7 +4540,8 @@ html[data-theme="dark"] .seek-slider {
 }
 
 .react-app .songs-track-panel .song-list .file-item.songs-track-row,
-.react-app .playlist-detail-view .playlist-track-row {
+.react-app .playlist-detail-view .playlist-track-row,
+.react-app .react-now-playing-queue .queue-item {
   position: relative;
   border-bottom: 0;
   border-radius: 10px;
@@ -4409,12 +4578,14 @@ html[data-theme="dark"] .seek-slider {
   .playlist-detail-view
   .playlist-track-list
   > .playlist-track-row:not(:first-child)
-  .track-row-hover-surface {
+  .track-row-hover-surface,
+.react-app .react-now-playing-queue > .queue-item:not(:first-child) .track-row-hover-surface {
   top: 0;
 }
 
 .react-app .album-track-item > :not(.track-row-hover-surface),
-.react-app .playlist-track-row > :not(.track-row-hover-surface) {
+.react-app .playlist-track-row > :not(.track-row-hover-surface),
+.react-app .queue-item > :not(.track-row-hover-surface) {
   position: relative;
   z-index: 1;
 }
@@ -4432,6 +4603,10 @@ html[data-theme="dark"] .seek-slider {
 .react-app .playlist-detail-view .playlist-track-row:hover .track-row-hover-surface,
 .react-app .playlist-detail-view .playlist-track-row:focus-within .track-row-hover-surface,
 .react-app .playlist-detail-view .playlist-track-row.is-dragging .track-row-hover-surface,
+.react-app .react-now-playing-queue .queue-item:hover .track-row-hover-surface,
+.react-app .react-now-playing-queue .queue-item:focus-within .track-row-hover-surface,
+.react-app .react-now-playing-queue .queue-item.is-current .track-row-hover-surface,
+.react-app .react-now-playing-queue .queue-item.is-dragging .track-row-hover-surface,
 .react-app .album-track-panel .album-track-item:hover .track-row-hover-surface,
 .react-app .album-track-panel .album-track-item:focus-within .track-row-hover-surface,
 .react-app .album-track-panel .album-track-item.active .track-row-hover-surface,
@@ -4444,7 +4619,23 @@ html[data-theme="dark"] .seek-slider {
   border-top: 0;
 }
 
+.react-app .react-now-playing-queue {
+  position: relative;
+  gap: 0;
+  border-top: 0;
+}
+
 .react-app .playlist-detail-view .playlist-track-row.drop-below::after {
+  right: 8px;
+  bottom: -1px;
+  left: 8px;
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink, #e8e2d5) 42%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--canvas, #121212) 70%, transparent);
+}
+
+.react-app .react-now-playing-queue .queue-item.drop-below::after {
   right: 8px;
   bottom: -1px;
   left: 8px;
@@ -4466,6 +4657,19 @@ html[data-theme="dark"] .seek-slider {
   z-index: 3;
 }
 
+.react-app .react-now-playing-queue .queue-item.drop-above::before {
+  display: block;
+  top: -1px;
+  right: 8px;
+  left: 8px;
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink, #e8e2d5) 42%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--canvas, #121212) 70%, transparent);
+  opacity: 1;
+  z-index: 3;
+}
+
 .react-app .album-track-panel .song-list .file-item.album-track-item:hover,
 .react-app .album-track-panel .song-list .file-item.album-track-item:focus-within,
 .react-app .album-track-panel .song-list .file-item.album-track-item.active,
@@ -4474,8 +4678,15 @@ html[data-theme="dark"] .seek-slider {
 .react-app .playlist-detail-view .playlist-track-row:focus-within,
 .react-app .playlist-detail-view .playlist-track-row.is-dragging,
 .react-app .playlist-detail-view .playlist-track-row.drop-above,
-.react-app .playlist-detail-view .playlist-track-row.drop-below {
+.react-app .playlist-detail-view .playlist-track-row.drop-below,
+.react-app .react-now-playing-queue .queue-item:hover,
+.react-app .react-now-playing-queue .queue-item:focus-within,
+.react-app .react-now-playing-queue .queue-item.is-current,
+.react-app .react-now-playing-queue .queue-item.is-dragging,
+.react-app .react-now-playing-queue .queue-item.drop-above,
+.react-app .react-now-playing-queue .queue-item.drop-below {
   background: transparent;
+  box-shadow: none;
 }
 
 .react-app .album-detail-date {
@@ -4594,6 +4805,161 @@ html[data-theme="dark"] .seek-slider {
   height: 21px;
 }
 
+.react-app .react-now-playing-queue .queue-item {
+  grid-template-columns: 42px 44px minmax(0, 1fr) minmax(56px, auto) 40px;
+  min-height: 53.5px;
+  gap: 12px;
+  padding: 4.75px 0;
+  color: var(--ink-muted, #a8a297);
+}
+
+.react-app .react-now-playing-queue .queue-item.is-removable {
+  cursor: grab;
+}
+
+.react-app .react-now-playing-queue .queue-item.is-dragging {
+  cursor: grabbing;
+}
+
+.react-app .react-now-playing-queue .queue-item-grip {
+  display: none;
+  width: 30px;
+  height: 44px;
+  padding: 4px 0;
+  opacity: 1;
+  touch-action: none;
+}
+
+.react-app .react-now-playing-queue .queue-item-grip svg {
+  width: 21px;
+  height: 21px;
+}
+
+.react-app .react-now-playing-queue .queue-item-index-control {
+  position: relative;
+  width: 24px;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  justify-self: center;
+}
+
+.react-app .react-now-playing-queue .queue-item-index {
+  color: var(--ink-muted, #a8a297);
+  font-family: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  transition: opacity 120ms ease;
+}
+
+.react-app .react-now-playing-queue .queue-item-play {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-strong, #fff);
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+.react-app .react-now-playing-queue .queue-item-play-icon {
+  width: 26px;
+  height: 26px;
+  overflow: visible;
+  fill: currentColor;
+  stroke: none;
+  transform: translate(1px, -0.75px);
+}
+
+.react-app .react-now-playing-queue .queue-item:hover .queue-item-index,
+.react-app .react-now-playing-queue .queue-item:focus-within .queue-item-index {
+  opacity: 0;
+}
+
+.react-app .react-now-playing-queue .queue-item:hover .queue-item-play,
+.react-app .react-now-playing-queue .queue-item-play:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.react-app .react-now-playing-queue .queue-item-art {
+  width: 38px;
+  height: 38px;
+  border-radius: 5px;
+  color: var(--ink-faint, #777);
+}
+
+.react-app .react-now-playing-queue .queue-item-art svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+}
+
+.react-app .react-now-playing-queue .queue-item-text {
+  display: grid;
+  gap: 2px;
+}
+
+.react-app .react-now-playing-queue .queue-item-title {
+  color: var(--ink, #f5f0e8);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.08;
+}
+
+.react-app .react-now-playing-queue .queue-item-subtitle {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.08;
+}
+
+.react-app .react-now-playing-queue .queue-item-duration {
+  color: var(--ink-muted, #a8a297);
+  font-family: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.react-app .react-now-playing-queue .queue-item-remove,
+.react-app .react-now-playing-queue .queue-item:hover .queue-item-remove,
+.react-app .react-now-playing-queue .queue-item-remove:focus-visible {
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+  color: var(--ink-muted, #a8a297);
+  opacity: 1;
+}
+
+.react-app .react-now-playing-queue .queue-item-remove:hover,
+.react-app .react-now-playing-queue .queue-item-remove:focus-visible {
+  background: var(--glass-fill, rgba(255, 255, 255, 0.08));
+  color: var(--ink, #f5f0e8);
+  box-shadow: none;
+  outline: 0;
+}
+
+.react-app .react-now-playing-queue .queue-item-remove:disabled {
+  background: transparent;
+  color: var(--ink-muted, #a8a297);
+  opacity: 0.28;
+}
+
 @media (max-width: 760px) {
   .react-app .playlist-detail-view .playlist-track-row {
     grid-template-columns: 28px 24px 40px minmax(0, 1fr) 36px;
@@ -4630,7 +4996,16 @@ html[data-theme="dark"] .seek-slider {
 .react-app .credits-album-panel,
 .react-app .credits-roles-panel,
 .react-app .credits-tracks-panel {
-  background: var(--settings-card-bg, var(--canvas-tint, rgba(255, 255, 255, 0.04)));
+  background: var(
+    --credits-card-bg,
+    var(--settings-card-bg, var(--canvas-tint, rgba(255, 255, 255, 0.04)))
+  );
+}
+
+html[data-theme="dark"] .react-app .credits-album-panel,
+html[data-theme="dark"] .react-app .credits-roles-panel,
+html[data-theme="dark"] .react-app .credits-tracks-panel {
+  background: var(--credits-card-bg);
 }
 
 .react-app .album-description-backdrop {
@@ -4654,6 +5029,10 @@ html[data-theme="dark"] .seek-slider {
   border-radius: var(--r-panel, 14px);
   background: var(--canvas-raised, #202020);
   box-shadow: var(--modal-floating, 0 24px 80px rgba(0, 0, 0, 0.4));
+}
+
+html[data-theme="dark"] .react-app .album-description-panel {
+  background: var(--album-detail-card-bg);
 }
 
 .react-app .album-description-head {
@@ -4853,7 +5232,7 @@ html[data-theme="dark"] .seek-slider {
 .react-app .metadata-assigner-cover img,
 .react-app .metadata-assigner-cover svg,
 .react-app .qobuz-link-cover img,
-.react-app img.qobuz-link-cover {
+.react-app .qobuz-link-cover svg {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -4862,7 +5241,15 @@ html[data-theme="dark"] .seek-slider {
 .react-app .qobuz-link-cover {
   width: 44px;
   height: 44px;
+  aspect-ratio: 1 / 1;
   flex: 0 0 auto;
+}
+
+.react-app img.qobuz-link-cover {
+  width: 44px;
+  height: 44px;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
 }
 
 .react-app .metadata-assigner-album-text,
@@ -5634,13 +6021,14 @@ html[data-theme="dark"] .seek-slider {
   align-items: flex-start;
   justify-content: center;
   padding: min(6vh, 54px) 20px 24px;
+  box-sizing: border-box;
   background: var(--modal-backdrop-bg, rgba(0, 0, 0, 0.55));
   overflow-y: auto;
 }
 
 .react-app .album-metadata-editor-panel {
   width: min(1180px, 100%);
-  max-height: calc(100vh - 72px);
+  max-height: calc(100dvh - min(6vh, 54px) - 24px);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
@@ -5687,7 +6075,7 @@ html[data-theme="dark"] .seek-slider {
   display: grid;
   gap: 14px;
   overflow: auto;
-  padding: 16px 18px;
+  padding: 16px 20px 6px;
 }
 
 .react-app .album-metadata-editor-summary {
@@ -5701,6 +6089,8 @@ html[data-theme="dark"] .seek-slider {
 
 .react-app .album-metadata-editor-summary .metadata-assigner-cover {
   width: 76px;
+  height: 76px;
+  aspect-ratio: 1 / 1;
 }
 
 .react-app .album-metadata-editor-cover-actions {
@@ -5719,8 +6109,8 @@ html[data-theme="dark"] .seek-slider {
 .react-app .album-metadata-editor-content {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(340px, 0.78fr) minmax(460px, 1.22fr);
-  gap: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
   align-items: start;
 }
 
@@ -5744,6 +6134,18 @@ html[data-theme="dark"] .seek-slider {
   border: 0;
   border-radius: 0;
   background: transparent;
+}
+
+.react-app .album-metadata-editor-search-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.react-app .album-metadata-editor-search-row .zone-settings-input {
+  min-width: 0;
 }
 
 .react-app .album-metadata-editor-field-row {
@@ -5800,10 +6202,40 @@ html[data-theme="dark"] .seek-slider {
   align-items: center;
 }
 
+.react-app .album-metadata-editor-linked-card .zone-settings-danger,
+.react-app .album-metadata-editor-panel .metadata-assigner-result .zone-settings-pill {
+  min-height: 32px;
+  padding: 0 4px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.react-app .album-metadata-editor-linked-card .zone-settings-danger {
+  color: var(--terracotta-ink, #f4b0a8);
+}
+
+.react-app .album-metadata-editor-panel .metadata-assigner-result .zone-settings-pill,
+.react-app .album-metadata-editor-panel .metadata-assigner-result .zone-settings-pill.primary {
+  color: var(--ink, #f5f0e8);
+}
+
+.react-app .album-metadata-editor-linked-card .zone-settings-danger:hover,
+.react-app .album-metadata-editor-linked-card .zone-settings-danger:focus-visible,
+.react-app .album-metadata-editor-panel .metadata-assigner-result .zone-settings-pill:hover,
+.react-app .album-metadata-editor-panel .metadata-assigner-result .zone-settings-pill:focus-visible {
+  background: transparent;
+  box-shadow: none;
+  outline: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .react-app .album-metadata-editor-tracks ol {
   max-height: min(58vh, 640px);
   display: grid;
-  gap: 4px;
+  gap: 0;
+  position: relative;
   margin: 0;
   padding: 0;
   overflow: auto;
@@ -5811,24 +6243,32 @@ html[data-theme="dark"] .seek-slider {
 }
 
 .react-app .album-metadata-editor-track {
-  min-height: 64px;
+  position: relative;
+  min-height: 53.5px;
   display: grid;
-  grid-template-columns: 20px 26px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 20px 28px minmax(0, 1fr) auto;
+  gap: 8px;
   align-items: center;
-  padding: 8px 12px;
-  border: 1px solid var(--line-08, rgba(255, 255, 255, 0.08));
-  border-radius: 8px;
-  background: var(--canvas-tint, rgba(255, 255, 255, 0.04));
+  padding: 4.75px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
   cursor: grab;
   transition:
-    border-color var(--dur-fast, 120ms) ease,
-    box-shadow var(--dur-fast, 120ms) ease;
+    color 140ms ease,
+    opacity 140ms ease,
+    transform 140ms ease;
 }
 
-.react-app .album-metadata-editor-track:hover {
-  border-color: var(--rule, rgba(255, 255, 255, 0.18));
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+.react-app .album-metadata-editor-track > :not(.track-row-hover-surface) {
+  position: relative;
+  z-index: 1;
+}
+
+.react-app .album-metadata-editor-track:hover .track-row-hover-surface,
+.react-app .album-metadata-editor-track:focus-within .track-row-hover-surface,
+.react-app .album-metadata-editor-track.is-dragging .track-row-hover-surface {
+  opacity: 1;
 }
 
 .react-app .album-metadata-editor-track.is-dragging {
@@ -5847,19 +6287,27 @@ html[data-theme="dark"] .seek-slider {
 }
 
 .react-app .album-metadata-editor-track:hover .album-metadata-editor-track-handle {
-  color: var(--ink-muted, #a8a297);
+  color: color-mix(in srgb, var(--ink, #f5f0e8) 82%, transparent);
 }
 
 .react-app .album-metadata-editor-track-handle svg {
-  width: 18px;
-  height: 18px;
-  fill: currentColor;
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.8;
+  stroke-linecap: round;
+}
+
+.react-app .album-metadata-editor-track-handle {
+  color: color-mix(in srgb, var(--ink, #f5f0e8) 58%, transparent);
 }
 
 .react-app .album-metadata-editor-track-number {
   color: var(--ink-muted, #a8a297);
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .react-app .album-metadata-editor-track-main {
@@ -5872,7 +6320,7 @@ html[data-theme="dark"] .seek-slider {
 .react-app .album-metadata-editor-track-title-input {
   min-width: 0;
   width: 100%;
-  height: 28px;
+  height: 20px;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -5880,7 +6328,9 @@ html[data-theme="dark"] .seek-slider {
   background: transparent;
   color: var(--ink, #f5f0e8);
   font: inherit;
-  font-weight: 800;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.08;
 }
 
 .react-app .album-metadata-editor-track-title-input:focus-visible {
@@ -5898,12 +6348,122 @@ html[data-theme="dark"] .seek-slider {
 .react-app .album-metadata-editor-track-main small {
   color: var(--ink-muted, #a8a297);
   display: block;
-  line-height: 1.25;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: normal;
+  line-height: 1.08;
   padding-bottom: 1px;
+  text-transform: none;
+}
+
+.react-app .album-metadata-editor-disc {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto 34px;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-muted, #a8a297);
+  cursor: default;
+}
+
+.react-app .album-metadata-editor-disc > span {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: normal;
+  line-height: 1;
+  text-transform: none;
+}
+
+.react-app .album-metadata-editor-disc input {
+  width: 34px;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 12px;
+  outline: 0;
+  background: var(--canvas-tint, rgba(255, 255, 255, 0.04));
+  color: var(--ink, #f5f0e8);
+  box-shadow: var(--deboss-input, inset 0 0 0 1px rgba(255, 255, 255, 0.08));
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: center;
+  transition: box-shadow var(--dur-fast, 120ms) var(--ease-paper, ease);
+}
+
+.react-app .album-metadata-editor-disc input:hover {
+  box-shadow: var(
+    --app-select-shadow-active,
+    var(--deboss-input, inset 0 0 0 1px rgba(255, 255, 255, 0.08))
+  );
+}
+
+.react-app .album-metadata-editor-disc input:focus-visible {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink, #f5f0e8) 28%, transparent);
 }
 
 .react-app .album-metadata-editor-footer {
-  padding: 12px 18px;
+  padding: 8px 20px 10px;
+}
+
+@media (min-width: 821px) {
+  .react-app .album-metadata-editor-backdrop {
+    overflow: hidden;
+  }
+
+  .react-app .album-metadata-editor-body {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .react-app .album-metadata-editor-content {
+    flex: 1 1 auto;
+    align-items: stretch;
+    overflow: visible;
+  }
+
+  .react-app .album-metadata-editor-left {
+    width: min(100%, 520px);
+    min-height: 0;
+    grid-template-rows: auto minmax(0, 1fr);
+    justify-self: center;
+    overflow: visible;
+  }
+
+  .react-app .album-metadata-editor-panel .metadata-assigner-qobuz {
+    min-height: 0;
+    grid-template-rows: auto auto auto auto minmax(0, 1fr);
+    overflow: visible;
+  }
+
+  .react-app .album-metadata-editor-panel .metadata-assigner-results {
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+
+  .react-app .album-metadata-editor-local {
+    min-height: 0;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: visible;
+  }
+
+  .react-app .album-metadata-editor-tracks {
+    min-height: 0;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: visible;
+  }
+
+  .react-app .album-metadata-editor-tracks ol {
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
 }
 
 @media (max-width: 820px) {
@@ -5945,6 +6505,13 @@ html[data-theme="dark"] .seek-slider {
 
   .react-app .metadata-assigner-result .match-row-score,
   .react-app .metadata-assigner-result .pill {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .react-app .metadata-assigner-result .zone-settings-pill,
+  .react-app .metadata-assigner-selected-card .zone-settings-pill,
+  .react-app .album-metadata-editor-linked-card .zone-settings-danger {
     grid-column: 2;
     justify-self: start;
   }
@@ -6474,6 +7041,15 @@ html[data-custom-display-font="on"] .react-app .settings-sidebar .section-label 
   outline: 0;
 }
 
+html[data-theme="dark"] .react-app .settings-panel .pill:not(.primary) {
+  background: var(--settings-control-bg);
+}
+
+html[data-theme="dark"] .react-app .settings-panel .pill:not(.primary):hover,
+html[data-theme="dark"] .react-app .settings-panel .pill:not(.primary):focus-visible {
+  background: var(--settings-control-hover-bg);
+}
+
 .react-app .settings-panel .pill:disabled {
   cursor: not-allowed;
   opacity: 0.48;
@@ -6950,6 +7526,10 @@ html[data-theme="dark"] .react-app .display-font-scale-slider.is-scrubbing {
   overscroll-behavior: contain;
 }
 
+html[data-theme="dark"] .app-select-menu {
+  background: rgb(28, 28, 28);
+}
+
 .app-select-menu.is-above {
   top: auto;
 }
@@ -6977,6 +7557,10 @@ html[data-theme="dark"] .react-app .display-font-scale-slider.is-scrubbing {
 .app-select-option.is-selected {
   background: var(--menu-hover, rgba(255, 255, 255, 0.06));
   outline: 0;
+}
+
+html[data-theme="dark"] .app-select-option.is-selected {
+  background: rgb(36, 36, 36);
 }
 
 .app-select-option:disabled {
@@ -7266,23 +7850,6 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   padding-left: 18px;
   color: var(--ink, #f5f0e8);
   font-size: 14px;
-}
-
-.react-app .remote-access-panel .remote-code-block {
-  margin: 0 28px 22px;
-  padding: 12px;
-  border: 1px solid var(--line-08, rgba(255, 255, 255, 0.08));
-  border-radius: 8px;
-  overflow-wrap: anywhere;
-  background: var(--canvas, rgba(0, 0, 0, 0.16));
-  color: var(--ink, #f5f0e8);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.react-app .remote-access-panel .remote-copy-pill {
-  flex: 0 0 auto;
 }
 
 .react-app .remote-steps {
@@ -7614,6 +8181,10 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
 .react-app .toggle:disabled {
   cursor: not-allowed;
   opacity: 0.48;
+}
+
+html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
+  background: var(--settings-control-bg);
 }
 
 .react-app .hegel-number-control {
@@ -9032,11 +9603,6 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   color: var(--ink-muted, #a8a297);
 }
 
-.react-app .zones-panel-card .zone-browser-stream-action {
-  min-width: 116px;
-  white-space: nowrap;
-}
-
 .react-app .zones-panel-card .zone-output-icon-action {
   width: 32px;
   height: 32px;
@@ -9343,39 +9909,6 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   );
 }
 
-.react-app .zone-capability-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.react-app .zone-capability-item {
-  min-width: 0;
-  display: grid;
-  gap: 5px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--canvas-tint, rgba(255, 255, 255, 0.04));
-  box-shadow: var(--deboss-input, inset 0 0 0 1px rgba(255, 255, 255, 0.08));
-}
-
-.react-app .zone-capability-item span {
-  color: var(--ink-muted, #a8a297);
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 1.2;
-  text-transform: uppercase;
-}
-
-.react-app .zone-capability-item strong {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  color: var(--ink, #f5f0e8);
-  font-family: var(--font-ui, sans-serif);
-  font-size: 15px;
-  line-height: 1.15;
-}
-
 .react-app .zone-upnp-capability-controls {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -9436,6 +9969,13 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   font-weight: 800;
 }
 
+.react-app .zone-airplay-volume-input {
+  min-height: 34px;
+  padding: 7px 9px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
 .react-app .zone-calibration-block {
   display: grid;
   gap: 9px;
@@ -9471,26 +10011,6 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   font-size: 12px;
   line-height: 1.35;
   overflow-wrap: anywhere;
-}
-
-.react-app .zone-settings-volume {
-  display: grid;
-  gap: 12px;
-  padding: 0;
-}
-
-.react-app .zone-settings-volume strong {
-  display: block;
-  margin-top: 4px;
-  color: var(--ink, #f5f0e8);
-  font-size: 14px;
-}
-
-.react-app .zone-settings-volume small {
-  display: block;
-  margin-top: 3px;
-  color: var(--ink-muted, #a8a297);
-  font-size: 12px;
 }
 
 .react-app .zone-settings-device-type {
@@ -9852,6 +10372,50 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   scroll-snap-stop: normal;
 }
 
+@media (min-width: 761px) {
+  .react-app .now-playing-view {
+    padding-bottom: 6px;
+  }
+
+  .react-app .now-playing-view .now-playing-right {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      #000 0,
+      #000 calc(100% - 28px),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      #000 0,
+      #000 calc(100% - 28px),
+      transparent 100%
+    );
+  }
+
+  .react-app .now-playing-view .now-playing-queue-header {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    flex: 0 0 auto;
+    padding-bottom: 12px;
+    background: var(--canvas, #121212);
+  }
+
+  .react-app .now-playing-view .react-now-playing-queue {
+    box-sizing: border-box;
+    flex: 0 0 auto;
+    min-height: auto;
+    padding-bottom: 4px;
+    overflow: visible;
+    scroll-padding-bottom: 4px;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+
 .react-app .mobile-top-bar,
 .react-app .mobile-mini-player,
 .react-app .mobile-now-playing-sheet,
@@ -9933,6 +10497,20 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
 @media (max-width: 820px) {
   .react-app .artist-detail .album-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .react-app .settings-section-heading.dsp-settings-heading {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .react-app .settings-section-heading.dsp-settings-heading > .section-label {
+    display: none;
+  }
+
+  .react-app .settings-section-heading.dsp-settings-heading > .settings-zone-select {
+    width: 100%;
+    max-width: 100%;
+    justify-self: stretch;
   }
 
   .react-app .settings-layout {
@@ -10070,7 +10648,6 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   }
 
   .react-app .remote-note,
-  .react-app .remote-access-panel .remote-code-block,
   .react-app .remote-host-required-list,
   .react-app .remote-session-row,
   .react-app .remote-empty-state {
@@ -10233,20 +10810,6 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   .react-app .zone-settings-panel {
     width: min(420px, 100%);
     max-height: calc(100dvh - var(--mobile-bottom-chrome-height) - 32px);
-  }
-
-  .react-app .zones-panel-card .zone-browser-stream-action {
-    min-width: 72px;
-    padding-inline: 10px;
-  }
-
-  .react-app .zones-panel-card .zone-browser-stream-action span {
-    font-size: 0;
-  }
-
-  .react-app .zones-panel-card .zone-browser-stream-action span::after {
-    content: "Stream";
-    font-size: 12px;
   }
 
   .react-app .zone-hegel-settings-panel {
@@ -11090,7 +11653,7 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
 
   .react-app .mobile-sheet-now {
     display: grid;
-    grid-template-rows: max-content max-content minmax(0, 1fr) max-content;
+    grid-template-rows: max-content minmax(0, 1fr) max-content;
     align-content: stretch;
     justify-items: center;
     gap: 20px;
@@ -11113,11 +11676,21 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
     aspect-ratio: 1;
     display: grid;
     place-items: center;
+    margin-top: 8px;
     overflow: hidden;
     border-radius: 6px;
     background: var(--canvas-tint, rgba(255, 255, 255, 0.06));
     box-shadow: var(--modal-floating, 0 24px 80px rgba(0, 0, 0, 0.4));
     color: var(--ink-muted, #a8a297);
+  }
+
+  .react-app .mobile-sheet-playback {
+    width: min(calc(100% - 24px), 396px);
+    min-height: 0;
+    display: grid;
+    align-self: stretch;
+    align-content: end;
+    gap: 12px;
   }
 
   .react-app .mobile-sheet-art img {
@@ -11133,11 +11706,63 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   }
 
   .react-app .mobile-sheet-meta {
-    width: min(100%, 420px);
+    width: 100%;
     display: grid;
-    justify-items: center;
-    gap: 8px;
-    text-align: center;
+    justify-items: start;
+    gap: 2px;
+    text-align: left;
+  }
+
+  .react-app .mobile-sheet-meta-row {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 36px;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .react-app .mobile-sheet-more-wrap {
+    position: relative;
+    width: 36px;
+    height: 36px;
+  }
+
+  .react-app .mobile-sheet-more-button {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--ink-muted, #a8a297);
+    cursor: pointer;
+  }
+
+  .react-app .mobile-sheet-more-button:hover,
+  .react-app .mobile-sheet-more-button:focus-visible,
+  .react-app .mobile-sheet-more-button[aria-expanded="true"] {
+    background: var(--menu-hover, rgba(255, 255, 255, 0.06));
+    color: var(--ink, #f5f0e8);
+    outline: 0;
+  }
+
+  .react-app .mobile-sheet-more-button svg {
+    width: 24px;
+    height: 24px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 3;
+    stroke-linecap: round;
+  }
+
+  .react-app .mobile-sheet-more-menu {
+    position: absolute;
+    inset: auto 0 calc(100% + 8px) auto;
+    z-index: 4;
   }
 
   .react-app .mobile-sheet-meta h1 {
@@ -11145,9 +11770,9 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
     overflow: hidden;
     margin: 0;
     color: var(--ink-strong, #fff);
-    font-size: 24px;
-    font-weight: 850;
-    line-height: 1.12;
+    font-size: 18px;
+    font-weight: 750;
+    line-height: 1.25;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -11165,10 +11790,11 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   .react-app .mobile-sheet-submeta {
     max-width: 100%;
     min-width: 0;
+    width: 100%;
     display: flex;
     align-items: baseline;
-    justify-content: center;
-    gap: 8px;
+    justify-content: flex-start;
+    gap: 0;
   }
 
   .react-app .mobile-sheet-meta .artist-link,
@@ -11178,9 +11804,15 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
     max-width: 100%;
     overflow: hidden;
     color: var(--ink-muted, #a8a297);
-    font-size: 15px;
+    font-size: 18px;
+    line-height: 1.25;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .react-app .mobile-sheet-submeta .mobile-sheet-album,
+  .react-app .mobile-sheet-submeta .mobile-sheet-meta-separator {
+    display: none;
   }
 
   .react-app .mobile-sheet-submeta .artist-link,
@@ -11194,7 +11826,7 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   }
 
   .react-app .mobile-sheet-now .react-playback-controls {
-    width: min(100%, 420px);
+    width: 100%;
     display: grid;
     align-self: end;
     gap: 10px;
@@ -11202,7 +11834,7 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
 
   .react-app .mobile-sheet-now .react-progress-stack {
     order: 1;
-    width: calc(100% - 24px);
+    width: 100%;
     max-width: 100%;
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -11443,7 +12075,7 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   .react-app .mobile-sheet-output .signal-control {
     display: inline-flex;
     justify-self: center;
-    transform: none;
+    transform: translateX(-2px);
   }
 
   .react-app .mobile-sheet-output .volume-control {
@@ -11456,7 +12088,7 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
 
   .react-app .mobile-sheet-output .volume-popover-control {
     position: relative;
-    left: 16px;
+    left: 24px;
     display: grid;
     justify-items: center;
   }
@@ -11541,18 +12173,20 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   }
 
   .react-app .mobile-sheet-queue {
+    isolation: isolate;
     padding-bottom: 18px;
   }
 
   .react-app .mobile-sheet-queue .now-playing-queue-header {
     position: sticky;
     top: 0;
-    z-index: 1;
+    z-index: 4;
     padding: 0 10px 12px 0;
     background: var(--player-bar-bg, rgb(242, 239, 230));
   }
 
   .react-app .mobile-sheet-queue .react-now-playing-queue {
+    z-index: 0;
     max-height: none;
     overflow: visible;
   }
@@ -11716,8 +12350,8 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
     overflow-y: auto;
     overscroll-behavior: contain;
     background: var(--modal-backdrop-bg, rgba(0, 0, 0, 0.55));
-    backdrop-filter: blur(8px) saturate(0.88) var(--modal-backdrop-open-filter);
-    -webkit-backdrop-filter: blur(8px) saturate(0.88) var(--modal-backdrop-open-filter);
+    backdrop-filter: var(--app-modal-backdrop-filter);
+    -webkit-backdrop-filter: var(--app-modal-backdrop-filter);
     -webkit-overflow-scrolling: touch;
   }
 

@@ -154,8 +154,8 @@ export function SettingsView({
     saveZoneSettings,
     selectSettingsZone,
     setSettingsZoneId,
-    setZoneDefaultVolumeEnabled,
     setZoneDefaultVolumePercent,
+    setZoneMaxVolumePercent,
     setZoneQobuzHiresEnabled,
     setZoneDeviceTypeDraft,
     setZoneHegelDraft,
@@ -169,8 +169,8 @@ export function SettingsView({
     zoneCalibrationBusy,
     zoneCalibrationMessage,
     zoneDeviceTypeDraft,
-    zoneDefaultVolumeEnabled,
     zoneDefaultVolumePercent,
+    zoneMaxVolumePercent,
     zoneQobuzHiresEnabled,
     zoneGroups,
     zoneHegelDraft,
@@ -243,8 +243,8 @@ export function SettingsView({
           saveZoneSettings={saveZoneSettings}
           selectSettingsZone={selectSettingsZone}
           setSettingsZoneId={setSettingsZoneId}
-          setZoneDefaultVolumeEnabled={setZoneDefaultVolumeEnabled}
           setZoneDefaultVolumePercent={setZoneDefaultVolumePercent}
+          setZoneMaxVolumePercent={setZoneMaxVolumePercent}
           setZoneQobuzHiresEnabled={setZoneQobuzHiresEnabled}
           setZoneDeviceTypeDraft={setZoneDeviceTypeDraft}
           setZoneHegelDraft={setZoneHegelDraft}
@@ -259,8 +259,8 @@ export function SettingsView({
           zoneCalibrationBusy={zoneCalibrationBusy}
           zoneCalibrationMessage={zoneCalibrationMessage}
           zoneDeviceTypeDraft={zoneDeviceTypeDraft}
-          zoneDefaultVolumeEnabled={zoneDefaultVolumeEnabled}
           zoneDefaultVolumePercent={zoneDefaultVolumePercent}
+          zoneMaxVolumePercent={zoneMaxVolumePercent}
           zoneQobuzHiresEnabled={zoneQobuzHiresEnabled}
           zoneGroups={zoneGroups}
           zoneHegelDraft={zoneHegelDraft}

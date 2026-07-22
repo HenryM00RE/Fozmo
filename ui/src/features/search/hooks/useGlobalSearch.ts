@@ -8,9 +8,9 @@ import {
 } from '../../../shared/lib/appSupport';
 import type { JsonRecord, LibraryAlbum, LibraryTrack, QobuzTrack } from '../../../shared/types';
 
-const MAX_RECENT_SEARCHES = 5;
+const MAX_RECENT_SEARCHES = 10;
 
-function normalizeRecentSearches(searches: unknown) {
+export function normalizeRecentSearches(searches: unknown) {
   if (!Array.isArray(searches)) return [];
   const normalized: string[] = [];
   searches.forEach((search) => {

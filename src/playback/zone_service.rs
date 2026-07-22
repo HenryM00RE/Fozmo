@@ -1,5 +1,4 @@
 use crate::app::state::AppState;
-use crate::audio::player::{OutputTransport, PlaybackState};
 use crate::audio::upnp::UpnpRendererTarget;
 use crate::diagnostics::status::DiagnosticActivity;
 use crate::library::{
@@ -23,16 +22,11 @@ const HEGEL_SAVED_ZONE_MESSAGE: &str = "Hegel USB is not currently detected; ena
 const HEGEL_STANDBY_ZONE_MESSAGE: &str =
     "Hegel network link is visible; USB will wake before playback starts.";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ZoneRefreshPolicy {
-    Interactive,
-    Background,
-}
-
 #[derive(Default)]
 pub(crate) struct ZoneSettingsUpdate {
     pub airplay_default_volume_enabled: Option<bool>,
     pub airplay_default_volume: Option<f32>,
+    pub airplay_max_volume: Option<f32>,
     pub qobuz_hires_enabled: Option<bool>,
     pub icon: Option<String>,
     pub device_type: Option<String>,
@@ -152,6 +146,12 @@ pub(crate) fn update_playback_zone_settings(
         .as_deref()
         .map(normalize_zone_icon)
         .transpose()?;
+    if let Some(max_volume) = update.airplay_max_volume {
+        settings = state
+            .library()
+            .set_zone_airplay_max_volume(zone_id, max_volume)
+            .map_err(PlaybackError::library)?;
+    }
     if let Some(enabled) = update.airplay_default_volume_enabled {
         let default_volume =
             if enabled {
@@ -401,15 +401,15 @@ fn normalize_upnp_pcm_containers(
 }
 
 pub(crate) fn refresh_playback_zones(state: &AppState) -> Vec<ZoneProfile> {
-    refresh_playback_zones_with_policy(state, ZoneRefreshPolicy::Interactive)
+    refresh_playback_zones_inner(state)
 }
 
-fn refresh_playback_zones_with_policy(
-    state: &AppState,
-    policy: ZoneRefreshPolicy,
-) -> Vec<ZoneProfile> {
-    let quiet_local_refresh =
-        policy == ZoneRefreshPolicy::Background && active_coreaudio_dop_playback(state);
+fn refresh_playback_zones_inner(state: &AppState) -> Vec<ZoneProfile> {
+    // CoreAudio can temporarily omit a USB DAC from enumeration while Fozmo's
+    // direct DoP AudioUnit owns it. Treat that as an unsafe time to refresh for
+    // both background and interactive callers: marking the selected zone
+    // offline here strands it as soon as playback reaches EOF.
+    let mut quiet_local_refresh = coreaudio_dop_output_owned(state);
     let local_devices = if quiet_local_refresh {
         Vec::new()
     } else {
@@ -417,8 +417,15 @@ fn refresh_playback_zones_with_policy(
             .diagnostics()
             .begin_activity(DiagnosticActivity::LocalAudioDeviceScan);
         let local_devices = output_device_names();
-        state.zones().sync_local_devices(local_devices.clone());
-        local_devices
+        // Close the race where playback acquires Hog Mode after the first
+        // ownership check but before enumeration completes.
+        if coreaudio_dop_output_owned(state) {
+            quiet_local_refresh = true;
+            Vec::new()
+        } else {
+            state.zones().sync_local_devices(local_devices.clone());
+            local_devices
+        }
     };
     state
         .zones()
@@ -477,12 +484,8 @@ fn refresh_playback_zones_with_policy(
     enrich_zone_settings(state, zones)
 }
 
-fn active_coreaudio_dop_playback(state: &AppState) -> bool {
-    let snapshot = state.zones().active_player().snapshot_no_cover();
-    matches!(
-        snapshot.state,
-        PlaybackState::Starting | PlaybackState::Playing
-    ) && snapshot.signal_path.output_transport == OutputTransport::DopCoreAudio
+fn coreaudio_dop_output_owned(state: &AppState) -> bool {
+    state.zones().coreaudio_dop_output_owned()
 }
 
 fn persist_zone_definitions(state: &AppState, zones: &[ZoneProfile]) {
@@ -572,10 +575,9 @@ pub(crate) fn spawn_playback_zone_cache_warmer(state: AppState) {
     tokio::spawn(async move {
         loop {
             let refresh_state = state.clone();
-            if let Err(err) = tokio::task::spawn_blocking(move || {
-                refresh_playback_zones_with_policy(&refresh_state, ZoneRefreshPolicy::Background)
-            })
-            .await
+            if let Err(err) =
+                tokio::task::spawn_blocking(move || refresh_playback_zones_inner(&refresh_state))
+                    .await
             {
                 eprintln!("zones: background refresh failed: {err}");
             }
@@ -588,6 +590,7 @@ fn enrich_zone_settings(state: &AppState, mut zones: Vec<ZoneProfile>) -> Vec<Zo
     for zone in &mut zones {
         if let Ok(settings) = state.library().zone_settings(&zone.id) {
             zone.airplay_default_volume = settings.airplay_default_volume;
+            zone.airplay_max_volume = settings.airplay_max_volume;
             zone.airplay_last_volume = settings.airplay_last_volume;
             zone.qobuz_hires_enabled = settings.qobuz_hires_enabled;
             zone.icon = settings.icon;
@@ -842,7 +845,7 @@ mod tests {
                 settings.output_mode = Some("Dsd256".to_string());
             });
 
-        refresh_playback_zones_with_policy(&state, ZoneRefreshPolicy::Background);
+        refresh_playback_zones_inner(&state);
 
         assert_eq!(
             state.zones().active_player().output_mode(),
@@ -870,12 +873,46 @@ mod tests {
                 settings.output_mode = Some("Dsd256".to_string());
             });
 
-        assert!(active_coreaudio_dop_playback(&state));
+        assert!(coreaudio_dop_output_owned(&state));
 
-        refresh_playback_zones_with_policy(&state, ZoneRefreshPolicy::Background);
+        refresh_playback_zones_inner(&state);
 
         assert_eq!(state.zones().active_player().output_mode(), OutputMode::Pcm);
         assert_eq!(state.playback_config_applicator().applied_zone_id(), None);
+    }
+
+    #[test]
+    fn interactive_refresh_keeps_owned_coreaudio_dop_zone_available_after_eof() {
+        let state = app_state("interactive-refresh-coreaudio-dop");
+        let device_name = "Fozmo test DoP DAC that is absent from discovery";
+        let zone_id = local_device_zone_id(device_name);
+        state
+            .zones()
+            .sync_local_devices(vec![device_name.to_string()]);
+        enable_playback_zone(&state, &zone_id).unwrap();
+
+        let player = state.zones().active_player();
+        player.set_coreaudio_dop_buffer_health_for_test(5_644_800, 65_536, 0, 32_768, 4096);
+        player.set_playback_state_for_test(crate::audio::player::PlaybackState::Stopped);
+
+        assert!(coreaudio_dop_output_owned(&state));
+        refresh_playback_zones_inner(&state);
+
+        assert!(state.zones().player_for_zone(&zone_id).is_some());
+        assert!(
+            crate::playback::status::build_status_response_for_zone(&state, &zone_id).is_ok(),
+            "the status endpoint must not regress to a 404 after EOF"
+        );
+        assert_ne!(
+            state
+                .zones()
+                .list_zones()
+                .into_iter()
+                .find(|zone| zone.id == zone_id)
+                .expect("DoP zone should remain registered")
+                .status,
+            ZoneStatus::Offline
+        );
     }
 
     #[test]
@@ -954,21 +991,38 @@ mod tests {
             &zone_id,
             ZoneSettingsUpdate {
                 airplay_default_volume_enabled: Some(true),
-                airplay_default_volume: Some(0.25),
+                airplay_default_volume: Some(0.75),
+                airplay_max_volume: Some(0.6),
                 ..ZoneSettingsUpdate::default()
             },
         )
         .unwrap();
 
-        assert_eq!(settings.airplay_default_volume, Some(0.25));
+        assert_eq!(settings.airplay_default_volume, Some(0.6));
+        assert_eq!(settings.airplay_max_volume, Some(0.6));
         assert_eq!(
             state
                 .library()
                 .zone_settings(&zone_id)
                 .unwrap()
                 .airplay_default_volume,
-            Some(0.25)
+            Some(0.6)
         );
+
+        let raised_limits = update_playback_zone_settings(
+            &state,
+            &zone_id,
+            ZoneSettingsUpdate {
+                airplay_default_volume_enabled: Some(true),
+                airplay_default_volume: Some(0.75),
+                airplay_max_volume: Some(0.8),
+                ..ZoneSettingsUpdate::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(raised_limits.airplay_default_volume, Some(0.75));
+        assert_eq!(raised_limits.airplay_max_volume, Some(0.8));
     }
 
     #[test]
@@ -1088,6 +1142,7 @@ mod tests {
             serde_json::from_str(r#"{"airplay_default_volume":0.25}"#).unwrap();
 
         assert_eq!(settings.airplay_default_volume, Some(0.25));
+        assert_eq!(settings.airplay_max_volume, None);
         assert!(!settings.qobuz_hires_enabled);
         assert_eq!(settings.icon, None);
     }

@@ -1436,6 +1436,15 @@ fn signal_path_snapshot(
             .map(|f| f.as_name().to_string())
             .unwrap_or_else(|| "Unknown".to_string()),
         dsp_target_rate: signal.target_rate,
+        eq_enabled: Some(snapshot.eq_config.enabled),
+        eq_active_bands: Some(
+            snapshot
+                .eq_config
+                .bands
+                .iter()
+                .filter(|band| band.enabled)
+                .count() as u32,
+        ),
         src_path_kind: signal.src_path_kind.map(|kind| kind.as_name().to_string()),
         src_capped_fallback: signal.src_capped_fallback,
         src_phase_profile_preserved: signal.src_phase_profile_preserved,

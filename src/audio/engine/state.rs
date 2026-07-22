@@ -28,6 +28,7 @@ pub(super) const REOPEN_REASON_DSD_ISI: u32 = 6;
 pub(super) const REOPEN_REASON_PENDING_START: u32 = 7;
 pub(super) const REOPEN_REASON_SEEK: u32 = 8;
 pub(super) const REOPEN_REASON_EXTERNAL_DEVICE_READY: u32 = 9;
+pub(super) const REOPEN_REASON_EOF_DRAIN_TIMEOUT: u32 = 10;
 
 pub(super) const FLUSH_REASON_REOPEN: u32 = 1;
 pub(super) const FLUSH_REASON_PENDING_START: u32 = 2;
@@ -194,6 +195,9 @@ pub struct AtomicPlayerState {
     pub startup_callback_gap_count: AtomicU64,
     pub startup_callback_gaps_ns: [AtomicU64; STARTUP_CALLBACK_GAP_SLOTS],
     pub flush_buffer: AtomicBool,
+    /// Allows the output callback to consume a final short block instead of
+    /// waiting for the normal underrun-recovery refill threshold at EOF.
+    pub eof_drain_requested: AtomicBool,
     pub underrun_events: AtomicU64,
     pub underrun_samples: AtomicU64,
     /// Requested output mode: 0 = PCM, 1 = DSD128, 2 = DSD256, 3 = DSD64.
@@ -348,6 +352,7 @@ impl AtomicPlayerState {
             startup_callback_gap_count: AtomicU64::new(0),
             startup_callback_gaps_ns: std::array::from_fn(|_| AtomicU64::new(0)),
             flush_buffer: AtomicBool::new(false),
+            eof_drain_requested: AtomicBool::new(false),
             underrun_events: AtomicU64::new(0),
             underrun_samples: AtomicU64::new(0),
             output_mode: AtomicU32::new(0),

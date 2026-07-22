@@ -3850,6 +3850,48 @@ fn top_history_songs_honor_range_and_radio_filter() {
 }
 
 #[test]
+fn history_export_can_filter_entries_by_start_time() {
+    let library = test_library("history-export-range");
+    for input in [
+        qobuz_history_input(
+            Some("henry"),
+            31,
+            "Old Song",
+            "Artist",
+            "Old Album",
+            120.0,
+            true,
+            false,
+        ),
+        qobuz_history_input(
+            Some("henry"),
+            32,
+            "Recent Song",
+            "Artist",
+            "Recent Album",
+            120.0,
+            true,
+            false,
+        ),
+    ] {
+        library.record_playback_history(input).unwrap();
+    }
+    let now = now_secs();
+    set_history_played_at(&library, "qobuz:31", now - 8 * 86_400);
+
+    let all = library
+        .export_playback_history_for_profile("henry")
+        .unwrap();
+    let last_week = library
+        .export_playback_history_for_profile_since("henry", Some(now - 7 * 86_400))
+        .unwrap();
+
+    assert_eq!(all.entries.len(), 2);
+    assert_eq!(last_week.entries.len(), 1);
+    assert_eq!(last_week.entries[0].title.as_deref(), Some("Recent Song"));
+}
+
+#[test]
 fn top_history_albums_keep_qobuz_releases_separate_by_album_id() {
     let library = test_library("top-history-qobuz-album-ids");
     for (track_id, album_id, played_secs) in

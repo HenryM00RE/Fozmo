@@ -20,6 +20,7 @@ export type GlobalSearchController = {
 export type SearchChromeState = {
   albums: LibraryAlbum[];
   globalSearch: GlobalSearchController;
+  onAddTrackToPlaylist: (track: LibraryTrack | QobuzTrack, source: GlobalSearchSource) => void;
   onOpenAlbum: (id: string | number) => void;
   onOpenArtist: (rawName: unknown) => void;
   onOpenQobuzAlbum: (id: string | number) => void;

@@ -42,6 +42,37 @@ export type ZoneBrowserStreamDraft = {
 
 export const BROWSER_OPUS_KBPS_OPTIONS = [128, 256, 320] as const;
 const DEFAULT_BROWSER_OPUS_KBPS = 256;
+export const DEFAULT_AIRPLAY_VOLUME_PERCENT = 40;
+export const DEFAULT_AIRPLAY_MAX_VOLUME_PERCENT = 100;
+
+function airPlayVolumeDraft(volume: unknown, fallback: number) {
+  const hasSavedVolume = volume !== null && volume !== undefined && volume !== '';
+  return String(
+    hasSavedVolume && Number.isFinite(Number(volume)) ? volumeToPercent(volume) : fallback
+  );
+}
+
+export function airPlayDefaultVolumeDraft(volume: unknown) {
+  return airPlayVolumeDraft(volume, DEFAULT_AIRPLAY_VOLUME_PERCENT);
+}
+
+export function airPlayMaxVolumeDraft(volume: unknown) {
+  return airPlayVolumeDraft(volume, DEFAULT_AIRPLAY_MAX_VOLUME_PERCENT);
+}
+
+function normalizeAirPlayVolumePercent(value: unknown, fallback: number) {
+  const text = String(value ?? '').trim();
+  if (!text) return fallback;
+  return Math.max(0, Math.min(100, Math.round(numberValue(text, fallback))));
+}
+
+export function normalizeAirPlayDefaultVolumePercent(value: unknown) {
+  return normalizeAirPlayVolumePercent(value, DEFAULT_AIRPLAY_VOLUME_PERCENT);
+}
+
+export function normalizeAirPlayMaxVolumePercent(value: unknown) {
+  return normalizeAirPlayVolumePercent(value, DEFAULT_AIRPLAY_MAX_VOLUME_PERCENT);
+}
 
 export function browserOwnedSettingsZones(zones: ZoneProfile[], ownBrowserZoneId: string) {
   return zones.filter((zone) => !isBrowserZone(zone) || zone.id === ownBrowserZoneId);
@@ -104,8 +135,12 @@ function zoneHegelPayload(draft: ZoneHegelDraft) {
 export function useZonesSettings(zones: ZoneProfile[], onRefresh: () => Promise<void>) {
   const [settingsZoneId, setSettingsZoneId] = useState<string | null>(null);
   const [zoneNameDraft, setZoneNameDraft] = useState('');
-  const [zoneDefaultVolumeEnabled, setZoneDefaultVolumeEnabled] = useState(false);
-  const [zoneDefaultVolumePercent, setZoneDefaultVolumePercent] = useState(25);
+  const [zoneDefaultVolumePercent, setZoneDefaultVolumePercent] = useState(
+    String(DEFAULT_AIRPLAY_VOLUME_PERCENT)
+  );
+  const [zoneMaxVolumePercent, setZoneMaxVolumePercent] = useState(
+    String(DEFAULT_AIRPLAY_MAX_VOLUME_PERCENT)
+  );
   const [zoneQobuzHiresEnabled, setZoneQobuzHiresEnabled] = useState(false);
   const [zoneIconDraft, setZoneIconDraft] = useState<OutputIconId>('auto');
   const [zoneDeviceTypeDraft, setZoneDeviceTypeDraft] = useState<ZoneDeviceType>('none');
@@ -143,16 +178,10 @@ export function useZonesSettings(zones: ZoneProfile[], onRefresh: () => Promise<
   };
 
   const openZoneSettings = (zone: ZoneProfile) => {
-    const hasDefaultVolume = Number.isFinite(Number(zone.airplay_default_volume));
-    const fallbackVolume = Number.isFinite(Number(zone.airplay_last_volume))
-      ? zone.airplay_last_volume
-      : 0.25;
     setSettingsZoneId(zone.id);
     setZoneNameDraft(String(zone.name || zoneDisplayName(zone)));
-    setZoneDefaultVolumeEnabled(hasDefaultVolume);
-    setZoneDefaultVolumePercent(
-      volumeToPercent(hasDefaultVolume ? zone.airplay_default_volume : fallbackVolume)
-    );
+    setZoneDefaultVolumePercent(airPlayDefaultVolumeDraft(zone.airplay_default_volume));
+    setZoneMaxVolumePercent(airPlayMaxVolumeDraft(zone.airplay_max_volume));
     setZoneQobuzHiresEnabled(Boolean(zone.qobuz_hires_enabled));
     setZoneIconDraft(savedOutputIcon(zone));
     setZoneDeviceTypeDraft(zone.device_type === 'hegel' ? 'hegel' : 'none');
@@ -189,9 +218,15 @@ export function useZonesSettings(zones: ZoneProfile[], onRefresh: () => Promise<
       await endpoints.renameZone(settingsZone.id, next);
     }
     if (isAirPlayNetworkZone(settingsZone)) {
+      const maxVolumePercent = normalizeAirPlayMaxVolumePercent(zoneMaxVolumePercent);
+      const defaultVolumePercent = Math.min(
+        maxVolumePercent,
+        normalizeAirPlayDefaultVolumePercent(zoneDefaultVolumePercent)
+      );
       await endpoints.updateZoneSettings(settingsZone.id, {
-        airplay_default_volume_enabled: zoneDefaultVolumeEnabled,
-        airplay_default_volume: zoneDefaultVolumeEnabled ? zoneDefaultVolumePercent / 100 : null
+        airplay_default_volume_enabled: true,
+        airplay_default_volume: defaultVolumePercent / 100,
+        airplay_max_volume: maxVolumePercent / 100
       });
     }
     const zoneSettingsPayload: JsonRecord = {
@@ -282,8 +317,8 @@ export function useZonesSettings(zones: ZoneProfile[], onRefresh: () => Promise<
     saveZoneSettings,
     selectSettingsZone,
     setSettingsZoneId,
-    setZoneDefaultVolumeEnabled,
     setZoneDefaultVolumePercent,
+    setZoneMaxVolumePercent,
     setZoneQobuzHiresEnabled,
     setZoneIconDraft,
     setZoneDeviceTypeDraft,
@@ -299,8 +334,8 @@ export function useZonesSettings(zones: ZoneProfile[], onRefresh: () => Promise<
     zoneCalibrationBusy,
     zoneCalibrationMessage,
     zoneDeviceTypeDraft,
-    zoneDefaultVolumeEnabled,
     zoneDefaultVolumePercent,
+    zoneMaxVolumePercent,
     zoneQobuzHiresEnabled,
     zoneIconDraft,
     zoneGroups,

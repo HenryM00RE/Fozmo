@@ -1112,13 +1112,14 @@ pub(super) fn open_coreaudio_dop_stream(
                         &mut ring_pressure_state,
                     );
 
-                    match coreaudio_dop_callback_plan(
+                    match coreaudio_dop_callback_plan_with_eof(
                         ring_fill,
                         out.len(),
                         channels,
                         idle_callbacks_remaining,
                         dop_recovery_active,
                         ring_capacity_samples,
+                        callback_state.eof_drain_requested.load(Ordering::Relaxed),
                     ) {
                         CoreAudioDopCallbackPlan::PlayProgram { samples } => {
                             dop_recovery_active = false;
@@ -1658,7 +1659,7 @@ fn coreaudio_dop_recovery_resume_samples(
     stable_refill.min(half_capacity)
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(test, target_os = "macos"))]
 fn coreaudio_dop_callback_plan(
     ring_fill_samples: usize,
     callback_samples: usize,
@@ -1667,11 +1668,37 @@ fn coreaudio_dop_callback_plan(
     recovery_active: bool,
     ring_capacity_samples: usize,
 ) -> CoreAudioDopCallbackPlan {
+    coreaudio_dop_callback_plan_with_eof(
+        ring_fill_samples,
+        callback_samples,
+        channels,
+        idle_callbacks_remaining,
+        recovery_active,
+        ring_capacity_samples,
+        false,
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn coreaudio_dop_callback_plan_with_eof(
+    ring_fill_samples: usize,
+    callback_samples: usize,
+    channels: usize,
+    idle_callbacks_remaining: u8,
+    recovery_active: bool,
+    ring_capacity_samples: usize,
+    eof_drain_requested: bool,
+) -> CoreAudioDopCallbackPlan {
     if idle_callbacks_remaining > 0 {
         return CoreAudioDopCallbackPlan::IdleHold;
     }
     let channels = channels.max(1);
     let available_aligned = (ring_fill_samples / channels) * channels;
+    if eof_drain_requested && available_aligned > 0 && available_aligned < callback_samples {
+        return CoreAudioDopCallbackPlan::PlayProgram {
+            samples: available_aligned,
+        };
+    }
     let recovery_resume_samples =
         coreaudio_dop_recovery_resume_samples(callback_samples, ring_capacity_samples);
     if recovery_active && available_aligned < recovery_resume_samples {
@@ -1729,6 +1756,21 @@ mod coreaudio_dop_tests {
         assert_eq!(
             coreaudio_dop_callback_plan(8192, 8192, 2, 1, false, 65_536),
             CoreAudioDopCallbackPlan::IdleHold
+        );
+    }
+
+    #[test]
+    fn coreaudio_dop_eof_drain_consumes_short_final_block() {
+        assert_eq!(
+            coreaudio_dop_callback_plan_with_eof(3744, 8192, 2, 0, true, 65_536, true),
+            CoreAudioDopCallbackPlan::PlayProgram { samples: 3744 }
+        );
+        assert_eq!(
+            coreaudio_dop_callback_plan(3744, 8192, 2, 0, true, 65_536),
+            CoreAudioDopCallbackPlan::RecoveryIdle {
+                missing_samples: 4448,
+                entering_recovery: false,
+            }
         );
     }
 

@@ -1,5 +1,6 @@
 use super::LOCAL_ZONE_ID;
 use super::registry::{LocalZoneEntry, ZoneState};
+use crate::audio::player::OutputTransport;
 use crate::audio::{airplay, sonos, upnp};
 
 pub(super) struct ActiveZonePolicy;
@@ -68,11 +69,12 @@ impl ActiveZonePolicy {
 
     pub(super) fn local_zone_is_controllable(zone: &LocalZoneEntry) -> bool {
         Self::local_zone_is_usable(zone)
-            || (zone.enabled && Self::local_zone_has_non_stopped_player(zone))
+            || (zone.enabled && Self::local_zone_has_running_or_owned_output(zone))
     }
 
-    fn local_zone_has_non_stopped_player(zone: &LocalZoneEntry) -> bool {
+    pub(super) fn local_zone_has_running_or_owned_output(zone: &LocalZoneEntry) -> bool {
         !zone.player.playback_state().is_stopped()
+            || zone.player.output_transport() == OutputTransport::DopCoreAudio
     }
 
     pub(super) fn local_zone_airplay_unsupported_reason(zone: &LocalZoneEntry) -> Option<String> {

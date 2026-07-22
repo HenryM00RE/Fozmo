@@ -831,6 +831,8 @@ export function mergeRecentlyPlayed(
 }
 
 export function recentlyPlayedSelectionKey(item: JsonRecord) {
+  if (item.recent_type === 'qobuz_playlist')
+    return `qobuz-playlist:${item.playlist_id || item.id || item.title || ''}`;
   if (item.recent_type === 'playlist')
     return `playlist:${item.playlist_id || item.id || item.title || ''}`;
   const provider = item.is_qobuz ? 'qobuz' : 'local';

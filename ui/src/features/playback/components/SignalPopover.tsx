@@ -9,21 +9,15 @@ import {
   compactFilterName,
   dsdModulatorOptions,
   fileFormatLabel,
-  formatCpuPercent,
   formatSignalRate,
   isAirPlayProtocol,
   numberValue,
   stringValue
 } from '../../settings/settingsModel';
 
-function formatPercent(value: number) {
-  if (!Number.isFinite(value)) return '0%';
-  return `${Math.max(0, value * 100).toFixed(1)}%`;
-}
-
 function formatRealtimeSpeed(speed: number) {
   if (!Number.isFinite(speed) || speed <= 0) return '';
-  return `${speed < 1 ? '<1' : Math.round(speed)}x Realtime`;
+  return `${speed < 10 ? speed.toFixed(1) : Math.round(speed)}x Realtime`;
 }
 
 /**
@@ -146,7 +140,7 @@ export function SignalPopover({
       ? 'Auto'
       : `${(configuredTargetRate / 1000).toFixed(1)} kHz`
     : 'Native';
-  const signalRatePath = resamplingActive ? `${sourceRate} -> ${targetRate}` : sourceRate;
+  const signalRatePath = resamplingActive ? `${sourceRate} → ${targetRate}` : sourceRate;
   const outputMode = stringValue(status.active_output_mode ?? status.output_mode, 'Pcm');
   const isDsd = outputMode === 'Dsd64' || outputMode === 'Dsd128' || outputMode === 'Dsd256';
   const dsdLabel =
@@ -158,7 +152,7 @@ export function SignalPopover({
           ? 'DSD256'
           : '';
   const headroomDb = numberValue(status.headroom_db);
-  const headroomLabel = headroomDb < 0 ? ` / headroom ${headroomDb.toFixed(1)} dB` : '';
+  const headroomLabel = headroomDb < 0 ? `${headroomDb.toFixed(1)}dB Headroom` : '';
   const outputTransport = stringValue(status.output_transport);
   const dsdCarrierDetail =
     outputTransport === 'upnp_av_renderer' &&
@@ -168,19 +162,26 @@ export function SignalPopover({
       : targetRateNumber > 0
         ? ` (${(targetRateNumber / 1_000_000).toFixed(4)} MHz)`
         : '';
-  const dsdSignalPath = `${sourceRate} -> ${dsdLabel}${dsdCarrierDetail}`;
+  const dsdSignalPath = `${sourceRate} → ${dsdLabel}${dsdCarrierDetail}`;
   const filterName = compactFilterName(status.active_filter_type || status.filter_type);
   const dspDetail = hasActiveStream
     ? isDsd
-      ? `${filterName} -> ${dsdLabel} cascade${headroomLabel}`
+      ? `${filterName} → ${dsdLabel}`
       : resamplingActive
         ? `${compactFilterName(status.filter_type)} · ${rateMode}`
-        : `Filter off${headroomLabel}`
+        : 'Filter off'
     : 'Waiting for playback';
-  const eqOn = Boolean(eqConfig?.enabled);
-  const activeEqBands = safeArray<JsonRecord>(eqConfig?.bands).filter(
-    (band) => band.enabled
-  ).length;
+  const remoteSignal =
+    status.remote_signal_path && typeof status.remote_signal_path === 'object'
+      ? (status.remote_signal_path as JsonRecord)
+      : null;
+  const hasReportedAgentEq = typeof remoteSignal?.eq_enabled === 'boolean';
+  const eqOn = hasReportedAgentEq
+    ? boolValue(remoteSignal?.eq_enabled)
+    : Boolean(eqConfig?.enabled);
+  const activeEqBands = hasReportedAgentEq
+    ? numberValue(remoteSignal?.eq_active_bands)
+    : safeArray<JsonRecord>(eqConfig?.bands).filter((band) => band.enabled).length;
   const transportNames: Record<string, string> = {
     dop_wasapi: 'DoP via WASAPI',
     dop_coreaudio: 'DoP via CoreAudio',
@@ -194,8 +195,6 @@ export function SignalPopover({
   const dsdRecentLoadP95 = numberValue(status.dsd_recent_load_p95);
   const blockDurationNs = numberValue(status.block_duration_ns);
   const resampleTimeNs = numberValue(status.resample_time_ns);
-  const dsdLimiterPeakRatio = Math.max(0, numberValue(status.dsd_limiter_peak_ratio));
-  const dsdLimiterPeakRatioMax = Math.max(0, numberValue(status.dsd_limiter_peak_ratio_max));
   const renderLoad =
     dsdRecentLoadP95 > 0
       ? dsdRecentLoadP95
@@ -217,9 +216,6 @@ export function SignalPopover({
     (outputTransport === 'upnp_av_renderer' && upnpRenderMs === 0
       ? 'Realtime stream'
       : 'Realtime n/a');
-  const dspBufferMs = numberValue(status.dsp_buffer_ms);
-  const dspBufferLabel = dspBufferMs > 0 ? `${dspBufferMs}ms` : 'Auto';
-  const cpuPercentLabel = formatCpuPercent(status.cpu_percent);
   const normalizedSourceProvider = stringValue(sourceProvider).toLowerCase();
   const isQobuzSource =
     normalizedSourceProvider === 'qobuz' ||
@@ -234,9 +230,6 @@ export function SignalPopover({
         : signalRatePath
       : 'Signal'
     : 'No active stream';
-  const dsdLimiterDetail = isDsd
-    ? `Input ${formatPercent(dsdLimiterPeakRatio)} · Max ${formatPercent(dsdLimiterPeakRatioMax)}`
-    : null;
   const sourceLabel = isQobuzSource ? (
     <strong className="signal-source-label" aria-label={`${sourceFormat} Qobuz`}>
       {sourceFormat}
@@ -292,6 +285,7 @@ export function SignalPopover({
           <div>
             <strong>Filter</strong>
             <span>{dspDetail}</span>
+            {hasActiveStream && headroomLabel ? <span>{headroomLabel}</span> : null}
           </div>
         </section>
         {eqOn && !isDsd ? (
@@ -309,7 +303,6 @@ export function SignalPopover({
             <div>
               <strong>DSD Modulator</strong>
               <span>{`${dsdModulatorName} · ${transport}`}</span>
-              {dsdLimiterDetail ? <span>{dsdLimiterDetail}</span> : null}
             </div>
           </section>
         ) : null}
@@ -317,17 +310,7 @@ export function SignalPopover({
           <div className="stage-icon">CPU</div>
           <div>
             <strong>CPU</strong>
-            <span className="signal-cpu-detail">
-              {[
-                <span className="signal-cpu-percent" key="cpu-percent">
-                  {cpuPercentLabel}
-                </span>,
-                <span key="cpu-buffer">{`· Buffer ${dspBufferLabel} ·`}</span>,
-                <span className="signal-realtime-speed" key="cpu-realtime">
-                  {realtimeSpeedLabel}
-                </span>
-              ]}
-            </span>
+            <span>{realtimeSpeedLabel}</span>
           </div>
         </section>
       </div>

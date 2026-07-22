@@ -95,6 +95,10 @@ pub struct SyncSignalPath {
     pub dsp_filter: String,
     pub dsp_target_rate: u32,
     #[serde(default)]
+    pub eq_enabled: Option<bool>,
+    #[serde(default)]
+    pub eq_active_bands: Option<u32>,
+    #[serde(default)]
     pub src_path_kind: Option<String>,
     #[serde(default)]
     pub src_capped_fallback: bool,

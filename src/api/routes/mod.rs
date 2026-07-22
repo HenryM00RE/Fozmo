@@ -1731,7 +1731,8 @@ mod tests {
             &format!("/api/zones/{}/settings", crate::zones::LOCAL_ZONE_ID),
             Some(json!({
                 "airplay_default_volume_enabled": true,
-                "airplay_default_volume": 0.35
+                "airplay_default_volume": 0.35,
+                "airplay_max_volume": 0.8
             })),
         )
         .await;
@@ -1741,6 +1742,12 @@ mod tests {
                 .get("airplay_default_volume")
                 .and_then(Value::as_f64),
             Some(0.35)
+        );
+        assert_eq!(
+            zone_settings
+                .get("airplay_max_volume")
+                .and_then(Value::as_f64),
+            Some(0.8)
         );
 
         let status = request_status(

@@ -7,6 +7,7 @@ import {
 } from 'react';
 import { artFallback } from '../../../shared/lib/appSupport';
 import { Icon } from '../../../shared/ui/Icon';
+import { Menu } from '../../../shared/ui/Menu';
 import { playbackChromeTrackModel, signalTriggerLabel } from '../model/playbackChromeModel';
 import type { PlaybackChromeState } from '../model/playbackChromeState';
 import { usePlaybackControlSnapshot } from '../model/playbackControlStore';
@@ -34,6 +35,7 @@ export function MobileNowPlayingSheet({
     activeZoneId,
     albums,
     nowPlayingOpen,
+    onAddToPlaylist,
     onClearQueue,
     onOpenAlbum,
     onSelectZone,
@@ -49,6 +51,7 @@ export function MobileNowPlayingSheet({
   const [sheetDragY, setSheetDragY] = useState(0);
   const [sheetDragging, setSheetDragging] = useState(false);
   const [sheetClosing, setSheetClosing] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const dragRef = useRef<{
     active: boolean;
     offsetY: number;
@@ -60,6 +63,23 @@ export function MobileNowPlayingSheet({
   useEffect(() => {
     if (nowPlayingOpen) setView('now-playing');
   }, [nowPlayingOpen]);
+
+  useEffect(() => {
+    if (!moreOpen) return undefined;
+    const closeMoreMenu = (event: Event) => {
+      if ((event.target as Element | null)?.closest('.mobile-sheet-more-wrap')) return;
+      setMoreOpen(false);
+    };
+    const closeMoreMenuOnKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMoreOpen(false);
+    };
+    document.addEventListener('pointerdown', closeMoreMenu);
+    document.addEventListener('keydown', closeMoreMenuOnKey);
+    return () => {
+      document.removeEventListener('pointerdown', closeMoreMenu);
+      document.removeEventListener('keydown', closeMoreMenuOnKey);
+    };
+  }, [moreOpen]);
 
   useEffect(() => {
     return () => {
@@ -81,6 +101,7 @@ export function MobileNowPlayingSheet({
   const signalLabel = signalTriggerLabel(status);
   const signalTriggerClass = `signal-quality-trigger${signalLabel.length > 10 ? ' is-wide' : ''}`;
   const albumTarget = model.currentAlbumTarget;
+  const currentItem = model.currentQueueItem;
   const sheetStyle =
     sheetDragY > 0 ? ({ '--mobile-sheet-drag-y': `${sheetDragY}px` } as CSSProperties) : undefined;
 
@@ -219,39 +240,93 @@ export function MobileNowPlayingSheet({
           <div className={`mobile-sheet-art${model.currentArt ? ' has-cover' : ''}`}>
             {model.currentArt ? <img alt="" src={model.currentArt} /> : artFallback()}
           </div>
-          <div className="mobile-sheet-meta">
-            <h1 className={model.trackTitleClass}>{model.currentTrackName}</h1>
-            {model.currentArtist || model.currentAlbum ? (
-              <div className="mobile-sheet-submeta">
-                {model.currentArtist ? (
-                  <button
-                    className="artist-link"
-                    type="button"
-                    onClick={() => onOpenArtist(model.currentArtist)}
-                  >
-                    {model.currentArtist}
-                  </button>
-                ) : null}
-                {model.currentArtist && model.currentAlbum ? (
-                  <span className="mobile-sheet-meta-separator" aria-hidden="true">
-                    /
-                  </span>
-                ) : null}
-                {model.currentAlbum && albumTarget ? (
-                  <button
-                    className="album-link"
-                    type="button"
-                    onClick={() => onOpenAlbum(albumTarget)}
-                  >
-                    {model.currentAlbum}
-                  </button>
-                ) : model.currentAlbum ? (
-                  <span>{model.currentAlbum}</span>
+          <div className="mobile-sheet-playback">
+            <div className="mobile-sheet-meta-row">
+              <div className="mobile-sheet-meta">
+                <h1 className={model.trackTitleClass}>{model.currentTrackName}</h1>
+                {model.currentArtist || model.currentAlbum ? (
+                  <div className="mobile-sheet-submeta">
+                    {model.currentArtist ? (
+                      <button
+                        className="artist-link"
+                        type="button"
+                        onClick={() => onOpenArtist(model.currentArtist)}
+                      >
+                        {model.currentArtist}
+                      </button>
+                    ) : null}
+                    {model.currentArtist && model.currentAlbum ? (
+                      <span className="mobile-sheet-meta-separator" aria-hidden="true">
+                        /
+                      </span>
+                    ) : null}
+                    {model.currentAlbum && albumTarget ? (
+                      <button
+                        className="album-link mobile-sheet-album"
+                        type="button"
+                        onClick={() => onOpenAlbum(albumTarget)}
+                      >
+                        {model.currentAlbum}
+                      </button>
+                    ) : model.currentAlbum ? (
+                      <span className="mobile-sheet-album">{model.currentAlbum}</span>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
-            ) : null}
+              {albumTarget || currentItem ? (
+                <div className="mobile-sheet-more-wrap">
+                  <button
+                    className="mobile-sheet-more-button"
+                    type="button"
+                    aria-label="More options"
+                    aria-haspopup="menu"
+                    aria-expanded={moreOpen}
+                    onClick={() => setMoreOpen((value) => !value)}
+                  >
+                    <Icon path="M5 12h.01M12 12h.01M19 12h.01" />
+                  </button>
+                  {moreOpen ? (
+                    <Menu
+                      className="track-actions-menu track-actions-menu-wide mobile-sheet-more-menu is-open"
+                      ariaLabel="Now playing options"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {albumTarget ? (
+                        <button
+                          className="track-action-item"
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setMoreOpen(false);
+                            onOpenAlbum(albumTarget);
+                          }}
+                        >
+                          <Icon path="M5 4h14v16H5zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM12 12h.01" />
+                          <span>Go to album</span>
+                        </button>
+                      ) : null}
+                      {currentItem ? (
+                        <button
+                          className="track-action-item"
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setMoreOpen(false);
+                            onAddToPlaylist([currentItem], model.currentTrackName);
+                          }}
+                        >
+                          <Icon path="M4 7h12M4 12h9M4 17h7M18 15v6M15 18h6" />
+                          <span>Add to playlist</span>
+                        </button>
+                      ) : null}
+                    </Menu>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+            <PlaybackControlsIsland status={status as PlaybackStatus} position={playbackPosition} />
           </div>
-          <PlaybackControlsIsland status={status as PlaybackStatus} position={playbackPosition} />
           <div className="mobile-sheet-output">
             <ZonePicker
               zones={zones}

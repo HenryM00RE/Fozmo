@@ -8,6 +8,7 @@ const noop = () => undefined;
 function searchView(query: string, results: GlobalSearchState) {
   return buildGlobalSearchView({
     albums: results.local.albums,
+    onAddTrackToPlaylist: noop,
     onClose: noop,
     onOpenAlbum: noop,
     onOpenArtist: noop,
@@ -57,6 +58,34 @@ function album(
 }
 
 describe('buildGlobalSearchView ranking', () => {
+  it('uses the songs-page action order and adds artist navigation for song results', () => {
+    const results = emptyResults();
+    results.local.albums = [album(7, 'TNT', 'Tortoise', 1998, 12)];
+    results.local.songs = [{ ...song(1, 'Ten-Day Interval', 'Tortoise', 'TNT'), album_id: 7 }];
+
+    const view = searchView('Ten-Day Interval', results);
+
+    expect(view.topResult?.actions?.map((action) => action.id)).toEqual([
+      'play',
+      'add-next',
+      'add-to-playlist',
+      'go-to-album',
+      'go-to-artist',
+      'add-to-queue'
+    ]);
+  });
+
+  it('keeps loading status text empty so the UI can use stable skeleton rows', () => {
+    const results = emptyResults();
+    results.localLoading = true;
+    results.qobuzLoading = true;
+
+    const view = searchView('Tortoise', results);
+
+    expect(view.isLoading).toBe(true);
+    expect(view.status).toBe('');
+  });
+
   it('prefers the in-library Thom Yorke artist and artist-owned records over broad featured hits', () => {
     const results = emptyResults();
     results.local.artists = [{ name: 'Thom Yorke', album_count: 4, track_count: 50 }];

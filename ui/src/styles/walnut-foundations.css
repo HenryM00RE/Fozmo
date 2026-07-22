@@ -248,9 +248,12 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --canvas: rgb(25, 25, 25);
-  --canvas-tint: rgb(30, 30, 30);
-  --canvas-raised: rgb(30, 30, 30);
+  --canvas: rgb(21, 21, 21);
+  --canvas-tint: rgb(26, 26, 26);
+  --canvas-raised: rgb(26, 26, 26);
+  --card-bg: rgb(22, 22, 22);
+  --card-border-rest: rgb(30, 30, 30);
+  --card-border-raised: rgb(37, 37, 37);
 
   --ink: rgb(230, 228, 222);
   --ink-strong: rgb(248, 246, 240);
@@ -262,8 +265,8 @@
   --line-12: rgba(255, 255, 255, 0.1);
   --line-15: rgba(255, 255, 255, 0.13);
   --line-20: rgba(255, 255, 255, 0.17);
-  --modal-line: rgb(51, 51, 48);
-  --modal-line-soft: rgba(51, 51, 48, 0.72);
+  --modal-line: rgb(47, 47, 44);
+  --modal-line-soft: rgba(47, 47, 44, 0.72);
 
   --specular: rgba(255, 255, 255, 0.14);
   --specular-soft: rgba(255, 255, 255, 0.08);
@@ -295,10 +298,11 @@
   --deboss-well:
     inset 0 1px 2px rgba(0, 0, 0, 0.28), inset 0 -1px 0 rgba(255, 255, 255, 0.035),
     inset 0 0 0 1px var(--line-08);
-  --panel-rest: 0 0 0 1px var(--line-08);
-  --panel-raised: 0 0 0 1px var(--line-12), 0 1px 2px rgba(0, 0, 0, 0.16);
+  --panel-rest: 0 0 0 1px var(--card-border-rest);
+  --panel-raised: 0 0 0 1px var(--card-border-raised), 0 1px 2px rgba(0, 0, 0, 0.16);
   --panel-floating:
-    0 0 0 1px var(--line-12), 0 8px 28px rgba(0, 0, 0, 0.28), 0 1px 2px rgba(0, 0, 0, 0.18);
+    0 0 0 1px var(--card-border-raised), 0 8px 28px rgba(0, 0, 0, 0.28),
+    0 1px 2px rgba(0, 0, 0, 0.18);
   --modal-floating:
     0 0 0 1px var(--modal-line),
     0 1px 0 rgba(255, 255, 255, 0.08) inset,
@@ -309,7 +313,7 @@
   --glass-fill: rgba(255, 255, 255, 0.035);
   --glass-fill-strong: rgba(255, 255, 255, 0.044);
   --glass-fill-soft: rgba(255, 255, 255, 0.031);
-  --segmented-active-fill: rgb(33, 33, 33);
+  --segmented-active-fill: rgb(29, 29, 29);
   --segmented-active-line: rgba(255, 255, 255, 0.075);
 
   --focus-ring: rgba(255, 255, 255, 0.1);
@@ -321,7 +325,7 @@
   --row-selected-hover: rgba(255, 255, 255, 0.06);
   --stamp-ink-fill: rgba(255, 255, 255, 0.04);
   --select-menu-shade: rgba(0, 0, 0, 0.45);
-  --select-menu-fade: linear-gradient(rgba(34, 34, 33, 0), rgba(34, 34, 33, 0.92));
+  --select-menu-fade: linear-gradient(rgba(30, 30, 29, 0), rgba(30, 30, 29, 0.92));
   --modal-backdrop-bg: rgba(0, 0, 0, 0.22);
   --modal-backdrop-open-filter: contrast(0.9) brightness(0.82);
   --modal-backdrop-rest-filter: contrast(1) brightness(1);

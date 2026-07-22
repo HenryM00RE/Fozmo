@@ -41,6 +41,8 @@ pub struct ZoneSettingsRequest {
     #[serde(default)]
     pub airplay_default_volume: Option<f32>,
     #[serde(default)]
+    pub airplay_max_volume: Option<f32>,
+    #[serde(default)]
     pub qobuz_hires_enabled: Option<bool>,
     #[serde(default)]
     pub icon: Option<String>,
@@ -174,6 +176,7 @@ async fn update_remote_browser_zone_settings(
     }
     if req.airplay_default_volume_enabled.is_some()
         || req.airplay_default_volume.is_some()
+        || req.airplay_max_volume.is_some()
         || req.qobuz_hires_enabled.is_some()
         || req.device_type.is_some()
         || req.hegel.is_some()
@@ -252,6 +255,7 @@ impl From<ZoneSettingsRequest> for ZoneSettingsUpdate {
         Self {
             airplay_default_volume_enabled: req.airplay_default_volume_enabled,
             airplay_default_volume: req.airplay_default_volume,
+            airplay_max_volume: req.airplay_max_volume,
             qobuz_hires_enabled: req.qobuz_hires_enabled,
             icon: req.icon,
             device_type: req.device_type,

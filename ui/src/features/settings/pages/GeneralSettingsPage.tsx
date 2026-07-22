@@ -4,6 +4,7 @@ import type { JsonRecord } from '../../../shared/types';
 import { Icon } from '../../../shared/ui/Icon';
 import { Modal } from '../../../shared/ui/Modal';
 import { SelectMenu } from '../../../shared/ui/SelectMenu';
+import type { HistoryExportRange } from '../hooks/useDataSettings';
 import type { ScanProgress } from '../hooks/useMediaSettings';
 import { qobuzCacheSummary } from '../model/qobuzSettingsModel';
 
@@ -22,6 +23,20 @@ const importModeOptions = [
   { value: 'merge', label: 'Merge' },
   { value: 'replace', label: 'Replace' }
 ];
+
+const historyExportRangeOptions = [
+  { value: 'day', label: 'Last day' },
+  { value: 'week', label: 'Last week' },
+  { value: 'month', label: 'Last month' },
+  { value: 'all', label: 'All time' }
+];
+
+const historyExportRangeDescriptions: Record<HistoryExportRange, string> = {
+  day: 'Export listening activity from the last 24 hours.',
+  week: 'Export listening activity from the last 7 days.',
+  month: 'Export listening activity from the last 30 days.',
+  all: 'Export your complete listening history.'
+};
 
 export function GeneralSettingsPage({
   addFolder,
@@ -53,7 +68,7 @@ export function GeneralSettingsPage({
   addFolder: () => Promise<void>;
   clearQobuzCache: () => Promise<void>;
   dataStatus: string;
-  exportHistory: () => Promise<void>;
+  exportHistory: (range: HistoryExportRange) => Promise<boolean>;
   folderInput: string;
   folderStatus: string;
   folders: string[];
@@ -77,6 +92,9 @@ export function GeneralSettingsPage({
   theme: WalnutTheme;
 }) {
   const [importOpen, setImportOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportRange, setExportRange] = useState<HistoryExportRange>('all');
+  const [exporting, setExporting] = useState(false);
   const [folderToRemove, setFolderToRemove] = useState<string | null>(null);
   const [folderRemoveError, setFolderRemoveError] = useState('');
   const chooseTheme = (value: string) => {
@@ -85,6 +103,13 @@ export function GeneralSettingsPage({
   const runImportHistory = async () => {
     await importHistory();
     setImportOpen(false);
+  };
+  const runExportHistory = async () => {
+    if (exporting) return;
+    setExporting(true);
+    const exported = await exportHistory(exportRange);
+    setExporting(false);
+    if (exported) setExportOpen(false);
   };
   const closeFolderRemove = () => {
     if (removingFolder) return;
@@ -212,7 +237,7 @@ export function GeneralSettingsPage({
                   type="button"
                   title="Export history"
                   aria-label="Export history"
-                  onClick={exportHistory}
+                  onClick={() => setExportOpen(true)}
                 >
                   <Icon path="M12 3v12M7 8l5-5 5 5M5 21h14" />
                 </button>
@@ -296,6 +321,65 @@ export function GeneralSettingsPage({
             </button>
           </footer>
         </section>
+      </Modal>
+      <Modal
+        className="history-import-backdrop history-export-backdrop"
+        ariaLabelledBy="history-export-title"
+        open={exportOpen}
+        onClose={() => {
+          if (!exporting) setExportOpen(false);
+        }}
+      >
+        <div className="history-import-panel history-export-panel app-modal-surface">
+          <div className="history-import-head">
+            <div>
+              <div className="section-label">History</div>
+              <h2 id="history-export-title">Export history</h2>
+            </div>
+            <button
+              className="history-import-close"
+              type="button"
+              aria-label="Close export history"
+              disabled={exporting}
+              onClick={() => setExportOpen(false)}
+            >
+              <Icon path="M18 6 6 18M6 6l12 12" />
+            </button>
+          </div>
+          <div className="history-import-body">
+            <div className="history-import-row control-row">
+              <span>
+                <strong>Time span</strong>
+                <small>{historyExportRangeDescriptions[exportRange]}</small>
+              </span>
+              <SelectMenu
+                ariaLabel="Export time span"
+                disabled={exporting}
+                value={exportRange}
+                onChange={(value) => setExportRange(value as HistoryExportRange)}
+                options={historyExportRangeOptions}
+              />
+            </div>
+          </div>
+          <div className="history-import-foot">
+            <button
+              className="pill"
+              type="button"
+              disabled={exporting}
+              onClick={() => setExportOpen(false)}
+            >
+              Cancel
+            </button>
+            <button
+              className="pill primary"
+              type="button"
+              disabled={exporting}
+              onClick={() => void runExportHistory()}
+            >
+              {exporting ? 'Exporting...' : 'Export'}
+            </button>
+          </div>
+        </div>
       </Modal>
       <Modal
         className="history-import-backdrop"

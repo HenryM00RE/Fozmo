@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const MAX_RECENT_SEARCHES: usize = 5;
+const MAX_RECENT_SEARCHES: usize = 10;
 const MAX_RECENT_SEARCH_LENGTH: usize = 160;
 
 const PROFILE_COLORS: [&str; 8] = [
@@ -421,4 +421,35 @@ fn remove_replaced_profile_image(
         return;
     }
     let _ = std::fs::remove_file(profile_images_dir(settings_path).join(filename));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalized_recent_searches;
+
+    #[test]
+    fn recent_searches_are_normalized_and_limited_to_ten() {
+        let searches = vec![
+            "  First  ".to_string(),
+            "SECOND".to_string(),
+            "first".to_string(),
+            "Third".to_string(),
+            "Fourth".to_string(),
+            "Fifth".to_string(),
+            "Sixth".to_string(),
+            "Seventh".to_string(),
+            "Eighth".to_string(),
+            "Ninth".to_string(),
+            "Tenth".to_string(),
+            "Eleventh".to_string(),
+        ];
+
+        let normalized = normalized_recent_searches(&searches);
+
+        assert_eq!(normalized.len(), 10);
+        assert_eq!(normalized[0], "First");
+        assert_eq!(normalized[1], "SECOND");
+        assert_eq!(normalized[9], "Tenth");
+        assert!(!normalized.iter().any(|search| search == "Eleventh"));
+    }
 }

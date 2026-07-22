@@ -4,6 +4,8 @@ use crate::library::ZoneSettings;
 use crate::protocol::SinkProtocol;
 use std::sync::Arc;
 
+const AIRPLAY_FALLBACK_START_VOLUME: f32 = 0.4;
+
 pub(crate) fn prepare_airplay_volume_for_zone(
     state: &AppState,
     zone_id: &str,
@@ -22,17 +24,29 @@ pub(crate) fn prepare_airplay_volume_for_zone(
         .library()
         .zone_settings(zone_id)
         .ok()
-        .and_then(|settings| airplay_default_start_volume(&settings));
-    if let Some(volume) = start_volume {
-        player.set_airplay_device_volume(volume);
-    }
+        .and_then(|settings| airplay_default_start_volume(&settings))
+        .unwrap_or(AIRPLAY_FALLBACK_START_VOLUME);
+    player.set_airplay_device_volume(start_volume);
 }
 
 pub(crate) fn airplay_default_start_volume(settings: &ZoneSettings) -> Option<f32> {
-    settings
+    let normalize = |volume: f32| volume.is_finite().then(|| volume.clamp(0.0, 1.0));
+    let volume = settings
         .airplay_default_volume
-        .filter(|volume| volume.is_finite())
-        .map(|volume| volume.clamp(0.0, 1.0))
+        .and_then(normalize)
+        .or_else(|| settings.airplay_last_volume.and_then(normalize))
+        .unwrap_or(AIRPLAY_FALLBACK_START_VOLUME);
+    Some(airplay_volume_with_max(settings, volume))
+}
+
+pub(crate) fn airplay_volume_with_max(settings: &ZoneSettings, volume: f32) -> f32 {
+    let volume = volume.clamp(0.0, 1.0);
+    let max_volume = settings
+        .airplay_max_volume
+        .filter(|max_volume| max_volume.is_finite())
+        .unwrap_or(1.0)
+        .clamp(0.0, 1.0);
+    volume.min(max_volume)
 }
 
 #[cfg(test)]
@@ -40,13 +54,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn airplay_startup_volume_uses_explicit_default_only() {
+    fn airplay_startup_volume_prefers_explicit_default() {
         let settings = ZoneSettings {
             airplay_default_volume: None,
             airplay_last_volume: Some(0.53),
             ..ZoneSettings::default()
         };
-        assert_eq!(airplay_default_start_volume(&settings), None);
+        assert_eq!(airplay_default_start_volume(&settings), Some(0.53));
 
         let settings = ZoneSettings {
             airplay_default_volume: Some(0.2),
@@ -57,6 +71,21 @@ mod tests {
     }
 
     #[test]
+    fn airplay_startup_volume_falls_back_to_safe_default() {
+        assert_eq!(
+            airplay_default_start_volume(&ZoneSettings::default()),
+            Some(0.4)
+        );
+
+        let settings = ZoneSettings {
+            airplay_default_volume: Some(f32::NAN),
+            airplay_last_volume: Some(0.35),
+            ..ZoneSettings::default()
+        };
+        assert_eq!(airplay_default_start_volume(&settings), Some(0.35));
+    }
+
+    #[test]
     fn airplay_startup_volume_clamps_default() {
         let settings = ZoneSettings {
             airplay_default_volume: Some(2.0),
@@ -64,5 +93,18 @@ mod tests {
             ..ZoneSettings::default()
         };
         assert_eq!(airplay_default_start_volume(&settings), Some(1.0));
+    }
+
+    #[test]
+    fn airplay_max_volume_caps_startup_and_runtime_volume() {
+        let settings = ZoneSettings {
+            airplay_default_volume: Some(0.8),
+            airplay_max_volume: Some(0.6),
+            ..ZoneSettings::default()
+        };
+
+        assert_eq!(airplay_default_start_volume(&settings), Some(0.6));
+        assert_eq!(airplay_volume_with_max(&settings, 0.9), 0.6);
+        assert_eq!(airplay_volume_with_max(&settings, 0.4), 0.4);
     }
 }

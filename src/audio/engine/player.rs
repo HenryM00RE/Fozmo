@@ -969,6 +969,10 @@ impl Player {
         PlaybackState::from_id(self.state.state.load(Ordering::Relaxed))
     }
 
+    pub fn output_transport(&self) -> OutputTransport {
+        OutputTransport::from_id(self.state.output_transport.load(Ordering::Relaxed))
+    }
+
     pub fn output_mode(&self) -> OutputMode {
         OutputMode::from_id(self.state.output_mode.load(Ordering::Relaxed))
     }

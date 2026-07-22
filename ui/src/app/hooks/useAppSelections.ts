@@ -1,7 +1,15 @@
 import { useCallback } from 'react';
 import { useAlbumSelection } from '../../features/albums/hooks/useAlbumSelection';
 import { useRecentlyPlayedSelection } from '../../features/home/hooks/useRecentlyPlayedSelection';
-import type { JsonRecord, LibraryAlbum, Playlist, QueueItem, RouteState } from '../../shared/types';
+import { usePlaylistSelection } from '../../features/playlists/hooks/usePlaylistSelection';
+import type {
+  JsonRecord,
+  LibraryAlbum,
+  LibraryTrack,
+  Playlist,
+  QueueItem,
+  RouteState
+} from '../../shared/types';
 import {
   buildAlbumTrackSelectionRoute,
   buildHomeRoute,
@@ -20,6 +28,7 @@ type UseAppSelectionsParams = {
   recentlyPlayedLoading: boolean;
   recentPlaylists: JsonRecord[];
   setNotice: (message: string) => void;
+  tracks: LibraryTrack[];
 };
 
 export function useAppSelections({
@@ -33,7 +42,8 @@ export function useAppSelections({
   recentAlbums,
   recentlyPlayedLoading,
   recentPlaylists,
-  setNotice
+  setNotice,
+  tracks
 }: UseAppSelectionsParams) {
   const {
     addSelectionToPlaylist: addSelectedAlbumTracksToPlaylist,
@@ -54,6 +64,27 @@ export function useAppSelections({
   });
 
   const {
+    clearSelection: clearPlaylistSelection,
+    playSelection: playSelectedPlaylists,
+    queueSelection: queueSelectedPlaylists,
+    selectionActive: playlistSelectionActive,
+    selectionKeys: playlistSelectionKeys,
+    selectionMenuOpen: playlistSelectionMenuOpen,
+    setSelectionMenuOpen: setPlaylistSelectionMenuOpen,
+    toggleSelection: togglePlaylistSelection
+  } = usePlaylistSelection({
+    addItemsToQueue,
+    playlists,
+    playItems,
+    tracks
+  });
+
+  const clearOtherSelectionsForRecent = useCallback(() => {
+    clearAlbumTrackSelection();
+    clearPlaylistSelection();
+  }, [clearAlbumTrackSelection, clearPlaylistSelection]);
+
+  const {
     addSelectionToPlaylist: addSelectedRecentlyPlayedToPlaylist,
     clearSelection: clearRecentSelection,
     openItem: openRecentlyPlayedItem,
@@ -71,7 +102,7 @@ export function useAppSelections({
     addItemsToQueue,
     albums,
     navigate,
-    onSelectionStart: clearAlbumTrackSelection,
+    onSelectionStart: clearOtherSelectionsForRecent,
     openPlaylistPickerForItems,
     playAlbum,
     playItems,
@@ -84,10 +115,21 @@ export function useAppSelections({
   const toggleAlbumTrackSelection = useCallback(
     (key: string) => {
       if (!key) return;
+      clearPlaylistSelection();
       clearRecentSelection();
       toggleAlbumSelection(key);
     },
-    [clearRecentSelection, toggleAlbumSelection]
+    [clearPlaylistSelection, clearRecentSelection, toggleAlbumSelection]
+  );
+
+  const togglePlaylistCardSelection = useCallback(
+    (playlistId: string) => {
+      if (!playlistId) return;
+      clearAlbumTrackSelection();
+      clearRecentSelection();
+      togglePlaylistSelection(playlistId);
+    },
+    [clearAlbumTrackSelection, clearRecentSelection, togglePlaylistSelection]
   );
 
   const selectionToolbar = buildSelectionToolbar({
@@ -98,16 +140,23 @@ export function useAppSelections({
     albumSelectionKeys,
     albumSelectionMenuOpen,
     clearAlbumTrackSelection,
+    clearPlaylistSelection,
     clearRecentSelection,
     playSelectedAlbumTracks,
+    playSelectedPlaylists,
     playSelectedRecentlyPlayed,
+    playlistSelectionActive,
+    playlistSelectionKeys,
+    playlistSelectionMenuOpen,
     queueSelectedAlbumTracks,
+    queueSelectedPlaylists,
     queueSelectedRecentlyPlayed,
     recentSelectionActive,
     recentSelectionBusy,
     recentSelectionKeys,
     recentSelectionMenuOpen,
     setAlbumSelectionMenuOpen,
+    setPlaylistSelectionMenuOpen,
     setRecentSelectionMenuOpen
   });
 
@@ -122,6 +171,7 @@ export function useAppSelections({
       toggleAlbumTrackSelection
     }),
     clearAlbumTrackSelection,
+    clearPlaylistSelection,
     clearRecentSelection,
     homeRoute: buildHomeRoute({
       openRecentlyPlayedItem,
@@ -133,6 +183,12 @@ export function useAppSelections({
       toggleAlbumSelection: toggleRecentSelection,
       toggleRecentSelection
     }),
+    playlistSelectionActive,
+    playlistSelectionRoute: {
+      onToggleSelection: togglePlaylistCardSelection,
+      selectedPlaylistIds: playlistSelectionKeys,
+      selectionActive: playlistSelectionActive
+    },
     recentSelectionActive,
     selectionToolbar
   };

@@ -6,7 +6,10 @@ import { LibraryRouteView } from '../features/library/LibraryRouteView';
 import type { LibraryRouteState } from '../features/library/model/libraryRouteState';
 import type { PlaybackRouteActions } from '../features/playback/model/playbackRouteActions';
 import type { PlaybackStatus } from '../features/playback/model/playbackStore';
-import type { PlaylistRouteState } from '../features/playlists/model/playlistModel';
+import type {
+  PlaylistRouteState,
+  PlaylistSelectionRouteState
+} from '../features/playlists/model/playlistModel';
 import { PlaylistRouteView } from '../features/playlists/PlaylistRouteView';
 import { QobuzRouteView } from '../features/qobuz/QobuzRouteView';
 import type { SettingsRouteState } from '../features/settings/model/settingsRouteState';
@@ -29,6 +32,7 @@ type AppRoutesProps = {
   homeRoute: HomeRouteState;
   libraryRoute: LibraryRouteState;
   playlistRoute: PlaylistRouteState;
+  playlistSelection: PlaylistSelectionRouteState;
   settingsRoute: SettingsRouteState;
   customDisplayFont: CustomDisplayFontSettings | null;
 };
@@ -46,6 +50,7 @@ export function AppRoutes({
   homeRoute,
   libraryRoute,
   playlistRoute,
+  playlistSelection,
   settingsRoute,
   customDisplayFont
 }: AppRoutesProps) {
@@ -84,6 +89,7 @@ export function AppRoutes({
           onPlayQobuzAlbum={playbackActions.playQobuzAlbum}
           onPlayQobuzPlaylist={playbackActions.playQobuzPlaylist}
           onToggleQobuzAlbumSelection={homeRoute.toggleAlbumSelection}
+          onToggleQobuzPlaylistSelection={homeRoute.toggleRecentSelection}
           onOpenArtist={openArtistName}
         />
       );
@@ -144,6 +150,7 @@ export function AppRoutes({
           navigate={navigate}
           openArtistName={openArtistName}
           playlistRoute={playlistRoute}
+          playlistSelection={playlistSelection}
           customDisplayFont={customDisplayFont}
         />
       );

@@ -16,6 +16,7 @@ type DiscoverPageProps = {
   onPlayQobuzAlbum: (id: string | number) => void;
   onPlayQobuzPlaylist: (id: string | number) => void;
   onToggleQobuzAlbumSelection: (album: JsonRecord) => void;
+  onToggleQobuzPlaylistSelection: (playlist: JsonRecord) => void;
   qobuzHome: JsonRecord | null;
   qobuzConnected: boolean;
   selectedKeys: Set<string>;
@@ -31,6 +32,7 @@ export function DiscoverPage({
   onPlayQobuzAlbum,
   onPlayQobuzPlaylist,
   onToggleQobuzAlbumSelection,
+  onToggleQobuzPlaylistSelection,
   qobuzHome,
   qobuzConnected,
   selectedKeys,
@@ -63,8 +65,11 @@ export function DiscoverPage({
           />
           <HomeQobuzPlaylists
             qobuzHome={qobuzHome}
+            selectedKeys={selectedKeys}
+            selectionActive={selectionActive}
             onOpenQobuzPlaylist={onOpenQobuzPlaylist}
             onPlayQobuzPlaylist={onPlayQobuzPlaylist}
+            onToggleQobuzPlaylistSelection={onToggleQobuzPlaylistSelection}
           />
           {!hasVisibleHomeQobuzSections(qobuzHome) && loading ? (
             <section className="library-section home-qobuz-section">

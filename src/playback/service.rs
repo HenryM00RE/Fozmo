@@ -1,7 +1,7 @@
 // Compatibility facade for older playback call sites; keep re-exports narrow and documented.
 #[allow(unused_imports)]
 pub(crate) use super::airplay_volume::{
-    airplay_default_start_volume, prepare_airplay_volume_for_zone,
+    airplay_default_start_volume, airplay_volume_with_max, prepare_airplay_volume_for_zone,
 };
 // Compatibility facade for older playback call sites; remove helpers after imports migrate.
 #[allow(unused_imports)]

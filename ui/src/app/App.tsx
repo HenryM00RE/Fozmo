@@ -174,8 +174,11 @@ function AuthenticatedApp({
     albumSelectionActive,
     albumTrackSelection,
     clearAlbumTrackSelection,
+    clearPlaylistSelection,
     clearRecentSelection,
     homeRoute,
+    playlistSelectionActive,
+    playlistSelectionRoute,
     recentSelectionActive,
     selectionToolbar
   } = useAppSelections({
@@ -189,7 +192,8 @@ function AuthenticatedApp({
     recentAlbums,
     recentlyPlayedLoading,
     recentPlaylists,
-    setNotice
+    setNotice,
+    tracks
   });
 
   const libraryRoute = buildLibraryRoute({
@@ -252,6 +256,7 @@ function AuthenticatedApp({
     clearQueue,
     navigate,
     nowPlayingOpen,
+    openPlaylistPickerForItems,
     onSelectZone: selectZone,
     queue,
     setNowPlayingOpen,
@@ -266,6 +271,7 @@ function AuthenticatedApp({
     albums,
     globalSearch,
     navigate,
+    openPlaylistPickerForItems,
     openArtistName,
     playQobuzTrack,
     playSingleTrack,
@@ -294,7 +300,9 @@ function AuthenticatedApp({
   useAppRouteEffects({
     albumSelectionActive,
     clearAlbumTrackSelection,
+    clearPlaylistSelection,
     clearRecentSelection,
+    playlistSelectionActive,
     recentSelectionActive,
     route,
     setToolbarAction
@@ -314,6 +322,7 @@ function AuthenticatedApp({
       homeRoute={homeRoute}
       libraryRoute={libraryRoute}
       playlistRoute={playlistRoute}
+      playlistSelection={playlistSelectionRoute}
       settingsRoute={settingsRoute}
       customDisplayFont={customDisplayFont}
     />

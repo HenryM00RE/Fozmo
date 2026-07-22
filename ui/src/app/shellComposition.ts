@@ -32,6 +32,8 @@ type BuildSelectionToolbarParams = Omit<
   albumSelectionActive: boolean;
   albumSelectionBusy: boolean;
   albumSelectionKeys: Set<string>;
+  playlistSelectionActive: boolean;
+  playlistSelectionKeys: Set<string>;
   recentSelectionActive: boolean;
   recentSelectionBusy: boolean;
   recentSelectionKeys: Set<string>;
@@ -45,38 +47,60 @@ export function buildSelectionToolbar({
   albumSelectionKeys,
   albumSelectionMenuOpen,
   clearAlbumTrackSelection,
+  clearPlaylistSelection,
   clearRecentSelection,
   playSelectedAlbumTracks,
+  playSelectedPlaylists,
   playSelectedRecentlyPlayed,
   queueSelectedAlbumTracks,
+  queueSelectedPlaylists,
   queueSelectedRecentlyPlayed,
+  playlistSelectionActive,
+  playlistSelectionKeys,
+  playlistSelectionMenuOpen,
   recentSelectionActive,
   recentSelectionBusy,
   recentSelectionKeys,
   recentSelectionMenuOpen,
   setAlbumSelectionMenuOpen,
+  setPlaylistSelectionMenuOpen,
   setRecentSelectionMenuOpen
 }: BuildSelectionToolbarParams): SelectionToolbarState {
   const activeSelectionType = albumSelectionActive
     ? 'album-tracks'
-    : recentSelectionActive
-      ? 'recently-played'
-      : null;
+    : playlistSelectionActive
+      ? 'playlists'
+      : recentSelectionActive
+        ? 'recently-played'
+        : null;
   return {
-    activeSelectionBusy: albumSelectionActive ? albumSelectionBusy : recentSelectionBusy,
-    activeSelectionCount: albumSelectionActive ? albumSelectionKeys.size : recentSelectionKeys.size,
+    activeSelectionBusy: albumSelectionActive
+      ? albumSelectionBusy
+      : playlistSelectionActive
+        ? false
+        : recentSelectionBusy,
+    activeSelectionCount: albumSelectionActive
+      ? albumSelectionKeys.size
+      : playlistSelectionActive
+        ? playlistSelectionKeys.size
+        : recentSelectionKeys.size,
     activeSelectionType,
     addSelectedAlbumTracksToPlaylist,
     addSelectedRecentlyPlayedToPlaylist,
     albumSelectionMenuOpen,
     clearAlbumTrackSelection,
+    clearPlaylistSelection,
     clearRecentSelection,
     playSelectedAlbumTracks,
+    playSelectedPlaylists,
     playSelectedRecentlyPlayed,
     queueSelectedAlbumTracks,
+    queueSelectedPlaylists,
     queueSelectedRecentlyPlayed,
+    playlistSelectionMenuOpen,
     recentSelectionMenuOpen,
     setAlbumSelectionMenuOpen,
+    setPlaylistSelectionMenuOpen,
     setRecentSelectionMenuOpen
   };
 }

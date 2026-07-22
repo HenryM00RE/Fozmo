@@ -780,7 +780,7 @@ body {
   animation: dropdown-in 180ms var(--ease-paper);
 }
 :root[data-theme="dark"] .dropdown-menu {
-  background: rgba(34, 34, 33, 0.62);
+  background: rgba(30, 30, 29, 0.62);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     0 0 0 1px var(--line-12),
@@ -864,13 +864,16 @@ body {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 80;
+  z-index: 1500;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--modal-backdrop-bg);
-  backdrop-filter: blur(2px) var(--modal-backdrop-open-filter);
-  -webkit-backdrop-filter: blur(2px) var(--modal-backdrop-open-filter);
+  backdrop-filter: var(--app-modal-backdrop-filter, blur(5px) var(--modal-backdrop-open-filter));
+  -webkit-backdrop-filter: var(
+    --app-modal-backdrop-filter,
+    blur(5px) var(--modal-backdrop-open-filter)
+  );
   animation: modal-backdrop-in 240ms var(--ease-modal);
   padding: 24px;
 }

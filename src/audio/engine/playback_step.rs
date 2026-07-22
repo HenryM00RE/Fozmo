@@ -1,18 +1,22 @@
 use std::sync::atomic::Ordering;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use super::buffers::{flush_and_wait_for_output_at_eof, output_start_preroll_ready};
+use super::buffers::{
+    OutputDrainResult, flush_and_wait_for_output_at_eof, output_start_preroll_ready,
+};
 use super::decode::{
     DecodePumpResult, flush_dsd_staged_pcm_at_eof, flush_dsd_upsampler_tail_at_eof,
     flush_pcm_resampler_tail_at_eof, pump_active_session,
 };
-use super::output_stream::ActiveOutput;
+use super::output_stream::{ActiveOutput, reset_output_pipeline_for_reopen};
 use super::session::apply_seek_to_session;
-use super::signal_path::OutputMode;
-use super::state::{PLAYBACK_PLAYING, PLAYBACK_STARTING, PLAYBACK_STOPPED};
+use super::signal_path::{OutputMode, OutputTransport};
+use super::state::{
+    PLAYBACK_PLAYING, PLAYBACK_STARTING, PLAYBACK_STOPPED, REOPEN_REASON_EOF_DRAIN_TIMEOUT,
+};
 use super::worker_state::WorkerRuntime;
-use super::worker_status::stop_after_eof_without_next;
+use super::worker_status::{publish_output_notice, stop_after_eof_without_next};
 
 pub(super) fn run_playback_step(runtime: &mut WorkerRuntime) {
     if runtime.shared.shutdown_requested() {
@@ -23,7 +27,7 @@ pub(super) fn run_playback_step(runtime: &mut WorkerRuntime) {
         && super::output_stage::startup_protective_preroll(runtime);
     let shared = &runtime.shared;
     let playback = &mut runtime.playback;
-    let output = &runtime.output;
+    let output = &mut runtime.output;
     let buffers = &mut runtime.buffers;
     let config = &mut runtime.config;
     let session = &mut playback.session;
@@ -31,7 +35,9 @@ pub(super) fn run_playback_step(runtime: &mut WorkerRuntime) {
     let prod = &mut buffers.prod;
     let eq_processor = &mut config.eq_processor;
     let target_rate = config.target_rate;
-    let active_stream = &output.active_stream;
+    let active_stream = &mut output.active_stream;
+    let dsd_fallback_key = &mut output.dsd_fallback_key;
+    let next_stream_retry = &mut output.next_stream_retry;
     let session_epoch = playback.session_epoch;
     let queues = &mut playback.queues;
     let repeat_one = playback.repeat_one;
@@ -149,19 +155,13 @@ pub(super) fn run_playback_step(runtime: &mut WorkerRuntime) {
                             !shared.shutdown_requested()
                                 && shared.state.state.load(Ordering::Relaxed) == PLAYBACK_PLAYING
                                 && shared.playback_epoch.load(Ordering::Relaxed) == session_epoch
-                                && active_stream
-                                    .as_ref()
-                                    .and_then(ActiveOutput::reset_notice)
-                                    .is_none()
+                                && eof_output_can_drain(active_stream.as_ref())
                         });
                         flush_dsd_upsampler_tail_at_eof(ds, &shared.state, || {
                             !shared.shutdown_requested()
                                 && shared.state.state.load(Ordering::Relaxed) == PLAYBACK_PLAYING
                                 && shared.playback_epoch.load(Ordering::Relaxed) == session_epoch
-                                && active_stream
-                                    .as_ref()
-                                    .and_then(ActiveOutput::reset_notice)
-                                    .is_none()
+                                && eof_output_can_drain(active_stream.as_ref())
                         });
                     } else if let Some(sess) = session.as_mut() {
                         flush_pcm_resampler_tail_at_eof(
@@ -176,22 +176,26 @@ pub(super) fn run_playback_step(runtime: &mut WorkerRuntime) {
                                         == PLAYBACK_PLAYING
                                     && shared.playback_epoch.load(Ordering::Relaxed)
                                         == session_epoch
-                                    && active_stream
-                                        .as_ref()
-                                        .and_then(ActiveOutput::reset_notice)
-                                        .is_none()
+                                    && eof_output_can_drain(active_stream.as_ref())
                             },
                         );
                     }
-                    flush_and_wait_for_output_at_eof(dsd_state, prod, &shared.state, || {
-                        !shared.shutdown_requested()
-                            && shared.state.state.load(Ordering::Relaxed) == PLAYBACK_PLAYING
-                            && shared.playback_epoch.load(Ordering::Relaxed) == session_epoch
-                            && active_stream
-                                .as_ref()
-                                .and_then(ActiveOutput::reset_notice)
-                                .is_none()
-                    });
+                    let drain_result =
+                        flush_and_wait_for_output_at_eof(dsd_state, prod, &shared.state, || {
+                            !shared.shutdown_requested()
+                                && shared.state.state.load(Ordering::Relaxed) == PLAYBACK_PLAYING
+                                && shared.playback_epoch.load(Ordering::Relaxed) == session_epoch
+                                && eof_output_can_drain(active_stream.as_ref())
+                        });
+                    recover_from_eof_drain_timeout(
+                        drain_result,
+                        active_stream,
+                        dsd_state,
+                        dsd_fallback_key,
+                        next_stream_retry,
+                        &shared.state,
+                        &shared.output_notice,
+                    );
                     *session = None;
                 }
                 *pending_start = Some(next_start);
@@ -201,19 +205,13 @@ pub(super) fn run_playback_step(runtime: &mut WorkerRuntime) {
                         !shared.shutdown_requested()
                             && shared.state.state.load(Ordering::Relaxed) == PLAYBACK_PLAYING
                             && shared.playback_epoch.load(Ordering::Relaxed) == session_epoch
-                            && active_stream
-                                .as_ref()
-                                .and_then(ActiveOutput::reset_notice)
-                                .is_none()
+                            && eof_output_can_drain(active_stream.as_ref())
                     });
                     flush_dsd_upsampler_tail_at_eof(ds, &shared.state, || {
                         !shared.shutdown_requested()
                             && shared.state.state.load(Ordering::Relaxed) == PLAYBACK_PLAYING
                             && shared.playback_epoch.load(Ordering::Relaxed) == session_epoch
-                            && active_stream
-                                .as_ref()
-                                .and_then(ActiveOutput::reset_notice)
-                                .is_none()
+                            && eof_output_can_drain(active_stream.as_ref())
                     });
                 } else if let Some(sess) = session.as_mut() {
                     flush_pcm_resampler_tail_at_eof(
@@ -226,22 +224,26 @@ pub(super) fn run_playback_step(runtime: &mut WorkerRuntime) {
                             !shared.shutdown_requested()
                                 && shared.state.state.load(Ordering::Relaxed) == PLAYBACK_PLAYING
                                 && shared.playback_epoch.load(Ordering::Relaxed) == session_epoch
-                                && active_stream
-                                    .as_ref()
-                                    .and_then(ActiveOutput::reset_notice)
-                                    .is_none()
+                                && eof_output_can_drain(active_stream.as_ref())
                         },
                     );
                 }
-                flush_and_wait_for_output_at_eof(dsd_state, prod, &shared.state, || {
-                    !shared.shutdown_requested()
-                        && shared.state.state.load(Ordering::Relaxed) == PLAYBACK_PLAYING
-                        && shared.playback_epoch.load(Ordering::Relaxed) == session_epoch
-                        && active_stream
-                            .as_ref()
-                            .and_then(ActiveOutput::reset_notice)
-                            .is_none()
-                });
+                let drain_result =
+                    flush_and_wait_for_output_at_eof(dsd_state, prod, &shared.state, || {
+                        !shared.shutdown_requested()
+                            && shared.state.state.load(Ordering::Relaxed) == PLAYBACK_PLAYING
+                            && shared.playback_epoch.load(Ordering::Relaxed) == session_epoch
+                            && eof_output_can_drain(active_stream.as_ref())
+                    });
+                recover_from_eof_drain_timeout(
+                    drain_result,
+                    active_stream,
+                    dsd_state,
+                    dsd_fallback_key,
+                    next_stream_retry,
+                    &shared.state,
+                    &shared.output_notice,
+                );
                 *session = None;
                 playback.pending_start_gapless = false;
                 playback.gapless_dsp_path = None;
@@ -282,10 +284,50 @@ fn should_pause_render_while_output_warms(
     playback_state == PLAYBACK_STARTING && has_active_stream && startup_preroll_ready
 }
 
+fn eof_output_can_drain(active_stream: Option<&ActiveOutput>) -> bool {
+    active_stream.is_some_and(|stream| stream.reset_notice().is_none())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn recover_from_eof_drain_timeout(
+    result: OutputDrainResult,
+    active_stream: &mut Option<ActiveOutput>,
+    dsd_state: &mut Option<super::buffers::DsdWorkerState>,
+    dsd_fallback_key: &mut Option<super::dsd_path::DsdFallbackKey>,
+    next_stream_retry: &mut Instant,
+    state: &super::state::AtomicPlayerState,
+    output_notice: &std::sync::Mutex<Option<String>>,
+) {
+    if result != OutputDrainResult::TimedOut {
+        return;
+    }
+
+    eprintln!("AudioWorker: Releasing stalled output after EOF drain timeout.");
+    state.record_reopen_reason(REOPEN_REASON_EOF_DRAIN_TIMEOUT);
+    reset_output_pipeline_for_reopen(active_stream, dsd_state, dsd_fallback_key, state, true);
+    state
+        .output_transport
+        .store(OutputTransport::None.as_id(), Ordering::Relaxed);
+    *next_stream_retry = Instant::now();
+    publish_output_notice(
+        state,
+        output_notice,
+        "Audio output stopped consuming at the track boundary; the device was released for automatic recovery."
+            .to_string(),
+    );
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{can_prime_without_output_consumer, should_pause_render_while_output_warms};
-    use crate::audio::engine::buffers::{new_audio_ring, output_start_preroll_ready};
+    use std::time::{Duration, Instant};
+
+    use super::{
+        can_prime_without_output_consumer, eof_output_can_drain, recover_from_eof_drain_timeout,
+        should_pause_render_while_output_warms,
+    };
+    use crate::audio::engine::buffers::{
+        OutputDrainResult, new_audio_ring, output_start_preroll_ready,
+    };
     use crate::audio::engine::signal_path::OutputMode;
     use crate::audio::engine::state::{PLAYBACK_PLAYING, PLAYBACK_STARTING};
 
@@ -296,6 +338,78 @@ mod tests {
             PLAYBACK_STARTING,
             true,
         ));
+    }
+
+    #[test]
+    fn eof_drain_stops_when_startup_has_no_output_consumer() {
+        assert!(!eof_output_can_drain(None));
+    }
+
+    #[test]
+    fn completed_eof_drain_does_not_mutate_output_recovery_state() {
+        let state = crate::audio::engine::state::AtomicPlayerState::new();
+        let output_notice = std::sync::Mutex::new(None);
+        let mut active_stream = None;
+        let mut dsd_state = None;
+        let mut fallback = None;
+        let original_retry = Instant::now() + Duration::from_secs(30);
+        let mut next_retry = original_retry;
+
+        recover_from_eof_drain_timeout(
+            OutputDrainResult::Drained,
+            &mut active_stream,
+            &mut dsd_state,
+            &mut fallback,
+            &mut next_retry,
+            &state,
+            &output_notice,
+        );
+
+        assert_eq!(next_retry, original_retry);
+        assert!(output_notice.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn timed_out_eof_drain_marks_output_for_clean_recovery() {
+        let state = crate::audio::engine::state::AtomicPlayerState::new();
+        state.output_transport.store(
+            crate::audio::engine::signal_path::OutputTransport::DopCoreAudio.as_id(),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        let output_notice = std::sync::Mutex::new(None);
+        let mut active_stream = None;
+        let mut dsd_state = None;
+        let mut fallback = Some(crate::audio::engine::dsd_path::DsdFallbackKey::new(
+            Some("Hegel H390 USB".to_string()),
+            OutputMode::Dsd128,
+            44_100,
+        ));
+        let mut next_retry = Instant::now() + Duration::from_secs(30);
+
+        recover_from_eof_drain_timeout(
+            OutputDrainResult::TimedOut,
+            &mut active_stream,
+            &mut dsd_state,
+            &mut fallback,
+            &mut next_retry,
+            &state,
+            &output_notice,
+        );
+
+        assert!(fallback.is_none());
+        assert_eq!(
+            state
+                .output_transport
+                .load(std::sync::atomic::Ordering::Relaxed),
+            crate::audio::engine::signal_path::OutputTransport::None.as_id()
+        );
+        assert_eq!(
+            state
+                .last_reopen_reason_id
+                .load(std::sync::atomic::Ordering::Relaxed),
+            crate::audio::engine::state::REOPEN_REASON_EOF_DRAIN_TIMEOUT
+        );
+        assert!(output_notice.lock().unwrap().is_some());
     }
 
     #[test]

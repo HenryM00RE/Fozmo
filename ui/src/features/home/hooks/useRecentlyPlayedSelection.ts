@@ -24,6 +24,10 @@ import type {
   ResolvedPlaySource,
   RouteState
 } from '../../../shared/types';
+import {
+  loadQobuzPlaylistDetailCached,
+  qobuzPlaylistQueueItems
+} from '../../qobuz/model/qobuzPlaylistData';
 
 type QueuePlacement = 'next' | 'end';
 
@@ -107,6 +111,12 @@ export function useRecentlyPlayedSelection({
 
   const resolveItemQueueItems = useCallback(
     async (item: JsonRecord) => {
+      if (item.recent_type === 'qobuz_playlist') {
+        const playlistId = item.playlist_id || item.id;
+        if (playlistId === null || playlistId === undefined || playlistId === '') return [];
+        return qobuzPlaylistQueueItems(await loadQobuzPlaylistDetailCached(String(playlistId)));
+      }
+
       if (item.recent_type === 'playlist') {
         const playlist = playlists.find((candidate) => candidate.id === item.playlist_id) || item;
         return safeArray<QueueItem>(playlist.items)
@@ -247,6 +257,13 @@ export function useRecentlyPlayedSelection({
 
   const openItem = useCallback(
     async (item: JsonRecord) => {
+      if (item.recent_type === 'qobuz_playlist') {
+        const playlistId = item.playlist_id || item.id;
+        if (playlistId !== null && playlistId !== undefined && playlistId !== '')
+          navigate({ view: 'qobuz-playlist', id: playlistId as string | number });
+        return;
+      }
+
       if (item.recent_type === 'playlist') {
         const playlistId = String(item.playlist_id || '');
         if (playlistId) navigate({ view: 'playlist', id: playlistId });

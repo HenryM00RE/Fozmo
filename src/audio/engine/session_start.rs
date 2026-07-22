@@ -3,6 +3,7 @@ use std::time::Instant;
 
 use crate::audio::sinks::airplay::sender::AirPlayMetadata;
 
+use super::dsd_path::DsdFallbackKey;
 #[cfg(any(target_os = "macos", target_os = "windows", test))]
 use super::dsd_path::{dop_wire_rate_for_mode, should_force_44k_family_dsd256};
 use super::output_stream::{ActiveOutput, drop_active_stream_for_reopen};
@@ -76,6 +77,7 @@ pub(super) fn install_pending_start(runtime: &mut WorkerRuntime) -> PendingStart
         *reopen_output_for_pending_start,
         active_stream_ready_for_gapless,
     );
+    reset_dsd_fallback_for_pending_start(reopen_output, dsd_fallback_key);
     *reopen_output_for_pending_start = false;
     *pending_start_gapless = false;
     *use_transition_preroll = false;
@@ -311,6 +313,19 @@ fn pending_start_boundary_plan(
     (requested_gapless_start, reopen_output)
 }
 
+fn reset_dsd_fallback_for_pending_start(
+    reopen_output: bool,
+    dsd_fallback_key: &mut Option<DsdFallbackKey>,
+) {
+    // A fallback records one failed open attempt, not a permanent device
+    // capability decision. An explicit track start is a fresh recovery
+    // boundary (notably after a USB DAC wakes or reconnects), so retry the
+    // requested DSD path instead of pinning the new track to PCM.
+    if reopen_output {
+        *dsd_fallback_key = None;
+    }
+}
+
 fn dsd_state_matches_pending_start(
     state: &super::buffers::DsdWorkerState,
     mode: OutputMode,
@@ -413,6 +428,7 @@ mod tests {
     use super::*;
     use crate::audio::dsd::dsd_render::{DsdRate, DsdRenderer};
     use crate::audio::dsp::resampler::FilterType;
+    use crate::audio::engine::dsd_path::DsdFallbackKey;
 
     fn test_dsd_state(source_rate: u32, mode: OutputMode) -> super::super::buffers::DsdWorkerState {
         let dsd_rate = match mode {
@@ -493,6 +509,30 @@ mod tests {
             pending_start_boundary_plan(false, true, true),
             (false, true)
         );
+    }
+
+    #[test]
+    fn explicit_pending_start_retries_a_previous_dsd_fallback() {
+        let mut fallback = Some(DsdFallbackKey::new(
+            Some("Hegel USB".to_string()),
+            OutputMode::Dsd128,
+            44_100,
+        ));
+
+        reset_dsd_fallback_for_pending_start(true, &mut fallback);
+
+        assert!(fallback.is_none());
+    }
+
+    #[test]
+    fn gapless_pending_start_preserves_dsd_fallback_state() {
+        let expected =
+            DsdFallbackKey::new(Some("Hegel USB".to_string()), OutputMode::Dsd128, 44_100);
+        let mut fallback = Some(expected.clone());
+
+        reset_dsd_fallback_for_pending_start(false, &mut fallback);
+
+        assert_eq!(fallback.as_ref(), Some(&expected));
     }
 
     #[test]

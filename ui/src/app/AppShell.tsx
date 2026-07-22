@@ -58,7 +58,12 @@ export function AppShell({
   toolbarAction
 }: AppShellProps) {
   const { activeProfileId, profiles, refreshProfileScopedData, selectProfile } = profileShell;
-  const { activeSelectionType, clearAlbumTrackSelection, clearRecentSelection } = selectionToolbar;
+  const {
+    activeSelectionType,
+    clearAlbumTrackSelection,
+    clearPlaylistSelection,
+    clearRecentSelection
+  } = selectionToolbar;
   const isSettingsRoute = route.view === 'settings';
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileNavMode, setMobileNavMode] = useState<MobileNavMode>('main');
@@ -212,6 +217,7 @@ export function AppShell({
               selectionActive={Boolean(activeSelectionType)}
               onExitSelection={() => {
                 if (activeSelectionType === 'album-tracks') clearAlbumTrackSelection();
+                else if (activeSelectionType === 'playlists') clearPlaylistSelection();
                 else if (activeSelectionType === 'recently-played') clearRecentSelection();
               }}
               onSelectProfile={selectProfile}
