@@ -2196,7 +2196,9 @@ body.recently-played-selection-mode .react-app .home-qobuz-grid .album-cover-pla
   display: flex;
   align-items: center;
   gap: 0;
+  font-size: 15px;
   font-weight: 500;
+  line-height: 1.08;
 }
 
 .react-app .songs-track-panel .file-name {
@@ -2208,6 +2210,35 @@ body.recently-played-selection-mode .react-app .home-qobuz-grid .album-cover-pla
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.react-app .songs-track-panel .album-track-duration,
+.react-app .songs-track-panel .album-track-play-count,
+.react-app .album-detail-view .album-track-panel .album-track-duration,
+.react-app .album-detail-view .album-track-panel .album-track-play-count {
+  justify-self: center;
+  text-align: center;
+}
+
+.react-app .songs-track-panel .btn-item-more,
+.react-app .album-detail-view .album-track-panel .btn-item-more {
+  justify-self: start;
+  background: transparent;
+  color: var(--ink-muted, #a8a297);
+}
+
+.react-app .songs-track-panel .btn-item-more:hover,
+.react-app .songs-track-panel .btn-item-more:focus-visible,
+.react-app .album-detail-view .album-track-panel .btn-item-more:hover,
+.react-app .album-detail-view .album-track-panel .btn-item-more:focus-visible {
+  background: var(--glass-fill, rgba(255, 255, 255, 0.08));
+  color: var(--ink, #f5f0e8);
+  outline: 0;
+}
+
+.react-app .songs-track-panel .btn-item-more:active,
+.react-app .album-detail-view .album-track-panel .btn-item-more:active {
+  background: var(--glass-fill-strong, rgba(255, 255, 255, 0.12));
 }
 
 .react-app .songs-empty-state {
@@ -4471,7 +4502,8 @@ html[data-theme="dark"] .seek-slider {
 
 .react-app .album-track-panel .song-list > .file-item.album-track-item:first-child::before,
 .react-app .songs-track-panel .song-list > .file-item.songs-track-row:first-child::before,
-.react-app .playlist-detail-view .playlist-track-list > .playlist-track-row:first-child::before {
+.react-app .playlist-detail-view .playlist-track-list > .playlist-track-row:first-child::before,
+.react-app .react-now-playing-queue > .queue-item:first-child::before {
   content: "";
   position: absolute;
   top: 0;
@@ -4495,6 +4527,10 @@ html[data-theme="dark"] .seek-slider {
   opacity: 0.5;
 }
 
+.react-app .react-now-playing-queue > .queue-item:first-child::before {
+  opacity: 0.5;
+}
+
 .react-app
   .album-track-panel
   .disc-header
@@ -4504,7 +4540,8 @@ html[data-theme="dark"] .seek-slider {
 }
 
 .react-app .songs-track-panel .song-list .file-item.songs-track-row,
-.react-app .playlist-detail-view .playlist-track-row {
+.react-app .playlist-detail-view .playlist-track-row,
+.react-app .react-now-playing-queue .queue-item {
   position: relative;
   border-bottom: 0;
   border-radius: 10px;
@@ -4541,12 +4578,14 @@ html[data-theme="dark"] .seek-slider {
   .playlist-detail-view
   .playlist-track-list
   > .playlist-track-row:not(:first-child)
-  .track-row-hover-surface {
+  .track-row-hover-surface,
+.react-app .react-now-playing-queue > .queue-item:not(:first-child) .track-row-hover-surface {
   top: 0;
 }
 
 .react-app .album-track-item > :not(.track-row-hover-surface),
-.react-app .playlist-track-row > :not(.track-row-hover-surface) {
+.react-app .playlist-track-row > :not(.track-row-hover-surface),
+.react-app .queue-item > :not(.track-row-hover-surface) {
   position: relative;
   z-index: 1;
 }
@@ -4564,6 +4603,10 @@ html[data-theme="dark"] .seek-slider {
 .react-app .playlist-detail-view .playlist-track-row:hover .track-row-hover-surface,
 .react-app .playlist-detail-view .playlist-track-row:focus-within .track-row-hover-surface,
 .react-app .playlist-detail-view .playlist-track-row.is-dragging .track-row-hover-surface,
+.react-app .react-now-playing-queue .queue-item:hover .track-row-hover-surface,
+.react-app .react-now-playing-queue .queue-item:focus-within .track-row-hover-surface,
+.react-app .react-now-playing-queue .queue-item.is-current .track-row-hover-surface,
+.react-app .react-now-playing-queue .queue-item.is-dragging .track-row-hover-surface,
 .react-app .album-track-panel .album-track-item:hover .track-row-hover-surface,
 .react-app .album-track-panel .album-track-item:focus-within .track-row-hover-surface,
 .react-app .album-track-panel .album-track-item.active .track-row-hover-surface,
@@ -4576,7 +4619,23 @@ html[data-theme="dark"] .seek-slider {
   border-top: 0;
 }
 
+.react-app .react-now-playing-queue {
+  position: relative;
+  gap: 0;
+  border-top: 0;
+}
+
 .react-app .playlist-detail-view .playlist-track-row.drop-below::after {
+  right: 8px;
+  bottom: -1px;
+  left: 8px;
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink, #e8e2d5) 42%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--canvas, #121212) 70%, transparent);
+}
+
+.react-app .react-now-playing-queue .queue-item.drop-below::after {
   right: 8px;
   bottom: -1px;
   left: 8px;
@@ -4598,6 +4657,19 @@ html[data-theme="dark"] .seek-slider {
   z-index: 3;
 }
 
+.react-app .react-now-playing-queue .queue-item.drop-above::before {
+  display: block;
+  top: -1px;
+  right: 8px;
+  left: 8px;
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink, #e8e2d5) 42%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--canvas, #121212) 70%, transparent);
+  opacity: 1;
+  z-index: 3;
+}
+
 .react-app .album-track-panel .song-list .file-item.album-track-item:hover,
 .react-app .album-track-panel .song-list .file-item.album-track-item:focus-within,
 .react-app .album-track-panel .song-list .file-item.album-track-item.active,
@@ -4606,8 +4678,15 @@ html[data-theme="dark"] .seek-slider {
 .react-app .playlist-detail-view .playlist-track-row:focus-within,
 .react-app .playlist-detail-view .playlist-track-row.is-dragging,
 .react-app .playlist-detail-view .playlist-track-row.drop-above,
-.react-app .playlist-detail-view .playlist-track-row.drop-below {
+.react-app .playlist-detail-view .playlist-track-row.drop-below,
+.react-app .react-now-playing-queue .queue-item:hover,
+.react-app .react-now-playing-queue .queue-item:focus-within,
+.react-app .react-now-playing-queue .queue-item.is-current,
+.react-app .react-now-playing-queue .queue-item.is-dragging,
+.react-app .react-now-playing-queue .queue-item.drop-above,
+.react-app .react-now-playing-queue .queue-item.drop-below {
   background: transparent;
+  box-shadow: none;
 }
 
 .react-app .album-detail-date {
@@ -4724,6 +4803,161 @@ html[data-theme="dark"] .seek-slider {
 .react-app .playlist-detail-view .playlist-track-grip svg {
   width: 21px;
   height: 21px;
+}
+
+.react-app .react-now-playing-queue .queue-item {
+  grid-template-columns: 42px 44px minmax(0, 1fr) minmax(56px, auto) 40px;
+  min-height: 53.5px;
+  gap: 12px;
+  padding: 4.75px 0;
+  color: var(--ink-muted, #a8a297);
+}
+
+.react-app .react-now-playing-queue .queue-item.is-removable {
+  cursor: grab;
+}
+
+.react-app .react-now-playing-queue .queue-item.is-dragging {
+  cursor: grabbing;
+}
+
+.react-app .react-now-playing-queue .queue-item-grip {
+  display: none;
+  width: 30px;
+  height: 44px;
+  padding: 4px 0;
+  opacity: 1;
+  touch-action: none;
+}
+
+.react-app .react-now-playing-queue .queue-item-grip svg {
+  width: 21px;
+  height: 21px;
+}
+
+.react-app .react-now-playing-queue .queue-item-index-control {
+  position: relative;
+  width: 24px;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  justify-self: center;
+}
+
+.react-app .react-now-playing-queue .queue-item-index {
+  color: var(--ink-muted, #a8a297);
+  font-family: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  transition: opacity 120ms ease;
+}
+
+.react-app .react-now-playing-queue .queue-item-play {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-strong, #fff);
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+.react-app .react-now-playing-queue .queue-item-play-icon {
+  width: 26px;
+  height: 26px;
+  overflow: visible;
+  fill: currentColor;
+  stroke: none;
+  transform: translate(1px, -0.75px);
+}
+
+.react-app .react-now-playing-queue .queue-item:hover .queue-item-index,
+.react-app .react-now-playing-queue .queue-item:focus-within .queue-item-index {
+  opacity: 0;
+}
+
+.react-app .react-now-playing-queue .queue-item:hover .queue-item-play,
+.react-app .react-now-playing-queue .queue-item-play:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.react-app .react-now-playing-queue .queue-item-art {
+  width: 38px;
+  height: 38px;
+  border-radius: 5px;
+  color: var(--ink-faint, #777);
+}
+
+.react-app .react-now-playing-queue .queue-item-art svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+}
+
+.react-app .react-now-playing-queue .queue-item-text {
+  display: grid;
+  gap: 2px;
+}
+
+.react-app .react-now-playing-queue .queue-item-title {
+  color: var(--ink, #f5f0e8);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.08;
+}
+
+.react-app .react-now-playing-queue .queue-item-subtitle {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.08;
+}
+
+.react-app .react-now-playing-queue .queue-item-duration {
+  color: var(--ink-muted, #a8a297);
+  font-family: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.react-app .react-now-playing-queue .queue-item-remove,
+.react-app .react-now-playing-queue .queue-item:hover .queue-item-remove,
+.react-app .react-now-playing-queue .queue-item-remove:focus-visible {
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+  color: var(--ink-muted, #a8a297);
+  opacity: 1;
+}
+
+.react-app .react-now-playing-queue .queue-item-remove:hover,
+.react-app .react-now-playing-queue .queue-item-remove:focus-visible {
+  background: var(--glass-fill, rgba(255, 255, 255, 0.08));
+  color: var(--ink, #f5f0e8);
+  box-shadow: none;
+  outline: 0;
+}
+
+.react-app .react-now-playing-queue .queue-item-remove:disabled {
+  background: transparent;
+  color: var(--ink-muted, #a8a297);
+  opacity: 0.28;
 }
 
 @media (max-width: 760px) {
@@ -9967,6 +10201,30 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
   scroll-snap-stop: normal;
 }
 
+@media (min-width: 761px) {
+  .react-app .now-playing-view {
+    padding-bottom: 6px;
+  }
+
+  .react-app .now-playing-view .react-now-playing-queue {
+    box-sizing: border-box;
+    padding-bottom: 4px;
+    scroll-padding-bottom: 4px;
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      #000 0,
+      #000 calc(100% - 28px),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      #000 0,
+      #000 calc(100% - 28px),
+      transparent 100%
+    );
+  }
+}
+
 .react-app .mobile-top-bar,
 .react-app .mobile-mini-player,
 .react-app .mobile-now-playing-sheet,
@@ -11710,18 +11968,20 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
   }
 
   .react-app .mobile-sheet-queue {
+    isolation: isolate;
     padding-bottom: 18px;
   }
 
   .react-app .mobile-sheet-queue .now-playing-queue-header {
     position: sticky;
     top: 0;
-    z-index: 1;
+    z-index: 4;
     padding: 0 10px 12px 0;
     background: var(--player-bar-bg, rgb(242, 239, 230));
   }
 
   .react-app .mobile-sheet-queue .react-now-playing-queue {
+    z-index: 0;
     max-height: none;
     overflow: visible;
   }
