@@ -13,12 +13,10 @@ use fozmo::audio::dsp::timing::{
 };
 use serde::Serialize;
 
-const BENCH_FILTERS: [FilterType; 5] = [
+const BENCH_FILTERS: [FilterType; 3] = [
     FilterType::LinearPhase128k,
     FilterType::MinimumPhaseCompact128k,
-    FilterType::SplitPhase128kE2v3,
     FilterType::SplitPhase128kE3,
-    FilterType::SmoothPhase128k,
 ];
 const PACKET_FREQUENCIES_HZ: [f64; 5] = [5_000.0, 10_000.0, 15_000.0, 18_000.0, 20_000.0];
 const SUMMARY_GROUP_DELAY_HZ: [f64; 7] = [
@@ -382,8 +380,8 @@ fn relevant_environment_overrides() -> BTreeMap<String, String> {
         "FOZMO_LINEAR128K_BETA",
         "FOZMO_MINIMUM16K_CUTOFF",
         "FOZMO_MINIMUM16K_BETA",
-        "FOZMO_SPLIT128K_CUTOFF",
-        "FOZMO_SPLIT128K_BETA",
+        "FOZMO_MINIMUM16K_TAIL_FADE",
+        "FOZMO_MINIMUM16K_MAG_FLOOR_REL",
     ]
     .into_iter()
     .filter_map(|name| {
@@ -397,11 +395,9 @@ fn relevant_environment_overrides() -> BTreeMap<String, String> {
 fn display_name(filter: FilterType) -> &'static str {
     match filter {
         FilterType::LinearPhase128k => "Linear Phase",
+        FilterType::Minimum16k => "Minimum 16k",
         FilterType::MinimumPhaseCompact128k => "Minimum Phase",
-        FilterType::SplitPhase128kE2v3 => "Split Phase",
-        FilterType::SplitPhase128kE3 => "Split Phase B",
-        FilterType::SmoothPhase128k => "Smooth Phase",
-        _ => unreachable!("production filter list is closed"),
+        FilterType::SplitPhase128kE3 => "Split Phase",
     }
 }
 

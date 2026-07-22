@@ -228,19 +228,8 @@ export function isiPenaltyAfterDsdModulatorChange(currentIsiPenalty: number, mod
 }
 
 export function ecBeam2FilterSupported(filterType: unknown) {
-  return (
-    filterType === 'Minimum16k' ||
-    filterType === 'LinearPhase128k' ||
-    filterType === 'MinimumPhaseCompact128k' ||
-    filterType === 'MinimumPhaseCompact128kV2' ||
-    filterType === 'Split128k' ||
-    filterType === 'Split128kV2' ||
-    filterType === 'SplitPhase128kV3' ||
-    filterType === 'SplitPhase128kV4' ||
-    filterType === 'SplitPhase128kE2v3' ||
-    filterType === 'SplitPhase128kE3' ||
-    filterType === 'SmoothPhase128k'
-  );
+  const key = stringValue(filterType);
+  return knownFilterIds.has(key) && visibleFilterIds.has(visibleFilterType(key));
 }
 
 export function ecBeam2SelectableForDsdConfig(
@@ -694,38 +683,14 @@ export function boolValue(value: unknown, fallback = false) {
 }
 
 export function compactFilterName(name: unknown) {
-  const overrides: Record<string, string> = {
-    Linear: 'Split Phase',
-    SincExtreme32k: 'Linear Phase',
-    LinearPhase128k: 'Linear Phase',
-    Mixed16k: 'Split Phase',
-    Minimum16k: 'Minimum Phase',
-    MinimumPhase128k: 'Minimum Phase 128k 1',
-    MinimumPhase128kV2: 'Minimum Phase 128k 2',
-    MinimumPhase128kV3: 'Minimum Phase 128k 3',
-    MinimumPhase128kV4: 'Minimum Phase 128k 4',
-    MinimumPhaseCompact128k: 'Minimum Phase',
-    MinimumPhaseCompact128kV2: 'Minimum Phase',
-    SmoothPhase128k: 'Smooth Phase',
-    Perfect: 'Split Phase',
-    Split16k: 'Split Phase',
-    Split16kDsd128: 'Split Phase',
-    Split32k: 'Split Phase',
-    Split128k: 'Split Phase',
-    Split128kV2: 'Split Phase',
-    SplitPhase128kV3: 'Split Phase',
-    SplitPhase128kV4: 'Split Phase',
-    SplitPhase128kE2v3: 'Split Phase',
-    SplitPhase128kE3: 'Split Phase',
-    IntegratedPhase128k: 'Integrated Phase 1',
-    IntegratedPhase128kV2: 'Integrated Phase 2',
-    IntegratedPhase128kV3: 'Integrated Phase 3',
-    IntegratedPhase128kV4: 'Integrated Phase 4',
-    SincExperimental1m: 'Split Phase',
-    SincMedium: 'Split Phase'
-  };
-  const key = stringValue(name, 'Linear');
-  return overrides[key] || key.replace(/([a-z])([A-Z])/g, '$1 $2');
+  switch (visibleFilterType(name)) {
+    case 'LinearPhase128k':
+      return 'Linear Phase';
+    case 'MinimumPhaseCompact128k':
+      return 'Minimum Phase';
+    default:
+      return 'Split Phase';
+  }
 }
 
 export function fileFormatLabel(filename: unknown) {

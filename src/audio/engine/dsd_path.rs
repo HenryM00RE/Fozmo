@@ -300,7 +300,7 @@ mod tests {
     #[test]
     fn dop_worker_state_uses_dsd_frame_rate() {
         let renderer = build_renderer(
-            FilterType::SincExtreme32k,
+            FilterType::LinearPhase128k,
             44_100,
             OutputMode::Dsd128,
             false,

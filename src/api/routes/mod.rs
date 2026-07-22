@@ -1865,7 +1865,7 @@ mod tests {
             .playback_for_zone(crate::zones::LOCAL_ZONE_ID);
         assert_eq!(
             playback_settings.filter_type.as_deref(),
-            Some("SplitPhase128kE2v3")
+            Some("SplitPhase128kE3")
         );
         assert_eq!(playback_settings.target_rate, Some(96_000));
         assert_eq!(playback_settings.upsampling_enabled, Some(true));

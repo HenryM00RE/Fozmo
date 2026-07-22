@@ -37,7 +37,7 @@ const REPORT_SCHEMA_VERSION: &str = "dsd-public-quality-report-v5";
 const MEASUREMENT_VERSION: &str = "dsd-public-quality-v5";
 const MATRIX_VERSION: &str = "dsd-public-matrix-28-v6";
 const SCORE_VERSION: &str = "dsd-public-production-score-v3";
-const SCORE_CLAIM: &str = "Fozmo PCM-to-DSD production-path score using Split Phase E2v3";
+const SCORE_CLAIM: &str = "Fozmo PCM-to-DSD production-path score using Split Phase E3";
 const CANONICAL_PRODUCTION_CELL_COUNT: usize = 28;
 const CHUNK_FRAMES: usize = 1024;
 const SPECTRAL_ANALYSIS_FRAMES: usize = 65_536;
@@ -78,14 +78,14 @@ struct Cli {
     modulator: String,
 
     /// Reconstruction filter under test. Non-default filters are noncanonical and unscored.
-    #[arg(long, default_value = "SplitPhase128kE2v3")]
+    #[arg(long, default_value = "SplitPhase128kE3")]
     filter: String,
 
     /// Comma-separated DSD rates to exercise. DSD512/1024 are Standard-only diagnostics.
     #[arg(long, default_value = "64,128,256")]
     rates: String,
 
-    /// Add the non-scoring SincExtreme32k Linear Phase diagnostic matrix.
+    /// Add the non-scoring Linear Phase diagnostic matrix.
     #[arg(long)]
     include_linear_reference: bool,
 
@@ -789,7 +789,7 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
         measurement_version: MEASUREMENT_VERSION,
         matrix_version: MATRIX_VERSION,
         reconstruction_algorithm_version: analysis::RECONSTRUCTION_ALGORITHM_VERSION,
-        quality_policy: "the versioned production-path scores are comparative presentation only; --check requires the complete canonical Split Phase E2v3 matrix and enforces whole-render health plus scoped structural gates",
+        quality_policy: "the versioned production-path scores are comparative presentation only; --check requires the complete canonical Split Phase E3 matrix and enforces whole-render health plus scoped structural gates",
         dbfs_reference: "full-scale-sine: peak amplitude 1.0 and RMS 1/sqrt(2) are both 0 dBFS",
         sinad_definition: "declared carrier power divided by every other in-band component, including declared distortion products",
         unknown_spur_definition: "Blackman-Harris-4 integrated main-lobe power after joint least-squares removal of declared carriers/products and DC; lines unresolved from a declared frequency are absorbed by that fit",
@@ -822,22 +822,17 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
         failed_diagnostic_cell_count,
         filter_policies: vec![
             FilterPolicy {
-                name: FilterType::Split128k.as_name().to_string(),
-                role: "retired_split_phase_reference",
-                production_default: false,
-            },
-            FilterPolicy {
-                name: FilterType::SincExtreme32k.as_name().to_string(),
+                name: FilterType::LinearPhase128k.as_name().to_string(),
                 role: "linear_phase_reference",
                 production_default: false,
             },
             FilterPolicy {
-                name: FilterType::SmoothPhase128k.as_name().to_string(),
-                role: "smooth_phase_production_option",
+                name: FilterType::MinimumPhaseCompact128k.as_name().to_string(),
+                role: "minimum_phase_option",
                 production_default: false,
             },
             FilterPolicy {
-                name: FilterType::SplitPhase128kE2v3.as_name().to_string(),
+                name: FilterType::SplitPhase128kE3.as_name().to_string(),
                 role: "production_default_split_phase",
                 production_default: true,
             },
@@ -1175,13 +1170,12 @@ fn parse_modulators(value: &str) -> Result<Vec<DsdModulator>, String> {
 
 fn parse_filter(value: &str) -> Result<FilterType, String> {
     match value.trim().to_ascii_lowercase().as_str() {
-        "split128k" => Ok(FilterType::Split128k),
-        "splitphase" | "split-phase" | "splitphase128ke2v3" | "splitphasee2v3"
-        | "split-phase-e2v3" => Ok(FilterType::SplitPhase128kE2v3),
+        "linearphase128k" | "linear-phase" => Ok(FilterType::LinearPhase128k),
+        "minimumphasecompact128k" | "minimum-phase" => Ok(FilterType::MinimumPhaseCompact128k),
         "splitphase128ke3" | "splitphasee3" | "split-phase-e3" | "splitphaseb"
         | "split-phase-b" => Ok(FilterType::SplitPhase128kE3),
         _ => Err(format!(
-            "unsupported filter {value}; use Split128k, SplitPhase128kE2v3, or SplitPhaseB"
+            "unsupported filter {value}; use LinearPhase128k, MinimumPhaseCompact128k, or SplitPhase128kE3"
         )),
     }
 }
@@ -1286,7 +1280,7 @@ fn build_matrix(
     let mut matrix = Vec::new();
     for (filter, diagnostic) in [(production_filter, false)]
         .into_iter()
-        .chain(include_linear_reference.then_some((FilterType::SincExtreme32k, true)))
+        .chain(include_linear_reference.then_some((FilterType::LinearPhase128k, true)))
     {
         for rate in [DsdRate::Dsd64, DsdRate::Dsd128, DsdRate::Dsd256]
             .into_iter()
@@ -1445,10 +1439,10 @@ fn score_policy() -> ScorePolicy {
     ScorePolicy {
         name: SCORE_VERSION,
         claim: SCORE_CLAIM,
-        canonical_filter: "SplitPhase128kE2v3",
+        canonical_filter: "SplitPhase128kE3",
         normalization: "each category has a frozen v1 quality-index anchor; normalized score = clamp(100 - max(0, anchor_db - measured_quality_index_db), 0, 100), so one average decibel below the anchor costs one category point before the published category weight is applied",
         anchor_basis: "historical best Split128k category quality index in the clean native 42-cell v2 research comparison at Git commit 82a4395db0e0d3f85a08a0b8a8e700940f78f1f7",
-        eligibility: "scores are emitted only when all 28 canonical Split Phase E2v3 cells complete with zero canonical structural hard failures; optional Linear Phase cells never affect scores; every production modulator is scored at DSD64, DSD128, and DSD256",
+        eligibility: "scores are emitted only when all 28 canonical Split Phase E3 cells complete with zero canonical structural hard failures; optional Linear Phase cells never affect scores; every production modulator is scored at DSD64, DSD128, and DSD256",
         rated_stress_role: "DSD128 rated stress is a structural qualification gate only; only matched-effective-peak stress contributes ranking points",
         anchors: vec![
             ScoreAnchorPolicy {
@@ -1673,7 +1667,7 @@ fn canonical_score_cell<'a>(
         })
         .ok_or_else(|| {
             format!(
-                "score input missing: {} Split Phase E2v3 {dsd_rate} {modulator}",
+                "score input missing: {} Split Phase E3 {dsd_rate} {modulator}",
                 scenario.as_name()
             )
         })
@@ -3067,11 +3061,9 @@ fn headroom_db(modulator: DsdModulator) -> f64 {
 
 fn filter_guard_frames(filter: FilterType) -> usize {
     match filter {
-        FilterType::SincExtreme32k => LINEAR_FILTER_GUARD_FRAMES,
-        FilterType::Split128k | FilterType::SplitPhase128kE2v3 | FilterType::SplitPhase128kE3 => {
-            SPLIT_FILTER_GUARD_FRAMES
-        }
-        _ => LINEAR_FILTER_GUARD_FRAMES,
+        FilterType::LinearPhase128k => LINEAR_FILTER_GUARD_FRAMES,
+        FilterType::SplitPhase128kE3 => SPLIT_FILTER_GUARD_FRAMES,
+        FilterType::Minimum16k | FilterType::MinimumPhaseCompact128k => LINEAR_FILTER_GUARD_FRAMES,
     }
 }
 
@@ -3101,17 +3093,7 @@ fn dsd_rate_name(rate: DsdRate) -> &'static str {
 }
 
 fn reject_filter_overrides() -> Result<(), String> {
-    let names = [
-        "FOZMO_EXTREME32K_CUTOFF",
-        "FOZMO_EXTREME32K_BETA",
-        "FOZMO_SPLIT128K_CUTOFF",
-        "FOZMO_SPLIT128K_BETA",
-        "FOZMO_SPLIT128K_F_LO_HZ",
-        "FOZMO_SPLIT128K_F_HI_HZ",
-        "FOZMO_SPLIT128K_BLEND_FLOOR",
-        "FOZMO_SPLIT128K_CAUSALITY_SHIFT_SCALE",
-        "FOZMO_SPLIT128K_TAIL_FADE",
-    ];
+    let names = ["FOZMO_LINEAR128K_CUTOFF", "FOZMO_LINEAR128K_BETA"];
     let set = names
         .iter()
         .filter(|name| env::var_os(name).is_some())
@@ -3195,9 +3177,9 @@ fn markdown_summary(report: &BenchReport) -> String {
             reference.tolerance_rms,
         ));
     }
-    output.push_str("Rated stress preserves each modulator's production headroom and is not a loudness-matched comparison. Use only `matched_effective_peak` stress rows for direct cross-modulator comparison. `SplitPhase128kE2v3` is the only canonical and scoring Split Phase path; optional `SincExtreme32k` cells are a non-scoring Linear Phase diagnostic limited to modulators that support it. Every production modulator is scored at DSD64, DSD128, and DSD256.\n\n");
+    output.push_str("Rated stress preserves each modulator's production headroom and is not a loudness-matched comparison. Use only `matched_effective_peak` stress rows for direct cross-modulator comparison. `SplitPhase128kE3` is the canonical scoring path; optional `LinearPhase128k` cells are non-scoring diagnostics. Every production modulator is scored at DSD64, DSD128, and DSD256.\n\n");
 
-    output.push_str("## Split Phase E2v3 production-path scores\n\n");
+    output.push_str("## Split Phase E3 production-path scores\n\n");
     output.push_str(&format!("Score system: `{}`. {}. Scores are comparative presentation, not `--check` quality gates.\n\n", report.score_policy.name, report.score_policy.claim));
     if report.score_eligible {
         output.push_str(
@@ -3247,7 +3229,7 @@ fn markdown_summary(report: &BenchReport) -> String {
             }
         }
     } else {
-        output.push_str("Scores were withheld because the complete healthy 28-cell canonical Split Phase E2v3 matrix was not available. Optional diagnostic cells do not affect eligibility.\n");
+        output.push_str("Scores were withheld because the complete healthy 28-cell canonical Split Phase E3 matrix was not available. Optional diagnostic cells do not affect eligibility.\n");
     }
     output.push('\n');
 
@@ -3754,7 +3736,7 @@ mod tests {
     }
 
     #[test]
-    fn linear_reference_adds_twenty_one_legacy_diagnostic_cells() {
+    fn linear_reference_adds_twenty_one_diagnostic_cells() {
         let selected = vec![
             DsdModulator::Standard,
             DsdModulator::EcDepth2,
@@ -3778,7 +3760,7 @@ mod tests {
         assert_eq!(
             matrix
                 .iter()
-                .filter(|cell| cell.filter == FilterType::SincExtreme32k && cell.diagnostic)
+                .filter(|cell| cell.filter == FilterType::LinearPhase128k && cell.diagnostic)
                 .count(),
             21
         );
@@ -3881,12 +3863,18 @@ mod tests {
             vec![DsdModulator::Standard, DsdModulator::EcBeam2]
         );
         assert!(parse_modulators("EcDepth4").is_err());
-        assert_eq!(parse_filter("Split128k").unwrap(), FilterType::Split128k);
         assert_eq!(
-            parse_filter("SplitPhase128kE2v3").unwrap(),
-            FilterType::SplitPhase128kE2v3
+            parse_filter("SplitPhase128kE3").unwrap(),
+            FilterType::SplitPhase128kE3
         );
-        assert!(parse_filter("Linear").is_err());
+        assert_eq!(
+            parse_filter("LinearPhase128k").unwrap(),
+            FilterType::LinearPhase128k
+        );
+        assert_eq!(
+            parse_filter("MinimumPhaseCompact128k").unwrap(),
+            FilterType::MinimumPhaseCompact128k
+        );
         assert_eq!(
             parse_rates("64,128,512,1024").unwrap(),
             vec![
@@ -3901,7 +3889,7 @@ mod tests {
             Cli::try_parse_from([
                 "dsd_public_quality",
                 "--filter",
-                "SplitPhase128kE2v3",
+                "SplitPhase128kE3",
                 "--rates",
                 "64,128"
             ])
@@ -3950,36 +3938,36 @@ mod tests {
         assert_eq!(headroom_db(DsdModulator::EcDepth2), -4.0);
         assert_eq!(headroom_db(DsdModulator::EcBeam), -2.0);
         assert_eq!(headroom_db(DsdModulator::EcBeam2), -2.0);
-        assert_eq!(DEFAULT_FILTER_TYPE, FilterType::SplitPhase128kE2v3);
+        assert_eq!(DEFAULT_FILTER_TYPE, FilterType::SplitPhase128kE3);
         assert_eq!(
-            filter_guard_frames(FilterType::SincExtreme32k),
+            filter_guard_frames(FilterType::LinearPhase128k),
             LINEAR_FILTER_GUARD_FRAMES
         );
         assert_eq!(
-            filter_guard_frames(FilterType::Split128k),
+            filter_guard_frames(FilterType::SplitPhase128kE3),
             SPLIT_FILTER_GUARD_FRAMES
         );
         assert_eq!(
-            filter_guard_frames(FilterType::SplitPhase128kE2v3),
-            SPLIT_FILTER_GUARD_FRAMES
+            filter_guard_frames(FilterType::Minimum16k),
+            LINEAR_FILTER_GUARD_FRAMES
         );
         assert_eq!(
-            filter_guard_frames(FilterType::SmoothPhase128k),
+            filter_guard_frames(FilterType::MinimumPhaseCompact128k),
             LINEAR_FILTER_GUARD_FRAMES
         );
     }
 
     #[test]
-    fn e2v3_dsd64_dsd128_matrix_has_expected_public_bench_cells() {
+    fn e3_dsd64_dsd128_matrix_has_expected_public_bench_cells() {
         let matrix = build_matrix(
             &[DsdModulator::Standard, DsdModulator::EcBeam2],
             false,
-            FilterType::SplitPhase128kE2v3,
+            FilterType::SplitPhase128kE3,
             &[DsdRate::Dsd64, DsdRate::Dsd128],
         );
         assert_eq!(matrix.len(), 10);
         assert!(matrix.iter().all(|cell| {
-            cell.filter == FilterType::SplitPhase128kE2v3
+            cell.filter == FilterType::SplitPhase128kE3
                 && matches!(cell.dsd_rate, DsdRate::Dsd64 | DsdRate::Dsd128)
                 && !cell.diagnostic
         }));
@@ -4043,7 +4031,7 @@ mod tests {
     #[test]
     fn source_range_maps_with_the_actual_wire_ratio() {
         assert_eq!(
-            source_to_bit_range(FilterType::SincExtreme32k, 10..20, 176_400, 11_289_600,).unwrap(),
+            source_to_bit_range(FilterType::LinearPhase128k, 10..20, 176_400, 11_289_600,).unwrap(),
             640..1280
         );
     }

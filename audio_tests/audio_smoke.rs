@@ -17,9 +17,9 @@ fn production_modulators_render_native_dsd() {
         DsdModulator::EcBeam2,
     ] {
         let filter = if modulator == DsdModulator::EcBeam2 {
-            FilterType::Split128k
+            FilterType::SplitPhase128kE3
         } else {
-            FilterType::SincExtreme32k
+            FilterType::LinearPhase128k
         };
         let (left, right) = render_native_bits(modulator, filter, DsdRate::Dsd128);
         assert!(
@@ -41,9 +41,8 @@ fn ecbeam2_renders_every_supported_filter_and_rate() {
     for filter in [
         FilterType::LinearPhase128k,
         FilterType::Minimum16k,
-        FilterType::MinimumPhaseCompact128kV2,
-        FilterType::Split128k,
-        FilterType::SmoothPhase128k,
+        FilterType::MinimumPhaseCompact128k,
+        FilterType::SplitPhase128kE3,
     ] {
         for rate in [DsdRate::Dsd64, DsdRate::Dsd128] {
             let (left, right) = render_native_bits(DsdModulator::EcBeam2, filter, rate);

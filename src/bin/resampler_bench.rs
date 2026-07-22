@@ -31,10 +31,6 @@ struct BenchResult {
 fn main() {
     let cases = [
         BenchCase {
-            name: "SincExtreme32k",
-            filter: FilterType::SincExtreme32k,
-        },
-        BenchCase {
             name: "LinearPhase128k",
             filter: FilterType::LinearPhase128k,
         },
@@ -43,32 +39,12 @@ fn main() {
             filter: FilterType::Minimum16k,
         },
         BenchCase {
-            name: "MinimumPhase128k",
-            filter: FilterType::MinimumPhaseCompact128kV2,
+            name: "MinimumPhaseCompact128k",
+            filter: FilterType::MinimumPhaseCompact128k,
         },
         BenchCase {
-            name: "Split Phase",
-            filter: FilterType::SplitPhase128kE2v3,
-        },
-        BenchCase {
-            name: "SmoothPhase128k",
-            filter: FilterType::SmoothPhase128k,
-        },
-        BenchCase {
-            name: "IntegratedPhase1",
-            filter: FilterType::IntegratedPhase128k,
-        },
-        BenchCase {
-            name: "IntegratedPhase2",
-            filter: FilterType::IntegratedPhase128kV2,
-        },
-        BenchCase {
-            name: "IntegratedPhase3",
-            filter: FilterType::IntegratedPhase128kV3,
-        },
-        BenchCase {
-            name: "IntegratedPhase4",
-            filter: FilterType::IntegratedPhase128kV4,
+            name: "SplitPhase128kE3",
+            filter: FilterType::SplitPhase128kE3,
         },
     ];
 

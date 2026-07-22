@@ -1310,6 +1310,76 @@ fn transport_refresh_promotes_armed_next_when_renderer_uri_advances() {
 }
 
 #[test]
+fn transport_refresh_does_not_promote_loaded_next_uri_while_stopped() {
+    let now = Instant::now();
+    let current = UpnpAsset {
+        duration_secs: Some(180.0),
+        ..test_asset("current-before-stopped-next")
+    };
+    let mut next = UpnpAsset {
+        duration_secs: Some(240.0),
+        ..test_asset("loaded-next-but-stopped")
+    };
+    if let SourceRef::LocalTrack {
+        track_id, title, ..
+    } = &mut next.source_ref
+    {
+        *track_id = 2;
+        *title = Some("Loaded Next Track".to_string());
+    }
+    let next_uri = next.stream_url.clone();
+    let mut session = UpnpSession {
+        play_id: 0,
+        current: Some(current),
+        armed_next: Some(next),
+        state: "Playing".to_string(),
+        started_at: Some(now),
+        paused_position: 90.0,
+        playback_polled_at: Some(now),
+        playback_speed: None,
+        volume: None,
+        volume_polled_at: None,
+        notice: None,
+        startup: None,
+        reconfigure: UpnpReconfigureState::default(),
+        transport_pending: None,
+        transport_pending_position_secs: None,
+    };
+
+    let promoted = reconcile_session_with_transport(
+        &mut session,
+        UpnpTransportSnapshot {
+            state: Some("STOPPED".to_string()),
+            status: None,
+            playback_speed: None,
+            position_secs: Some(0.0),
+            duration_secs: Some(240.0),
+            current_uri: Some(next_uri),
+        },
+        now,
+    );
+
+    assert!(promoted.is_none());
+    assert_eq!(
+        session.current.as_ref().map(|asset| asset.id.as_str()),
+        Some("current-before-stopped-next")
+    );
+    assert_eq!(
+        session
+            .current
+            .as_ref()
+            .and_then(|asset| asset.duration_secs),
+        Some(180.0),
+        "the loaded next track's duration must not overwrite the current track"
+    );
+    assert_eq!(
+        session.armed_next.as_ref().map(|asset| asset.id.as_str()),
+        Some("loaded-next-but-stopped")
+    );
+    assert_eq!(session.state, "Stopped");
+}
+
+#[test]
 fn transport_refresh_promotes_armed_next_when_kef_keeps_previous_uri() {
     let now = Instant::now();
     let current = UpnpAsset {
@@ -1560,6 +1630,83 @@ fn renderer_error_terminates_startup_and_clears_loading() {
         session.notice.as_deref().is_some_and(|notice| {
             notice.contains("ERROR_OCCURRED") && notice.contains("STOPPED")
         })
+    );
+}
+
+#[test]
+fn renderer_error_at_eof_preserves_completed_position_for_auto_advance() {
+    let now = Instant::now();
+    let mut session = UpnpSession {
+        play_id: 18,
+        current: Some(UpnpAsset {
+            duration_secs: Some(180.0),
+            ..test_asset("renderer-error-at-eof")
+        }),
+        armed_next: None,
+        state: "Playing".to_string(),
+        started_at: now.checked_sub(Duration::from_secs(181)),
+        paused_position: 0.0,
+        playback_polled_at: Some(now),
+        playback_speed: None,
+        volume: None,
+        volume_polled_at: None,
+        notice: None,
+        startup: None,
+        reconfigure: UpnpReconfigureState::default(),
+        transport_pending: None,
+        transport_pending_position_secs: None,
+    };
+    let snapshot = UpnpTransportSnapshot {
+        state: Some("STOPPED".to_string()),
+        status: Some("ERROR_OCCURRED".to_string()),
+        playback_speed: Some("1".to_string()),
+        position_secs: Some(0.0),
+        duration_secs: Some(180.0),
+        current_uri: None,
+    };
+
+    let error = upnp_transport_snapshot_error(&snapshot).expect("renderer error");
+    apply_upnp_transport_error(&mut session, &snapshot, &error);
+
+    assert_eq!(session.state, "Stopped");
+    assert_eq!(session.paused_position, 180.0);
+}
+
+#[test]
+fn failed_next_track_start_restores_previous_source_for_retry() {
+    let service = UpnpRendererService::new("http://core.test".to_string());
+    let zone_id = "zone-failed-next-restore";
+    let previous = UpnpAsset {
+        duration_secs: Some(180.0),
+        ..test_asset("previous-track")
+    };
+    service.seed_playback_for_test(zone_id, previous.clone(), "Playing");
+    {
+        let mut sessions = service.sessions.lock().unwrap();
+        let session = sessions.get_mut(zone_id).unwrap();
+        session.paused_position = 180.0;
+    }
+    let previous_session = service.sessions.lock().unwrap().get(zone_id).cloned();
+    let failed_play_id = service.prime_session_for_play(zone_id, test_asset("failed-next-track"));
+
+    service.restore_session_after_failed_play(
+        zone_id,
+        failed_play_id,
+        previous_session,
+        "temporary connection failure",
+    );
+
+    let snapshot = service.snapshot(zone_id).expect("restored session");
+    assert_eq!(snapshot.state, "Stopped");
+    assert_eq!(
+        snapshot.current_source.as_ref().map(SourceRef::key),
+        Some(previous.source_ref.key())
+    );
+    assert_eq!(snapshot.position_secs, 180.0);
+    assert_eq!(service.current_play_id(zone_id), failed_play_id + 1);
+    assert_eq!(
+        snapshot.notice.as_deref(),
+        Some("temporary connection failure")
     );
 }
 
@@ -1839,53 +1986,6 @@ fn armed_next_can_promote_without_fresh_play() {
 }
 
 #[test]
-fn completion_promotion_requires_an_early_renderer_request() {
-    let service = UpnpRendererService::new("http://core.test".to_string());
-    let target = test_target();
-    let current = test_asset("current-evidence");
-    let mut next = test_asset("next-evidence");
-    if let SourceRef::LocalTrack { track_id, .. } = &mut next.source_ref {
-        *track_id = 2;
-    }
-    next.stream_url = "http://core.test/upnp/stream/next-evidence?token=next".to_string();
-    let source = next.source_ref.clone();
-    let zone_id = "zone-next-evidence";
-    let play_id = service.prime_session_for_play(zone_id, current.clone());
-    service.begin_play_trace(zone_id, play_id, &target, &current);
-    service.record_next_handoff_prepared(zone_id, play_id, &next);
-    service.register_stream_trace_context(zone_id, play_id, &next);
-    service.record_next_handoff_armed(zone_id, play_id, &next, &Ok(()));
-    service
-        .sessions
-        .lock()
-        .unwrap()
-        .get_mut(zone_id)
-        .unwrap()
-        .armed_next = Some(next.clone());
-
-    assert!(!service.promote_armed_next_if_gapless_ready(zone_id, &source));
-    assert!(service.has_armed_next_for_source(zone_id, &source));
-
-    service.mark_renderer_http_request(&next.id, "next", "local_get", Some("bytes=0-"));
-
-    assert!(service.promote_armed_next_if_gapless_ready(zone_id, &source));
-    let trace = service
-        .traces
-        .lock()
-        .unwrap()
-        .get(zone_id)
-        .cloned()
-        .unwrap();
-    assert_eq!(
-        trace
-            .next_handoff
-            .as_ref()
-            .and_then(|handoff| handoff.transition_path.as_deref()),
-        Some("early_renderer_request")
-    );
-}
-
-#[test]
 fn fallback_handoff_diagnostics_survive_the_fresh_play_trace() {
     let service = UpnpRendererService::new("http://core.test".to_string());
     let target = test_target();
@@ -1975,25 +2075,124 @@ fn next_uri_unsupported_renderer_skips_repeated_set_next_attempts() {
     assert!(trace.soap.is_empty());
 }
 
+async fn capture_single_upnp_request(listener: tokio::net::TcpListener) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let (mut stream, _) = listener.accept().await.unwrap();
+    let mut request = Vec::new();
+    let mut buffer = [0_u8; 4096];
+    loop {
+        let count = stream.read(&mut buffer).await.unwrap();
+        if count == 0 {
+            break;
+        }
+        request.extend_from_slice(&buffer[..count]);
+        let Some(header_end) = request.windows(4).position(|part| part == b"\r\n\r\n") else {
+            continue;
+        };
+        let headers = String::from_utf8_lossy(&request[..header_end]);
+        let content_length = headers
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse::<usize>().ok())
+                    .flatten()
+            })
+            .unwrap_or_default();
+        if request.len() >= header_end + 4 + content_length {
+            break;
+        }
+    }
+    stream
+        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    String::from_utf8(request).unwrap()
+}
+
 #[tokio::test]
-async fn kef_next_uri_is_disabled_to_preserve_seek_stability() {
+async fn kef_next_uri_is_armed_for_gapless_handoff() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let request_task = tokio::spawn(capture_single_upnp_request(listener));
+
     let service = UpnpRendererService::new("http://core.test".to_string());
     let mut target = test_target();
     target.name = "KEF LSX".to_string();
     target.manufacturer = Some("KEF".to_string());
+    target.host = address.ip().to_string();
+    target.port = address.port();
+    target.av_transport_control_url = format!("http://{address}/AVTransport");
     let zone_id = "zone-kef-seek-stability";
     let current = test_asset("kef-current");
     let next = test_asset("kef-next");
     service.prime_session_for_play(zone_id, current);
 
-    let error = service
+    service
         .arm_next_transport_uri(zone_id, &target, &next, None)
         .await
-        .expect_err("KEF next URI must remain unarmed");
+        .expect("KEF next URI should be armed");
+    let request = request_task.await.unwrap();
 
-    assert!(error.contains("preserve seek stability"));
+    assert!(request.contains("SetNextAVTransportURI"));
+    assert!(request.contains(&xml_escape(&next.stream_url)));
+    assert!(service.has_armed_next_for_source(zone_id, &next.source_ref));
+    assert!(!service.next_uri_unsupported(&target));
+
+    let mut duplicate = next.clone();
+    duplicate.id = "kef-next-refresh".to_string();
+    duplicate.stream_url = "http://core.test/upnp/stream/kef-next-refresh?token=def".to_string();
+    service
+        .arm_next_transport_uri(zone_id, &target, &duplicate, None)
+        .await
+        .expect("arming the same source twice should be an idempotent no-op");
+    assert_eq!(
+        service
+            .sessions
+            .lock()
+            .unwrap()
+            .get(zone_id)
+            .and_then(|session| session.armed_next.as_ref())
+            .map(|asset| asset.id.as_str()),
+        Some(next.id.as_str()),
+        "duplicate arming must not replace the stable renderer URI"
+    );
+}
+
+#[tokio::test]
+async fn kef_armed_next_is_cleared_before_seek() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let request_task = tokio::spawn(capture_single_upnp_request(listener));
+
+    let service = UpnpRendererService::new("http://core.test".to_string());
+    let mut target = test_target();
+    target.name = "KEF LSX".to_string();
+    target.manufacturer = Some("KEF".to_string());
+    target.host = address.ip().to_string();
+    target.port = address.port();
+    target.av_transport_control_url = format!("http://{address}/AVTransport");
+    let zone_id = "zone-kef-clear-next-before-seek";
+    let next = test_asset("kef-next-to-clear");
+    service.prime_session_for_play(zone_id, test_asset("kef-current-before-seek"));
+    service
+        .sessions
+        .lock()
+        .unwrap()
+        .get_mut(zone_id)
+        .unwrap()
+        .armed_next = Some(next.clone());
+
+    service
+        .clear_armed_next_before_seek(zone_id, &target)
+        .await
+        .expect("armed next URI should be cleared before KEF seek");
+    let request = request_task.await.unwrap();
+
+    assert!(request.contains("SetNextAVTransportURI"));
+    assert!(request.contains("<NextURI></NextURI>"));
     assert!(!service.has_armed_next_for_source(zone_id, &next.source_ref));
-    assert!(service.next_uri_unsupported(&target));
 }
 
 #[test]

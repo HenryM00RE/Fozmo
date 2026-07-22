@@ -76,7 +76,7 @@ impl UpnpRendererService {
             // after the settle window instead of remembering it as completed.
             return Err("Playback changed".to_string());
         }
-        let (play_id, current_source_key) = {
+        let (play_id, current_source_key, already_armed) = {
             let sessions = self.sessions.lock().unwrap();
             let Some(session) = sessions.get(zone_id) else {
                 return Err("Playback changed".to_string());
@@ -84,32 +84,65 @@ impl UpnpRendererService {
             let Some(current) = session.current.as_ref() else {
                 return Err("Playback changed".to_string());
             };
-            (session.play_id, current.source_ref.key())
+            (
+                session.play_id,
+                current.source_ref.key(),
+                session
+                    .armed_next
+                    .as_ref()
+                    .is_some_and(|armed| armed.source_ref.key() == asset.source_ref.key()),
+            )
         };
         if expected_current_source_key.is_some_and(|expected| expected != current_source_key) {
             return Err("Playback changed".to_string());
         }
+        // SetNextAVTransportURI is not a harmless refresh on every renderer.
+        // KEF can reopen the queued stream each time it is sent, so keep a
+        // successfully armed source stable until playback, seeking, or a queue
+        // change explicitly clears it.
+        if already_armed {
+            return Ok(());
+        }
         self.record_next_handoff_prepared(zone_id, play_id, asset);
         self.register_stream_trace_context(zone_id, play_id, asset);
-        if target_requires_verified_playing(target) {
-            // LSX-class KEF renderers accept SetNextAVTransportURI, but an
-            // armed next URI makes a later Seek fail asynchronously after the
-            // renderer has briefly resumed at the requested position. Prefer
-            // the reliable stopped-state auto-advance path for these devices.
-            self.mark_next_uri_unsupported(target);
-            let result = Err(UPNP_KEF_NEXT_HANDOFF_DISABLED.to_string());
-            self.record_next_handoff_armed(zone_id, play_id, asset, &result);
-            return result;
-        }
         if self.next_uri_unsupported(target) {
             let result = Err("UPnP renderer does not support SetNextAVTransportURI".to_string());
             self.record_next_handoff_armed(zone_id, play_id, asset, &result);
             return result;
         }
-        let result = self
-            .set_next_av_transport_uri(zone_id, target, asset, 1)
-            .await;
+        let mut result = Err("UPnP next-track handoff was not attempted".to_string());
+        for attempt in 1..=UPNP_NEXT_URI_ATTEMPTS {
+            result = self
+                .set_next_av_transport_uri(zone_id, target, asset, attempt)
+                .await;
+            if result.is_ok()
+                || result
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| set_next_uri_unsupported_error(error))
+                || attempt == UPNP_NEXT_URI_ATTEMPTS
+            {
+                break;
+            }
+            if self.seek_reservation_active(zone_id) {
+                result = Err("Playback changed".to_string());
+                break;
+            }
+            tokio::time::sleep(UPNP_NEXT_URI_RETRY_SETTLE * u32::from(attempt)).await;
+        }
+        if result.is_ok() {
+            let mut sessions = self.sessions.lock().unwrap();
+            if let Some(session) = sessions.get_mut(zone_id)
+                && session.play_id == play_id
+            {
+                session.armed_next = Some(asset.clone());
+            }
+        }
         if self.seek_reservation_active(zone_id) {
+            // A Seek can reserve the zone without waiting for this command
+            // lock. If it arrived while SetNextAVTransportURI was on the wire,
+            // keep the local armed state so the waiting Seek clears the
+            // renderer's NextURI before sending REL_TIME.
             let result = Err("Playback changed".to_string());
             self.record_next_handoff_armed(zone_id, play_id, asset, &result);
             return result;
@@ -120,14 +153,6 @@ impl UpnpRendererService {
             .is_some_and(|error| set_next_uri_unsupported_error(error))
         {
             self.mark_next_uri_unsupported(target);
-        }
-        if result.is_ok() {
-            let mut sessions = self.sessions.lock().unwrap();
-            if let Some(session) = sessions.get_mut(zone_id)
-                && session.play_id == play_id
-            {
-                session.armed_next = Some(asset.clone());
-            }
         }
         self.record_next_handoff_armed(zone_id, play_id, asset, &result);
         result
@@ -164,34 +189,6 @@ impl UpnpRendererService {
 
     pub fn promote_armed_next_if_matches(&self, zone_id: &str, source: &SourceRef) -> bool {
         self.promote_armed_next_for_source(zone_id, source, true)
-    }
-
-    /// Promote at completion only when the renderer has demonstrated that it
-    /// fetched the armed URI before the app observed the old item ending.
-    pub fn promote_armed_next_if_gapless_ready(&self, zone_id: &str, source: &SourceRef) -> bool {
-        let source_key = source.key();
-        let renderer_requested_early = self
-            .traces
-            .lock()
-            .unwrap()
-            .get(zone_id)
-            .and_then(|trace| trace.next_handoff.as_ref())
-            .is_some_and(|next| {
-                next.source_key == source_key
-                    && next.ok
-                    && next.renderer_requested_at_ms.is_some()
-                    && next
-                        .renderer_request_relative_to_eof_ms
-                        .is_none_or(|offset| offset < 0)
-            });
-        if !renderer_requested_early {
-            return false;
-        }
-        let promoted = self.promote_armed_next_for_source(zone_id, source, true);
-        if promoted {
-            self.mark_next_handoff_transition_path(zone_id, &source_key, "early_renderer_request");
-        }
-        promoted
     }
 
     pub fn has_armed_next_for_source(&self, zone_id: &str, source: &SourceRef) -> bool {
@@ -313,19 +310,20 @@ impl UpnpRendererService {
         asset: UpnpAsset,
         accept_timeout: Duration,
     ) -> Result<(), String> {
+        let previous_session = self.sessions.lock().unwrap().get(zone_id).cloned();
         let play_id = self.prime_session_for_play(zone_id, asset.clone());
         self.begin_play_trace(zone_id, play_id, target, &asset);
         if let Err(error) = self
             .replace_transport_uri_and_play(zone_id, play_id, target, &asset)
             .await
         {
-            let mut sessions = self.sessions.lock().unwrap();
-            let session = sessions.entry(zone_id.to_string()).or_default();
-            if session.play_id == play_id {
-                session.notice = Some(error.clone());
-                session.playback_polled_at = None;
-            }
             self.finish_play_trace(zone_id, play_id, Some(error.clone()));
+            self.restore_session_after_failed_play(
+                zone_id,
+                play_id,
+                previous_session.clone(),
+                &error,
+            );
             return Err(error);
         }
         if let Err(error) = self
@@ -334,6 +332,12 @@ impl UpnpRendererService {
         {
             self.mark_startup_timeout(zone_id, play_id, &error);
             self.finish_play_trace(zone_id, play_id, Some(error.clone()));
+            self.restore_session_after_failed_play(
+                zone_id,
+                play_id,
+                previous_session.clone(),
+                &error,
+            );
             return Err(error);
         }
         if target_requires_verified_playing(target)
@@ -350,6 +354,7 @@ impl UpnpRendererService {
                 self.mark_startup_timeout(zone_id, play_id, &error);
             }
             self.finish_play_trace(zone_id, play_id, Some(error.clone()));
+            self.restore_session_after_failed_play(zone_id, play_id, previous_session, &error);
             return Err(error);
         }
         self.finish_play_trace(zone_id, play_id, None);
@@ -456,6 +461,15 @@ impl UpnpRendererService {
             let _guard = command_lock.lock().await;
             if !self.seek_reservation_matches(zone_id, command_generation) {
                 return Ok(superseded_seek_outcome());
+            }
+            if target_requires_verified_playing(target) && self.has_armed_next_for_zone(zone_id) {
+                // KEF decoders can fail a seek while NextURI is armed. Clear
+                // it first; the monitor will re-arm the queued item after the
+                // normal post-seek settle window.
+                self.clear_armed_next_before_seek(zone_id, target).await?;
+                if !self.seek_reservation_matches(zone_id, command_generation) {
+                    return Ok(superseded_seek_outcome());
+                }
             }
             let seek_advertised = self.seek_action_advertised(target).await;
             if !self.seek_reservation_matches(zone_id, command_generation) {
@@ -817,6 +831,65 @@ impl UpnpRendererService {
         )
         .await
         .map(|_| ())
+    }
+
+    pub(super) async fn clear_next_av_transport_uri(
+        &self,
+        zone_id: &str,
+        target: &UpnpRendererTarget,
+        attempt: u8,
+    ) -> Result<(), String> {
+        self.traced_soap_action(
+            zone_id,
+            target,
+            target.av_transport_control_url.as_str(),
+            "urn:schemas-upnp-org:service:AVTransport:1",
+            "SetNextAVTransportURI",
+            "<InstanceID>0</InstanceID><NextURI></NextURI><NextURIMetaData></NextURIMetaData>",
+            UPNP_SOAP_SET_NEXT_URI_TIMEOUT,
+            attempt,
+        )
+        .await
+        .map(|_| ())
+    }
+
+    pub(super) async fn clear_armed_next_before_seek(
+        &self,
+        zone_id: &str,
+        target: &UpnpRendererTarget,
+    ) -> Result<(), String> {
+        let mut last_error = None;
+        for attempt in 1..=UPNP_NEXT_URI_ATTEMPTS {
+            match self
+                .clear_next_av_transport_uri(zone_id, target, attempt)
+                .await
+            {
+                Ok(()) => {
+                    if let Some(session) = self.sessions.lock().unwrap().get_mut(zone_id) {
+                        session.armed_next = None;
+                    }
+                    return Ok(());
+                }
+                Err(error) => last_error = Some(error),
+            }
+            if attempt < UPNP_NEXT_URI_ATTEMPTS {
+                tokio::time::sleep(UPNP_NEXT_URI_RETRY_SETTLE * u32::from(attempt)).await;
+            }
+        }
+        let error = format!(
+            "Could not clear the armed UPnP next track before seeking: {}",
+            last_error.unwrap_or_else(|| "unknown renderer error".to_string())
+        );
+        self.mark_notice(zone_id, error.clone());
+        Err(error)
+    }
+
+    fn has_armed_next_for_zone(&self, zone_id: &str) -> bool {
+        self.sessions
+            .lock()
+            .unwrap()
+            .get(zone_id)
+            .is_some_and(|session| session.armed_next.is_some())
     }
 
     pub(super) async fn replace_transport_uri_and_play(

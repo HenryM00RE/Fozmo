@@ -42,6 +42,8 @@ const UPNP_SOAP_STOP_TIMEOUT: Duration = Duration::from_millis(1500);
 const UPNP_SOAP_SET_URI_TIMEOUT: Duration = Duration::from_secs(8);
 const UPNP_SOAP_SET_NEXT_URI_TIMEOUT: Duration = Duration::from_secs(8);
 const UPNP_SOAP_PLAY_TIMEOUT: Duration = Duration::from_secs(8);
+const UPNP_NEXT_URI_RETRY_SETTLE: Duration = Duration::from_millis(250);
+const UPNP_NEXT_URI_ATTEMPTS: u8 = 3;
 const UPNP_SOAP_MAX_BYTES: usize = 512 * 1024;
 const UPNP_VOLUME_REFRESH_TIMEOUT: Duration = Duration::from_millis(1200);
 const UPNP_STARTUP_ACCEPT_TIMEOUT: Duration = Duration::from_secs(8);
@@ -54,8 +56,6 @@ const UPNP_STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const UPNP_SEEK_PLAYING_TIMEOUT: Duration = Duration::from_secs(3);
 const UPNP_SEEK_PLAYING_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const UPNP_SEEK_NEXT_HANDOFF_SETTLE: Duration = Duration::from_secs(2);
-pub(crate) const UPNP_KEF_NEXT_HANDOFF_DISABLED: &str =
-    "KEF next-track handoff disabled to preserve seek stability";
 const UPNP_POSITION_RESYNC_THRESHOLD_SECS: f64 = 1.1;
 const UPNP_STARTUP_POSITION_AHEAD_GRACE_SECS: f64 = 2.0;
 const UPNP_SEEK_PENDING_POSITION_TOLERANCE_SECS: f64 = 2.0;

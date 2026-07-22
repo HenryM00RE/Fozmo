@@ -63,23 +63,6 @@ pub const DSD64_EC_BEAM_A1_PRESSURE_STAGE_WEIGHTS: [f64; 7] =
 /// pre-normalization 0.30.
 pub const DSD128_EC4A_DITHER_SCALE_MULTIPLIER: f64 = 0.30 * core::f64::consts::SQRT_2;
 
-pub(crate) fn ecbeam2_filter_supported(filter_type: FilterType) -> bool {
-    matches!(
-        filter_type,
-        FilterType::LinearPhase128k
-            | FilterType::Minimum16k
-            | FilterType::MinimumPhaseCompact128k
-            | FilterType::MinimumPhaseCompact128kV2
-            | FilterType::Split128k
-            | FilterType::Split128kV2
-            | FilterType::SplitPhase128kV3
-            | FilterType::SplitPhase128kV4
-            | FilterType::SplitPhase128kE2v3
-            | FilterType::SplitPhase128kE3
-            | FilterType::SmoothPhase128k
-    )
-}
-
 /// Map a source-PCM window onto the wire-rate sample domain emitted by the DSD
 /// resampler. The FIR engines pre-pad their kernels to compensate group delay,
 /// and EOF draining emits exactly `input_frames * ratio`, so source sample zero
@@ -100,32 +83,13 @@ pub fn dsd_source_window_to_modulator_samples(
         return None;
     }
     let ratio = usize::try_from(wire_rate / source_rate).ok()?;
-    // Retain the filter argument in this shared boundary so future filter
-    // families with a different alignment contract cannot be added silently.
-    if !matches!(
-        filter_type,
+    // Keep this exhaustive so a future filter with a different alignment
+    // contract must be handled explicitly.
+    match filter_type {
         FilterType::LinearPhase128k
-            | FilterType::Minimum16k
-            | FilterType::Split128k
-            | FilterType::Split128kV2
-            | FilterType::SplitPhase128kV3
-            | FilterType::SplitPhase128kV4
-            | FilterType::SplitPhase128kE2v3
-            | FilterType::SplitPhase128kE3
-            | FilterType::IntegratedPhase128k
-            | FilterType::IntegratedPhase128kV2
-            | FilterType::IntegratedPhase128kV3
-            | FilterType::IntegratedPhase128kV4
-            | FilterType::MinimumPhase128k
-            | FilterType::MinimumPhase128kV2
-            | FilterType::MinimumPhase128kV3
-            | FilterType::MinimumPhase128kV4
-            | FilterType::MinimumPhaseCompact128k
-            | FilterType::MinimumPhaseCompact128kV2
-            | FilterType::SmoothPhase128k
-            | FilterType::SincExtreme32k
-    ) {
-        return None;
+        | FilterType::Minimum16k
+        | FilterType::SplitPhase128kE3
+        | FilterType::MinimumPhaseCompact128k => {}
     }
     let start = source_start.checked_mul(ratio)?;
     let length = source_length.checked_mul(ratio)?;
@@ -738,8 +702,8 @@ fn ec_dc_bias_corner_hz_for_tweaks(tweaks: DsdExperimentTweaks) -> Option<f64> {
 /// Production EC coefficient-table override, gated exactly like the tuned
 /// policy block in [`DsdExperimentTweaks::with_production_policy_defaults`].
 /// Plain DSD64 EcDepth2 keeps the 2026-07-06 OBG 1.44 promotion, while the
-/// DSD64 EcBeam A1 uses the validated OBG 1.65 table. SincExtreme32k and the
-/// higher-rate selectable ECB paths keep their rate's conservative EC table.
+/// DSD64 EcBeam A1 uses the validated OBG 1.65 table. Higher-rate selectable
+/// ECB paths keep their rate's conservative EC table.
 fn production_ec_coeffs_for(
     filter_type: FilterType,
     dsd_rate: DsdRate,
@@ -793,9 +757,6 @@ fn select_modulator_coeffs(
         });
     }
     if dsd_modulator == DsdModulator::EcBeam2 {
-        if !ecbeam2_filter_supported(filter_type) {
-            return Err("7th Order Search supports only the supported production 128k filters");
-        }
         return ecbeam2_production_policy(dsd_rate)
             .map(|policy| policy.coefficients)
             .ok_or("EcBeam2 has no production policy for the selected DSD rate");
@@ -1664,9 +1625,6 @@ impl DsdRenderer {
             return Err("DSD512 and DSD1024 currently support only the Standard modulator");
         }
         if dsd_modulator == DsdModulator::EcBeam2 {
-            if !ecbeam2_filter_supported(filter_type) {
-                return Err("7th Order Search supports only the supported production 128k filters");
-            }
             // EcBeam2's production contract is stricter than the legacy
             // renderer sanitizer: reject negative and non-finite values too,
             // rather than silently normalizing either one to zero.
@@ -2506,7 +2464,7 @@ mod tests {
 
     #[test]
     fn renderer_construction_matches_calibration_flag() {
-        let result = DsdRenderer::new(FilterType::SincExtreme32k, 44_100, DsdRate::Dsd128);
+        let result = DsdRenderer::new(FilterType::LinearPhase128k, 44_100, DsdRate::Dsd128);
         if CALIBRATED {
             let renderer = result.expect("calibrated coefficients should construct");
             assert_eq!(renderer.coefficient_table_name(), "CRFB7_STANDARD_OSR128");
@@ -2535,7 +2493,7 @@ mod tests {
             return;
         }
         let renderer = DsdRenderer::new_with_dsd_modulator_and_isi_penalty(
-            FilterType::SincExtreme32k,
+            FilterType::LinearPhase128k,
             44_100,
             DsdRate::Dsd128,
             DsdModulator::EcDepth2,
@@ -2545,7 +2503,7 @@ mod tests {
         assert!((renderer.isi_penalty() - 0.01).abs() < f64::EPSILON);
 
         let clamped = DsdRenderer::new_with_dsd_modulator_and_isi_penalty(
-            FilterType::SincExtreme32k,
+            FilterType::LinearPhase128k,
             44_100,
             DsdRate::Dsd128,
             DsdModulator::EcDepth2,
@@ -2558,12 +2516,10 @@ mod tests {
     #[test]
     fn dsd128_long_filter_ec2_defaults_to_tuned_production_policy() {
         for filter in [
+            FilterType::LinearPhase128k,
             FilterType::Minimum16k,
-            FilterType::Split128k,
-            FilterType::IntegratedPhase128k,
-            FilterType::IntegratedPhase128kV2,
-            FilterType::IntegratedPhase128kV3,
-            FilterType::IntegratedPhase128kV4,
+            FilterType::MinimumPhaseCompact128k,
+            FilterType::SplitPhase128kE3,
         ] {
             let default = DsdExperimentTweaks::default().with_production_policy_defaults(
                 filter,
@@ -2580,17 +2536,17 @@ mod tests {
             );
         }
 
-        let split128k = DsdExperimentTweaks::default().with_production_policy_defaults(
-            FilterType::Split128k,
+        let split_phase = DsdExperimentTweaks::default().with_production_policy_defaults(
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd128,
             DsdModulator::EcDepth2,
         );
         assert_eq!(
-            split128k.ec2_long_filter_policy,
+            split_phase.ec2_long_filter_policy,
             Some(Ec2LongFilterPolicy::AmbiguityPressure)
         );
         assert_eq!(
-            split128k.ec2_policy_weights,
+            split_phase.ec2_policy_weights,
             Some(Ec2PolicyWeights {
                 quantizer_weight: 0.8,
                 pressure_weight: 1.5,
@@ -2604,30 +2560,18 @@ mod tests {
             })
         );
         for filter in [
-            FilterType::IntegratedPhase128k,
-            FilterType::IntegratedPhase128kV2,
-            FilterType::IntegratedPhase128kV3,
-            FilterType::IntegratedPhase128kV4,
+            FilterType::LinearPhase128k,
+            FilterType::Minimum16k,
+            FilterType::MinimumPhaseCompact128k,
         ] {
-            let integrated = DsdExperimentTweaks::default().with_production_policy_defaults(
+            let non_split = DsdExperimentTweaks::default().with_production_policy_defaults(
                 filter,
                 DsdRate::Dsd128,
                 DsdModulator::EcDepth2,
             );
-            assert_eq!(
-                integrated.ec2_long_filter_policy,
-                split128k.ec2_long_filter_policy
-            );
-            assert_eq!(integrated.ec2_policy_weights, split128k.ec2_policy_weights);
+            assert_eq!(non_split.ec2_long_filter_policy, None);
+            assert_eq!(non_split.ec2_policy_weights, None);
         }
-
-        let minimum16k = DsdExperimentTweaks::default().with_production_policy_defaults(
-            FilterType::Minimum16k,
-            DsdRate::Dsd128,
-            DsdModulator::EcDepth2,
-        );
-        assert_eq!(minimum16k.ec2_long_filter_policy, None);
-        assert_eq!(minimum16k.ec2_policy_weights, None);
 
         let explicit = DsdExperimentTweaks {
             ec_dither_scale_multiplier: Some(0.25),
@@ -2638,7 +2582,7 @@ mod tests {
             ..DsdExperimentTweaks::default()
         }
         .with_production_policy_defaults(
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd128,
             DsdModulator::EcDepth2,
         );
@@ -2660,24 +2604,6 @@ mod tests {
             explicit.ec2_policy_weights,
             Some(Ec2PolicyWeights::default())
         );
-
-        let linear = DsdExperimentTweaks::default().with_production_policy_defaults(
-            FilterType::SincExtreme32k,
-            DsdRate::Dsd128,
-            DsdModulator::EcDepth2,
-        );
-        assert_eq!(linear.ec_dither_scale_multiplier, None);
-        assert_eq!(linear.ec_future_scorer, None);
-        assert_eq!(linear.ec2_long_filter_policy, None);
-
-        let linear_dsd256 = DsdExperimentTweaks::default().with_production_policy_defaults(
-            FilterType::SincExtreme32k,
-            DsdRate::Dsd256,
-            DsdModulator::EcDepth2,
-        );
-        assert_eq!(linear_dsd256.ec_dither_scale_multiplier, None);
-        assert_eq!(linear_dsd256.ec_future_scorer, None);
-        assert_eq!(linear_dsd256.ec2_long_filter_policy, None);
     }
 
     #[test]
@@ -2713,9 +2639,10 @@ mod tests {
     #[test]
     fn dsd64_ec2_defaults_to_tuned_production_policy() {
         for filter in [
+            FilterType::LinearPhase128k,
             FilterType::Minimum16k,
-            FilterType::Split128k,
-            FilterType::IntegratedPhase128k,
+            FilterType::MinimumPhaseCompact128k,
+            FilterType::SplitPhase128kE3,
         ] {
             let default = DsdExperimentTweaks::default().with_production_policy_defaults(
                 filter,
@@ -2761,7 +2688,7 @@ mod tests {
             ..DsdExperimentTweaks::default()
         }
         .with_production_policy_defaults(
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd64,
             DsdModulator::EcDepth2,
         );
@@ -2789,9 +2716,10 @@ mod tests {
     #[test]
     fn dsd64_ecbeam_defaults_to_a1_obg165_policy() {
         for filter in [
+            FilterType::LinearPhase128k,
             FilterType::Minimum16k,
-            FilterType::Split128k,
-            FilterType::IntegratedPhase128k,
+            FilterType::MinimumPhaseCompact128k,
+            FilterType::SplitPhase128kE3,
         ] {
             let default = DsdExperimentTweaks {
                 ec_beam_search: Some((4, 8)),
@@ -2843,12 +2771,12 @@ mod tests {
         }
 
         let plain = DsdExperimentTweaks::default().with_production_policy_defaults(
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd64,
             DsdModulator::EcDepth2,
         );
         let coeffs = production_ec_coeffs_for(
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd64,
             DsdModulator::EcDepth2,
             plain,
@@ -2861,7 +2789,7 @@ mod tests {
     fn selectable_ecbeam_enables_a1_search_at_every_dsd_rate() {
         for rate in [DsdRate::Dsd64, DsdRate::Dsd128, DsdRate::Dsd256] {
             let default = DsdExperimentTweaks::default().with_production_policy_defaults(
-                FilterType::Split128k,
+                FilterType::SplitPhase128kE3,
                 rate,
                 DsdModulator::EcBeam,
             );
@@ -2884,7 +2812,7 @@ mod tests {
     #[test]
     fn selectable_ecbeam_matches_explicit_dsd64_a1_profile() {
         let selectable = DsdExperimentTweaks::default().with_production_policy_defaults(
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd64,
             DsdModulator::EcBeam,
         );
@@ -2893,14 +2821,14 @@ mod tests {
             ..DsdExperimentTweaks::default()
         }
         .with_production_policy_defaults(
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd64,
             DsdModulator::EcDepth2,
         );
 
         assert_eq!(selectable, explicit_a1);
         let coeffs = production_ec_coeffs_for(
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd64,
             DsdModulator::EcBeam,
             selectable,
@@ -2922,7 +2850,7 @@ mod tests {
         assert_eq!(dsd64_playback.ecbeam2_full_diagnostics, Some(false));
 
         let dsd128_playback = DsdExperimentTweaks::default().with_production_policy_defaults(
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd128,
             DsdModulator::EcBeam2,
         );
@@ -2945,11 +2873,10 @@ mod tests {
     #[test]
     fn selectable_ecbeam_renderer_uses_beam_path_at_every_dsd_rate() {
         for filter in [
-            FilterType::Split128k,
-            FilterType::IntegratedPhase128k,
-            FilterType::IntegratedPhase128kV2,
-            FilterType::IntegratedPhase128kV3,
-            FilterType::IntegratedPhase128kV4,
+            FilterType::LinearPhase128k,
+            FilterType::Minimum16k,
+            FilterType::MinimumPhaseCompact128k,
+            FilterType::SplitPhase128kE3,
         ] {
             for rate in [DsdRate::Dsd64, DsdRate::Dsd128, DsdRate::Dsd256] {
                 let renderer =
@@ -2966,15 +2893,12 @@ mod tests {
     }
 
     #[test]
-    fn minimum_phase128k_profiles_construct_dsd128_search() {
+    fn active_filters_construct_dsd128_search() {
         for filter in [
-            FilterType::MinimumPhase128k,
-            FilterType::MinimumPhase128kV2,
-            FilterType::MinimumPhase128kV3,
-            FilterType::MinimumPhase128kV4,
+            FilterType::LinearPhase128k,
+            FilterType::Minimum16k,
             FilterType::MinimumPhaseCompact128k,
-            FilterType::MinimumPhaseCompact128kV2,
-            FilterType::SmoothPhase128k,
+            FilterType::SplitPhase128kE3,
         ] {
             let renderer = DsdRenderer::new_with_dsd_modulator(
                 filter,
@@ -2982,7 +2906,7 @@ mod tests {
                 DsdRate::Dsd128,
                 DsdModulator::EcBeam,
             )
-            .expect("Minimum Phase 128k DSD128 Search renderer");
+            .expect("active DSD128 Search renderer");
             assert_eq!(renderer.dsd_modulator(), DsdModulator::EcBeam);
             assert_eq!(renderer.experiment_tweaks.ec_beam_search, Some((4, 8)));
         }
@@ -2991,9 +2915,10 @@ mod tests {
     #[test]
     fn dsd256_ec2_defaults_to_dsd64_style_production_policy() {
         for filter in [
+            FilterType::LinearPhase128k,
             FilterType::Minimum16k,
-            FilterType::Split128k,
-            FilterType::IntegratedPhase128k,
+            FilterType::MinimumPhaseCompact128k,
+            FilterType::SplitPhase128kE3,
         ] {
             let default = DsdExperimentTweaks::default().with_production_policy_defaults(
                 filter,
@@ -3243,12 +3168,12 @@ mod tests {
     #[test]
     fn coefficient_selection_reports_production_policy_and_custom_overrides() {
         let ec2_tweaks = DsdExperimentTweaks::default().with_production_policy_defaults(
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd64,
             DsdModulator::EcDepth2,
         );
         let ec2 = select_modulator_coeffs(
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd64,
             DsdModulator::EcDepth2,
             None,
@@ -3259,12 +3184,12 @@ mod tests {
         assert_eq!(ec2.coeffs.obg, CRFB7_EC_OSR64_OBG144.obg);
 
         let ecbeam_tweaks = DsdExperimentTweaks::default().with_production_policy_defaults(
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd64,
             DsdModulator::EcBeam,
         );
         let ecbeam = select_modulator_coeffs(
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd64,
             DsdModulator::EcBeam,
             None,
@@ -3275,7 +3200,7 @@ mod tests {
         assert_eq!(ecbeam.coeffs.obg, CRFB_OSR64_OBG165.obg);
 
         let ecbeam2_default = select_modulator_coeffs(
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd64,
             DsdModulator::EcBeam2,
             None,
@@ -3288,7 +3213,7 @@ mod tests {
 
         let ecbeam2_dsd128_config = ecbeam2_production_config();
         let ecbeam2_dsd128 = select_modulator_coeffs(
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd128,
             DsdModulator::EcBeam2,
             None,
@@ -3303,7 +3228,7 @@ mod tests {
         assert_eq!(ecbeam2_dsd128.coeffs.obg, 1.64);
 
         let ecbeam2_override_error = select_modulator_coeffs(
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd64,
             DsdModulator::EcBeam2,
             Some(&CRFB_OSR64_OBG165),
@@ -3322,12 +3247,12 @@ mod tests {
             ..DsdExperimentTweaks::default()
         }
         .with_production_policy_defaults(
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd64,
             DsdModulator::EcDepth2,
         );
         let custom = select_modulator_coeffs(
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd64,
             DsdModulator::EcDepth2,
             Some(&CRFB7_EC_OSR64),
@@ -3341,7 +3266,7 @@ mod tests {
         assert_eq!(custom_tweaks.seed_right, Some(custom_seeds[1]));
 
         let standard_override = select_modulator_coeffs(
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd64,
             DsdModulator::Standard,
             Some(&CRFB7_EC_OSR64),
@@ -3460,9 +3385,10 @@ mod tests {
             return;
         }
         for filter in [
+            FilterType::LinearPhase128k,
             FilterType::Minimum16k,
-            FilterType::Split128k,
-            FilterType::IntegratedPhase128k,
+            FilterType::MinimumPhaseCompact128k,
+            FilterType::SplitPhase128kE3,
         ] {
             let renderer = DsdRenderer::new_with_dsd_modulator(
                 filter,
@@ -3474,16 +3400,6 @@ mod tests {
             assert!((renderer.coeffs.obg - 1.44).abs() < 1e-9);
             assert_eq!(renderer.coeffs.osr, 64);
         }
-
-        // Unmeasured combinations keep the OBG 1.40 default table.
-        let linear = DsdRenderer::new_with_dsd_modulator(
-            FilterType::SincExtreme32k,
-            44_100,
-            DsdRate::Dsd64,
-            DsdModulator::EcDepth2,
-        )
-        .unwrap();
-        assert!((linear.coeffs.obg - 1.40).abs() < 1e-9);
 
         let standard = DsdRenderer::new_with_dsd_modulator(
             FilterType::Minimum16k,
@@ -3665,7 +3581,7 @@ mod tests {
     #[test]
     fn cross_family_fractional_hop_uses_selected_bridge_for_all_filters() {
         let medium = DsdUpsampler::new(
-            FilterType::SincExtreme32k,
+            FilterType::LinearPhase128k,
             192_000,
             DsdRate::Dsd128.wire_rate_44k_family(),
         );
@@ -3674,7 +3590,7 @@ mod tests {
         };
         assert_eq!(
             medium_chain.stage2.filter_type(),
-            FilterType::SincExtreme32k
+            FilterType::LinearPhase128k
         );
 
         let minimum = DsdUpsampler::new(
@@ -3780,7 +3696,7 @@ mod tests {
             return;
         }
         let mut renderer = DsdRenderer::new_with_modulator_mode(
-            FilterType::SincExtreme32k,
+            FilterType::LinearPhase128k,
             44_100,
             DsdRate::Dsd128,
             ModulatorMode::Standard,
@@ -3836,7 +3752,7 @@ mod tests {
     #[test]
     fn current_bits_are_truncated_to_equal_lengths_before_packing() {
         let mut renderer =
-            DsdRenderer::new(FilterType::SincExtreme32k, 44_100, DsdRate::Dsd128).unwrap();
+            DsdRenderer::new(FilterType::LinearPhase128k, 44_100, DsdRate::Dsd128).unwrap();
         renderer.bits_l = vec![1; 48];
         renderer.bits_r = vec![0; 32];
 
@@ -3894,7 +3810,8 @@ mod tests {
             let target_rate = DsdRate::Dsd256
                 .wire_rate_for_source(source_rate)
                 .expect("44.1-family DSD256 target");
-            let upsampler = DsdUpsampler::new(FilterType::Split128k, source_rate, target_rate);
+            let upsampler =
+                DsdUpsampler::new(FilterType::SplitPhase128kE3, source_rate, target_rate);
             let DsdUpsampler::Direct(resampler) = upsampler else {
                 panic!("44.1-family {source_rate} Hz to DSD256 should use direct integer cascade");
             };
@@ -3917,21 +3834,22 @@ mod tests {
             })
             .collect();
 
-        let split = capture_upsampled_left_for_test(FilterType::Split128k, &input, DsdRate::Dsd256);
-        let extreme =
-            capture_upsampled_left_for_test(FilterType::SincExtreme32k, &input, DsdRate::Dsd256);
+        let split =
+            capture_upsampled_left_for_test(FilterType::SplitPhase128kE3, &input, DsdRate::Dsd256);
+        let linear =
+            capture_upsampled_left_for_test(FilterType::LinearPhase128k, &input, DsdRate::Dsd256);
 
         let split_amp = projected_tone_amplitude(&split, wire_rate, tone_hz);
-        let extreme_amp = projected_tone_amplitude(&extreme, wire_rate, tone_hz);
-        let split_vs_extreme = rms_difference(&split, &extreme);
+        let linear_amp = projected_tone_amplitude(&linear, wire_rate, tone_hz);
+        let split_vs_linear = rms_difference(&split, &linear);
 
         assert!(
-            split_amp > 0.01 && extreme_amp > 0.01,
-            "DSD256 pre-modulator route should preserve the 18 kHz tone: split={split_amp}, extreme={extreme_amp}"
+            split_amp > 0.01 && linear_amp > 0.01,
+            "DSD256 pre-modulator route should preserve the 18 kHz tone: split={split_amp}, linear={linear_amp}"
         );
         assert!(
-            split_vs_extreme > 1.0e-8,
-            "Split128k and SincExtreme32k pre-modulator PCM should not collapse to identical output"
+            split_vs_linear > 1.0e-8,
+            "Split Phase and Linear Phase pre-modulator PCM should remain distinct"
         );
     }
 
@@ -4043,7 +3961,7 @@ mod tests {
                 })
                 .collect();
             let mut upsampler =
-                DsdUpsampler::new(FilterType::SincExtreme32k, source_rate, target_rate);
+                DsdUpsampler::new(FilterType::LinearPhase128k, source_rate, target_rate);
             upsampler.input(&input, &input);
 
             let mut output = Vec::new();
@@ -4256,7 +4174,7 @@ mod tests {
     }
 
     #[test]
-    fn ecbeam2_smooth_phase_dsd64_matches_full_scalar_on_both_wire_families() {
+    fn ecbeam2_split_phase_dsd64_matches_full_scalar_on_both_wire_families() {
         if !CALIBRATED {
             return;
         }
@@ -4265,18 +4183,18 @@ mod tests {
         for source_rate in [44_100, 48_000] {
             let input = ecbeam2_test_input(source_rate, SOURCE_FRAMES);
             let mut optimized = DsdRenderer::new_with_dsd_modulator(
-                FilterType::SmoothPhase128k,
+                FilterType::SplitPhase128kE3,
                 source_rate,
                 DsdRate::Dsd64,
                 DsdModulator::EcBeam2,
             )
-            .expect("optimized Smooth Phase EcBeam2 DSD64 renderer");
+            .expect("optimized Split Phase EcBeam2 DSD64 renderer");
             optimized.set_native_order(NativeDsdOrder::MsbFirst);
             let (optimized_left, optimized_right) =
                 render_ecbeam2_native_pass(&mut optimized, &input, 5);
 
             let mut reference = DsdRenderer::new_with_dsd_modulator_and_experiment_tweaks(
-                FilterType::SmoothPhase128k,
+                FilterType::SplitPhase128kE3,
                 source_rate,
                 DsdRate::Dsd64,
                 DsdModulator::EcBeam2,
@@ -4287,7 +4205,7 @@ mod tests {
                     ..DsdExperimentTweaks::default()
                 },
             )
-            .expect("full scalar Smooth Phase EcBeam2 DSD64 reference renderer");
+            .expect("full scalar Split Phase EcBeam2 DSD64 reference renderer");
             reference.set_native_order(NativeDsdOrder::MsbFirst);
             let (reference_left, reference_right) =
                 render_ecbeam2_native_pass(&mut reference, &input, 5);
@@ -4337,14 +4255,10 @@ mod tests {
             );
         };
         for filter_type in [
+            FilterType::LinearPhase128k,
             FilterType::Minimum16k,
             FilterType::MinimumPhaseCompact128k,
-            FilterType::Split128k,
-            FilterType::Split128kV2,
-            FilterType::SplitPhase128kV3,
-            FilterType::SplitPhase128kV4,
-            FilterType::SplitPhase128kE2v3,
-            FilterType::SmoothPhase128k,
+            FilterType::SplitPhase128kE3,
         ] {
             for source_rate in [44_100, 48_000] {
                 let input = ecbeam2_test_input(source_rate, SOURCE_FRAMES);
@@ -4492,16 +4406,16 @@ mod tests {
         assert_eq!(dsd256.coefficient_obg(), 1.64);
         assert_eq!(dsd256.modulator_input_peak(), 0.467_858_988_519_470_7);
 
-        let error = DsdRenderer::new_with_dsd_modulator(
-            FilterType::SincExtreme32k,
+        let linear = DsdRenderer::new_with_dsd_modulator(
+            FilterType::LinearPhase128k,
             44_100,
             DsdRate::Dsd64,
             DsdModulator::EcBeam2,
         )
-        .err();
+        .expect("every active filter supports EcBeam2");
         assert_eq!(
-            error,
-            Some("7th Order Search supports only the supported production 128k filters")
+            linear.coefficient_table_name(),
+            "ECBEAM2_OSR64_OBG164_INPUT468_V1"
         );
 
         let error = DsdRenderer::new_with_dsd_modulator_and_experiment_tweaks(

@@ -692,7 +692,7 @@ mod tests {
                 session_target_rate: Some(96_000),
                 state: &state,
                 output_notice: &output_notice,
-                filter_type: FilterType::SincExtreme32k,
+                filter_type: FilterType::LinearPhase128k,
                 fallback_key: expected_key.clone(),
                 reason: "DSD unavailable; using PCM.".to_string(),
             },
@@ -708,7 +708,7 @@ mod tests {
         );
         assert_eq!(
             state.active_filter_type.load(Ordering::Relaxed),
-            FilterType::SincExtreme32k.as_id()
+            FilterType::LinearPhase128k.as_id()
         );
         assert_eq!(
             state.output_transport.load(Ordering::Relaxed),
@@ -737,7 +737,7 @@ mod tests {
                 session_target_rate: None,
                 state: &state,
                 output_notice: &output_notice,
-                filter_type: FilterType::SincExtreme32k,
+                filter_type: FilterType::LinearPhase128k,
                 fallback_key: DsdFallbackKey::new(None, OutputMode::Dsd128, 44_100),
                 reason: "Fallback".to_string(),
             },

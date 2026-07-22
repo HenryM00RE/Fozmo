@@ -17,7 +17,7 @@ use crate::playback::source::{
     qobuz_queue_track_from_source_ref, qobuz_source_ref_from_play_request,
 };
 use crate::playback::status::{StatusResponse, build_status_response_for_zone};
-use crate::playback::upnp::prewarm_upnp_source_for_zone;
+use crate::playback::upnp::{prewarm_upnp_source_for_zone, upnp_target_for_zone};
 use crate::protocol::{CoreToAgentCommand, SinkProtocol, SourceRef};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -27,7 +27,16 @@ const QOBUZ_AUTO_ADVANCE_FAILURE_COOLDOWN: std::time::Duration = std::time::Dura
 const QOBUZ_PREFETCH_FAILURE_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(10);
 const LASTFM_RADIO_PREFETCH_FAILURE_COOLDOWN: std::time::Duration =
     std::time::Duration::from_secs(30);
-const UPNP_PREWARM_FAILURE_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(10);
+const UPNP_PREWARM_FAILURE_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(3);
+const UPNP_AUTO_ADVANCE_FAILURE_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(5);
+const UPNP_AUTO_ADVANCE_RETRY_DELAYS: [std::time::Duration; 3] = [
+    std::time::Duration::from_millis(750),
+    std::time::Duration::from_secs(2),
+    std::time::Duration::from_secs(5),
+];
+const UPNP_NEXT_HANDOFF_CONFIRM_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_millis(900);
+const UPNP_NEXT_HANDOFF_CONFIRM_POLL: std::time::Duration = std::time::Duration::from_millis(150);
 const UPNP_COMPLETED_PREWARM_LIMIT: usize = 512;
 const REMOTE_AUTO_ADVANCE_SKIP_LOG_COOLDOWN: std::time::Duration =
     std::time::Duration::from_secs(5);
@@ -56,7 +65,6 @@ pub(crate) fn maybe_spawn_qobuz_auto_advance(
     status: &StatusResponse,
     pending: &Arc<Mutex<HashSet<String>>>,
     monitor_state: &AutoAdvanceMonitorState,
-    pending_upnp_prewarms: Option<&Arc<Mutex<HashSet<String>>>>,
 ) {
     let protocol = state.zones().zone_protocol(zone_id);
     let Some(active_source) = state.listening().active_source(zone_id) else {
@@ -69,21 +77,6 @@ pub(crate) fn maybe_spawn_qobuz_auto_advance(
         monitor_state.clear_remote_tail(zone_id);
         return;
     }
-    let status_matches_active_source = status_matches_active_source(status, &active_source);
-    if matches!(active_source, SourceRef::QobuzTrack { .. })
-        && status_identifies_different_qobuz_source(status, &active_source)
-    {
-        monitor_state.log_remote_skip(
-            protocol.as_ref(),
-            zone_id,
-            status,
-            Some(&active_source),
-            None,
-            "status_source_mismatch",
-        );
-        return;
-    }
-    monitor_state.observe_remote_tail(protocol.as_ref(), zone_id, status, &active_source);
     let Ok(queued) = state.library().zone_queue(zone_id) else {
         return;
     };
@@ -93,6 +86,30 @@ pub(crate) fn maybe_spawn_qobuz_auto_advance(
         .skip(1)
         .map(|entry| entry.source.clone())
         .collect::<Vec<_>>();
+    let status_matches_active_source = status_matches_active_source(status, &active_source);
+    let upnp_stopped_on_queued_next =
+        matches!(protocol.as_ref(), Some(SinkProtocol::UpnpAvRenderer))
+            && status.state == "Stopped"
+            && status.current_source.as_ref().is_some_and(|status_source| {
+                next_source
+                    .as_ref()
+                    .is_some_and(|next| status_source.key() == next.key())
+            });
+    if matches!(active_source, SourceRef::QobuzTrack { .. })
+        && status_identifies_different_qobuz_source(status, &active_source)
+        && !upnp_stopped_on_queued_next
+    {
+        monitor_state.log_remote_skip(
+            protocol.as_ref(),
+            zone_id,
+            status,
+            Some(&active_source),
+            next_source.as_ref(),
+            "status_source_mismatch",
+        );
+        return;
+    }
+    monitor_state.observe_remote_tail(protocol.as_ref(), zone_id, status, &active_source);
     let queued_sources = queued
         .iter()
         .map(|entry| entry.source.clone())
@@ -124,13 +141,26 @@ pub(crate) fn maybe_spawn_qobuz_auto_advance(
     let upnp_queue_auto_advance =
         queued_auto_advance && matches!(protocol.as_ref(), Some(SinkProtocol::UpnpAvRenderer));
     let remote_queue_auto_advance = sonos_queue_auto_advance || upnp_queue_auto_advance;
+    let upnp_next_was_armed = upnp_queue_auto_advance
+        && next_source
+            .as_ref()
+            .is_some_and(|next| state.upnp().has_armed_next_for_source(zone_id, next));
     let completion = auto_advance_completion_reason(
         protocol.as_ref(),
         zone_id,
         status,
         &active_source,
         monitor_state,
-    );
+    )
+    .or_else(|| {
+        upnp_failed_handoff_completion_reason(
+            protocol.as_ref(),
+            status,
+            status_matches_active_source,
+            upnp_next_was_armed,
+            upnp_stopped_on_queued_next,
+        )
+    });
     if completion.is_none() {
         if remote_queue_auto_advance {
             let reason = if status.state != "Stopped" {
@@ -172,25 +202,6 @@ pub(crate) fn maybe_spawn_qobuz_auto_advance(
         }
         return;
     }
-    if upnp_queue_auto_advance
-        && next_source.as_ref().is_some_and(|next_source| {
-            upnp_prewarm_pending_for_transition(
-                pending_upnp_prewarms,
-                zone_id,
-                &active_source,
-                next_source,
-            )
-        })
-    {
-        debug!(
-            event = "upnp_auto_advance_waiting_for_prewarm",
-            zone_id,
-            active_source_key = %active_source.key(),
-            next_source_key = next_source.as_ref().map(SourceRef::key).as_deref(),
-            "UPnP queued auto-advance is waiting for the in-flight next-track prewarm"
-        );
-        return;
-    }
     let player = state.zones().player_for_zone(zone_id);
     if local_queue_auto_advance {
         let Some(player) = player.as_ref() else {
@@ -209,7 +220,8 @@ pub(crate) fn maybe_spawn_qobuz_auto_advance(
 
     let state_for_settle = state.clone();
     let loop_source = loop_auto_advance.then_some(active_source.clone());
-    let radio_seed_source = radio_auto_advance.then_some(active_source);
+    let radio_seed_source = radio_auto_advance.then_some(active_source.clone());
+    let expected_active_source = active_source;
     let protocol_for_task = protocol.clone();
     let zone_id = zone_id.to_string();
     let pending = Arc::clone(pending);
@@ -248,9 +260,16 @@ pub(crate) fn maybe_spawn_qobuz_auto_advance(
                 return;
             };
             if upnp_queue_auto_advance {
-                if state_for_settle
+                let next_was_armed = state_for_settle
                     .upnp()
-                    .promote_armed_next_if_gapless_ready(&zone_id, &next_source)
+                    .has_armed_next_for_source(&zone_id, &next_source);
+                if next_was_armed
+                    && wait_for_observed_upnp_renderer_next(
+                        &state_for_settle,
+                        &zone_id,
+                        &next_source,
+                    )
+                    .await
                 {
                     promoted_upnp_source_key = Some(next_source.key());
                     state_for_settle
@@ -259,11 +278,8 @@ pub(crate) fn maybe_spawn_qobuz_auto_advance(
                     Ok(())
                 } else {
                     let source_key = next_source.key();
-                    let fallback_reason = if state_for_settle
-                        .upnp()
-                        .has_armed_next_for_source(&zone_id, &next_source)
-                    {
-                        "renderer accepted SetNextAVTransportURI but did not request the next asset before EOF"
+                    let fallback_reason = if next_was_armed {
+                        "renderer accepted SetNextAVTransportURI but did not confirm automatic next-track playback"
                     } else {
                         "next asset was not armed for this renderer"
                     };
@@ -285,9 +301,10 @@ pub(crate) fn maybe_spawn_qobuz_auto_advance(
                         fallback_reason,
                         "UPnP queued auto-advance is using a non-gapless fresh-play fallback"
                     );
-                    queue_auto_advance(
+                    retry_upnp_queue_auto_advance(
                         state_for_settle.clone(),
                         zone_id.clone(),
+                        expected_active_source.clone(),
                         next_source,
                         rest_sources,
                     )
@@ -339,7 +356,15 @@ pub(crate) fn maybe_spawn_qobuz_auto_advance(
                     error = %e,
                     "Auto-advance failed"
                 );
-                tokio::time::sleep(QOBUZ_AUTO_ADVANCE_FAILURE_COOLDOWN).await;
+                let cooldown = if matches!(
+                    protocol_for_task.as_ref(),
+                    Some(SinkProtocol::UpnpAvRenderer)
+                ) {
+                    UPNP_AUTO_ADVANCE_FAILURE_COOLDOWN
+                } else {
+                    QOBUZ_AUTO_ADVANCE_FAILURE_COOLDOWN
+                };
+                tokio::time::sleep(cooldown).await;
                 pending.lock().unwrap().remove(&zone_id);
             }
         }
@@ -558,6 +583,16 @@ pub(crate) fn maybe_spawn_upnp_next_prewarm(
         return;
     };
     retain_completed_upnp_prewarm_candidate(completed, zone_id, &prewarm_key);
+    if state
+        .upnp()
+        .has_armed_next_for_source(zone_id, &next_source)
+    {
+        // A transient renderer snapshot may have cleared the monitor's cache,
+        // but the session still knows this exact source is armed. Re-sending
+        // SetNext can make KEF reopen or replace the queued stream.
+        remember_completed_upnp_prewarm(completed, prewarm_key);
+        return;
+    }
     {
         let completed = completed.lock().unwrap();
         if completed.contains(&prewarm_key) {
@@ -585,10 +620,9 @@ pub(crate) fn maybe_spawn_upnp_next_prewarm(
             true,
         )
         .await;
-        pending.lock().unwrap().remove(&prewarm_key);
         match result {
             Ok(()) => {
-                remember_completed_upnp_prewarm(&completed, prewarm_key);
+                remember_completed_upnp_prewarm(&completed, prewarm_key.clone());
             }
             Err(e) if e.message() == "Playback changed" => {}
             Err(e) => {
@@ -596,6 +630,7 @@ pub(crate) fn maybe_spawn_upnp_next_prewarm(
                 tokio::time::sleep(UPNP_PREWARM_FAILURE_COOLDOWN).await;
             }
         }
+        pending.lock().unwrap().remove(&prewarm_key);
     });
 }
 
@@ -651,29 +686,15 @@ fn upnp_next_prewarm_candidate(
     Some((active_source, next_source, prewarm_key))
 }
 
-fn upnp_prewarm_pending_for_transition(
-    pending: Option<&Arc<Mutex<HashSet<String>>>>,
-    zone_id: &str,
-    active_source: &SourceRef,
-    next_source: &SourceRef,
-) -> bool {
-    let Some(pending) = pending else {
-        return false;
-    };
-    let prefix = format!("{}|{}|{}|", zone_id, active_source.key(), next_source.key());
-    pending
-        .lock()
-        .unwrap()
-        .iter()
-        .any(|key| key.starts_with(&prefix))
-}
-
 fn promote_observed_upnp_renderer_next(
     state: &AppState,
     zone_id: &str,
     status: &StatusResponse,
     active_source: &SourceRef,
 ) -> bool {
+    if status.state != "Playing" || status.transport_pending != "none" {
+        return false;
+    }
     let Some(status_source) = status.current_source.as_ref() else {
         return false;
     };
@@ -876,6 +897,22 @@ fn auto_advance_completion_reason(
         "Using prior remote tail observation for completed-track auto-advance"
     );
     Some("remote_tail_observed")
+}
+
+fn upnp_failed_handoff_completion_reason(
+    protocol: Option<&SinkProtocol>,
+    status: &StatusResponse,
+    status_matches_active_source: bool,
+    next_was_armed: bool,
+    stopped_on_queued_next: bool,
+) -> Option<&'static str> {
+    if !matches!(protocol, Some(SinkProtocol::UpnpAvRenderer)) || status.state != "Stopped" {
+        return None;
+    }
+    if stopped_on_queued_next {
+        return Some("queued_next_loaded_but_stopped");
+    }
+    (status_matches_active_source && next_was_armed).then_some("armed_next_stopped")
 }
 
 fn is_remote_queue_protocol(protocol: Option<&SinkProtocol>) -> bool {
@@ -1209,6 +1246,121 @@ async fn queue_auto_advance(
         .map_err(|error| error.message().to_string())
 }
 
+async fn wait_for_observed_upnp_renderer_next(
+    state: &AppState,
+    zone_id: &str,
+    next_source: &SourceRef,
+) -> bool {
+    let Ok(target) = upnp_target_for_zone(state, zone_id) else {
+        return false;
+    };
+    let started = std::time::Instant::now();
+    loop {
+        let _ = state
+            .upnp()
+            .refresh_playback_snapshot(zone_id, &target, std::time::Duration::ZERO)
+            .await;
+        if state.upnp().snapshot(zone_id).is_some_and(|snapshot| {
+            snapshot.state == "Playing"
+                && snapshot.transport_pending == "none"
+                && snapshot
+                    .current_source
+                    .as_ref()
+                    .is_some_and(|source| source.key() == next_source.key())
+        }) {
+            return true;
+        }
+        if started.elapsed() >= UPNP_NEXT_HANDOFF_CONFIRM_TIMEOUT {
+            return false;
+        }
+        tokio::time::sleep(UPNP_NEXT_HANDOFF_CONFIRM_POLL).await;
+    }
+}
+
+async fn retry_upnp_queue_auto_advance(
+    state: AppState,
+    zone_id: String,
+    expected_active_source: SourceRef,
+    source: SourceRef,
+    rest_sources: Vec<SourceRef>,
+) -> Result<(), String> {
+    let mut last_error = None;
+    let mut expected_command_generation = None;
+    for attempt in 0..=UPNP_AUTO_ADVANCE_RETRY_DELAYS.len() {
+        if attempt > 0 {
+            tokio::time::sleep(UPNP_AUTO_ADVANCE_RETRY_DELAYS[attempt - 1]).await;
+            ensure_upnp_auto_advance_target_is_current(
+                &state,
+                &zone_id,
+                &expected_active_source,
+                &source,
+                expected_command_generation,
+            )?;
+            debug!(
+                event = "upnp_auto_advance_retry",
+                zone_id,
+                attempt = attempt + 1,
+                next_source_key = %source.key(),
+                previous_error = last_error.as_deref().unwrap_or("unknown"),
+                "Retrying UPnP next-track resolution and playback"
+            );
+        }
+        match queue_auto_advance(
+            state.clone(),
+            zone_id.clone(),
+            source.clone(),
+            rest_sources.clone(),
+        )
+        .await
+        {
+            Ok(()) => return Ok(()),
+            Err(error) if error == "Playback changed" || error == "Queue changed" => {
+                return Err(error);
+            }
+            Err(error) => {
+                last_error = Some(error);
+                expected_command_generation =
+                    Some(state.upnp().current_command_generation(&zone_id));
+            }
+        }
+    }
+    Err(last_error.unwrap_or_else(|| "UPnP auto-advance failed".to_string()))
+}
+
+fn ensure_upnp_auto_advance_target_is_current(
+    state: &AppState,
+    zone_id: &str,
+    expected_active_source: &SourceRef,
+    next_source: &SourceRef,
+    expected_command_generation: Option<u64>,
+) -> Result<(), String> {
+    if expected_command_generation
+        .is_some_and(|expected| state.upnp().current_command_generation(zone_id) != expected)
+    {
+        return Err("Playback changed".to_string());
+    }
+    if state
+        .listening()
+        .active_source(zone_id)
+        .as_ref()
+        .map(SourceRef::key)
+        != Some(expected_active_source.key())
+    {
+        return Err("Playback changed".to_string());
+    }
+    let queued = state
+        .library()
+        .zone_queue(zone_id)
+        .map_err(|error| format!("read UPnP queue before retry: {error}"))?;
+    if queued
+        .first()
+        .is_none_or(|entry| entry.source.key() != next_source.key())
+    {
+        return Err("Queue changed".to_string());
+    }
+    Ok(())
+}
+
 fn text_eq(left: &str, right: &str) -> bool {
     left.trim().eq_ignore_ascii_case(right.trim())
 }
@@ -1233,6 +1385,60 @@ mod tests {
     fn completion_detection_allows_tail_for_normal_tracks() {
         let status = status_with_position("Stopped", 118.2, 120.0);
         assert!(looks_like_completed_track(&status));
+    }
+
+    #[test]
+    fn upnp_stopped_with_armed_next_uses_handoff_failure_completion() {
+        let status = status_with_position("Stopped", 90.0, 180.0);
+
+        assert_eq!(
+            upnp_failed_handoff_completion_reason(
+                Some(&SinkProtocol::UpnpAvRenderer),
+                &status,
+                true,
+                true,
+                false,
+            ),
+            Some("armed_next_stopped")
+        );
+        assert_eq!(
+            upnp_failed_handoff_completion_reason(
+                Some(&SinkProtocol::UpnpAvRenderer),
+                &status,
+                true,
+                false,
+                false,
+            ),
+            None,
+            "an ordinary explicit stop must not advance without an armed handoff"
+        );
+    }
+
+    #[test]
+    fn upnp_loaded_queued_next_but_stopped_uses_fresh_play_completion() {
+        let status = status_with_position("Stopped", 0.0, 240.0);
+
+        assert_eq!(
+            upnp_failed_handoff_completion_reason(
+                Some(&SinkProtocol::UpnpAvRenderer),
+                &status,
+                false,
+                false,
+                true,
+            ),
+            Some("queued_next_loaded_but_stopped")
+        );
+        assert_eq!(
+            upnp_failed_handoff_completion_reason(
+                Some(&SinkProtocol::SonosUpnp),
+                &status,
+                false,
+                false,
+                true,
+            ),
+            None,
+            "the KEF/UPnP fallback must not change Sonos completion semantics"
+        );
     }
 
     #[test]
@@ -1412,7 +1618,6 @@ mod tests {
             &status,
             &pending,
             &AutoAdvanceMonitorState::default(),
-            None,
         );
 
         let command = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
@@ -1484,36 +1689,6 @@ mod tests {
     }
 
     #[test]
-    fn upnp_auto_advance_waits_for_matching_prewarm_in_flight() {
-        let active = qobuz_source(1, false);
-        let next = qobuz_source(2, false);
-        let pending = Arc::new(Mutex::new(HashSet::from([format!(
-            "upnp-zone|{}|{}|render-a",
-            active.key(),
-            next.key()
-        )])));
-
-        assert!(upnp_prewarm_pending_for_transition(
-            Some(&pending),
-            "upnp-zone",
-            &active,
-            &next
-        ));
-        assert!(!upnp_prewarm_pending_for_transition(
-            Some(&pending),
-            "other-zone",
-            &active,
-            &next
-        ));
-        assert!(!upnp_prewarm_pending_for_transition(
-            None,
-            "upnp-zone",
-            &active,
-            &next
-        ));
-    }
-
-    #[test]
     fn upnp_observed_renderer_next_promotes_listening_queue_without_replay() {
         let state = app_state("upnp-observed-renderer-next");
         let zone_id = state.zones().active_zone_id();
@@ -1550,6 +1725,54 @@ mod tests {
             Some(next.key())
         );
         assert!(state.library().zone_queue(&zone_id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn upnp_transitioning_next_source_does_not_consume_queue_without_audio() {
+        let state = app_state("upnp-unconfirmed-renderer-next");
+        let zone_id = state.zones().active_zone_id();
+        let active = local_source(1, "Current");
+        let next = local_source(2, "Next");
+        state
+            .library()
+            .upsert_zone_definition(&zone_id, "Core", "local_coreaudio", None, true)
+            .unwrap();
+        state.listening().start_with_radio(
+            state.library(),
+            zone_id.clone(),
+            "Core".to_string(),
+            state.settings().active_profile_id(),
+            active.clone(),
+            vec![next.clone()],
+            false,
+        );
+        state
+            .library()
+            .set_zone_queue(&zone_id, std::slice::from_ref(&next))
+            .unwrap();
+        let mut status = status_with_position("Transitioning", 0.0, 181.0);
+        status.current_source = Some(next.clone());
+        status.transport_pending = "loading".to_string();
+
+        assert!(!promote_observed_upnp_renderer_next(
+            &state, &zone_id, &status, &active
+        ));
+        assert_eq!(
+            state
+                .listening()
+                .active_source(&zone_id)
+                .map(|source| source.key()),
+            Some(active.key())
+        );
+        assert_eq!(
+            state
+                .library()
+                .zone_queue(&zone_id)
+                .unwrap()
+                .first()
+                .map(|entry| entry.source.key()),
+            Some(next.key())
+        );
     }
 
     fn local_source(track_id: i64, title: &str) -> SourceRef {
