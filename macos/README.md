@@ -80,9 +80,9 @@ version, GPL/nonfree/network flags, absent libopus, a non-arm64 binary, or a
 non-system dynamic dependency. Public assembly accepts this stage—not a
 Homebrew or PATH FFmpeg.
 
-## Unsigned 0.0.1 public release
+## Unsigned 0.0.2 public release
 
-Fozmo 0.0.1 is intentionally unsigned and non-notarized. Build its public
+Fozmo 0.0.2 is intentionally unsigned and non-notarized. Build its public
 artifact from a clean checkout with the pinned Xcode 26.6, Rust 1.96 and Node
 22 toolchains, Gitleaks, and the normal source-build dependencies:
 
@@ -99,14 +99,14 @@ SHA-256 files, and a build manifest. It does not require a Developer ID
 identity, Apple credentials, Sparkle keys, or an app icon, and it never invokes
 notarization or stapling. Sparkle checks and automatic updates are disabled.
 
-Artifacts are written to `target/macos/unsigned-release-0.0.1/`:
+Artifacts are written to `target/macos/unsigned-release-0.0.2/`:
 
 ```text
-Fozmo-0.0.1-macos-arm64.dmg
-Fozmo-0.0.1-macos-arm64.dmg.sha256
-Fozmo-0.0.1-macos-arm64.md
-Fozmo-0.0.1-source.tar.zst
-Fozmo-0.0.1-source.tar.zst.sha256
+Fozmo-0.0.2-macos-arm64.dmg
+Fozmo-0.0.2-macos-arm64.dmg.sha256
+Fozmo-0.0.2-macos-arm64.md
+Fozmo-0.0.2-source.tar.zst
+Fozmo-0.0.2-source.tar.zst.sha256
 SHA256SUMS
 build-manifest.json
 release-verification.json
@@ -125,7 +125,7 @@ notices, and corresponding-source obligations and fails closed if they drift.
 ## Future signed and notarized release
 
 `release.sh` remains the fail-closed signed pipeline for a future release. The
-GitHub workflow is manual-dispatch only, so pushing `v0.0.1` cannot invoke it.
+GitHub workflow is manual-dispatch only, so pushing `v0.0.2` cannot invoke it.
 It requires a clean checkout at the exact `v<version>` tag, Developer ID and
 notarization credentials, an `.icns` icon, Sparkle signing inputs, and reviewed
 corresponding source.
@@ -168,7 +168,7 @@ first; publish `appcast.xml` last so clients never see a dead archive URL.
 
 The signed deliverables are staged in `target/macos/release-<version>/`.
 Developer ID, notarization, stapling, Gatekeeper approval, and Sparkle update
-tests are deliberately not claimed for the unsigned 0.0.1 artifact.
+tests are deliberately not claimed for the unsigned 0.0.2 artifact.
 
 `make-source-archive.sh` normalizes archive order, ownership, modes and
 timestamps, then compresses with a pinned zstd 1.5.7 single-thread build. This

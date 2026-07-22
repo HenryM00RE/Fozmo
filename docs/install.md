@@ -1,6 +1,6 @@
 # Installing Fozmo on macOS
 
-Fozmo 0.0.1 is packaged for Apple-silicon Macs with macOS 13 or later. The DMG
+Fozmo 0.0.2 is packaged for Apple-silicon Macs with macOS 13 or later. The DMG
 includes the server, web interface, audio helpers and optional command-line
 client, so installing the release does not require Rust, Node.js or FFmpeg.
 Hardware, receiver and service compatibility is narrower than the platform
@@ -15,7 +15,7 @@ DMG checksum with the checksum published alongside that release.
 
 ## Install the application
 
-1. Download the Fozmo 0.0.1 Apple-silicon `.dmg` from the project release page.
+1. Download the Fozmo 0.0.2 Apple-silicon `.dmg` from the project release page.
 2. Open the downloaded DMG.
 3. Drag `Fozmo.app` onto the **Applications** shortcut.
 4. Eject the Fozmo disk image.

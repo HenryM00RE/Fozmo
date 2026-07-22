@@ -1309,8 +1309,7 @@ function HomeQobuzPlaylistCard({
   }, [playlistId]);
 
   const selectionPlaylist = qobuzPlaylistSelection(playlist);
-  const open = () =>
-    selectionActive ? onToggleSelection(selectionPlaylist) : onOpen(playlistId);
+  const open = () => (selectionActive ? onToggleSelection(selectionPlaylist) : onOpen(playlistId));
   const longPressSelection = useLongPressSelection({
     onSelect: onToggleSelection,
     resolveSelection: () => selectionPlaylist

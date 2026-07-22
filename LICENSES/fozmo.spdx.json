@@ -3,9 +3,9 @@
   "spdxVersion": "SPDX-2.3",
   "dataLicense": "CC0-1.0",
   "name": "Fozmo component license manifest",
-  "documentNamespace": "https://fozmo.local/spdx/fozmo-0.0.1",
+  "documentNamespace": "https://fozmo.local/spdx/fozmo-0.0.2",
   "creationInfo": {
-    "created": "2026-07-12T00:00:00Z",
+    "created": "2026-07-22T00:00:00Z",
     "creators": [
       "Organization: Fozmo contributors"
     ]
@@ -14,7 +14,7 @@
     {
       "SPDXID": "SPDXRef-Package-Fozmo-Core",
       "name": "Fozmo core, web client, DSP, and macOS launcher",
-      "versionInfo": "0.0.1",
+      "versionInfo": "0.0.2",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "MIT",
@@ -45,7 +45,7 @@
     {
       "SPDXID": "SPDXRef-Package-EQ-Presets",
       "name": "Fozmo bundled EQ presets",
-      "versionInfo": "0.0.1",
+      "versionInfo": "0.0.2",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "MIT",
@@ -66,7 +66,7 @@
     {
       "SPDXID": "SPDXRef-Package-AirPlay-Helper",
       "name": "fozmo-airplay-helper",
-      "versionInfo": "0.0.1",
+      "versionInfo": "0.0.2",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "GPL-2.0-only",

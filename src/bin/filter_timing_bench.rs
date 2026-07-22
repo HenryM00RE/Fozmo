@@ -266,7 +266,7 @@ fn validate_args(args: &Args) -> Result<usize, String> {
     if args.source_rate < 40_000 || args.source_rate > 192_000 {
         return Err("source rate must be between 40 kHz and 192 kHz".to_string());
     }
-    if args.output_rate % args.source_rate != 0 {
+    if !args.output_rate.is_multiple_of(args.source_rate) {
         return Err("output rate must be an integer multiple of source rate".to_string());
     }
     let ratio = (args.output_rate / args.source_rate) as usize;

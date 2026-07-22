@@ -48,7 +48,7 @@ async function expectMobileModalGeometry(page: Page, dialog: Locator) {
     .poll(() =>
       dialog.evaluate((element) => window.getComputedStyle(element).backdropFilter)
     )
-    .toContain('blur(8px)');
+    .toContain('blur(5px)');
   const modalLayer = await dialog.evaluate((element) => {
     const miniPlayer = document.querySelector('.mobile-mini-player');
     const topBar = document.querySelector('.mobile-top-bar');

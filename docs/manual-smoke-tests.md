@@ -28,22 +28,22 @@ only copy sanitized summaries into this committed matrix.
 | Area | Command Or Action | Expected Result | Evidence |
 | --- | --- | --- | --- |
 | Development DMG | `./macos/scripts/build-dev-dmg.sh`, mount the result, and run `verify-dmg.sh`. | Arm64 app contains the menu launcher, server, GPL helper, minimal FFmpeg, Sparkle, resources and notices, but no runtime data. | Automated structure; clean-Mac launch pending |
-| Unsigned 0.0.1 DMG | From a clean checkout, run `./macos/scripts/build-unsigned-release.sh`. | A normally named arm64 DMG, checksum, exact source archive/checksum, release notes, verification receipt, and unsigned build manifest are created; no development marker, capture driver, update checks, notarization, or Apple-signature claim is present. | Automated structure; clean-Mac launch pending |
+| Unsigned 0.0.2 DMG | From a clean checkout, run `./macos/scripts/build-unsigned-release.sh`. | A normally named arm64 DMG, checksum, exact source archive/checksum, release notes, verification receipt, and unsigned build manifest are created; no development marker, capture driver, update checks, notarization, or Apple-signature claim is present. | Automated structure; clean-Mac launch pending |
 | Clean macOS 13 install | On an Apple-silicon macOS 13 Mac with no developer tools, copy the unsigned app to Applications, attempt launch, then approve it in Privacy & Security. | After explicit approval, the menu app and bundled server start without Rust, Node, Xcode or external FFmpeg. | Pending clean-Mac evidence |
 | Menu lifecycle | Exercise Start, Stop, Restart, Quit, login launch, LAN toggle and a second app launch. | One server/helper pair exists; login is silent; Stop/Quit are graceful; second launch opens the existing instance. | Pending |
 | Sparkle N→N+1 | Install a signed update from the previous release. | User approves download/install; authenticated backup and graceful stop succeed before replacement; settings/library/history/auth survive. | Pending signed releases |
 | Update failure cases | Simulate backup failure, child shutdown timeout, tampered archive/feed and failed migration. | Update/migration is refused and the prior app/data remain recoverable. | Pending signed releases |
 | Manual DMG replacement | Replace `Fozmo.app` with a newer version whose database schema advances. | Pre-migration verified backup is created and durable state survives. | Pending versioned fixture |
 
-### Unsigned 0.0.1 clean-Mac checklist
+### Unsigned 0.0.2 clean-Mac checklist
 
 Record each result without treating manual Gatekeeper approval as
 notarization:
 
 1. From a clean tracked checkout, build with
    `./macos/scripts/build-unsigned-release.sh`.
-2. Verify `Fozmo-0.0.1-macos-arm64.dmg` with the adjacent SHA-256 file by
-   running `shasum -a 256 -c Fozmo-0.0.1-macos-arm64.dmg.sha256`.
+2. Verify `Fozmo-0.0.2-macos-arm64.dmg` with the adjacent SHA-256 file by
+   running `shasum -a 256 -c Fozmo-0.0.2-macos-arm64.dmg.sha256`.
 3. Mount the DMG.
 4. Copy `Fozmo.app` into `/Applications`.
 5. Attempt the first launch.
@@ -68,7 +68,7 @@ notarization:
 
 Developer ID, notarization, stapling, Gatekeeper automatic acceptance, and
 Sparkle N→N+1 tests remain a separate future signed-release checklist and do
-not apply to 0.0.1.
+not apply to 0.0.2.
 
 ## Playback Regression Baseline
 

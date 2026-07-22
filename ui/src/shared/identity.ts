@@ -8,7 +8,7 @@ export const LOCAL_STORAGE_PREFIX = 'fozmo';
 export const DATA_DIR_NAME = 'Fozmo';
 export const SCHEMA_BASE_URL = 'https://fozmo.local/schemas';
 export const SCHEMA_ENDPOINTS_EXTENSION = 'x-fozmo-endpoints';
-export const USER_AGENT = 'Fozmo/0.0.1';
+export const USER_AGENT = 'Fozmo/0.0.2';
 
 export function storageKey(suffix: string) {
   return `${LOCAL_STORAGE_PREFIX}${suffix}`;

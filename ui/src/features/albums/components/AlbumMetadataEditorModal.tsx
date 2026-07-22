@@ -330,7 +330,9 @@ export function AlbumMetadataEditorModal({
                   )}
                 </div>
                 <div className="metadata-assigner-album-text">
-                  <strong>{coverDimensions || (coverSrc ? 'Loading dimensions...' : 'No artwork')}</strong>
+                  <strong>
+                    {coverDimensions || (coverSrc ? 'Loading dimensions...' : 'No artwork')}
+                  </strong>
                   <div className="album-metadata-editor-cover-actions">
                     <button
                       className="zone-settings-pill"
@@ -544,9 +546,7 @@ export function AlbumMetadataEditorModal({
                           maxLength={2}
                           value={String(track.disc_number ?? '')}
                           aria-label={`Disc number for song ${index + 1}`}
-                          onChange={(event) =>
-                            changeTrackDisc(track.editorKey, event.target.value)
-                          }
+                          onChange={(event) => changeTrackDisc(track.editorKey, event.target.value)}
                           onBlur={() => {
                             if (!track.disc_number) changeTrackDisc(track.editorKey, '1');
                           }}

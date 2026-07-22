@@ -116,6 +116,6 @@ For isolated development smoke tests, continue to use:
 
 Before release, confirm runtime databases/settings are ignored, no private
 paths or credentials are bundled, exercise the legacy importer against a
-non-empty WAL fixture, and complete the unsigned clean-Mac checklist for 0.0.1.
+non-empty WAL fixture, and complete the unsigned clean-Mac checklist for 0.0.2.
 For a future signed release, also perform an update from the previous signed
 version while verifying metadata/history counts before and after.

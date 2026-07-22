@@ -2138,13 +2138,13 @@ fn prepare_external_product_config(
         .enumerate()
         .max_by(|(_, a), (_, b)| a.abs().total_cmp(&b.abs()))
         .map(|(index, _)| index)
-        .ok_or_else(|| "external-product alignment reconstruction was empty")?;
+        .ok_or("external-product alignment reconstruction was empty")?;
     let source_bit = impulse_index
         .checked_mul((first.wire_rate / 44_100) as usize)
-        .ok_or_else(|| "external-product alignment source index overflowed")?;
+        .ok_or("external-product alignment source index overflowed")?;
     let rendered_bit = peak
         .checked_mul(decimation as usize)
-        .ok_or_else(|| "external-product alignment output index overflowed")?;
+        .ok_or("external-product alignment output index overflowed")?;
     let source_bit_offset = isize::try_from(rendered_bit)
         .and_then(|rendered| isize::try_from(source_bit).map(|source| rendered - source))
         .map_err(|_| "external-product alignment offset does not fit isize")?;
@@ -2174,11 +2174,11 @@ fn prepare_external_product_config(
     let start = 11_025usize
         .checked_mul(ratio)
         .and_then(|value| value.checked_add_signed(source_bit_offset))
-        .ok_or_else(|| "external-product gain-calibration start overflowed")?;
+        .ok_or("external-product gain-calibration start overflowed")?;
     let end = 33_075usize
         .checked_mul(ratio)
         .and_then(|value| value.checked_add_signed(source_bit_offset))
-        .ok_or_else(|| "external-product gain-calibration end overflowed")?;
+        .ok_or("external-product gain-calibration end overflowed")?;
     let (tone_left, _) = analysis::reconstruct_stereo_window(
         &tone_render.left_msb,
         &tone_render.right_msb,
@@ -3001,19 +3001,19 @@ fn rendered_source_to_bit_range(
     if let Some(offset) = rendered.source_bit_offset {
         let ratio = usize::try_from(rendered.wire_rate / source_rate)
             .map_err(|_| "external source/DSD ratio does not fit usize")?;
-        if rendered.wire_rate % source_rate != 0 {
+        if !rendered.wire_rate.is_multiple_of(source_rate) {
             return Err("external source rate is not an integer divisor of DSD rate".into());
         }
         let start = source
             .start
             .checked_mul(ratio)
             .and_then(|value| value.checked_add_signed(offset))
-            .ok_or_else(|| "external source-to-bit start overflowed")?;
+            .ok_or("external source-to-bit start overflowed")?;
         let end = source
             .end
             .checked_mul(ratio)
             .and_then(|value| value.checked_add_signed(offset))
-            .ok_or_else(|| "external source-to-bit end overflowed")?;
+            .ok_or("external source-to-bit end overflowed")?;
         if start >= end || end > rendered.left.len().saturating_mul(8) {
             return Err(format!(
                 "external source-to-bit range {start}..{end} exceeds {} bits",

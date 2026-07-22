@@ -170,12 +170,14 @@ product chain rather than claiming to isolate an abstract modulator algorithm.
 The bench retains `Standard`, `EcDepth2`, `EcBeam`, and `EcBeam2` as technical
 comparison identities. The application exposes only `Standard` as 7th Order
 and `EcBeam2` as 7th Order Search; the other algorithms remain available for
-diagnostics. EcBeam2 supports DSD64, DSD128, and DSD256, with every rate included
-in the canonical matrix and score. Its OBG1.64 production tables retain their
-rate-specific NTFs and use the same calibrated `0.4678589885194707` input peak;
-their hard-state envelopes scale proportionally with that calibration. Filter
-identity can change a modulator's effective production policy, which is why the
-public score measures only the actual default product path.
+diagnostics. The application limits 7th Order Search to DSD64 and DSD128. The
+bench retains its EcBeam2 DSD256 path as a technical comparison in the v6
+matrix, but that path is not a selectable product option. Its OBG1.64 tables
+retain their rate-specific NTFs and use the same calibrated
+`0.4678589885194707` input peak; their hard-state envelopes scale
+proportionally with that calibration. Filter identity can change a modulator's
+effective policy, which is why the public score measures only the benchmark's
+declared default path.
 
 Every cell records its comparison class, whether its levels are matched across
 modulators, and whether it exercises the production-default filter. It also

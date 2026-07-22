@@ -213,9 +213,9 @@ pub fn group_delay_curve(
             let center = 0.5 * (first + last) as f64;
             let mut covariance = 0.0;
             let mut variance = 0.0;
-            for index in first..=last {
+            for (index, &phase_value) in phase.iter().enumerate().take(last + 1).skip(first) {
                 let x = index as f64 - center;
-                covariance += x * phase[index];
+                covariance += x * phase_value;
                 variance += x * x;
             }
             let absolute_delay_samples = -(covariance / variance) / bin_omega;

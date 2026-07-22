@@ -18,7 +18,14 @@ struct Case {
 }
 
 fn main() -> Result<(), String> {
+    let case_filter = std::env::var("DSD_RENDERER_BENCH_FILTER").ok();
     let cases = [
+        Case {
+            name: "Split Phase DSD128 Search",
+            filter: FilterType::SplitPhase128kE3,
+            dsd_rate: DsdRate::Dsd128,
+            modulator: DsdModulator::EcBeam2,
+        },
         Case {
             name: "Smooth Phase DSD128 Standard",
             filter: FilterType::SmoothPhase128k,
@@ -131,6 +138,12 @@ fn main() -> Result<(), String> {
 
     let input = sine_input();
     for case in cases {
+        if case_filter
+            .as_ref()
+            .is_some_and(|filter| !case.name.contains(filter))
+        {
+            continue;
+        }
         for _ in 0..WARMUP_PASSES {
             black_box(run_case(&case, &input)?);
         }

@@ -192,7 +192,9 @@ fn main() -> Result<(), String> {
 }
 
 fn validate(args: &Args) -> Result<(), String> {
-    if args.output_rate % args.source_rate != 0 || args.output_rate / args.source_rate != 4 {
+    if !args.output_rate.is_multiple_of(args.source_rate)
+        || args.output_rate / args.source_rate != 4
+    {
         return Err("this comparison is fixed to an exact 4x integer path".into());
     }
     if args.guard_frames < 131_072 || args.tail_ms < 6_000.0 {
