@@ -27,9 +27,7 @@ test('filter selections persist their canonical setting names', async ({ page })
   for (const [label, filterType] of [
     ['Linear Phase', 'LinearPhase128k'],
     ['Minimum Phase', 'MinimumPhaseCompact128k'],
-    ['Smooth Phase', 'SmoothPhase128k'],
-    ['Split Phase', 'SplitPhase128kE2v3'],
-    ['Split Phase B', 'SplitPhase128kE3']
+    ['Split Phase', 'SplitPhase128kE3']
   ]) {
     await page.getByRole('button', { name: 'Filter' }).click();
     await page.getByRole('option', { name: label, exact: true }).click();

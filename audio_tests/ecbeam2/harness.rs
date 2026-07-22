@@ -4030,7 +4030,7 @@ fn measure_dsd_triage_case(
         .ok_or_else(|| "left DSD triage decimation failed".to_string())?;
     let decoded_r = dsd_triage_decimate_to_pcm(&bits_r, wire_rate, source_rate)
         .ok_or_else(|| "right DSD triage decimation failed".to_string())?;
-    notes.push("decoded_path=sinc_extreme32k_triage_decimator".to_string());
+    notes.push("decoded_path=linear_phase128k_triage_decimator".to_string());
 
     let mut idle_renderer = new_dsd_renderer(filter, source_rate, dsd_rate, dsd_modulator, config)
         .map_err(|err| format!("DSD idle density renderer init failed: {err}"))?;
@@ -5506,7 +5506,7 @@ fn dsd_triage_decimate_to_pcm(bits: &[f64], wire_rate: u32, target_rate: u32) ->
     if target_rate == 0 || !wire_rate.is_multiple_of(target_rate) {
         return None;
     }
-    let mut resampler = SincResampler::new(FilterType::SincExtreme32k, wire_rate, target_rate);
+    let mut resampler = SincResampler::new(FilterType::LinearPhase128k, wire_rate, target_rate);
     resampler.input(bits, bits);
     let mut interleaved = Vec::new();
     resampler.process(&mut interleaved);
@@ -6058,35 +6058,19 @@ pub fn run_selectable_dsd_matrix() -> Result<SuiteReport, String> {
     )
 }
 
-pub fn default_selectable_dsd_filters() -> [SelectableDsdFilter; 7] {
+pub fn default_selectable_dsd_filters() -> [SelectableDsdFilter; 3] {
     [
         SelectableDsdFilter {
             name: "SplitPhase",
-            filter: FilterType::Split128k,
+            filter: FilterType::SplitPhase128kE3,
         },
         SelectableDsdFilter {
             name: "LinearPhase",
-            filter: FilterType::SincExtreme32k,
+            filter: FilterType::LinearPhase128k,
         },
         SelectableDsdFilter {
             name: "MinimumPhase",
-            filter: FilterType::Minimum16k,
-        },
-        SelectableDsdFilter {
-            name: "IntegratedPhase1",
-            filter: FilterType::IntegratedPhase128k,
-        },
-        SelectableDsdFilter {
-            name: "IntegratedPhase2",
-            filter: FilterType::IntegratedPhase128kV2,
-        },
-        SelectableDsdFilter {
-            name: "IntegratedPhase3",
-            filter: FilterType::IntegratedPhase128kV3,
-        },
-        SelectableDsdFilter {
-            name: "IntegratedPhase4",
-            filter: FilterType::IntegratedPhase128kV4,
+            filter: FilterType::MinimumPhaseCompact128k,
         },
     ]
 }
@@ -6203,8 +6187,8 @@ pub fn run_dsd_roundtrip_quality_with_config_and_fixtures(
         return Err("DSD round-trip quality requires at least one rate".to_string());
     }
     let source_rate = 44_100;
-    let filter = FilterType::Split128k;
-    let filter_name = "Split128k";
+    let filter = FilterType::SplitPhase128kE3;
+    let filter_name = "SplitPhase128kE3";
     config.validate_for_rates(rates)?;
     let frame_rate = roundtrip_fixture_rate(rates);
     let frames = dsd_measurement_frames(filter, frame_rate, source_rate, seconds);
@@ -6321,8 +6305,8 @@ pub fn run_dsd_stability_precheck(
     }
     config.validate_for_rates(rates)?;
     let source_rate = 44_100;
-    let filter = FilterType::Split128k;
-    let filter_name = "Split128k";
+    let filter = FilterType::SplitPhase128kE3;
+    let filter_name = "SplitPhase128kE3";
     let modulator = DsdModulator::EcDepth2;
     let frames = (source_rate as f64 * DSD_STABILITY_PRECHECK_SECONDS).round() as usize;
     let probes = stability_precheck_probes(frames, source_rate);
@@ -7147,7 +7131,8 @@ pub fn gate_failures(report: &SuiteReport) -> Vec<String> {
                     dsd.filter, dsd.modulator, dsd.source_rate, dsd.dsd_rate
                 ),
             );
-            let idle_tone_required = matches!(dsd.filter.as_str(), "Minimum16k" | "Split128k");
+            let idle_tone_required =
+                matches!(dsd.filter.as_str(), "Minimum16k" | "SplitPhase128kE3");
             if dsd.modulator.starts_with("EcDepth")
                 && (idle_tone_required || dsd.idle_tone_dbfs.is_some())
             {
@@ -7182,50 +7167,50 @@ pub fn run_dsd_noise_floor_gate_cases() -> Vec<DsdMeasurement> {
     }
     [
         (
-            "Split128k",
-            FilterType::Split128k,
+            "SplitPhase128kE3",
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd128,
             DsdModulator::Standard,
         ),
         (
-            "Split128k",
-            FilterType::Split128k,
+            "SplitPhase128kE3",
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd128,
             DsdModulator::EcDepth1,
         ),
         (
-            "Split128k",
-            FilterType::Split128k,
+            "SplitPhase128kE3",
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd128,
             DsdModulator::EcDepth2,
         ),
         (
-            "Split128k",
-            FilterType::Split128k,
+            "SplitPhase128kE3",
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd256,
             DsdModulator::Standard,
         ),
         (
-            "Split128k",
-            FilterType::Split128k,
+            "SplitPhase128kE3",
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd256,
             DsdModulator::EcDepth1,
         ),
         (
-            "Split128k",
-            FilterType::Split128k,
+            "SplitPhase128kE3",
+            FilterType::SplitPhase128kE3,
             DsdRate::Dsd256,
             DsdModulator::EcDepth2,
         ),
         (
-            "SincExtreme32k",
-            FilterType::SincExtreme32k,
+            "LinearPhase128k",
+            FilterType::LinearPhase128k,
             DsdRate::Dsd256,
             DsdModulator::EcDepth1,
         ),
         (
-            "SincExtreme32k",
-            FilterType::SincExtreme32k,
+            "LinearPhase128k",
+            FilterType::LinearPhase128k,
             DsdRate::Dsd256,
             DsdModulator::EcDepth2,
         ),
@@ -7277,7 +7262,7 @@ pub fn run_ec4a_dsd256_crackle_torture(
         ..DsdExperimentTweaks::default()
     };
     let mut renderer = DsdRenderer::new_with_dsd_modulator_and_experiment_tweaks(
-        FilterType::Split128k,
+        FilterType::SplitPhase128kE3,
         source_rate,
         dsd_rate,
         modulator,
@@ -7331,7 +7316,7 @@ pub fn run_ec4a_dsd256_crackle_torture(
         .reduce(f64::max);
 
     Ok(Ec4aCrackleMeasurement {
-        filter: "Split128k".to_string(),
+        filter: "SplitPhase128kE3".to_string(),
         source_rate,
         dsd_rate: dsd_rate_name(dsd_rate).to_string(),
         modulator: modulator.as_name().to_string(),
@@ -7662,8 +7647,8 @@ fn run_pcm_measurements(mode: SuiteMode) -> Vec<PcmMeasurement> {
     let filters = match mode {
         SuiteMode::Quick => vec![
             FilterCase {
-                name: "SincExtreme32k",
-                filter: FilterType::SincExtreme32k,
+                name: "LinearPhase128k",
+                filter: FilterType::LinearPhase128k,
                 gate: GateClass::ReportOnly,
             },
             FilterCase {
@@ -7672,45 +7657,35 @@ fn run_pcm_measurements(mode: SuiteMode) -> Vec<PcmMeasurement> {
                 gate: GateClass::Minimum16k,
             },
             FilterCase {
-                name: "Minimum16k",
-                filter: FilterType::Minimum16k,
+                name: "MinimumPhaseCompact128k",
+                filter: FilterType::MinimumPhaseCompact128k,
                 gate: GateClass::Minimum16k,
             },
             FilterCase {
-                name: "Split128k",
-                filter: FilterType::Split128k,
+                name: "SplitPhase128kE3",
+                filter: FilterType::SplitPhase128kE3,
                 gate: GateClass::Minimum16k,
             },
         ],
         SuiteMode::Full => vec![
             FilterCase {
-                name: "SincExtreme32k",
-                filter: FilterType::SincExtreme32k,
-                gate: GateClass::ReportOnly,
-            },
-            FilterCase {
-                name: "Minimum16k",
-                filter: FilterType::Minimum16k,
-                gate: GateClass::Minimum16k,
-            },
-            FilterCase {
-                name: "Minimum16k",
-                filter: FilterType::Minimum16k,
-                gate: GateClass::Minimum16k,
-            },
-            FilterCase {
-                name: "Split128k",
-                filter: FilterType::Split128k,
-                gate: GateClass::Minimum16k,
-            },
-            FilterCase {
-                name: "SincExtreme32k",
-                filter: FilterType::SincExtreme32k,
+                name: "LinearPhase128k",
+                filter: FilterType::LinearPhase128k,
                 gate: GateClass::Extreme,
             },
             FilterCase {
-                name: "Split128k",
-                filter: FilterType::Split128k,
+                name: "Minimum16k",
+                filter: FilterType::Minimum16k,
+                gate: GateClass::Minimum16k,
+            },
+            FilterCase {
+                name: "MinimumPhaseCompact128k",
+                filter: FilterType::MinimumPhaseCompact128k,
+                gate: GateClass::Minimum16k,
+            },
+            FilterCase {
+                name: "SplitPhase128kE3",
+                filter: FilterType::SplitPhase128kE3,
                 gate: GateClass::Extreme,
             },
         ],
@@ -7756,9 +7731,9 @@ fn run_pcm_measurements(mode: SuiteMode) -> Vec<PcmMeasurement> {
 fn run_src_sweep_measurements(mode: SuiteMode) -> Vec<PcmMeasurement> {
     let filters = [
         FilterCase {
-            name: "Minimum16k",
-            filter: FilterType::Minimum16k,
-            gate: GateClass::Minimum16k,
+            name: "LinearPhase128k",
+            filter: FilterType::LinearPhase128k,
+            gate: GateClass::Extreme,
         },
         FilterCase {
             name: "Minimum16k",
@@ -7766,9 +7741,14 @@ fn run_src_sweep_measurements(mode: SuiteMode) -> Vec<PcmMeasurement> {
             gate: GateClass::Minimum16k,
         },
         FilterCase {
-            name: "Split128k",
-            filter: FilterType::Split128k,
+            name: "MinimumPhaseCompact128k",
+            filter: FilterType::MinimumPhaseCompact128k,
             gate: GateClass::Minimum16k,
+        },
+        FilterCase {
+            name: "SplitPhase128kE3",
+            filter: FilterType::SplitPhase128kE3,
+            gate: GateClass::Extreme,
         },
     ];
     let rates = [
@@ -7988,11 +7968,23 @@ fn run_dsd_measurements(
     };
     let paths = match (mode, scope) {
         (_, SuiteScope::EcDepthOnly) => vec![
-            ("Split128k", FilterType::Split128k, DsdRate::Dsd128),
-            ("Split128k", FilterType::Split128k, DsdRate::Dsd256),
+            (
+                "SplitPhase128kE3",
+                FilterType::SplitPhase128kE3,
+                DsdRate::Dsd128,
+            ),
+            (
+                "SplitPhase128kE3",
+                FilterType::SplitPhase128kE3,
+                DsdRate::Dsd256,
+            ),
         ],
         (_, SuiteScope::Ec3Tuning) => {
-            vec![("Split128k", FilterType::Split128k, DsdRate::Dsd128)]
+            vec![(
+                "SplitPhase128kE3",
+                FilterType::SplitPhase128kE3,
+                DsdRate::Dsd128,
+            )]
         }
         (SuiteMode::Quick, _) => vec![
             ("Minimum16k", FilterType::Minimum16k, DsdRate::Dsd128),
@@ -8001,15 +7993,19 @@ fn run_dsd_measurements(
         (SuiteMode::Full, _) => vec![
             ("Minimum16k", FilterType::Minimum16k, DsdRate::Dsd128),
             ("Minimum16k", FilterType::Minimum16k, DsdRate::Dsd256),
-            ("Minimum16k", FilterType::Minimum16k, DsdRate::Dsd128),
-            ("Minimum16k", FilterType::Minimum16k, DsdRate::Dsd256),
-            ("Split128k", FilterType::Split128k, DsdRate::Dsd128),
-            ("Split128k", FilterType::Split128k, DsdRate::Dsd256),
-            ("Split128k", FilterType::Split128k, DsdRate::Dsd128),
-            ("Split128k", FilterType::Split128k, DsdRate::Dsd256),
             (
-                "SincExtreme32k",
-                FilterType::SincExtreme32k,
+                "SplitPhase128kE3",
+                FilterType::SplitPhase128kE3,
+                DsdRate::Dsd128,
+            ),
+            (
+                "SplitPhase128kE3",
+                FilterType::SplitPhase128kE3,
+                DsdRate::Dsd256,
+            ),
+            (
+                "LinearPhase128k",
+                FilterType::LinearPhase128k,
                 DsdRate::Dsd256,
             ),
         ],
@@ -8047,7 +8043,7 @@ fn run_dsd_measurements(
                 }
                 let run_dsd128_ec4a_target_artifacts = mode == SuiteMode::Full
                     && scope == SuiteScope::All
-                    && *filter == FilterType::Split128k
+                    && *filter == FilterType::SplitPhase128kE3
                     && *rate == DsdRate::Dsd128
                     && source_rate == 44_100
                     && matches!(
@@ -8059,7 +8055,7 @@ fn run_dsd_measurements(
                         || (dsd_artifact_filter_enabled(scope, *filter)
                             && source_rate == 44_100
                             && (*rate == DsdRate::Dsd256
-                                || (*filter == FilterType::Split128k
+                                || (*filter == FilterType::SplitPhase128kE3
                                     && *rate == DsdRate::Dsd128)
                                 || (matches!(
                                     scope,
@@ -8099,15 +8095,17 @@ fn should_measure_dsd_modulator(
     modulator: DsdModulator,
 ) -> bool {
     if scope == SuiteScope::EcDepthOnly {
-        return mode == SuiteMode::Full && filter == FilterType::Split128k && source_rate == 44_100;
+        return mode == SuiteMode::Full
+            && filter == FilterType::SplitPhase128kE3
+            && source_rate == 44_100;
     }
     if scope == SuiteScope::Ec3Tuning {
         return mode == SuiteMode::Full
-            && filter == FilterType::Split128k
+            && filter == FilterType::SplitPhase128kE3
             && source_rate == 44_100
             && matches!(modulator, DsdModulator::EcDepth2 | DsdModulator::EcDepth3);
     }
-    if filter == FilterType::Split128k {
+    if filter == FilterType::SplitPhase128kE3 {
         return mode == SuiteMode::Full
             && source_rate == 44_100
             && matches!(modulator, DsdModulator::EcDepth2);
@@ -8122,7 +8120,9 @@ fn should_measure_dsd_modulator(
             source_rate == 44_100
                 && matches!(
                     filter,
-                    FilterType::Minimum16k | FilterType::Split128k | FilterType::SincExtreme32k
+                    FilterType::Minimum16k
+                        | FilterType::SplitPhase128kE3
+                        | FilterType::LinearPhase128k
                 )
         }
         (SuiteMode::Full, _) => true,
@@ -8131,9 +8131,12 @@ fn should_measure_dsd_modulator(
 
 fn dsd_artifact_filter_enabled(scope: SuiteScope, filter: FilterType) -> bool {
     match scope {
-        SuiteScope::EcDepthOnly | SuiteScope::Ec3Tuning => filter == FilterType::Split128k,
+        SuiteScope::EcDepthOnly | SuiteScope::Ec3Tuning => filter == FilterType::SplitPhase128kE3,
         SuiteScope::All | SuiteScope::DsdOnly => {
-            matches!(filter, FilterType::Minimum16k | FilterType::Split128k)
+            matches!(
+                filter,
+                FilterType::Minimum16k | FilterType::SplitPhase128kE3
+            )
         }
     }
 }
@@ -11608,13 +11611,7 @@ fn annotate_dsd_improvements(results: &mut [DsdMeasurement], config: DsdExperime
             "EcDepth8",
             "EcDepth4Adaptive",
         ] {
-            for filter in [
-                "Minimum16k",
-                "Minimum16k",
-                "Split128k",
-                "SincExtreme32k",
-                "Split128k",
-            ] {
+            for filter in ["Minimum16k", "SplitPhase128kE3", "LinearPhase128k"] {
                 let baseline = results
                     .iter()
                     .find(|m| {
@@ -11777,24 +11774,8 @@ fn measure_image_rejection(filter: FilterType, rate: RateCase, seconds: f64) -> 
 fn minimum_measurement_frames(filter: FilterType) -> usize {
     match filter {
         FilterType::Minimum16k => 32_768,
-        FilterType::SincExtreme32k => 65_536,
-        FilterType::LinearPhase128k
-        | FilterType::Split128k
-        | FilterType::Split128kV2
-        | FilterType::SplitPhase128kV3
-        | FilterType::SplitPhase128kV4
-        | FilterType::SplitPhase128kE2v3
-        | FilterType::SplitPhase128kE3 => 131_072,
-        FilterType::IntegratedPhase128k
-        | FilterType::IntegratedPhase128kV2
-        | FilterType::IntegratedPhase128kV3
-        | FilterType::IntegratedPhase128kV4
-        | FilterType::MinimumPhase128k
-        | FilterType::MinimumPhase128kV2
-        | FilterType::MinimumPhase128kV3
-        | FilterType::MinimumPhase128kV4 => 131_072,
-        FilterType::MinimumPhaseCompact128k => 131_072,
-        FilterType::MinimumPhaseCompact128kV2 | FilterType::SmoothPhase128k => 131_072,
+        FilterType::LinearPhase128k => 65_536,
+        FilterType::MinimumPhaseCompact128k | FilterType::SplitPhase128kE3 => 131_072,
     }
 }
 
@@ -13740,8 +13721,8 @@ fn push_source_note(notes: &mut Vec<String>, key: &str, source: Option<&str>) {
 
 fn gate_class_for_filter(name: &str) -> Option<GateClass> {
     match name {
-        "Minimum16k" | "Split128k" => Some(GateClass::Minimum16k),
-        "SincExtreme32k" => Some(GateClass::Extreme),
+        "Minimum16k" | "SplitPhase128kE3" => Some(GateClass::Minimum16k),
+        "LinearPhase128k" => Some(GateClass::Extreme),
         _ => None,
     }
 }
@@ -13855,7 +13836,7 @@ fn check_dsd_noise_floor(failures: &mut Vec<String>, dsd: &DsdMeasurement) {
 
 fn check_ec1_artifact_regression(failures: &mut Vec<String>, dsd: &DsdMeasurement) {
     if dsd.modulator != "EcDepth1"
-        || dsd.filter != "Split128k"
+        || dsd.filter != "SplitPhase128kE3"
         || dsd.source_rate != 44_100
         || dsd.dsd_rate != "DSD256"
         || dsd.high_freq_worst_residual_db.is_none()
@@ -13867,61 +13848,61 @@ fn check_ec1_artifact_regression(failures: &mut Vec<String>, dsd: &DsdMeasuremen
         failures,
         dsd.inband_snr_spread_db,
         20.0,
-        "Split128k EcDepth1 44100 DSD256 in-band SINAD spread".to_string(),
+        "SplitPhase128kE3 EcDepth1 44100 DSD256 in-band SINAD spread".to_string(),
     );
     check_min(
         failures,
         dsd.inband_noise_spur_margin_db,
         15.0,
-        "Split128k EcDepth1 44100 DSD256 in-band spur margin".to_string(),
+        "SplitPhase128kE3 EcDepth1 44100 DSD256 in-band spur margin".to_string(),
     );
     check_max(
         failures,
         dsd.idle_worst_tone_dbfs,
         -70.0,
-        "Split128k EcDepth1 44100 DSD256 idle worst tone".to_string(),
+        "SplitPhase128kE3 EcDepth1 44100 DSD256 idle worst tone".to_string(),
     );
     check_max(
         failures,
         dsd.high_freq_worst_residual_db,
         -10.0,
-        "Split128k EcDepth1 44100 DSD256 high-frequency worst residual".to_string(),
+        "SplitPhase128kE3 EcDepth1 44100 DSD256 high-frequency worst residual".to_string(),
     );
     check_max(
         failures,
         dsd.high_freq_worst_spur_dbfs,
         -50.0,
-        "Split128k EcDepth1 44100 DSD256 high-frequency worst spur".to_string(),
+        "SplitPhase128kE3 EcDepth1 44100 DSD256 high-frequency worst spur".to_string(),
     );
     check_max(
         failures,
         dsd.decoded_abs_peak,
         0.25,
-        "Split128k EcDepth1 44100 DSD256 decoded absolute peak".to_string(),
+        "SplitPhase128kE3 EcDepth1 44100 DSD256 decoded absolute peak".to_string(),
     );
     check_max(
         failures,
         dsd.bit_density_max_deviation,
         0.00018,
-        "Split128k EcDepth1 44100 DSD256 bit-density max deviation".to_string(),
+        "SplitPhase128kE3 EcDepth1 44100 DSD256 bit-density max deviation".to_string(),
     );
     check_max_usize(
         failures,
         dsd.transient_click_candidates,
         0,
-        "Split128k EcDepth1 44100 DSD256 transient click candidates".to_string(),
+        "SplitPhase128kE3 EcDepth1 44100 DSD256 transient click candidates".to_string(),
     );
     check_max_usize(
         failures,
         dsd.program_click_candidates,
         0,
-        "Split128k EcDepth1 44100 DSD256 program click candidates".to_string(),
+        "SplitPhase128kE3 EcDepth1 44100 DSD256 program click candidates".to_string(),
     );
 }
 
 fn check_dsd128_ec2_artifact_regression(failures: &mut Vec<String>, dsd: &DsdMeasurement) {
     if dsd.modulator != "EcDepth2"
-        || dsd.filter != "Split128k"
+        || dsd.filter != "SplitPhase128kE3"
         || dsd.source_rate != 44_100
         || dsd.dsd_rate != "DSD128"
         || dsd.high_freq_worst_residual_db.is_none()
@@ -13933,45 +13914,45 @@ fn check_dsd128_ec2_artifact_regression(failures: &mut Vec<String>, dsd: &DsdMea
         failures,
         dsd.inband_snr_spread_db,
         28.0,
-        "Split128k EcDepth2 44100 DSD128 in-band SINAD spread".to_string(),
+        "SplitPhase128kE3 EcDepth2 44100 DSD128 in-band SINAD spread".to_string(),
     );
     check_dsd_spur_margin_or_absolute_peak(
         failures,
         dsd,
         dsd128_ec2_spur_margin_limit_db(dsd),
         -180.0,
-        "Split128k EcDepth2 44100 DSD128 in-band spur",
+        "SplitPhase128kE3 EcDepth2 44100 DSD128 in-band spur",
     );
     check_max(
         failures,
         dsd.inband_noise_worst_rms_dbfs,
         DsdRateGate::for_measurement(dsd).worst_noise_max_dbfs,
-        "Split128k EcDepth2 44100 DSD128 worst-window in-band noise RMS".to_string(),
+        "SplitPhase128kE3 EcDepth2 44100 DSD128 worst-window in-band noise RMS".to_string(),
     );
     check_max_usize(
         failures,
         dsd.transient_click_candidates,
         0,
-        "Split128k EcDepth2 44100 DSD128 transient click candidates".to_string(),
+        "SplitPhase128kE3 EcDepth2 44100 DSD128 transient click candidates".to_string(),
     );
     check_max_usize(
         failures,
         dsd.program_click_candidates,
         0,
-        "Split128k EcDepth2 44100 DSD128 program click candidates".to_string(),
+        "SplitPhase128kE3 EcDepth2 44100 DSD128 program click candidates".to_string(),
     );
     check_max(
         failures,
         dsd.decoded_abs_peak,
         0.25,
-        "Split128k EcDepth2 44100 DSD128 decoded absolute peak".to_string(),
+        "SplitPhase128kE3 EcDepth2 44100 DSD128 decoded absolute peak".to_string(),
     );
 }
 
 fn check_dsd128_ec4a_pressure_only_reference(report: &SuiteReport, failures: &mut Vec<String>) {
     for ec4a in report.dsd.iter().filter(|m| {
         m.modulator == "EcDepth4Adaptive"
-            && m.filter == "Split128k"
+            && m.filter == "SplitPhase128kE3"
             && m.source_rate == 44_100
             && m.dsd_rate == "DSD128"
             && dsd_note_bool(m, "dsd128_ec4a_allow_predictive_triggers") == Some(false)
@@ -14005,7 +13986,7 @@ fn check_dsd128_ec4a_pressure_only_reference(report: &SuiteReport, failures: &mu
                 && dsd_note_string(m, "dsd_seed_right") == dsd_note_string(ec4a, "dsd_seed_right")
         }) else {
             failures.push(format!(
-                "Split128k EcDepth4Adaptive pressure-only 44100 DSD128 {headroom_db:.1} dB has no EC-2 reference row"
+                "SplitPhase128kE3 EcDepth4Adaptive pressure-only 44100 DSD128 {headroom_db:.1} dB has no EC-2 reference row"
             ));
             continue;
         };
@@ -14016,7 +13997,7 @@ fn check_dsd128_ec4a_pressure_only_reference(report: &SuiteReport, failures: &mu
             ec2.inband_noise_spur_margin_db,
             0.10,
             format!(
-                "Split128k EcDepth4Adaptive pressure-only 44100 DSD128 {headroom_db:.1} dB spur margin vs EC-2"
+                "SplitPhase128kE3 EcDepth4Adaptive pressure-only 44100 DSD128 {headroom_db:.1} dB spur margin vs EC-2"
             ),
         );
         check_pair_delta(
@@ -14025,7 +14006,7 @@ fn check_dsd128_ec4a_pressure_only_reference(report: &SuiteReport, failures: &mu
             ec2.inband_noise_worst_rms_dbfs,
             0.10,
             format!(
-                "Split128k EcDepth4Adaptive pressure-only 44100 DSD128 {headroom_db:.1} dB worst-window noise vs EC-2"
+                "SplitPhase128kE3 EcDepth4Adaptive pressure-only 44100 DSD128 {headroom_db:.1} dB worst-window noise vs EC-2"
             ),
         );
         check_pair_delta(
@@ -14034,7 +14015,7 @@ fn check_dsd128_ec4a_pressure_only_reference(report: &SuiteReport, failures: &mu
             ec2.high_freq_worst_residual_db,
             0.10,
             format!(
-                "Split128k EcDepth4Adaptive pressure-only 44100 DSD128 {headroom_db:.1} dB HF residual vs EC-2"
+                "SplitPhase128kE3 EcDepth4Adaptive pressure-only 44100 DSD128 {headroom_db:.1} dB HF residual vs EC-2"
             ),
         );
     }
@@ -14042,7 +14023,7 @@ fn check_dsd128_ec4a_pressure_only_reference(report: &SuiteReport, failures: &mu
 
 fn check_dsd128_ec4a_target_bands(failures: &mut Vec<String>, dsd: &DsdMeasurement) {
     if dsd.modulator != "EcDepth4Adaptive"
-        || dsd.filter != "Split128k"
+        || dsd.filter != "SplitPhase128kE3"
         || dsd.source_rate != 44_100
         || dsd.dsd_rate != "DSD128"
         || dsd_note_bool(dsd, "dsd128_ec4a_allow_predictive_triggers") != Some(false)
@@ -14054,53 +14035,55 @@ fn check_dsd128_ec4a_target_bands(failures: &mut Vec<String>, dsd: &DsdMeasureme
         failures,
         dsd.inband_snr_left_worst_db,
         150.0,
-        "Split128k EcDepth4Adaptive pressure-only 44100 DSD128 left worst SINAD".to_string(),
+        "SplitPhase128kE3 EcDepth4Adaptive pressure-only 44100 DSD128 left worst SINAD".to_string(),
     );
     check_min(
         failures,
         dsd.inband_snr_right_worst_db,
         150.0,
-        "Split128k EcDepth4Adaptive pressure-only 44100 DSD128 right worst SINAD".to_string(),
+        "SplitPhase128kE3 EcDepth4Adaptive pressure-only 44100 DSD128 right worst SINAD"
+            .to_string(),
     );
     check_max(
         failures,
         dsd.inband_snr_spread_db,
         5.0,
-        "Split128k EcDepth4Adaptive pressure-only 44100 DSD128 worst-channel SINAD spread"
+        "SplitPhase128kE3 EcDepth4Adaptive pressure-only 44100 DSD128 worst-channel SINAD spread"
             .to_string(),
     );
     check_max(
         failures,
         dsd.stereo_snr_worst_mismatch_db,
         3.0,
-        "Split128k EcDepth4Adaptive pressure-only 44100 DSD128 stereo SINAD mismatch".to_string(),
+        "SplitPhase128kE3 EcDepth4Adaptive pressure-only 44100 DSD128 stereo SINAD mismatch"
+            .to_string(),
     );
     check_dsd_spur_margin_or_absolute_peak(
         failures,
         dsd,
         15.0,
         -180.0,
-        "Split128k EcDepth4Adaptive pressure-only 44100 DSD128 worst-channel spur",
+        "SplitPhase128kE3 EcDepth4Adaptive pressure-only 44100 DSD128 worst-channel spur",
     );
     check_max(
         failures,
         dsd.bit_density_max_deviation,
         0.0002,
-        "Split128k EcDepth4Adaptive pressure-only 44100 DSD128 worst-channel density deviation"
+        "SplitPhase128kE3 EcDepth4Adaptive pressure-only 44100 DSD128 worst-channel density deviation"
             .to_string(),
     );
     check_max_usize(
         failures,
         dsd.transient_click_candidates,
         0,
-        "Split128k EcDepth4Adaptive pressure-only 44100 DSD128 transient click candidates"
+        "SplitPhase128kE3 EcDepth4Adaptive pressure-only 44100 DSD128 transient click candidates"
             .to_string(),
     );
     check_max_usize(
         failures,
         dsd.program_click_candidates,
         0,
-        "Split128k EcDepth4Adaptive pressure-only 44100 DSD128 program click candidates"
+        "SplitPhase128kE3 EcDepth4Adaptive pressure-only 44100 DSD128 program click candidates"
             .to_string(),
     );
 }
@@ -15511,7 +15494,7 @@ fn dsd128_ec4a_candidates_csv(report: &SuiteReport) -> String {
         "candidate_index,status,score,path_variant,origin_source_rate,renderer_source_rate,intermediate_rate,intermediate_bits,intermediate_filter,path_prepare_ms,render_ms,modulator,headroom_db,dither_shape,dither_scale,dither_prng,leak_alpha,lf_floor_gamma,common_side_beta,common_side_common_seed,common_side_side_seed,pressure_only,quality_pressure,quality_pressure_threshold,quality_pressure_hold,seed_left,seed_right,median_sinad,worst_sinad,spread,left_worst,right_worst,stereo_mismatch,spur_margin,left_spur_margin,right_spur_margin,idle_worst,density,clicks,resets_clamps,hf_residual,depth4_ratio,hard_failures,notes\n",
     );
     for (idx, dsd) in report.dsd.iter().enumerate() {
-        if !is_dsd128_split16k_candidate(dsd) {
+        if !is_dsd128_split_phase_candidate(dsd) {
             continue;
         }
         let score = score_dsd_candidate(dsd);
@@ -16077,7 +16060,7 @@ fn dsd128_ec4a_candidates_markdown(report: &SuiteReport) -> String {
         .dsd
         .iter()
         .enumerate()
-        .filter(|(_, dsd)| is_dsd128_split16k_candidate(dsd))
+        .filter(|(_, dsd)| is_dsd128_split_phase_candidate(dsd))
         .map(|(idx, dsd)| (idx, dsd, score_dsd_candidate(dsd)))
         .collect();
     rows.sort_by(|(_, _, left), (_, _, right)| {
@@ -16087,7 +16070,7 @@ fn dsd128_ec4a_candidates_markdown(report: &SuiteReport) -> String {
     });
 
     let mut md = String::new();
-    md.push_str("# DSD128 Split128k EC-4A candidates\n\n");
+    md.push_str("# DSD128 SplitPhase128kE3 EC-4A candidates\n\n");
     md.push_str(&format!("mode: {}\n\n", report.mode));
     md.push_str("| # | Path | Modulator | Status | Worst | Spread | L Spur | R Spur | Idle | Density | Clicks | Prep ms | Render ms | Depth4 | Notes |\n");
     md.push_str(
@@ -16375,8 +16358,8 @@ fn target_band_lower_is_better(value: Option<f64>, excellent: f64, good: f64) ->
     }
 }
 
-fn is_dsd128_split16k_candidate(dsd: &DsdMeasurement) -> bool {
-    dsd.filter == "Split128k"
+fn is_dsd128_split_phase_candidate(dsd: &DsdMeasurement) -> bool {
+    dsd.filter == "SplitPhase128kE3"
         && matches!(dsd.source_rate, 44_100 | 48_000)
         && dsd.dsd_rate == "DSD128"
 }
@@ -18146,7 +18129,7 @@ fn synthetic_dsd_measurement_for_rate(
 ) -> DsdMeasurement {
     DsdMeasurement {
         modulator: modulator.to_string(),
-        filter: "Split128k".to_string(),
+        filter: "SplitPhase128kE3".to_string(),
         path_variant: "direct".to_string(),
         source_rate: 44_100,
         origin_source_rate: 44_100,

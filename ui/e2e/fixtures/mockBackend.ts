@@ -43,7 +43,7 @@ const defaultZone = {
   },
   dsp_profile: {
     upsampling_enabled: true,
-    filter_type: 'SplitPhase128kE2v3',
+    filter_type: 'SplitPhase128kE3',
     target_rate: 176400,
     dither_mode: 'Auto'
   },
@@ -102,8 +102,8 @@ export const fixtures = {
     transport_pending: 'none',
     upsampling_enabled: true,
     exclusive: true,
-    filter_type: 'SplitPhase128kE2v3',
-    active_filter_type: 'SplitPhase128kE2v3',
+    filter_type: 'SplitPhase128kE3',
+    active_filter_type: 'SplitPhase128kE3',
     dither_mode: 'Auto',
     output_mode: 'Pcm',
     active_output_mode: 'Pcm',

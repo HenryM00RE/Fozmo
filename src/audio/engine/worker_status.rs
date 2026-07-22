@@ -402,7 +402,7 @@ mod tests {
     fn pcm_fallback_status_keeps_requested_rate_and_filter_visible() {
         let state = AtomicPlayerState::new();
 
-        publish_pcm_fallback_status(&state, 176_400, FilterType::SincExtreme32k);
+        publish_pcm_fallback_status(&state, 176_400, FilterType::LinearPhase128k);
 
         assert_eq!(state.target_rate.load(Ordering::Relaxed), 176_400);
         assert_eq!(
@@ -411,7 +411,7 @@ mod tests {
         );
         assert_eq!(
             state.active_filter_type.load(Ordering::Relaxed),
-            FilterType::SincExtreme32k.as_id()
+            FilterType::LinearPhase128k.as_id()
         );
     }
 
@@ -420,7 +420,7 @@ mod tests {
         let state = AtomicPlayerState::new();
         state.target_rate.store(96_000, Ordering::Relaxed);
 
-        publish_active_pcm_status(&state, FilterType::SincExtreme32k);
+        publish_active_pcm_status(&state, FilterType::LinearPhase128k);
 
         assert_eq!(state.target_rate.load(Ordering::Relaxed), 96_000);
         assert_eq!(
@@ -429,7 +429,7 @@ mod tests {
         );
         assert_eq!(
             state.active_filter_type.load(Ordering::Relaxed),
-            FilterType::SincExtreme32k.as_id()
+            FilterType::LinearPhase128k.as_id()
         );
     }
 
@@ -439,7 +439,7 @@ mod tests {
 
         publish_config_status(
             &state,
-            FilterType::SincExtreme32k,
+            FilterType::LinearPhase128k,
             176_400,
             false,
             false,
@@ -449,7 +449,7 @@ mod tests {
 
         assert_eq!(
             state.filter_type.load(Ordering::Relaxed),
-            FilterType::SincExtreme32k.as_id()
+            FilterType::LinearPhase128k.as_id()
         );
         assert_eq!(
             state.active_output_mode.load(Ordering::Relaxed),
@@ -457,7 +457,7 @@ mod tests {
         );
         assert_eq!(
             state.active_filter_type.load(Ordering::Relaxed),
-            FilterType::SincExtreme32k.as_id()
+            FilterType::LinearPhase128k.as_id()
         );
         assert_eq!(
             state.configured_target_rate.load(Ordering::Relaxed),
@@ -473,11 +473,11 @@ mod tests {
         let state = AtomicPlayerState::new();
         state
             .active_filter_type
-            .store(FilterType::SincExtreme32k.as_id(), Ordering::Relaxed);
+            .store(FilterType::LinearPhase128k.as_id(), Ordering::Relaxed);
 
         publish_config_status(
             &state,
-            FilterType::SincExtreme32k,
+            FilterType::LinearPhase128k,
             352_800,
             true,
             true,
@@ -487,11 +487,11 @@ mod tests {
 
         assert_eq!(
             state.filter_type.load(Ordering::Relaxed),
-            FilterType::SincExtreme32k.as_id()
+            FilterType::LinearPhase128k.as_id()
         );
         assert_eq!(
             state.active_filter_type.load(Ordering::Relaxed),
-            FilterType::SincExtreme32k.as_id()
+            FilterType::LinearPhase128k.as_id()
         );
         assert_eq!(
             state.configured_target_rate.load(Ordering::Relaxed),

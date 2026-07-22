@@ -17,7 +17,7 @@ const TRANSITION_ENVELOPE_INTERVALS_MS: [(f64, f64); 5] = [
     (10.0, 25.0),
     (25.0, 50.0),
 ];
-/// The SincExtreme32k downsampling cascade reports about 99 ms of latency for
+/// The LinearPhase128k downsampling cascade reports about 99 ms of latency for
 /// the 176.4 kHz decoder. Keep a fixed floor as well as a margin over the
 /// runtime value so a windowed decode never substitutes zeroes inside the
 /// composite decoder's settled support.
@@ -302,7 +302,7 @@ pub fn reconstruct_stereo_window(
     }
 
     let mut decimator =
-        SincResampler::new(FilterType::SincExtreme32k, wire_rate, profile.output_rate);
+        SincResampler::new(FilterType::LinearPhase128k, wire_rate, profile.output_rate);
     let context_output = decoder_context_output_frames(&decimator, profile.output_rate);
     let context_bits = context_output.saturating_mul(ratio);
     let extended_start = bit_range.start.saturating_sub(context_bits) / ratio * ratio;
@@ -1393,7 +1393,7 @@ mod tests {
         for wire_rate in [2_822_400, 5_644_800, 11_289_600] {
             for profile in [AUDIO_BAND, HIRES_BAND] {
                 let decoder =
-                    SincResampler::new(FilterType::SincExtreme32k, wire_rate, profile.output_rate);
+                    SincResampler::new(FilterType::LinearPhase128k, wire_rate, profile.output_rate);
                 let context = decoder_context_output_frames(&decoder, profile.output_rate);
                 let context_ms = context as f64 * 1000.0 / profile.output_rate as f64;
                 assert!(

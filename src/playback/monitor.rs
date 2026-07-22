@@ -73,7 +73,6 @@ pub(crate) fn spawn_listening_monitor(state: AppState) {
                         &status,
                         &pending_qobuz_advances,
                         &qobuz_advance_monitor_state,
-                        Some(&pending_upnp_prewarms),
                     );
                     maybe_spawn_lastfm_radio_prefetch(
                         &state,
