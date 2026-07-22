@@ -149,19 +149,13 @@ pub(super) fn run_playback_step(runtime: &mut WorkerRuntime) {
                             !shared.shutdown_requested()
                                 && shared.state.state.load(Ordering::Relaxed) == PLAYBACK_PLAYING
                                 && shared.playback_epoch.load(Ordering::Relaxed) == session_epoch
-                                && active_stream
-                                    .as_ref()
-                                    .and_then(ActiveOutput::reset_notice)
-                                    .is_none()
+                                && eof_output_can_drain(active_stream.as_ref())
                         });
                         flush_dsd_upsampler_tail_at_eof(ds, &shared.state, || {
                             !shared.shutdown_requested()
                                 && shared.state.state.load(Ordering::Relaxed) == PLAYBACK_PLAYING
                                 && shared.playback_epoch.load(Ordering::Relaxed) == session_epoch
-                                && active_stream
-                                    .as_ref()
-                                    .and_then(ActiveOutput::reset_notice)
-                                    .is_none()
+                                && eof_output_can_drain(active_stream.as_ref())
                         });
                     } else if let Some(sess) = session.as_mut() {
                         flush_pcm_resampler_tail_at_eof(
@@ -176,10 +170,7 @@ pub(super) fn run_playback_step(runtime: &mut WorkerRuntime) {
                                         == PLAYBACK_PLAYING
                                     && shared.playback_epoch.load(Ordering::Relaxed)
                                         == session_epoch
-                                    && active_stream
-                                        .as_ref()
-                                        .and_then(ActiveOutput::reset_notice)
-                                        .is_none()
+                                    && eof_output_can_drain(active_stream.as_ref())
                             },
                         );
                     }
@@ -187,10 +178,7 @@ pub(super) fn run_playback_step(runtime: &mut WorkerRuntime) {
                         !shared.shutdown_requested()
                             && shared.state.state.load(Ordering::Relaxed) == PLAYBACK_PLAYING
                             && shared.playback_epoch.load(Ordering::Relaxed) == session_epoch
-                            && active_stream
-                                .as_ref()
-                                .and_then(ActiveOutput::reset_notice)
-                                .is_none()
+                            && eof_output_can_drain(active_stream.as_ref())
                     });
                     *session = None;
                 }
@@ -201,19 +189,13 @@ pub(super) fn run_playback_step(runtime: &mut WorkerRuntime) {
                         !shared.shutdown_requested()
                             && shared.state.state.load(Ordering::Relaxed) == PLAYBACK_PLAYING
                             && shared.playback_epoch.load(Ordering::Relaxed) == session_epoch
-                            && active_stream
-                                .as_ref()
-                                .and_then(ActiveOutput::reset_notice)
-                                .is_none()
+                            && eof_output_can_drain(active_stream.as_ref())
                     });
                     flush_dsd_upsampler_tail_at_eof(ds, &shared.state, || {
                         !shared.shutdown_requested()
                             && shared.state.state.load(Ordering::Relaxed) == PLAYBACK_PLAYING
                             && shared.playback_epoch.load(Ordering::Relaxed) == session_epoch
-                            && active_stream
-                                .as_ref()
-                                .and_then(ActiveOutput::reset_notice)
-                                .is_none()
+                            && eof_output_can_drain(active_stream.as_ref())
                     });
                 } else if let Some(sess) = session.as_mut() {
                     flush_pcm_resampler_tail_at_eof(
@@ -226,10 +208,7 @@ pub(super) fn run_playback_step(runtime: &mut WorkerRuntime) {
                             !shared.shutdown_requested()
                                 && shared.state.state.load(Ordering::Relaxed) == PLAYBACK_PLAYING
                                 && shared.playback_epoch.load(Ordering::Relaxed) == session_epoch
-                                && active_stream
-                                    .as_ref()
-                                    .and_then(ActiveOutput::reset_notice)
-                                    .is_none()
+                                && eof_output_can_drain(active_stream.as_ref())
                         },
                     );
                 }
@@ -237,10 +216,7 @@ pub(super) fn run_playback_step(runtime: &mut WorkerRuntime) {
                     !shared.shutdown_requested()
                         && shared.state.state.load(Ordering::Relaxed) == PLAYBACK_PLAYING
                         && shared.playback_epoch.load(Ordering::Relaxed) == session_epoch
-                        && active_stream
-                            .as_ref()
-                            .and_then(ActiveOutput::reset_notice)
-                            .is_none()
+                        && eof_output_can_drain(active_stream.as_ref())
                 });
                 *session = None;
                 playback.pending_start_gapless = false;
@@ -282,9 +258,16 @@ fn should_pause_render_while_output_warms(
     playback_state == PLAYBACK_STARTING && has_active_stream && startup_preroll_ready
 }
 
+fn eof_output_can_drain(active_stream: Option<&ActiveOutput>) -> bool {
+    active_stream.is_some_and(|stream| stream.reset_notice().is_none())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{can_prime_without_output_consumer, should_pause_render_while_output_warms};
+    use super::{
+        can_prime_without_output_consumer, eof_output_can_drain,
+        should_pause_render_while_output_warms,
+    };
     use crate::audio::engine::buffers::{new_audio_ring, output_start_preroll_ready};
     use crate::audio::engine::signal_path::OutputMode;
     use crate::audio::engine::state::{PLAYBACK_PLAYING, PLAYBACK_STARTING};
@@ -296,6 +279,11 @@ mod tests {
             PLAYBACK_STARTING,
             true,
         ));
+    }
+
+    #[test]
+    fn eof_drain_stops_when_startup_has_no_output_consumer() {
+        assert!(!eof_output_can_drain(None));
     }
 
     #[test]

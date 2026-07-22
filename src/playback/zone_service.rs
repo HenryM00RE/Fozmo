@@ -1,5 +1,5 @@
 use crate::app::state::AppState;
-use crate::audio::player::{OutputTransport, PlaybackState};
+use crate::audio::player::OutputTransport;
 use crate::audio::upnp::UpnpRendererTarget;
 use crate::diagnostics::status::DiagnosticActivity;
 use crate::library::{
@@ -22,12 +22,6 @@ const ZONE_CACHE_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 const HEGEL_SAVED_ZONE_MESSAGE: &str = "Hegel USB is not currently detected; enable standby visibility to wake it from the network link.";
 const HEGEL_STANDBY_ZONE_MESSAGE: &str =
     "Hegel network link is visible; USB will wake before playback starts.";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ZoneRefreshPolicy {
-    Interactive,
-    Background,
-}
 
 #[derive(Default)]
 pub(crate) struct ZoneSettingsUpdate {
@@ -401,15 +395,15 @@ fn normalize_upnp_pcm_containers(
 }
 
 pub(crate) fn refresh_playback_zones(state: &AppState) -> Vec<ZoneProfile> {
-    refresh_playback_zones_with_policy(state, ZoneRefreshPolicy::Interactive)
+    refresh_playback_zones_inner(state)
 }
 
-fn refresh_playback_zones_with_policy(
-    state: &AppState,
-    policy: ZoneRefreshPolicy,
-) -> Vec<ZoneProfile> {
-    let quiet_local_refresh =
-        policy == ZoneRefreshPolicy::Background && active_coreaudio_dop_playback(state);
+fn refresh_playback_zones_inner(state: &AppState) -> Vec<ZoneProfile> {
+    // CoreAudio can temporarily omit a USB DAC from enumeration while Fozmo's
+    // direct DoP AudioUnit owns it. Treat that as an unsafe time to refresh for
+    // both background and interactive callers: marking the selected zone
+    // offline here strands it as soon as playback reaches EOF.
+    let quiet_local_refresh = coreaudio_dop_output_owned(state);
     let local_devices = if quiet_local_refresh {
         Vec::new()
     } else {
@@ -477,12 +471,9 @@ fn refresh_playback_zones_with_policy(
     enrich_zone_settings(state, zones)
 }
 
-fn active_coreaudio_dop_playback(state: &AppState) -> bool {
+fn coreaudio_dop_output_owned(state: &AppState) -> bool {
     let snapshot = state.zones().active_player().snapshot_no_cover();
-    matches!(
-        snapshot.state,
-        PlaybackState::Starting | PlaybackState::Playing
-    ) && snapshot.signal_path.output_transport == OutputTransport::DopCoreAudio
+    snapshot.signal_path.output_transport == OutputTransport::DopCoreAudio
 }
 
 fn persist_zone_definitions(state: &AppState, zones: &[ZoneProfile]) {
@@ -572,10 +563,9 @@ pub(crate) fn spawn_playback_zone_cache_warmer(state: AppState) {
     tokio::spawn(async move {
         loop {
             let refresh_state = state.clone();
-            if let Err(err) = tokio::task::spawn_blocking(move || {
-                refresh_playback_zones_with_policy(&refresh_state, ZoneRefreshPolicy::Background)
-            })
-            .await
+            if let Err(err) =
+                tokio::task::spawn_blocking(move || refresh_playback_zones_inner(&refresh_state))
+                    .await
             {
                 eprintln!("zones: background refresh failed: {err}");
             }
@@ -842,7 +832,7 @@ mod tests {
                 settings.output_mode = Some("Dsd256".to_string());
             });
 
-        refresh_playback_zones_with_policy(&state, ZoneRefreshPolicy::Background);
+        refresh_playback_zones_inner(&state);
 
         assert_eq!(
             state.zones().active_player().output_mode(),
@@ -870,12 +860,46 @@ mod tests {
                 settings.output_mode = Some("Dsd256".to_string());
             });
 
-        assert!(active_coreaudio_dop_playback(&state));
+        assert!(coreaudio_dop_output_owned(&state));
 
-        refresh_playback_zones_with_policy(&state, ZoneRefreshPolicy::Background);
+        refresh_playback_zones_inner(&state);
 
         assert_eq!(state.zones().active_player().output_mode(), OutputMode::Pcm);
         assert_eq!(state.playback_config_applicator().applied_zone_id(), None);
+    }
+
+    #[test]
+    fn interactive_refresh_keeps_owned_coreaudio_dop_zone_available_after_eof() {
+        let state = app_state("interactive-refresh-coreaudio-dop");
+        let device_name = "Fozmo test DoP DAC that is absent from discovery";
+        let zone_id = local_device_zone_id(device_name);
+        state
+            .zones()
+            .sync_local_devices(vec![device_name.to_string()]);
+        enable_playback_zone(&state, &zone_id).unwrap();
+
+        let player = state.zones().active_player();
+        player.set_coreaudio_dop_buffer_health_for_test(5_644_800, 65_536, 0, 32_768, 4096);
+        player.set_playback_state_for_test(crate::audio::player::PlaybackState::Stopped);
+
+        assert!(coreaudio_dop_output_owned(&state));
+        refresh_playback_zones_inner(&state);
+
+        assert!(state.zones().player_for_zone(&zone_id).is_some());
+        assert!(
+            crate::playback::status::build_status_response_for_zone(&state, &zone_id).is_ok(),
+            "the status endpoint must not regress to a 404 after EOF"
+        );
+        assert_ne!(
+            state
+                .zones()
+                .list_zones()
+                .into_iter()
+                .find(|zone| zone.id == zone_id)
+                .expect("DoP zone should remain registered")
+                .status,
+            ZoneStatus::Offline
+        );
     }
 
     #[test]
