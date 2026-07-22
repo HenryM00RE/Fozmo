@@ -148,7 +148,7 @@ export function playbackChromeTrackModel({
     currentAlbumTarget,
     currentArtist,
     currentArt,
-    currentQueueItem,
+    currentQueueItem: metadataItem,
     currentTrackName,
     sourceProvider: queueSourceProvider(metadataItem) || (status.file_name ? 'Local' : ''),
     trackTitleClass: longTitleClass(currentTrackName)

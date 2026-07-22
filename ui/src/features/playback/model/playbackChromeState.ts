@@ -1,5 +1,11 @@
 import type { Dispatch, SetStateAction } from 'react';
-import type { JsonRecord, LibraryAlbum, QueueState, ZoneProfile } from '../../../shared/types';
+import type {
+  JsonRecord,
+  LibraryAlbum,
+  QueueItem,
+  QueueState,
+  ZoneProfile
+} from '../../../shared/types';
 
 export type PlaybackAlbumTarget = {
   source: 'local' | 'qobuz';
@@ -10,6 +16,7 @@ export type PlaybackChromeState = {
   activeZoneId: string;
   albums: LibraryAlbum[];
   nowPlayingOpen: boolean;
+  onAddToPlaylist: (items: QueueItem[], title?: string) => void;
   onClearQueue: () => void;
   onOpenAlbum: (target: PlaybackAlbumTarget) => void;
   onSelectZone: (zoneId: string) => Promise<void>;

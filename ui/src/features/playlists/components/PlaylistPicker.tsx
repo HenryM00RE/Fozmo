@@ -112,7 +112,7 @@ export function PlaylistPicker({
               }}
             />
             <button
-              className="pill primary"
+              className="pill primary playlist-primary-action"
               type="button"
               disabled={busy}
               onClick={() => {

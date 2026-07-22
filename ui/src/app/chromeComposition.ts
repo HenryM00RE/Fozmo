@@ -8,6 +8,7 @@ import type {
   LibraryAlbum,
   LibraryTrack,
   QobuzTrack,
+  QueueItem,
   QueueState,
   RouteState,
   ZoneProfile
@@ -21,6 +22,7 @@ type BuildPlaybackChromeParams = {
   clearQueue: () => void;
   navigate: Navigate;
   nowPlayingOpen: boolean;
+  openPlaylistPickerForItems: (items: QueueItem[], title?: string) => void;
   onSelectZone: (zoneId: string) => Promise<void>;
   queue: QueueState;
   setNowPlayingOpen: Dispatch<SetStateAction<boolean>>;
@@ -38,6 +40,7 @@ export function buildPlaybackChrome({
   clearQueue,
   navigate,
   nowPlayingOpen,
+  openPlaylistPickerForItems,
   onSelectZone,
   queue,
   setNowPlayingOpen,
@@ -52,6 +55,7 @@ export function buildPlaybackChrome({
     activeZoneId,
     albums,
     nowPlayingOpen,
+    onAddToPlaylist: openPlaylistPickerForItems,
     onClearQueue: clearQueue,
     onOpenAlbum: (target) => {
       setNowPlayingOpen(false);

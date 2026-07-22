@@ -1,56 +1,41 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
 import type { LibraryTrack, Playlist, QueueItem } from '../../../shared/types';
 import { AlbumCoverPlayButton } from '../../../shared/ui/AlbumCoverPlayButton';
 import { Icon } from '../../../shared/ui/Icon';
 import { Modal } from '../../../shared/ui/Modal';
-import { PlaybarPlayIcon } from '../../../shared/ui/PlaybarPlayIcon';
-import { PlayNextIcon } from '../../../shared/ui/PlayNextIcon';
 import { PlaylistCover } from '../components/PlaylistCover';
-import { playPlaylist, queueItemsForPlayback, songCountLabel } from '../model/playlistModel';
-
-type QueuePlacement = 'next' | 'end';
+import { playPlaylist, songCountLabel } from '../model/playlistModel';
 
 export type PlaylistPageProps = {
   onCreatePlaylist: (name: string) => Promise<Playlist>;
   playlists: Playlist[];
+  selectedPlaylistIds: Set<string>;
+  selectionActive: boolean;
+  onToggleSelection: (playlistId: string) => void;
   onOpen: (id: string) => void;
   onRefresh: () => Promise<void>;
   playItems: (items: QueueItem[], startIndex?: number) => void;
-  addItemsToQueue: (items: QueueItem[], placement: QueuePlacement) => void;
   tracks: LibraryTrack[];
 };
 
 export function PlaylistsPage({
   playlists,
+  selectedPlaylistIds,
+  selectionActive,
+  onToggleSelection,
   onCreatePlaylist,
   onOpen,
   playItems,
-  addItemsToQueue,
   tracks
 }: PlaylistPageProps) {
   const [creating, setCreating] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [playlistName, setPlaylistName] = useState('');
   const [createError, setCreateError] = useState('');
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const selectionActive = selectedIds.size > 0;
-  const selectedPlaylists = useMemo(
-    () => playlists.filter((playlist) => selectedIds.has(playlist.id)),
-    [playlists, selectedIds]
-  );
-
   useEffect(() => {
     document.body.classList.toggle('playlist-selection-mode', selectionActive);
     return () => document.body.classList.remove('playlist-selection-mode');
   }, [selectionActive]);
-
-  useEffect(() => {
-    setSelectedIds((current) => {
-      const liveIds = new Set(playlists.map((playlist) => playlist.id));
-      const next = new Set(Array.from(current).filter((id) => liveIds.has(id)));
-      return next.size === current.size ? current : next;
-    });
-  }, [playlists]);
 
   const openCreatePlaylist = () => {
     setPlaylistName('');
@@ -85,30 +70,6 @@ export function PlaylistsPage({
     }
   };
 
-  const toggleSelection = (playlistId: string) => {
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      if (next.has(playlistId)) next.delete(playlistId);
-      else next.add(playlistId);
-      return next;
-    });
-  };
-
-  const selectedItems = () =>
-    selectedPlaylists.flatMap((playlist) => queueItemsForPlayback(playlist, false, tracks));
-
-  const playSelected = () => {
-    const items = selectedItems();
-    if (items.length) playItems(items, 0);
-    setSelectedIds(new Set());
-  };
-
-  const queueSelected = (placement: QueuePlacement) => {
-    const items = selectedItems();
-    if (items.length) addItemsToQueue(items, placement);
-    setSelectedIds(new Set());
-  };
-
   return (
     <section className="view playlists-view">
       <div className="library-page-heading">
@@ -116,7 +77,7 @@ export function PlaylistsPage({
           <h1>Playlists</h1>
         </div>
         <button
-          className="pill primary"
+          className="pill primary playlist-primary-action"
           type="button"
           id="playlist-new"
           disabled={creating}
@@ -127,36 +88,6 @@ export function PlaylistsPage({
         </button>
       </div>
       <div className="playlists-shell">
-        {selectionActive ? (
-          <div className="toolbar-selection-actions playlist-selection-actions" aria-live="polite">
-            <span className="toolbar-selection-count">{selectedIds.size} selected</span>
-            <div
-              className="album-play-split toolbar-selection-play"
-              role="group"
-              aria-label="Selected playlist playback actions"
-            >
-              <button className="album-play-main" type="button" onClick={playSelected}>
-                <PlaybarPlayIcon />
-                <span>Play now</span>
-              </button>
-              <button
-                className="album-play-menu-trigger"
-                type="button"
-                aria-label="Add selected next"
-                title="Add selected next"
-                onClick={() => queueSelected('next')}
-              >
-                <PlayNextIcon />
-              </button>
-            </div>
-            <button className="pill" type="button" onClick={() => queueSelected('end')}>
-              Add to queue
-            </button>
-            <button className="pill" type="button" onClick={() => setSelectedIds(new Set())}>
-              Cancel
-            </button>
-          </div>
-        ) : null}
         <div
           className={`playlist-empty${playlists.length ? ' is-hidden' : ''}`}
           id="playlist-empty"
@@ -167,7 +98,7 @@ export function PlaylistsPage({
         <div className="playlist-grid" id="playlist-grid">
           {playlists.map((playlist) => {
             const count = playlist.items?.length || 0;
-            const selected = selectedIds.has(playlist.id);
+            const selected = selectedPlaylistIds.has(playlist.id);
             return (
               <article
                 className={`playlist-card${selectionActive ? ' is-selection-mode' : ''}${selected ? ' is-selected' : ''}`}
@@ -178,17 +109,17 @@ export function PlaylistsPage({
                 aria-pressed={selectionActive ? selected : undefined}
                 key={playlist.id}
                 onClick={() =>
-                  selectionActive ? toggleSelection(playlist.id) : onOpen(playlist.id)
+                  selectionActive ? onToggleSelection(playlist.id) : onOpen(playlist.id)
                 }
                 onContextMenu={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  toggleSelection(playlist.id);
+                  onToggleSelection(playlist.id);
                 }}
                 onKeyDown={(event) => {
                   if (event.key !== 'Enter' && event.key !== ' ') return;
                   event.preventDefault();
-                  if (selectionActive) toggleSelection(playlist.id);
+                  if (selectionActive) onToggleSelection(playlist.id);
                   else onOpen(playlist.id);
                 }}
               >
@@ -203,7 +134,7 @@ export function PlaylistsPage({
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
-                      if (selectionActive) toggleSelection(playlist.id);
+                      if (selectionActive) onToggleSelection(playlist.id);
                       else playPlaylist(playlist, playItems, false, 0, tracks);
                     }}
                   />
@@ -243,7 +174,7 @@ export function PlaylistsPage({
             <label className="zone-settings-field">
               <span>Name</span>
               <input
-                className="zone-settings-input"
+                className="zone-settings-input playlist-create-name-input"
                 type="text"
                 value={playlistName}
                 maxLength={80}
@@ -268,7 +199,7 @@ export function PlaylistsPage({
               Cancel
             </button>
             <button
-              className="pill primary"
+              className="pill primary playlist-primary-action"
               type="submit"
               disabled={creating || !playlistName.trim()}
             >

@@ -35,7 +35,12 @@ export function MobileTopBar({
   toolbarAction
 }: MobileTopBarProps) {
   const { activeProfileId, profiles, refreshProfileScopedData, selectProfile } = profileShell;
-  const { activeSelectionType, clearAlbumTrackSelection, clearRecentSelection } = selectionToolbar;
+  const {
+    activeSelectionType,
+    clearAlbumTrackSelection,
+    clearPlaylistSelection,
+    clearRecentSelection
+  } = selectionToolbar;
 
   return (
     <header className="mobile-top-bar" aria-label="Page controls">
@@ -107,6 +112,7 @@ export function MobileTopBar({
             selectionActive={Boolean(activeSelectionType)}
             onExitSelection={() => {
               if (activeSelectionType === 'album-tracks') clearAlbumTrackSelection();
+              else if (activeSelectionType === 'playlists') clearPlaylistSelection();
               else if (activeSelectionType === 'recently-played') clearRecentSelection();
             }}
             onSelectProfile={selectProfile}

@@ -36,7 +36,11 @@ import {
 } from '../model/playlistModel';
 import type { PlaylistPageProps } from './PlaylistsPage';
 
-type PlaylistDetailProps = Omit<PlaylistPageProps, 'onCreatePlaylist' | 'onOpen'> & {
+type PlaylistDetailProps = Pick<
+  PlaylistPageProps,
+  'onRefresh' | 'playItems' | 'playlists' | 'tracks'
+> & {
+  addItemsToQueue: (items: QueueItem[], placement: 'next' | 'end') => void;
   id: string;
   onBack: () => void;
   onOpenAlbum: (id: string | number) => void;

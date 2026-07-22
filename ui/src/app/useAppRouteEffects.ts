@@ -5,7 +5,9 @@ import type { ToolbarAction } from '../shared/ui/toolbar';
 type UseAppRouteEffectsParams = {
   albumSelectionActive: boolean;
   clearAlbumTrackSelection: () => void;
+  clearPlaylistSelection: () => void;
   clearRecentSelection: () => void;
+  playlistSelectionActive: boolean;
   recentSelectionActive: boolean;
   route: RouteState;
   setToolbarAction: Dispatch<SetStateAction<ToolbarAction | null>>;
@@ -14,7 +16,9 @@ type UseAppRouteEffectsParams = {
 export function useAppRouteEffects({
   albumSelectionActive,
   clearAlbumTrackSelection,
+  clearPlaylistSelection,
   clearRecentSelection,
+  playlistSelectionActive,
   recentSelectionActive,
   route,
   setToolbarAction
@@ -29,10 +33,13 @@ export function useAppRouteEffects({
       albumSelectionActive
     )
       clearAlbumTrackSelection();
+    if (route.view !== 'playlists' && playlistSelectionActive) clearPlaylistSelection();
   }, [
     albumSelectionActive,
     clearAlbumTrackSelection,
+    clearPlaylistSelection,
     clearRecentSelection,
+    playlistSelectionActive,
     recentSelectionActive,
     route.view
   ]);

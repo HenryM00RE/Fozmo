@@ -212,3 +212,9 @@ export type PlaylistRouteState = Pick<PlaybackRouteActions, 'addItemsToQueue' | 
   playlists: Playlist[];
   tracks: LibraryTrack[];
 };
+
+export type PlaylistSelectionRouteState = {
+  onToggleSelection: (playlistId: string) => void;
+  selectedPlaylistIds: Set<string>;
+  selectionActive: boolean;
+};

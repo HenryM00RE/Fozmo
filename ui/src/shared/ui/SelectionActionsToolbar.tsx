@@ -16,28 +16,40 @@ export function SelectionActionsToolbar({ selectionToolbar }: SelectionActionsTo
     addSelectedRecentlyPlayedToPlaylist,
     albumSelectionMenuOpen,
     playSelectedAlbumTracks,
+    playSelectedPlaylists,
     playSelectedRecentlyPlayed,
+    playlistSelectionMenuOpen,
     queueSelectedAlbumTracks,
+    queueSelectedPlaylists,
     queueSelectedRecentlyPlayed,
     recentSelectionMenuOpen,
     setAlbumSelectionMenuOpen,
+    setPlaylistSelectionMenuOpen,
     setRecentSelectionMenuOpen
   } = selectionToolbar;
 
   if (!activeSelectionType) return null;
 
+  const playlistSelection = activeSelectionType === 'playlists';
   const menuOpen =
-    activeSelectionType === 'album-tracks' ? albumSelectionMenuOpen : recentSelectionMenuOpen;
+    activeSelectionType === 'album-tracks'
+      ? albumSelectionMenuOpen
+      : playlistSelection
+        ? playlistSelectionMenuOpen
+        : recentSelectionMenuOpen;
   const playSelected = () => {
     if (activeSelectionType === 'album-tracks') playSelectedAlbumTracks();
+    else if (playlistSelection) playSelectedPlaylists();
     else playSelectedRecentlyPlayed().catch(() => undefined);
   };
   const toggleMenu = () => {
     if (activeSelectionType === 'album-tracks') setAlbumSelectionMenuOpen((open) => !open);
+    else if (playlistSelection) setPlaylistSelectionMenuOpen((open) => !open);
     else setRecentSelectionMenuOpen((open) => !open);
   };
   const queueNext = () => {
     if (activeSelectionType === 'album-tracks') queueSelectedAlbumTracks('next');
+    else if (playlistSelection) queueSelectedPlaylists('next');
     else queueSelectedRecentlyPlayed('next').catch(() => undefined);
   };
   const addToPlaylist = () => {
@@ -46,6 +58,7 @@ export function SelectionActionsToolbar({ selectionToolbar }: SelectionActionsTo
   };
   const queueEnd = () => {
     if (activeSelectionType === 'album-tracks') queueSelectedAlbumTracks('end');
+    else if (playlistSelection) queueSelectedPlaylists('end');
     else queueSelectedRecentlyPlayed('end').catch(() => undefined);
   };
 
@@ -83,20 +96,22 @@ export function SelectionActionsToolbar({ selectionToolbar }: SelectionActionsTo
           >
             <button className="track-action-item" type="button" role="menuitem" onClick={queueNext}>
               <PlayNextIcon />
-              <span>Add selected next</span>
+              <span>{playlistSelection ? 'Queue next' : 'Add selected next'}</span>
             </button>
-            <button
-              className="track-action-item"
-              type="button"
-              role="menuitem"
-              onClick={addToPlaylist}
-            >
-              <Icon path="M4 7h12M4 12h9M4 17h7M18 15v6M15 18h6" />
-              <span>Add selected to playlist</span>
-            </button>
+            {!playlistSelection ? (
+              <button
+                className="track-action-item"
+                type="button"
+                role="menuitem"
+                onClick={addToPlaylist}
+              >
+                <Icon path="M4 7h12M4 12h9M4 17h7M18 15v6M15 18h6" />
+                <span>Add selected to playlist</span>
+              </button>
+            ) : null}
             <button className="track-action-item" type="button" role="menuitem" onClick={queueEnd}>
               <Icon path="M4 7h10M4 12h10M4 17h7M18 10v8M14 14h8" />
-              <span>Add selected to queue</span>
+              <span>{playlistSelection ? 'Add to queue' : 'Add selected to queue'}</span>
             </button>
           </div>
         ) : null}

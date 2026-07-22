@@ -37,6 +37,7 @@ function MobileNowPlayingSheetHarness() {
     activeZoneId: '',
     albums: [],
     nowPlayingOpen,
+    onAddToPlaylist: vi.fn(),
     onClearQueue: vi.fn(),
     onOpenAlbum: vi.fn(),
     onSelectZone: vi.fn().mockResolvedValue(undefined),
@@ -99,5 +100,50 @@ describe('MobileNowPlayingSheet', () => {
     );
     expect(screen.getByRole('button', { name: 'Queue' })).toHaveAttribute('aria-pressed', 'false');
     expect(screen.queryByText('Queue content')).not.toBeInTheDocument();
+  });
+
+  it('offers album navigation and playlist actions for the current song', () => {
+    const onAddToPlaylist = vi.fn();
+    const onOpenAlbum = vi.fn();
+    const item = {
+      title: 'The Flower Called Nowhere',
+      artist: 'Stereolab',
+      album: 'Dots and Loops',
+      albumId: 42,
+      durationSecs: 270
+    };
+    const playbackChrome: PlaybackChromeState = {
+      activeZoneId: '',
+      albums: [],
+      nowPlayingOpen: true,
+      onAddToPlaylist,
+      onClearQueue: vi.fn(),
+      onOpenAlbum,
+      onSelectZone: vi.fn().mockResolvedValue(undefined),
+      onShuffleQueue: vi.fn(),
+      onToggleLoop: vi.fn(),
+      queue: { kind: 'local', cursor: 0, items: [item], loopMode: 'off' },
+      setNowPlayingOpen: vi.fn(),
+      setSignalOpen: vi.fn(),
+      signalOpen: false,
+      status: { state: 'Playing' },
+      zones: []
+    };
+
+    render(
+      <MobileNowPlayingSheet
+        onOpenArtist={vi.fn()}
+        playbackChrome={playbackChrome}
+        playbackPosition={0}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'More options' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add to playlist' }));
+    expect(onAddToPlaylist).toHaveBeenCalledWith([item], item.title);
+
+    fireEvent.click(screen.getByRole('button', { name: 'More options' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Go to album' }));
+    expect(onOpenAlbum).toHaveBeenCalledWith({ source: 'local', id: 42 });
   });
 });

@@ -1,7 +1,8 @@
 import { type Dispatch, type SetStateAction, useEffect } from 'react';
+import type { ActiveSelectionType } from '../shared/ui/selectionToolbar';
 
 type UseAppChromeEffectsParams = {
-  activeSelectionType: 'album-tracks' | 'recently-played' | null;
+  activeSelectionType: ActiveSelectionType;
   albumSelectionActive: boolean;
   globalSearchSetOpen: Dispatch<SetStateAction<boolean>>;
   nowPlayingOpen: boolean;
