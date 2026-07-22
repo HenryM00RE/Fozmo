@@ -9140,11 +9140,6 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
   color: var(--ink-muted, #a8a297);
 }
 
-.react-app .zones-panel-card .zone-browser-stream-action {
-  min-width: 116px;
-  white-space: nowrap;
-}
-
 .react-app .zones-panel-card .zone-output-icon-action {
   width: 32px;
   height: 32px;
@@ -10341,20 +10336,6 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
   .react-app .zone-settings-panel {
     width: min(420px, 100%);
     max-height: calc(100dvh - var(--mobile-bottom-chrome-height) - 32px);
-  }
-
-  .react-app .zones-panel-card .zone-browser-stream-action {
-    min-width: 72px;
-    padding-inline: 10px;
-  }
-
-  .react-app .zones-panel-card .zone-browser-stream-action span {
-    font-size: 0;
-  }
-
-  .react-app .zones-panel-card .zone-browser-stream-action span::after {
-    content: "Stream";
-    font-size: 12px;
   }
 
   .react-app .zone-hegel-settings-panel {
