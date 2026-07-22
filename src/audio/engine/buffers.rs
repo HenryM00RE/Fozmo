@@ -760,29 +760,36 @@ fn dsd_pending_len(ds: &DsdWorkerState) -> usize {
     ds.prod.len()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum OutputDrainResult {
+    Drained,
+    Interrupted,
+    TimedOut,
+}
+
 pub(super) fn wait_for_output_drain(
     dsd_state: Option<&DsdWorkerState>,
     audio_prod: &AudioProducer,
     state: &AtomicPlayerState,
     mut should_continue: impl FnMut() -> bool,
-) {
+) -> OutputDrainResult {
     let started = Instant::now();
     loop {
         if output_pending_len(dsd_state, audio_prod) == 0 {
-            break;
+            return OutputDrainResult::Drained;
         }
         if state.state.load(std::sync::atomic::Ordering::Relaxed) != PLAYBACK_PLAYING {
-            break;
+            return OutputDrainResult::Interrupted;
         }
         if !should_continue() {
-            break;
+            return OutputDrainResult::Interrupted;
         }
         if started.elapsed() >= EOF_OUTPUT_DRAIN_TIMEOUT {
             eprintln!(
                 "AudioWorker: EOF output drain timed out with {} samples pending",
                 output_pending_len(dsd_state, audio_prod)
             );
-            break;
+            return OutputDrainResult::TimedOut;
         }
         thread::sleep(Duration::from_millis(10));
     }
@@ -793,11 +800,18 @@ pub(super) fn flush_and_wait_for_output_at_eof(
     audio_prod: &AudioProducer,
     state: &AtomicPlayerState,
     mut should_continue: impl FnMut() -> bool,
-) {
+) -> OutputDrainResult {
+    state
+        .eof_drain_requested
+        .store(true, std::sync::atomic::Ordering::Relaxed);
     if let Some(ds) = dsd_state.as_mut() {
         flush_dsd_tail_at_eof(ds, &mut should_continue);
     }
-    wait_for_output_drain(dsd_state.as_ref(), audio_prod, state, should_continue);
+    let result = wait_for_output_drain(dsd_state.as_ref(), audio_prod, state, should_continue);
+    state
+        .eof_drain_requested
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+    result
 }
 
 /// DoP ring buffer sized in `i32` samples. Interleaved stereo i32 at the DoP frame
@@ -851,11 +865,12 @@ mod tests {
         state.state.store(PLAYBACK_PLAYING, Ordering::Relaxed);
         let mut polls = 0;
 
-        wait_for_output_drain(None, &prod, &state, || {
+        let result = wait_for_output_drain(None, &prod, &state, || {
             polls += 1;
             polls < 2
         });
 
+        assert_eq!(result, OutputDrainResult::Interrupted);
         assert_eq!(prod.len(), 2);
         assert_eq!(state.state.load(Ordering::Relaxed), PLAYBACK_PLAYING);
         assert_eq!(polls, 2);

@@ -82,7 +82,6 @@ export function ArtistDetailPage({
   const [similarArtists, setSimilarArtists] = useState<JsonRecord[]>([]);
   const [loadingArtist, setLoadingArtist] = useState(false);
   const [loadingTopTracks, setLoadingTopTracks] = useState(false);
-  const [loadingSimilarArtists, setLoadingSimilarArtists] = useState(false);
   const [radioStarting, setRadioStarting] = useState(false);
   const [descriptionOpen, setDescriptionOpen] = useState(false);
   const [trackMenu, setTrackMenu] = useState<{ index: number; x: number; y: number } | null>(null);
@@ -101,7 +100,6 @@ export function ArtistDetailPage({
     setDescriptionOpen(false);
     setTrackMenu(null);
     setLoadingTopTracks(false);
-    setLoadingSimilarArtists(false);
     if (!query)
       return () => {
         cancelled = true;
@@ -151,16 +149,12 @@ export function ArtistDetailPage({
             if (!cancelled) setLoadingTopTracks(false);
           });
 
-        setLoadingSimilarArtists(true);
         endpoints
           .qobuzArtistSimilar(artistId)
           .then((result) => {
             if (!cancelled) setSimilarArtists(safeArray<JsonRecord>(result.similar).slice(0, 20));
           })
-          .catch(() => {})
-          .finally(() => {
-            if (!cancelled) setLoadingSimilarArtists(false);
-          });
+          .catch(() => {});
 
         const coreResult = await endpoints
           .qobuzArtistCore(artistId)
@@ -248,7 +242,6 @@ export function ArtistDetailPage({
   const bio = plainDescription(bioSource);
   const bioBlocks = descriptionParagraphs(bioSource);
   const stats = [remoteArtist?.genre ? String(remoteArtist.genre) : ''].filter(Boolean);
-  const heroLoading = loadingArtist || loadingTopTracks || loadingSimilarArtists;
   const artistNameClass = artistHeroNameClass(displayName, customDisplayFont);
   const topItems = remoteTopTracks.length
     ? remoteTopTracks.map((track) => ({ kind: 'qobuz' as const, track }))
@@ -287,14 +280,13 @@ export function ArtistDetailPage({
           <div className="artist-hero-meta">
             <div className="artist-hero-primary">
               <h1 className={artistNameClass}>{displayName}</h1>
-              {stats.length || heroLoading ? (
+              {stats.length ? (
                 <div className="artist-hero-stats">
                   {stats.map((stat, index) => (
                     <span className={index === 0 ? 'stamp ink no-dot' : 'ink-meta'} key={stat}>
                       {stat}
                     </span>
                   ))}
-                  {heroLoading ? <span className="ink-meta">Loading Qobuz</span> : null}
                 </div>
               ) : null}
               <button

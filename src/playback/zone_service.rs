@@ -1,5 +1,4 @@
 use crate::app::state::AppState;
-use crate::audio::player::OutputTransport;
 use crate::audio::upnp::UpnpRendererTarget;
 use crate::diagnostics::status::DiagnosticActivity;
 use crate::library::{
@@ -403,7 +402,7 @@ fn refresh_playback_zones_inner(state: &AppState) -> Vec<ZoneProfile> {
     // direct DoP AudioUnit owns it. Treat that as an unsafe time to refresh for
     // both background and interactive callers: marking the selected zone
     // offline here strands it as soon as playback reaches EOF.
-    let quiet_local_refresh = coreaudio_dop_output_owned(state);
+    let mut quiet_local_refresh = coreaudio_dop_output_owned(state);
     let local_devices = if quiet_local_refresh {
         Vec::new()
     } else {
@@ -411,8 +410,15 @@ fn refresh_playback_zones_inner(state: &AppState) -> Vec<ZoneProfile> {
             .diagnostics()
             .begin_activity(DiagnosticActivity::LocalAudioDeviceScan);
         let local_devices = output_device_names();
-        state.zones().sync_local_devices(local_devices.clone());
-        local_devices
+        // Close the race where playback acquires Hog Mode after the first
+        // ownership check but before enumeration completes.
+        if coreaudio_dop_output_owned(state) {
+            quiet_local_refresh = true;
+            Vec::new()
+        } else {
+            state.zones().sync_local_devices(local_devices.clone());
+            local_devices
+        }
     };
     state
         .zones()
@@ -472,8 +478,7 @@ fn refresh_playback_zones_inner(state: &AppState) -> Vec<ZoneProfile> {
 }
 
 fn coreaudio_dop_output_owned(state: &AppState) -> bool {
-    let snapshot = state.zones().active_player().snapshot_no_cover();
-    snapshot.signal_path.output_transport == OutputTransport::DopCoreAudio
+    state.zones().coreaudio_dop_output_owned()
 }
 
 fn persist_zone_definitions(state: &AppState, zones: &[ZoneProfile]) {

@@ -107,7 +107,11 @@ impl ZoneManager {
             if zone.device_name.as_deref().is_some_and(|device| {
                 !airplay::is_airplay_device_name(device) && !sonos::is_sonos_device_name(device)
             }) {
-                zone.online = false;
+                // A running player or owned CoreAudio DoP AudioUnit is stronger
+                // evidence than a transient device-enumeration miss. In
+                // particular, CoreAudio can omit a hogged USB DAC while the
+                // output is opening or draining at a track boundary.
+                zone.online = ActiveZonePolicy::local_zone_has_running_or_owned_output(zone);
                 zone.status_message = None;
             }
         }
@@ -130,6 +134,12 @@ impl ZoneManager {
             }
         }
         ActiveZonePolicy::restore_preferred_or_fallback(&mut guard);
+    }
+
+    pub fn coreaudio_dop_output_owned(&self) -> bool {
+        self.inner.lock().unwrap().local_zones.values().any(|zone| {
+            zone.player.output_transport() == crate::audio::player::OutputTransport::DopCoreAudio
+        })
     }
 
     pub fn sync_standby_local_zone(
@@ -817,6 +827,53 @@ mod tests {
             .find(|zone| zone.id == hegel_zone_id)
             .unwrap();
         assert_eq!(zone.status, ZoneStatus::Offline);
+    }
+
+    #[test]
+    fn discovery_miss_during_playback_does_not_strand_local_zone_at_eof() {
+        let device_name = "Hegel H390 USB";
+        let zone_id = local_device_zone_id(device_name);
+        let manager = ZoneManager::new(Arc::new(Player::new()), None);
+
+        manager.sync_local_devices(vec![device_name.to_string()]);
+        manager.enable_zone(&zone_id).unwrap();
+        let player = manager.player_for_zone(&zone_id).unwrap();
+        player.set_playback_state_for_test(crate::audio::player::PlaybackState::Playing);
+
+        // Simulate CoreAudio omitting the DAC while startup/Hog Mode races a
+        // background discovery pass.
+        manager.sync_local_devices(Vec::new());
+        player.set_playback_state_for_test(crate::audio::player::PlaybackState::Stopped);
+
+        assert_eq!(manager.active_zone_id(), zone_id);
+        assert!(manager.player_for_zone(&zone_id).is_some());
+        let zone = manager
+            .list_zones()
+            .into_iter()
+            .find(|zone| zone.id == zone_id)
+            .unwrap();
+        assert_eq!(zone.status, ZoneStatus::Active);
+    }
+
+    #[test]
+    fn owned_dop_output_recovers_controllability_after_discovery_race() {
+        let device_name = "Hegel H390 USB";
+        let zone_id = local_device_zone_id(device_name);
+        let manager = ZoneManager::new(Arc::new(Player::new()), None);
+
+        manager.sync_local_devices(vec![device_name.to_string()]);
+        manager.enable_zone(&zone_id).unwrap();
+        let player = manager.player_for_zone(&zone_id).unwrap();
+
+        // Discovery wins the race first and marks the stopped zone offline;
+        // the AudioUnit then finishes opening and owns the device.
+        manager.sync_local_devices(Vec::new());
+        player.set_coreaudio_dop_buffer_health_for_test(5_644_800, 65_536, 0, 32_768, 4096);
+
+        assert!(manager.coreaudio_dop_output_owned());
+        assert!(manager.player_for_zone(&zone_id).is_some());
+        manager.select_zone(&zone_id).unwrap();
+        assert_eq!(manager.active_zone_id(), zone_id);
     }
 
     #[test]

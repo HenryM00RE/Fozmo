@@ -840,9 +840,14 @@ body.action-menu-scroll-locked .react-app .view {
 
 .react-app .album-link:hover,
 .react-app .album-link:focus-visible {
-  color: var(--accent, #4a9eff);
+  color: inherit;
   text-decoration: underline;
-  outline: 0;
+}
+
+.react-app .album-link:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid var(--focus-outline, rgba(255, 255, 255, 0.16));
+  outline-offset: 2px;
 }
 
 .react-app .now-playing-album.album-link {
