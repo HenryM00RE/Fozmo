@@ -116,7 +116,9 @@ Responsibilities:
   device.
 
 The product's **Split Phase** filter is the promoted
-`SplitPhase128kE2v3` reconstruction path. The selectable **7th Order Search**
+P17 `SplitPhase128kE3` reconstruction path. The former E2v3 and Smooth Phase
+identifiers are retained only for migration and internal diagnostics. The
+selectable **7th Order Search**
 modulator is `EcBeam2`, a fixed M4/N8 beam search used at −2 dB headroom with
 zero DSD ISI compensation. The current personal default documented for Fozmo
 is Split Phase with 7th Order Search at DSD128; this is a listening preference,

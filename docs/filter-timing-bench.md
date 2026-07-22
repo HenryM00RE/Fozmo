@@ -1,14 +1,15 @@
 # Production filter timing bench
 
 The timing bench measures the exact `SincResampler` implementation used by
-Fozmo rather than analyzing design-time coefficient prototypes. It covers the
-five filters currently exposed by the product:
+Fozmo rather than analyzing design-time coefficient prototypes. Its default
+comparison includes the three filters currently exposed by the product:
 
 - Linear Phase (`LinearPhase128k`)
 - Minimum Phase (`MinimumPhaseCompact128k`)
-- Split Phase (`SplitPhase128kE2v3`)
-- Split Phase B (`SplitPhase128kE3`)
-- Smooth Phase (`SmoothPhase128k`)
+- Split Phase, the P17 bundle (`SplitPhase128kE3`)
+
+It also retains the former E2v3 Split Phase and Smooth Phase paths as labelled
+diagnostic comparisons. They are no longer selectable product filters.
 
 Run the canonical 44.1 kHz to 176.4 kHz comparison with an optimized build:
 
@@ -43,9 +44,10 @@ metadata but is never used to align responses.
 
 The production filter itself is the reconstruction filter under test; no
 secondary reconstruction or compensating equalizer is applied. This distinction
-matters for Smooth Phase, whose gradual high-frequency taper is intentional.
-Forcing every magnitude/transition shape to match with another filter would no
-longer measure the production paths. The group-delay CSV therefore includes
+matters when interpreting the retained Smooth Phase diagnostic, whose gradual
+high-frequency taper is intentional. Forcing every magnitude/transition shape
+to match with another filter would no longer measure the implemented paths.
+The group-delay CSV therefore includes
 magnitude at every frequency so phase comparisons can be interpreted in that
 context.
 
