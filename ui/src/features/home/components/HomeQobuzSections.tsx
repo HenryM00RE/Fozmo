@@ -52,7 +52,10 @@ type HomeQobuzSectionsProps = {
 type HomeQobuzPlaylistsProps = {
   onOpenQobuzPlaylist: (id: string | number) => void;
   onPlayQobuzPlaylist: (id: string | number) => void;
+  onToggleQobuzPlaylistSelection: (playlist: JsonRecord) => void;
   qobuzHome: JsonRecord | null;
+  selectedKeys: Set<string>;
+  selectionActive: boolean;
 };
 
 type QobuzCategory = {
@@ -494,6 +497,9 @@ export function hasVisibleHomeQobuzSections(qobuzHome: JsonRecord | null) {
 export function HomeQobuzPlaylists({
   onOpenQobuzPlaylist,
   onPlayQobuzPlaylist,
+  onToggleQobuzPlaylistSelection,
+  selectedKeys,
+  selectionActive,
   qobuzHome
 }: HomeQobuzPlaylistsProps) {
   const homePlaylists = useMemo(() => qobuzEditorialPlaylists(qobuzHome), [qobuzHome]);
@@ -799,8 +805,13 @@ export function HomeQobuzPlaylists({
           {visiblePlaylists.map((playlist) => (
             <HomeQobuzPlaylistCard
               playlist={playlist}
+              selected={selectedKeys.has(
+                recentlyPlayedSelectionKey(qobuzPlaylistSelection(playlist))
+              )}
+              selectionActive={selectionActive}
               onOpen={onOpenQobuzPlaylist}
               onPlay={onPlayQobuzPlaylist}
+              onToggleSelection={onToggleQobuzPlaylistSelection}
               key={String(playlist.id || playlist.title)}
             />
           ))}
@@ -1241,12 +1252,18 @@ function HomeQobuzAlbum({
 
 function HomeQobuzPlaylistCard({
   playlist,
+  selected,
+  selectionActive,
   onOpen,
-  onPlay
+  onPlay,
+  onToggleSelection
 }: {
   playlist: JsonRecord;
+  selected: boolean;
+  selectionActive: boolean;
   onOpen: (id: string | number) => void;
   onPlay: (id: string | number) => void;
+  onToggleSelection: (playlist: JsonRecord) => void;
 }) {
   const playlistId = idValue(playlist.id);
   const title = titleOf(playlist, 'Untitled playlist');
@@ -1291,9 +1308,20 @@ function HomeQobuzPlaylistCard({
     return () => controller.abort();
   }, [playlistId]);
 
-  const open = () => onOpen(playlistId);
+  const selectionPlaylist = qobuzPlaylistSelection(playlist);
+  const open = () =>
+    selectionActive ? onToggleSelection(selectionPlaylist) : onOpen(playlistId);
+  const longPressSelection = useLongPressSelection({
+    onSelect: onToggleSelection,
+    resolveSelection: () => selectionPlaylist
+  });
   return (
-    <article className="album-card home-qobuz-card home-qobuz-playlist-card" onClick={open}>
+    <article
+      {...longPressSelection}
+      className={`album-card home-qobuz-card home-qobuz-playlist-card${selectionActive ? ' is-selection-mode' : ''}${selected ? ' is-selected' : ''}`}
+      aria-pressed={selectionActive ? selected : undefined}
+      onClick={open}
+    >
       <div className="album-cover home-qobuz-card-cover">
         {art ? (
           <QobuzPlaylistArtwork src={art} />
@@ -1302,12 +1330,18 @@ function HomeQobuzPlaylistCard({
         ) : (
           artFallback()
         )}
+        <span className="recent-selection-check" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        </span>
         <AlbumCoverPlayButton
           title="Play playlist"
           ariaLabel="Play playlist"
           onClick={(event) => {
             event.stopPropagation();
-            onPlay(playlistId);
+            if (selectionActive) onToggleSelection(selectionPlaylist);
+            else onPlay(playlistId);
           }}
         />
       </div>
@@ -1316,6 +1350,7 @@ function HomeQobuzPlaylistCard({
           className="album-title album-link"
           type="button"
           title={title}
+          aria-pressed={selectionActive ? selected : undefined}
           onClick={(event) => {
             event.stopPropagation();
             open();
@@ -1334,6 +1369,17 @@ function qobuzPlaylistSubtitle(playlist: JsonRecord) {
   const count = Number(playlist.tracks_count ?? playlist.track_count ?? 0) || 0;
   const countLabel = count ? `${count} song${count === 1 ? '' : 's'}` : '';
   return [owner, countLabel].filter(Boolean).join(' / ') || 'Qobuz playlist';
+}
+
+function qobuzPlaylistSelection(playlist: JsonRecord) {
+  const playlistId = idValue(playlist.id);
+  return {
+    ...playlist,
+    id: playlistId || playlist.id,
+    playlist_id: playlistId || playlist.playlist_id,
+    recent_type: 'qobuz_playlist',
+    is_qobuz: true
+  };
 }
 
 function qobuzSelectionAlbum(album: JsonRecord) {

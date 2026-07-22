@@ -24,7 +24,12 @@ export function useAppRouteEffects({
   setToolbarAction
 }: UseAppRouteEffectsParams) {
   useEffect(() => {
-    if (route.view !== 'home' && route.view !== 'albums' && recentSelectionActive)
+    if (
+      route.view !== 'home' &&
+      route.view !== 'albums' &&
+      route.view !== 'discover' &&
+      recentSelectionActive
+    )
       clearRecentSelection();
     if (
       route.view !== 'album' &&

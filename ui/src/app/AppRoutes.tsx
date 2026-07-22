@@ -89,6 +89,7 @@ export function AppRoutes({
           onPlayQobuzAlbum={playbackActions.playQobuzAlbum}
           onPlayQobuzPlaylist={playbackActions.playQobuzPlaylist}
           onToggleQobuzAlbumSelection={homeRoute.toggleAlbumSelection}
+          onToggleQobuzPlaylistSelection={homeRoute.toggleRecentSelection}
           onOpenArtist={openArtistName}
         />
       );

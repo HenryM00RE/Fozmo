@@ -121,8 +121,6 @@ export function RemoteAccessPage({ appStatus }: { appStatus: JsonRecord }) {
 
   const port = Number(settings?.port || status?.bound_port || 8443);
   const externalHost = stringValue(settings?.external_host || status?.external_host);
-  const fingerprint = stringValue(status?.cert_fingerprint_sha256);
-  const customCertConfigured = Boolean(settings?.custom_cert_path && settings?.custom_key_path);
   const linkUrl = useMemo(
     () => remoteLinkUrl(linkCode, linkUrlHint, externalHost, port),
     [externalHost, linkCode, linkUrlHint, port]
@@ -323,40 +321,6 @@ export function RemoteAccessPage({ appStatus }: { appStatus: JsonRecord }) {
         </>
       )}
 
-      <section className="settings-section-block">
-        <div className="settings-section-heading">
-          <div className="section-label">TLS Trust</div>
-        </div>
-        <div className="panel raised">
-          <div className="settings-list">
-            <div className="setting-row remote-fingerprint-row">
-              <span>
-                <strong>
-                  {customCertConfigured ? 'Custom certificate' : 'Self-signed certificate'}
-                </strong>
-                <small>
-                  {customCertConfigured
-                    ? 'Certificate trust is managed by your own certificate files.'
-                    : 'Your browser may warn on first connect. Compare the certificate SHA-256 fingerprint with this value before proceeding.'}
-                </small>
-              </span>
-              <button
-                className="pill remote-copy-pill"
-                type="button"
-                disabled={!fingerprint}
-                onClick={() => copyText(fingerprint, setMessage, 'Fingerprint')}
-              >
-                <Icon path="M8 8h10v10H8zM6 16H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                Copy
-              </button>
-            </div>
-            <div className="remote-code-block">
-              {fingerprint || 'Fingerprint appears after the listener starts.'}
-            </div>
-          </div>
-        </div>
-      </section>
-
       {canManage ? (
         <section className="settings-section-block">
           <div className="settings-section-heading">
@@ -368,7 +332,7 @@ export function RemoteAccessPage({ appStatus }: { appStatus: JsonRecord }) {
               <li>Forward external TCP port {port || 8443} to this computer's same TCP port.</li>
               <li>Enter the router's public IP or DNS name as the external host.</li>
               <li>From a phone on cellular, open the generated URL.</li>
-              <li>Verify the TLS fingerprint, then link the device.</li>
+              <li>Link the remote device using the generated code.</li>
             </ol>
             <p className="remote-note">
               CGNAT and some IPv6-only ISP setups may not support manual IPv4 port forwarding.

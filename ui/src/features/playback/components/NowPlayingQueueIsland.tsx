@@ -3,6 +3,7 @@ import {
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState
 } from 'react';
@@ -157,45 +158,23 @@ export function NowPlayingQueueIsland({
     animateQueueScrollTo(target.scrollContainer, target.top);
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const shouldForceInitialScroll = scrollToCurrentOnMount && !hasScrolledOnMountRef.current;
+    if (!shouldForceInitialScroll) return;
     if (snapshot.cursor < 0) return;
-    if (snapshot.preserveQueueScroll && !shouldForceInitialScroll) return;
     const queue = queueRef.current;
     const current = queue?.querySelector<HTMLElement>(
       `.queue-item[data-queue-index="${snapshot.cursor}"]`
     );
     if (!queue || !current) return;
 
-    let scrollFrame = 0;
-    let settleTimer = 0;
-    const performScroll = () => {
-      if (programmaticScrollSettleTimerRef.current) {
-        window.clearTimeout(programmaticScrollSettleTimerRef.current);
-      }
-      if (shouldForceInitialScroll) {
-        programmaticScrollRef.current = true;
-        scrollQueueItemIntoView(queue, current, 'auto');
-        settleProgrammaticScrollRef.current();
-      } else {
-        animateQueueItemIntoView(queue, current);
-      }
-      hasScrolledOnMountRef.current = true;
-    };
-    const layoutFrame = window.requestAnimationFrame(() => {
-      scrollFrame = window.requestAnimationFrame(performScroll);
-    });
-    if (shouldForceInitialScroll) settleTimer = window.setTimeout(performScroll, 220);
-
-    return () => {
-      window.cancelAnimationFrame(layoutFrame);
-      if (scrollFrame) window.cancelAnimationFrame(scrollFrame);
-      if (settleTimer) window.clearTimeout(settleTimer);
-    };
+    programmaticScrollRef.current = true;
+    scrollQueueItemIntoView(queue, current, 'auto');
+    programmaticScrollRef.current = false;
+    hasScrolledOnMountRef.current = true;
   }, [
     scrollToCurrentOnMount,
     snapshot.cursor,
-    snapshot.preserveQueueScroll,
     snapshot.structuralKey
   ]);
 

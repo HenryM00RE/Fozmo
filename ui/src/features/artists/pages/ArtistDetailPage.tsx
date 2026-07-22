@@ -227,7 +227,7 @@ export function ArtistDetailPage({
       if (bucket.id !== 'library')
         buckets.set(bucket.id, dedupeDiscographyAlbums(buckets.get(bucket.id) || []));
     });
-    buckets.set('library', localAlbums);
+    buckets.set('library', dedupeDiscographyAlbums(localAlbums));
     return buckets;
   }, [localAlbums, remoteAlbums]);
   const availableBuckets = discographyBuckets.filter(
