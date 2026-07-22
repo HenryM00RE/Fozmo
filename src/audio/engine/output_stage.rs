@@ -337,7 +337,7 @@ mod tests {
             Some(&key),
             Some("DAC".to_string()),
             OutputMode::Dsd128,
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             44_100,
             &[]
         ));
@@ -345,7 +345,7 @@ mod tests {
             Some(&key),
             Some("Other DAC".to_string()),
             OutputMode::Dsd128,
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             44_100,
             &[]
         ));
@@ -353,7 +353,7 @@ mod tests {
             Some(&key),
             Some("DAC".to_string()),
             OutputMode::Dsd256,
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             44_100,
             &[]
         ));
@@ -361,7 +361,7 @@ mod tests {
             Some(&key),
             Some("DAC".to_string()),
             OutputMode::Dsd128,
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             48_000,
             &[]
         ));
@@ -380,7 +380,7 @@ mod tests {
             Some(&key),
             Some("DAC".to_string()),
             OutputMode::Dsd256,
-            FilterType::Split128k,
+            FilterType::SplitPhase128kE3,
             96_000,
             &rules
         ));

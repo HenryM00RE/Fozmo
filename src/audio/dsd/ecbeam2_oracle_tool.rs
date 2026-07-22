@@ -952,7 +952,7 @@ fn load_and_validate_budgets(
 fn parse_primary_filter(name: &str) -> Result<FilterType, String> {
     match name {
         "MinimumPhase" => Ok(FilterType::Minimum16k),
-        "SplitPhase" => Ok(FilterType::Split128k),
+        "SplitPhase" => Ok(FilterType::SplitPhase128kE3),
         _ => Err(format!("unsupported primary EcBeam2 filter {name}")),
     }
 }
@@ -1219,7 +1219,7 @@ fn smoothstep(value: f64) -> f64 {
 }
 
 fn resample_mono(input: &[f64], source_rate: u32, target_rate: u32) -> Vec<f64> {
-    let mut resampler = SincResampler::new(FilterType::SincExtreme32k, source_rate, target_rate);
+    let mut resampler = SincResampler::new(FilterType::LinearPhase128k, source_rate, target_rate);
     resampler.input(input, input);
     let mut interleaved = Vec::new();
     resampler.process(&mut interleaved);
@@ -1594,7 +1594,7 @@ mod tests {
     fn mapped_prefix_uses_the_resamplers_zero_delay_wire_alignment() {
         for (filter, source_rate, wire_rate) in [
             (FilterType::Minimum16k, 44_100, 2_822_400),
-            (FilterType::Split128k, 48_000, 3_072_000),
+            (FilterType::SplitPhase128kE3, 48_000, 3_072_000),
         ] {
             let source_start = 4096usize;
             let mapped = dsd_source_window_to_modulator_samples(

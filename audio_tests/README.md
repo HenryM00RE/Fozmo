@@ -19,29 +19,26 @@ cargo run --locked --release --bin dsd_public_quality -- \
   --check
 ```
 
-`SplitPhase128kE2v3`, exposed in the product as Split Phase, is the canonical
+`SplitPhase128kE3`, exposed in the product as Split Phase, is the canonical
 filter. A narrower modulator selection
 records `matrix_complete: false` and cannot pass `--check`. Add
-`--include-linear-reference` to run the legacy modulators' 21-cell
-`SincExtreme32k` diagnostic; EcBeam2 does not support that filter. The
+`--include-linear-reference` to run the 21-cell `LinearPhase128k` diagnostic. The
 diagnostic never affects canonical completeness, structural checking, or the
 production-path scores.
 
-The public fixtures can exercise a focused Split Phase E2v3 subset:
+The public fixtures can exercise a focused Split Phase E3 subset:
 
 ```sh
 RUSTFLAGS="-C target-cpu=native" \
 cargo run --locked --release --bin dsd_public_quality -- \
-  --out target/dsd-public-quality-e2v3-dsd64-dsd128 \
-  --filter SplitPhase128kE2v3 \
+  --out target/dsd-public-quality-e3-dsd64-dsd128 \
+  --filter SplitPhase128kE3 \
   --rates 64,128 \
   --modulator Standard,EcBeam2
 ```
 
 Any reduced `--rates` or `--modulator` selection is noncanonical, reports
-`matrix_complete: false`, and emits no production-path score. The retired
-`Split128k` implementation remains selectable only for non-scoring historical
-comparisons.
+`matrix_complete: false`, and emits no production-path score.
 
 Version 5 reports also serialize a fixed 2 ms restart-error envelope over
 0-50 ms. `--transition-envelope-reference PATH` compares each stress channel
@@ -62,7 +59,7 @@ DSD128/DSD256 comparison without changing the canonical matrix or scores.
 The executable binds the result to its release/native build configuration and
 source snapshot; setting `RUSTFLAGS` only when launching an old binary does not
 satisfy that contract. The versioned 100-point presentation is explicitly a
-Split Phase E2v3 production-path comparison, not a `--check` quality gate or a
+Split Phase E3 production-path comparison, not a `--check` quality gate or a
 listening score. The checked-in baseline remains the historical 26-cell v4
 result from before EcBeam2 gained DSD256 qualification.
 The full methodology is documented in

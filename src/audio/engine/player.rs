@@ -1285,10 +1285,10 @@ mod tests {
     fn update_config_is_visible_in_immediate_snapshot() {
         let player = Player::new();
 
-        player.update_config(FilterType::SincExtreme32k, 96_000, false, false, 250);
+        player.update_config(FilterType::LinearPhase128k, 96_000, false, false, 250);
 
         let config = player.snapshot().config;
-        assert_eq!(config.filter_type, Some(FilterType::SincExtreme32k));
+        assert_eq!(config.filter_type, Some(FilterType::LinearPhase128k));
         assert_eq!(config.configured_target_rate, 96_000);
         assert!(!config.upsampling_enabled);
         assert!(!config.exclusive);

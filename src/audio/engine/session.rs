@@ -840,7 +840,7 @@ mod tests {
 
         let (mut restarted_session, restarted_target_rate) = restart_current_file_session(
             Some(path.as_ref()),
-            FilterType::SincExtreme32k,
+            FilterType::LinearPhase128k,
             dsp_target_rate,
             true,
             None,
@@ -904,7 +904,7 @@ mod tests {
 
         let (_, restarted_target_rate) = restart_current_file_session(
             Some(path.as_ref()),
-            FilterType::SincExtreme32k,
+            FilterType::LinearPhase128k,
             dsp_target_rate,
             true,
             None,
@@ -932,24 +932,25 @@ mod tests {
 
     #[test]
     fn dsp_path_uses_long_filter_resampler_for_downsampling() {
-        let path = DspPath::new(FilterType::Split128k, 96_000, 44_100, true, None);
+        let path = DspPath::new(FilterType::SplitPhase128kE3, 96_000, 44_100, true, None);
         let DspPath::Resample(resampler) = path else {
             panic!("expected resampling path");
         };
 
         assert_eq!(resampler.source_rate(), 96_000);
         assert_eq!(resampler.target_rate(), 44_100);
-        assert_eq!(resampler.filter_type(), FilterType::Split128k);
+        assert_eq!(resampler.filter_type(), FilterType::SplitPhase128kE3);
         assert!(resampler.is_high_latency());
     }
 
     #[test]
     fn dsp_path_gapless_compatibility_requires_matching_processing_path() {
-        let current = DspPath::new(FilterType::Split128k, 44_100, 176_400, true, None);
-        let same = DspPath::new(FilterType::Split128k, 44_100, 176_400, true, None);
+        let current = DspPath::new(FilterType::SplitPhase128kE3, 44_100, 176_400, true, None);
+        let same = DspPath::new(FilterType::SplitPhase128kE3, 44_100, 176_400, true, None);
         let different_filter = DspPath::new(FilterType::Minimum16k, 44_100, 176_400, true, None);
-        let different_source = DspPath::new(FilterType::Split128k, 48_000, 192_000, true, None);
-        let bypass = DspPath::new(FilterType::Split128k, 44_100, 176_400, false, None);
+        let different_source =
+            DspPath::new(FilterType::SplitPhase128kE3, 48_000, 192_000, true, None);
+        let bypass = DspPath::new(FilterType::SplitPhase128kE3, 44_100, 176_400, false, None);
 
         assert!(current.is_gapless_compatible_with(&same));
         assert!(!current.is_gapless_compatible_with(&different_filter));
@@ -959,9 +960,10 @@ mod tests {
 
     #[test]
     fn bypass_gapless_compatibility_requires_matching_source_rate() {
-        let current = DspPath::new(FilterType::Split128k, 44_100, 176_400, false, None);
+        let current = DspPath::new(FilterType::SplitPhase128kE3, 44_100, 176_400, false, None);
         let same = DspPath::new(FilterType::Minimum16k, 44_100, 192_000, false, None);
-        let different_source = DspPath::new(FilterType::Split128k, 48_000, 176_400, false, None);
+        let different_source =
+            DspPath::new(FilterType::SplitPhase128kE3, 48_000, 176_400, false, None);
 
         assert!(current.is_gapless_compatible_with(&same));
         assert!(!current.is_gapless_compatible_with(&different_source));

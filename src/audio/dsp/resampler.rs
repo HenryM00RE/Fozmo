@@ -14,7 +14,6 @@ const MAX_PHASE_AWARE_RATIONAL_PHASE_DEN: usize = 160;
 const MAX_COEFFICIENT_TABLE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_POLYPHASE_COEFFICIENT_TABLE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_SIMD_DIRECT_TAPS: usize = 257;
-const MIXED_PHASE_UNWRAP_MAG_FLOOR_REL: f64 = 1e-6;
 const HOMOMORPHIC_MAG_FLOOR_REL: f64 = 1e-12;
 const PHASE_CONVERTED_TAIL_FADE_FRACTION: f64 = 0.01;
 const EOF_DRAIN_ZERO_BLOCK_FRAMES: usize = 4096;
@@ -23,11 +22,6 @@ const MINIMUM16K_PRODUCTION_BETA: f64 = 20.47325;
 const MINIMUM16K_PRODUCTION_TAIL_FADE: f64 = 0.007617;
 const MINIMUM16K_PRODUCTION_MAG_FLOOR_REL: f64 = 1.13771845358e-12;
 const LINEAR128K_TAPS_TOTAL: usize = 131_073;
-const MINIMUM128K_TAPS_TOTAL: usize = 131_071;
-const MINIMUM128K_PROFILE_1_BETA: f64 = MINIMUM16K_PRODUCTION_BETA;
-const MINIMUM128K_PROFILE_2_BETA: f64 = 80.0;
-const MINIMUM128K_PROFILE_3_BETA: f64 = 160.0;
-const MINIMUM128K_PROFILE_4_BETA: f64 = 256.0;
 const MINIMUM_COMPACT_BRANCH_TAPS: usize = 131_071;
 const MINIMUM_COMPACT_IMPULSE_SAMPLES: usize = 262_141;
 const MINIMUM_COMPACT_FFT_MULTIPLIER: usize = 8;
@@ -35,114 +29,27 @@ const MINIMUM_COMPACT_CLEANUP_BETA: f64 = 20.47325;
 const MINIMUM_COMPACT_PRODUCTION_STOP_GAIN: f64 = 6.309_573_444_801_93e-8; // -144.0 dB
 const MINIMUM_COMPACT_TAIL_FADE_FRACTION: f64 = 512.0 / MINIMUM_COMPACT_IMPULSE_SAMPLES as f64;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum MinimumCompactTransition {
-    Planck,
-    Smootherstep7,
-}
-
-#[derive(Clone, Copy)]
-struct MinimumCompactTrebleTaper {
-    start_2x: f64,
-    end_2x: f64,
-    attenuation_db: f64,
-}
-
 #[derive(Clone, Copy)]
 struct MinimumCompactParams {
     pass_edge_2x: f64,
     stop_edge_2x: f64,
     stop_gain: f64,
-    nyquist_gain: f64,
     tail_fade_samples: usize,
-    treble_taper: Option<MinimumCompactTrebleTaper>,
-    transition: MinimumCompactTransition,
 }
 
 const MINIMUM_COMPACT_PRODUCTION_PARAMS: MinimumCompactParams = MinimumCompactParams {
     pass_edge_2x: 20_200.0 / 88_200.0,
     stop_edge_2x: 22_050.0 / 88_200.0,
     stop_gain: MINIMUM_COMPACT_PRODUCTION_STOP_GAIN,
-    nyquist_gain: MINIMUM_COMPACT_PRODUCTION_STOP_GAIN,
     tail_fade_samples: 512,
-    treble_taper: None,
-    transition: MinimumCompactTransition::Smootherstep7,
 };
 
-const MINIMUM_COMPACT_BALANCED_PARAMS: MinimumCompactParams = MinimumCompactParams {
-    pass_edge_2x: 20_200.0 / 88_200.0,
-    stop_edge_2x: 22_050.0 / 88_200.0,
-    stop_gain: 1.778_279_410_038_922_8e-8,
-    nyquist_gain: 1.0e-15,
-    tail_fade_samples: 512,
-    treble_taper: None,
-    transition: MinimumCompactTransition::Planck,
-};
-
-const SMOOTH_PHASE_PARAMS: MinimumCompactParams = MinimumCompactParams {
-    pass_edge_2x: 20_200.0 / 88_200.0,
-    stop_edge_2x: 22_050.0 / 88_200.0,
-    stop_gain: 1.778_279_410_038_922_8e-8,
-    nyquist_gain: 1.0e-15,
-    tail_fade_samples: 512,
-    treble_taper: Some(MinimumCompactTrebleTaper {
-        start_2x: 14_500.0 / 88_200.0,
-        end_2x: 18_500.0 / 88_200.0,
-        attenuation_db: 0.55,
-    }),
-    transition: MinimumCompactTransition::Planck,
-};
-
-/// Split-phase blend split points, as fractions of the 2x prototype rate
-/// (so they track the source rate; values below are for a 44.1 kHz source).
-/// Below F_LO the phase is purely linear (constant group delay), above F_HI
-/// purely minimum phase, with a smootherstep ramp in log-frequency between.
-const SPLIT_PHASE_BLEND_F_LO: f64 = 3_000.0 / 88_200.0;
-const SPLIT_PHASE_BLEND_F_HI: f64 = 14_000.0 / 88_200.0;
-const SPLIT128K_PRODUCTION_CUTOFF: f64 = 0.465333;
-const SPLIT128K_PRODUCTION_BETA: f64 = 23.12088;
-const SPLIT128K_PRODUCTION_BLEND_FLOOR: f64 = 0.038155;
-const SPLIT128K_PRODUCTION_CAUSALITY_SHIFT_SCALE: f64 = 1.040606;
-const SPLIT128K_PRODUCTION_TAIL_FADE: f64 = 0.005621;
-/// Frequency-split blends create sharper phase curvature around the split
-/// points, so the reconstruction uses heavy FFT padding.
-const SPLIT_PHASE_FFT_MULTIPLIER: usize = 32;
-const SPLIT_PHASE_V3_CHARACTER_COEFFICIENTS: usize = 262_145;
-const SPLIT_PHASE_V3_RATIONAL_147_160_COEFFICIENTS: usize = 160 * (2 * 512 + 1);
-const SPLIT_PHASE_V3_RATIONAL_160_147_COEFFICIENTS: usize = 147 * (2 * 1024 + 1);
-const SPLIT_PHASE_V3_FULL_RATE_ORIGIN: usize = 6_280;
-const SPLIT_PHASE_V3_PHASE0_PREPAD: usize = 127_932;
-const SPLIT_PHASE_V3_PHASE1_PREPAD: usize = 127_932;
-const SPLIT_PHASE_V3_DECIMATION_PREPAD: usize = 255_864;
-include!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/assets/filters/split_phase_v4/generated.rs"
-));
-include!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/assets/filters/split_phase_e2v3/generated.rs"
-));
+const LINEAR128K_PRODUCTION_CUTOFF: f64 = 0.465333;
+const LINEAR128K_PRODUCTION_BETA: f64 = 23.12088;
 include!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/assets/filters/split_phase_e3/generated.rs"
 ));
-const INTEGRATED128K_TAPS_TOTAL: usize = 131_071;
-const INTEGRATED128K_PRODUCTION_CUTOFF: f64 = 0.468_750;
-const INTEGRATED128K_PRODUCTION_BETA: f64 = 22.400;
-const INTEGRATED_PHASE_TRANSITION_F_LO: f64 = 4_000.0 / 88_200.0;
-const INTEGRATED_PHASE_TRANSITION_F_HI: f64 = 15_500.0 / 88_200.0;
-const INTEGRATED_PHASE_V2_TRANSITION_F_LO: f64 = 3_750.0 / 88_200.0;
-const INTEGRATED_PHASE_V2_TRANSITION_F_HI: f64 = 15_250.0 / 88_200.0;
-const INTEGRATED_PHASE_V3_TRANSITION_F_LO: f64 = 3_500.0 / 88_200.0;
-const INTEGRATED_PHASE_V3_TRANSITION_F_HI: f64 = 14_750.0 / 88_200.0;
-const INTEGRATED_PHASE_V4_TRANSITION_F_LO: f64 = 3_250.0 / 88_200.0;
-const INTEGRATED_PHASE_V4_TRANSITION_F_HI: f64 = 14_250.0 / 88_200.0;
-const INTEGRATED128K_PRODUCTION_CAUSALITY_SHIFT_SCALE: f64 = 1.02;
-const INTEGRATED128K_PRODUCTION_TAIL_FADE: f64 = 0.0048;
-const INTEGRATED128K_MINIMUM_TAIL_FADE: f64 = 0.0075;
-const INTEGRATED128K_MINIMUM_MAG_FLOOR_REL: f64 = 3.0e-14;
-const INTEGRATED128K_PHASE_FLOOR_REL: f64 = 1.0e-7;
-const INTEGRATED_PHASE_FFT_MULTIPLIER: usize = 32;
 
 #[derive(Clone, Copy)]
 struct MinimumPhaseParams {
@@ -159,115 +66,20 @@ impl Default for MinimumPhaseParams {
     }
 }
 
-#[derive(Clone, Copy)]
-struct SplitPhaseParams {
-    split_f_lo: f64,
-    split_f_hi: f64,
-    low_blend_floor: f64,
-    causality_shift_scale: f64,
-    tail_fade_fraction: f64,
-}
-
-impl Default for SplitPhaseParams {
-    fn default() -> Self {
-        Self {
-            split_f_lo: SPLIT_PHASE_BLEND_F_LO,
-            split_f_hi: SPLIT_PHASE_BLEND_F_HI,
-            low_blend_floor: 0.0,
-            causality_shift_scale: 1.0,
-            tail_fade_fraction: PHASE_CONVERTED_TAIL_FADE_FRACTION,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct IntegratedPhaseParams {
-    transition_f_lo: f64,
-    transition_f_hi: f64,
-    causality_shift_scale: f64,
-    tail_fade_fraction: f64,
-    phase_floor_rel: f64,
-    minimum_phase: MinimumPhaseParams,
-}
-
-impl Default for IntegratedPhaseParams {
-    fn default() -> Self {
-        Self {
-            transition_f_lo: INTEGRATED_PHASE_TRANSITION_F_LO,
-            transition_f_hi: INTEGRATED_PHASE_TRANSITION_F_HI,
-            causality_shift_scale: INTEGRATED128K_PRODUCTION_CAUSALITY_SHIFT_SCALE,
-            tail_fade_fraction: INTEGRATED128K_PRODUCTION_TAIL_FADE,
-            phase_floor_rel: INTEGRATED128K_PHASE_FLOOR_REL,
-            minimum_phase: MinimumPhaseParams {
-                tail_fade_fraction: INTEGRATED128K_MINIMUM_TAIL_FADE,
-                mag_floor_rel: INTEGRATED128K_MINIMUM_MAG_FLOOR_REL,
-            },
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IntegratedPhaseProfile {
-    One,
-    Two,
-    Three,
-    Four,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MinimumPhase128kProfile {
-    One,
-    Two,
-    Three,
-    Four,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MinimumCompactProfile {
-    Original,
-    Balanced,
-    Smooth,
-}
-
-impl MinimumPhase128kProfile {
-    fn beta(self) -> f64 {
-        match self {
-            Self::One => MINIMUM128K_PROFILE_1_BETA,
-            Self::Two => MINIMUM128K_PROFILE_2_BETA,
-            Self::Three => MINIMUM128K_PROFILE_3_BETA,
-            Self::Four => MINIMUM128K_PROFILE_4_BETA,
-        }
-    }
-}
-
-impl IntegratedPhaseProfile {
-    pub(crate) fn transition(self) -> (f64, f64) {
-        match self {
-            Self::One => (
-                INTEGRATED_PHASE_TRANSITION_F_LO,
-                INTEGRATED_PHASE_TRANSITION_F_HI,
-            ),
-            Self::Two => (
-                INTEGRATED_PHASE_V2_TRANSITION_F_LO,
-                INTEGRATED_PHASE_V2_TRANSITION_F_HI,
-            ),
-            Self::Three => (
-                INTEGRATED_PHASE_V3_TRANSITION_F_LO,
-                INTEGRATED_PHASE_V3_TRANSITION_F_HI,
-            ),
-            Self::Four => (
-                INTEGRATED_PHASE_V4_TRANSITION_F_LO,
-                INTEGRATED_PHASE_V4_TRANSITION_F_HI,
-            ),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub enum FilterType {
-    SincExtreme32k,
+    #[serde(alias = "SincExtreme32k")]
     LinearPhase128k,
     Minimum16k,
+    #[serde(
+        alias = "MinimumPhase128k",
+        alias = "MinimumPhase128kV2",
+        alias = "MinimumPhase128kV3",
+        alias = "MinimumPhase128kV4",
+        alias = "MinimumPhase128kV5",
+        alias = "MinimumPhaseCompact128kV2"
+    )]
+    MinimumPhaseCompact128k,
     #[serde(
         alias = "Linear",
         alias = "SincMedium",
@@ -282,118 +94,73 @@ pub enum FilterType {
         alias = "Split32kTap",
         alias = "Split32k-Tap",
         alias = "Split128kTap",
-        alias = "Split128k-Tap"
+        alias = "Split128k-Tap",
+        alias = "Split128k",
+        alias = "Split128kV2",
+        alias = "SplitPhase128kV3",
+        alias = "SplitPhase128kV4",
+        alias = "SplitPhase128kE2v3",
+        alias = "SplitPhase128kV5E2v3",
+        alias = "IntegratedPhase128k",
+        alias = "IntegratedPhase128kV2",
+        alias = "IntegratedPhase128kV3",
+        alias = "IntegratedPhase128kV4",
+        alias = "SmoothPhase128k",
+        alias = "SplitPhaseB",
+        alias = "split-phase-b"
     )]
-    Split128k,
-    Split128kV2,
-    SplitPhase128kV3,
-    SplitPhase128kV4,
-    SplitPhase128kE2v3,
-    #[serde(alias = "SplitPhaseB", alias = "split-phase-b")]
     SplitPhase128kE3,
-    IntegratedPhase128k,
-    IntegratedPhase128kV2,
-    IntegratedPhase128kV3,
-    IntegratedPhase128kV4,
-    MinimumPhase128k,
-    MinimumPhase128kV2,
-    MinimumPhase128kV3,
-    MinimumPhase128kV4,
-    #[serde(alias = "MinimumPhase128kV5")]
-    MinimumPhaseCompact128k,
-    MinimumPhaseCompact128kV2,
-    SmoothPhase128k,
 }
 
-pub const DEFAULT_FILTER_TYPE: FilterType = FilterType::SplitPhase128kE2v3;
-pub const DEFAULT_FILTER_NAME: &str = "SplitPhase128kE2v3";
+pub const DEFAULT_FILTER_TYPE: FilterType = FilterType::SplitPhase128kE3;
+pub const DEFAULT_FILTER_NAME: &str = "SplitPhase128kE3";
 
 impl FilterType {
     pub fn as_id(self) -> u32 {
         match self {
-            FilterType::SincExtreme32k => 6,
             FilterType::LinearPhase128k => 33,
             FilterType::Minimum16k => 15,
-            FilterType::Split128k => 21,
-            FilterType::Split128kV2 => 34,
-            FilterType::SplitPhase128kV3 => 35,
-            FilterType::SplitPhase128kV4 => 36,
-            FilterType::SplitPhase128kE2v3 => 37,
-            FilterType::SplitPhase128kE3 => 38,
-            FilterType::IntegratedPhase128k => 22,
-            FilterType::IntegratedPhase128kV2 => 23,
-            FilterType::IntegratedPhase128kV3 => 24,
-            FilterType::IntegratedPhase128kV4 => 25,
-            FilterType::MinimumPhase128k => 26,
-            FilterType::MinimumPhase128kV2 => 27,
-            FilterType::MinimumPhase128kV3 => 28,
-            FilterType::MinimumPhase128kV4 => 29,
             FilterType::MinimumPhaseCompact128k => 30,
-            FilterType::MinimumPhaseCompact128kV2 => 31,
-            FilterType::SmoothPhase128k => 32,
+            FilterType::SplitPhase128kE3 => 38,
         }
     }
 
     pub fn from_id(id: u32) -> Option<Self> {
         match id {
-            6 => Some(FilterType::SincExtreme32k),
-            33 => Some(FilterType::LinearPhase128k),
+            6 | 33 => Some(FilterType::LinearPhase128k),
             15 => Some(FilterType::Minimum16k),
-            0 | 2 | 11 | 16 | 17 | 18 | 19 | 20 => Some(FilterType::Split128k),
-            21 => Some(FilterType::Split128k),
-            34 => Some(FilterType::Split128kV2),
-            35 => Some(FilterType::SplitPhase128kV3),
-            36 => Some(FilterType::SplitPhase128kV4),
-            37 => Some(FilterType::SplitPhase128kE2v3),
-            38 => Some(FilterType::SplitPhase128kE3),
-            22 => Some(FilterType::IntegratedPhase128k),
-            23 => Some(FilterType::IntegratedPhase128kV2),
-            24 => Some(FilterType::IntegratedPhase128kV3),
-            25 => Some(FilterType::IntegratedPhase128kV4),
-            26 => Some(FilterType::MinimumPhase128k),
-            27 => Some(FilterType::MinimumPhase128kV2),
-            28 => Some(FilterType::MinimumPhase128kV3),
-            29 => Some(FilterType::MinimumPhase128kV4),
-            30 => Some(FilterType::MinimumPhaseCompact128k),
-            31 => Some(FilterType::MinimumPhaseCompact128kV2),
-            32 => Some(FilterType::SmoothPhase128k),
+            26..=31 => Some(FilterType::MinimumPhaseCompact128k),
+            0 | 2 | 11 | 16..=25 | 32 | 34..=38 => Some(FilterType::SplitPhase128kE3),
             _ => None,
         }
     }
 
     pub fn as_name(self) -> &'static str {
         match self {
-            FilterType::SincExtreme32k => "SincExtreme32k",
             FilterType::LinearPhase128k => "LinearPhase128k",
             FilterType::Minimum16k => "Minimum16k",
-            FilterType::Split128k => "Split128k",
-            FilterType::Split128kV2 => "Split128kV2",
-            FilterType::SplitPhase128kV3 => "SplitPhase128kV3",
-            FilterType::SplitPhase128kV4 => "SplitPhase128kV4",
-            FilterType::SplitPhase128kE2v3 => "SplitPhase128kE2v3",
-            FilterType::SplitPhase128kE3 => "SplitPhase128kE3",
-            FilterType::IntegratedPhase128k => "IntegratedPhase128k",
-            FilterType::IntegratedPhase128kV2 => "IntegratedPhase128kV2",
-            FilterType::IntegratedPhase128kV3 => "IntegratedPhase128kV3",
-            FilterType::IntegratedPhase128kV4 => "IntegratedPhase128kV4",
-            FilterType::MinimumPhase128k => "MinimumPhase128k",
-            FilterType::MinimumPhase128kV2 => "MinimumPhase128kV2",
-            FilterType::MinimumPhase128kV3 => "MinimumPhase128kV3",
-            FilterType::MinimumPhase128kV4 => "MinimumPhase128kV4",
             FilterType::MinimumPhaseCompact128k => "MinimumPhaseCompact128k",
-            FilterType::MinimumPhaseCompact128kV2 => "MinimumPhaseCompact128kV2",
-            FilterType::SmoothPhase128k => "SmoothPhase128k",
+            FilterType::SplitPhase128kE3 => "SplitPhase128kE3",
         }
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
-            "SincExtreme32k" => Some(FilterType::SincExtreme32k),
-            "LinearPhase128k" => Some(FilterType::LinearPhase128k),
+            "LinearPhase128k" | "SincExtreme32k" => Some(FilterType::LinearPhase128k),
             "Minimum16k" => Some(FilterType::Minimum16k),
-            "SplitPhase128kE3" | "SplitPhaseE3" | "split-phase-e3" | "SplitPhaseB"
-            | "split-phase-b" => Some(FilterType::SplitPhase128kE3),
-            "Split128k"
+            "MinimumPhaseCompact128k"
+            | "MinimumPhaseCompact128kV2"
+            | "MinimumPhase128k"
+            | "MinimumPhase128kV2"
+            | "MinimumPhase128kV3"
+            | "MinimumPhase128kV4"
+            | "MinimumPhase128kV5" => Some(FilterType::MinimumPhaseCompact128k),
+            "SplitPhase128kE3"
+            | "SplitPhaseE3"
+            | "split-phase-e3"
+            | "SplitPhaseB"
+            | "split-phase-b"
+            | "Split128k"
             | "Split128kTap"
             | "Split128k-Tap"
             | "Split128kV2"
@@ -402,112 +169,67 @@ impl FilterType {
             | "SplitPhase128kV4"
             | "Split128kV4"
             | "SplitPhase128kE2v3"
-            | "SplitPhase128kV5E2v3" => Some(FilterType::SplitPhase128kE2v3),
-            "IntegratedPhase128k" | "IntegratedPhase" => Some(FilterType::IntegratedPhase128k),
-            "IntegratedPhase128kV2" => Some(FilterType::IntegratedPhase128kV2),
-            "IntegratedPhase128kV3" => Some(FilterType::IntegratedPhase128kV3),
-            "IntegratedPhase128kV4" => Some(FilterType::IntegratedPhase128kV4),
-            "MinimumPhase128k" => Some(FilterType::MinimumPhase128k),
-            "MinimumPhase128kV2" => Some(FilterType::MinimumPhase128kV2),
-            "MinimumPhase128kV3" => Some(FilterType::MinimumPhase128kV3),
-            "MinimumPhase128kV4" => Some(FilterType::MinimumPhase128kV4),
-            "MinimumPhaseCompact128k" | "MinimumPhase128kV5" => {
-                Some(FilterType::MinimumPhaseCompact128k)
-            }
-            "MinimumPhaseCompact128kV2" => Some(FilterType::MinimumPhaseCompact128kV2),
-            "SmoothPhase128k" => Some(FilterType::SmoothPhase128k),
-            "Linear" | "SincMedium" | "SincExperimental1m" | "Mixed16k" | "Perfect"
-            | "Split16k" | "Split16kDsd128" | "Split16kDsd128Apod" | "Split16k-DSD128"
-            | "Split32k" | "Split32kTap" | "Split32k-Tap" => Some(FilterType::SplitPhase128kE2v3),
+            | "SplitPhase128kV5E2v3"
+            | "IntegratedPhase128k"
+            | "IntegratedPhase"
+            | "IntegratedPhase128kV2"
+            | "IntegratedPhase128kV3"
+            | "IntegratedPhase128kV4"
+            | "SmoothPhase128k"
+            | "Linear"
+            | "SincMedium"
+            | "SincExperimental1m"
+            | "Mixed16k"
+            | "Perfect"
+            | "Split16k"
+            | "Split16kDsd128"
+            | "Split16kDsd128Apod"
+            | "Split16k-DSD128"
+            | "Split32k"
+            | "Split32kTap"
+            | "Split32k-Tap" => Some(FilterType::SplitPhase128kE3),
             _ => None,
         }
     }
 
     fn cutoff(self) -> f64 {
         match self {
-            FilterType::SincExtreme32k => 0.454,
             FilterType::LinearPhase128k => env_f64("FOZMO_LINEAR128K_CUTOFF")
-                .unwrap_or(SPLIT128K_PRODUCTION_CUTOFF)
+                .unwrap_or(LINEAR128K_PRODUCTION_CUTOFF)
                 .clamp(0.40, 0.49),
             FilterType::Minimum16k => env_f64("FOZMO_MINIMUM16K_CUTOFF")
                 .unwrap_or(MINIMUM16K_PRODUCTION_CUTOFF)
                 .clamp(0.40, 0.49),
-            FilterType::MinimumPhase128k
-            | FilterType::MinimumPhase128kV2
-            | FilterType::MinimumPhase128kV3
-            | FilterType::MinimumPhase128kV4 => MINIMUM16K_PRODUCTION_CUTOFF,
-            FilterType::MinimumPhaseCompact128k | FilterType::SmoothPhase128k => {
+            FilterType::MinimumPhaseCompact128k => {
                 MINIMUM_COMPACT_PRODUCTION_PARAMS.stop_edge_2x * 2.0
             }
-            FilterType::MinimumPhaseCompact128kV2 => MINIMUM16K_PRODUCTION_CUTOFF,
-            FilterType::Split128k | FilterType::Split128kV2 => env_f64("FOZMO_SPLIT128K_CUTOFF")
-                .unwrap_or(SPLIT128K_PRODUCTION_CUTOFF)
-                .clamp(0.40, 0.49),
-            FilterType::SplitPhase128kV3
-            | FilterType::SplitPhase128kV4
-            | FilterType::SplitPhase128kE2v3
-            | FilterType::SplitPhase128kE3 => 0.0,
-            FilterType::IntegratedPhase128k
-            | FilterType::IntegratedPhase128kV2
-            | FilterType::IntegratedPhase128kV3
-            | FilterType::IntegratedPhase128kV4 => env_f64("FOZMO_INTEGRATED128K_CUTOFF")
-                .unwrap_or(INTEGRATED128K_PRODUCTION_CUTOFF)
-                .clamp(0.40, 0.49),
+            FilterType::SplitPhase128kE3 => 0.0,
         }
     }
 
     fn beta(self) -> f64 {
         match self {
-            FilterType::SincExtreme32k => 19.5,
             FilterType::LinearPhase128k => env_f64("FOZMO_LINEAR128K_BETA")
-                .unwrap_or(SPLIT128K_PRODUCTION_BETA)
+                .unwrap_or(LINEAR128K_PRODUCTION_BETA)
                 .clamp(8.0, 32.0),
             FilterType::Minimum16k => env_f64("FOZMO_MINIMUM16K_BETA")
                 .unwrap_or(MINIMUM16K_PRODUCTION_BETA)
                 .clamp(8.0, 32.0),
-            filter @ (FilterType::MinimumPhase128k
-            | FilterType::MinimumPhase128kV2
-            | FilterType::MinimumPhase128kV3
-            | FilterType::MinimumPhase128kV4) => filter
-                .minimum_phase128k_profile()
-                .expect("Minimum Phase 128k filter must have a profile")
-                .beta(),
-            FilterType::MinimumPhaseCompact128k | FilterType::SmoothPhase128k => {
-                MINIMUM_COMPACT_CLEANUP_BETA
-            }
-            FilterType::MinimumPhaseCompact128kV2 => MINIMUM16K_PRODUCTION_BETA,
-            FilterType::Split128k | FilterType::Split128kV2 => env_f64("FOZMO_SPLIT128K_BETA")
-                .unwrap_or(SPLIT128K_PRODUCTION_BETA)
-                .clamp(8.0, 32.0),
-            FilterType::SplitPhase128kV3
-            | FilterType::SplitPhase128kV4
-            | FilterType::SplitPhase128kE2v3
-            | FilterType::SplitPhase128kE3 => 0.0,
-            FilterType::IntegratedPhase128k
-            | FilterType::IntegratedPhase128kV2
-            | FilterType::IntegratedPhase128kV3
-            | FilterType::IntegratedPhase128kV4 => env_f64("FOZMO_INTEGRATED128K_BETA")
-                .unwrap_or(INTEGRATED128K_PRODUCTION_BETA)
-                .clamp(8.0, 32.0),
+            FilterType::MinimumPhaseCompact128k => MINIMUM_COMPACT_CLEANUP_BETA,
+            FilterType::SplitPhase128kE3 => 0.0,
         }
     }
 
     fn character_beta(self) -> Option<f64> {
         match self {
-            Self::MinimumPhaseCompact128k | Self::SmoothPhase128k => None,
+            Self::MinimumPhaseCompact128k => None,
             _ => Some(self.beta()),
         }
     }
 
     fn cleanup_beta(self) -> f64 {
         match self {
-            Self::MinimumPhase128k
-            | Self::MinimumPhase128kV2
-            | Self::MinimumPhase128kV3
-            | Self::MinimumPhase128kV4
-            | Self::MinimumPhaseCompact128k
-            | Self::MinimumPhaseCompact128kV2
-            | Self::SmoothPhase128k => MINIMUM_COMPACT_CLEANUP_BETA,
+            Self::MinimumPhaseCompact128k => MINIMUM_COMPACT_CLEANUP_BETA,
             _ => self.beta(),
         }
     }
@@ -517,115 +239,20 @@ impl FilterType {
     }
 
     fn requires_phase_aware_kernel(self) -> bool {
-        matches!(
-            self,
-            Self::LinearPhase128k
-                | Self::Minimum16k
-                | Self::Split128k
-                | Self::Split128kV2
-                | Self::SplitPhase128kV3
-                | Self::SplitPhase128kV4
-                | Self::SplitPhase128kE2v3
-                | Self::SplitPhase128kE3
-                | Self::IntegratedPhase128k
-                | Self::IntegratedPhase128kV2
-                | Self::IntegratedPhase128kV3
-                | Self::IntegratedPhase128kV4
-                | Self::MinimumPhase128k
-                | Self::MinimumPhase128kV2
-                | Self::MinimumPhase128kV3
-                | Self::MinimumPhase128kV4
-                | Self::MinimumPhaseCompact128k
-                | Self::MinimumPhaseCompact128kV2
-                | Self::SmoothPhase128k
-        )
+        true
     }
 
     pub(crate) fn uses_long_filter_dsd_defaults(self) -> bool {
-        self.requires_phase_aware_kernel()
+        true
     }
 
     pub(crate) fn uses_split_family_dsd_defaults(self) -> bool {
-        matches!(
-            self,
-            Self::Split128k
-                | Self::Split128kV2
-                | Self::SplitPhase128kV3
-                | Self::SplitPhase128kV4
-                | Self::SplitPhase128kE2v3
-                | Self::SplitPhase128kE3
-                | Self::IntegratedPhase128k
-                | Self::IntegratedPhase128kV2
-                | Self::IntegratedPhase128kV3
-                | Self::IntegratedPhase128kV4
-        )
+        self == Self::SplitPhase128kE3
     }
 
-    fn frozen_filter_version(self) -> Option<FrozenFilterVersion> {
-        match self {
-            Self::SplitPhase128kV3 => Some(FrozenFilterVersion::V3),
-            Self::SplitPhase128kV4 => Some(FrozenFilterVersion::V4),
-            Self::SplitPhase128kE2v3 => Some(FrozenFilterVersion::E2v3),
-            Self::SplitPhase128kE3 => Some(FrozenFilterVersion::E3),
-            _ => None,
-        }
+    fn uses_frozen_coefficients(self) -> bool {
+        self == Self::SplitPhase128kE3
     }
-
-    pub(crate) fn integrated_phase_profile(self) -> Option<IntegratedPhaseProfile> {
-        match self {
-            Self::IntegratedPhase128k => Some(IntegratedPhaseProfile::One),
-            Self::IntegratedPhase128kV2 => Some(IntegratedPhaseProfile::Two),
-            Self::IntegratedPhase128kV3 => Some(IntegratedPhaseProfile::Three),
-            Self::IntegratedPhase128kV4 => Some(IntegratedPhaseProfile::Four),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn minimum_phase128k_profile(self) -> Option<MinimumPhase128kProfile> {
-        match self {
-            Self::MinimumPhase128k => Some(MinimumPhase128kProfile::One),
-            Self::MinimumPhase128kV2 => Some(MinimumPhase128kProfile::Two),
-            Self::MinimumPhase128kV3 => Some(MinimumPhase128kProfile::Three),
-            Self::MinimumPhase128kV4 => Some(MinimumPhase128kProfile::Four),
-            _ => None,
-        }
-    }
-
-    fn minimum_compact_profile(self) -> Option<MinimumCompactProfile> {
-        match self {
-            Self::MinimumPhaseCompact128k => Some(MinimumCompactProfile::Original),
-            Self::SmoothPhase128k => Some(MinimumCompactProfile::Smooth),
-            _ => None,
-        }
-    }
-}
-
-#[allow(dead_code)]
-pub(crate) fn integrated_phase_transition_hz(filter: FilterType) -> Option<(f64, f64)> {
-    let (f_lo, f_hi) = filter.integrated_phase_profile()?.transition();
-    Some((f_lo * 88_200.0, f_hi * 88_200.0))
-}
-
-#[allow(dead_code)]
-pub(crate) fn integrated_phase_weight_at_hz(filter: FilterType, frequency_hz: f64) -> Option<f64> {
-    let profile = filter.integrated_phase_profile()?;
-    Some(integrated_phase_weight(
-        frequency_hz / 88_200.0,
-        integrated128k_phase_params(profile),
-    ))
-}
-
-#[allow(dead_code)]
-pub(crate) fn integrated_phase_analysis_impulse(
-    filter: FilterType,
-    taps_total: usize,
-) -> Option<Vec<f64>> {
-    let profile = filter.integrated_phase_profile()?;
-    let proto = build_full_rate_2x_prototype(taps_total / 2, filter.beta(), filter.cutoff());
-    Some(integrated_phase_impulse_with_params(
-        &proto,
-        integrated128k_phase_params(profile),
-    ))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -642,39 +269,20 @@ pub enum EngineKind {
 pub enum PhaseMode {
     Linear,
     Minimum,
-    MinimumPhase128k(MinimumPhase128kProfile),
-    MinimumPhaseCompact128k(MinimumCompactProfile),
-    /// 131,073-tap Split128k long split-phase profile.
-    SplitPhase128k,
-    /// Split Phase V2: increment-domain C3 phase blend using the exact
-    /// cepstral minimum-phase spectrum.
-    SplitPhase128kV2,
-    /// Frozen finite-support jointly optimized production asset.
-    FrozenSplitPhase(FrozenFilterVersion),
-    IntegratedPhase128k(IntegratedPhaseProfile),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FrozenFilterVersion {
-    V3,
-    V4,
-    E2v3,
-    E3,
+    MinimumPhaseCompact128k,
+    FrozenSplitPhase,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CharacterCoefficientSource {
     Procedural,
-    Frozen(FrozenFilterVersion),
+    Frozen,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CleanupCoefficientSource {
     Procedural,
-    Frozen {
-        version: FrozenFilterVersion,
-        stage_index: u8,
-    },
+    Frozen { stage_index: u8 },
 }
 
 #[derive(Debug, Clone)]
@@ -730,26 +338,18 @@ impl StageSpec {
         let group_delay = match self {
             StageSpec::CleanupHalfband2x { .. } => linear_group_delay,
             StageSpec::Character2x {
-                coefficient_source: CharacterCoefficientSource::Frozen(version),
+                coefficient_source: CharacterCoefficientSource::Frozen,
                 ..
-            } => frozen_filter_assets(*version)
+            } => split_phase_e3_assets()
                 .alignment
                 .full_rate_origin
                 .div_ceil(2),
             StageSpec::Character2x { phase_mode, .. } => match phase_mode {
                 PhaseMode::Linear => linear_group_delay,
-                PhaseMode::Minimum
-                | PhaseMode::MinimumPhase128k(_)
-                | PhaseMode::MinimumPhaseCompact128k(_) => 0,
-                // Split128k uses a delay-matched linear reference instead of
-                // the symmetric prototype's center, so it is front-loaded in
-                // the pipeline. Its small residual low-band delay is filter
-                // character, as it is for pure minimum phase.
-                PhaseMode::SplitPhase128k | PhaseMode::SplitPhase128kV2 => 0,
-                PhaseMode::FrozenSplitPhase(_) => {
+                PhaseMode::Minimum | PhaseMode::MinimumPhaseCompact128k => 0,
+                PhaseMode::FrozenSplitPhase => {
                     unreachable!("frozen split-phase latency uses its exported alignment contract")
                 }
-                PhaseMode::IntegratedPhase128k(_) => 0,
             },
         };
         let partition = match self.engine() {
@@ -909,12 +509,12 @@ impl SincResampler {
                         if warn_on_capped_polyphase
                             && filter_type.requires_phase_aware_kernel()
                             && (phase_den > MAX_PHASE_AWARE_RATIONAL_PHASE_DEN
-                                || (filter_type.frozen_filter_version().is_some()
+                                || (filter_type.uses_frozen_coefficients()
                                     && !frozen_rational_asset_supported(
                                         step_num, phase_den,
                                     )))
                         {
-                            if filter_type.frozen_filter_version().is_some() {
+                            if filter_type.uses_frozen_coefficients() {
                                 eprintln!(
                                     "resampler: {} has no frozen table for exact ratio {} -> {}; using a generic linear-phase rational kernel",
                                     filter_type.as_name(), source_rate, target_rate
@@ -1010,7 +610,7 @@ impl SincResampler {
         let phase_profile_preserved = match path_kind {
             ResamplerPathKind::IntegerCascade | ResamplerPathKind::DownsampleChain => true,
             ResamplerPathKind::ExactRational => {
-                if self.filter_type.frozen_filter_version().is_some() {
+                if self.filter_type.uses_frozen_coefficients() {
                     frozen_rational_asset_supported(ratio_num as usize, ratio_den as usize)
                 } else {
                     !self.filter_type.requires_phase_aware_kernel()
@@ -1337,57 +937,19 @@ fn gcd_u32(mut a: u32, mut b: u32) -> u32 {
 
 fn first_stage_spec(family: FilterType) -> StageSpec {
     let taps_total = match family {
-        FilterType::Split128k
-        | FilterType::Split128kV2
-        | FilterType::SplitPhase128kV3
-        | FilterType::SplitPhase128kV4
-        | FilterType::SplitPhase128kE2v3
-        | FilterType::SplitPhase128kE3 => 131_073,
-        FilterType::IntegratedPhase128k
-        | FilterType::IntegratedPhase128kV2
-        | FilterType::IntegratedPhase128kV3
-        | FilterType::IntegratedPhase128kV4 => INTEGRATED128K_TAPS_TOTAL,
-        FilterType::MinimumPhase128k
-        | FilterType::MinimumPhase128kV2
-        | FilterType::MinimumPhase128kV3
-        | FilterType::MinimumPhase128kV4 => MINIMUM128K_TAPS_TOTAL,
-        FilterType::MinimumPhaseCompact128k
-        | FilterType::MinimumPhaseCompact128kV2
-        | FilterType::SmoothPhase128k => MINIMUM_COMPACT_BRANCH_TAPS,
+        FilterType::SplitPhase128kE3 => 131_073,
+        FilterType::MinimumPhaseCompact128k => MINIMUM_COMPACT_BRANCH_TAPS,
         FilterType::LinearPhase128k => LINEAR128K_TAPS_TOTAL,
-        FilterType::SincExtreme32k => 32769,
         FilterType::Minimum16k => 16_385,
     };
-    let engine = match family {
-        FilterType::LinearPhase128k
-        | FilterType::Minimum16k
-        | FilterType::Split128k
-        | FilterType::Split128kV2
-        | FilterType::SplitPhase128kV3
-        | FilterType::SplitPhase128kV4
-        | FilterType::SplitPhase128kE2v3
-        | FilterType::SplitPhase128kE3
-        | FilterType::IntegratedPhase128k
-        | FilterType::IntegratedPhase128kV2
-        | FilterType::IntegratedPhase128kV3
-        | FilterType::IntegratedPhase128kV4
-        | FilterType::MinimumPhase128k
-        | FilterType::MinimumPhase128kV2
-        | FilterType::MinimumPhase128kV3
-        | FilterType::MinimumPhase128kV4
-        | FilterType::MinimumPhaseCompact128k
-        | FilterType::MinimumPhaseCompact128kV2
-        | FilterType::SmoothPhase128k => EngineKind::PartitionedFft {
-            partition_frames: 4096,
-        },
-        FilterType::SincExtreme32k => EngineKind::PartitionedFft {
-            partition_frames: 2048,
-        },
+    let engine = EngineKind::PartitionedFft {
+        partition_frames: 4096,
     };
-    let coefficient_source = family
-        .frozen_filter_version()
-        .map(CharacterCoefficientSource::Frozen)
-        .unwrap_or(CharacterCoefficientSource::Procedural);
+    let coefficient_source = if family.uses_frozen_coefficients() {
+        CharacterCoefficientSource::Frozen
+    } else {
+        CharacterCoefficientSource::Procedural
+    };
     StageSpec::Character2x {
         taps_total,
         cutoff: if coefficient_source == CharacterCoefficientSource::Procedural {
@@ -1410,40 +972,10 @@ fn first_stage_spec(family: FilterType) -> StageSpec {
 
 fn phase_mode_for_filter(family: FilterType) -> PhaseMode {
     match family {
-        FilterType::Split128k => PhaseMode::SplitPhase128k,
-        FilterType::Split128kV2 => PhaseMode::SplitPhase128kV2,
-        FilterType::SplitPhase128kV3 => PhaseMode::FrozenSplitPhase(FrozenFilterVersion::V3),
-        FilterType::SplitPhase128kV4 => PhaseMode::FrozenSplitPhase(FrozenFilterVersion::V4),
-        FilterType::SplitPhase128kE2v3 => PhaseMode::FrozenSplitPhase(FrozenFilterVersion::E2v3),
-        FilterType::SplitPhase128kE3 => PhaseMode::FrozenSplitPhase(FrozenFilterVersion::E3),
-        filter @ (FilterType::IntegratedPhase128k
-        | FilterType::IntegratedPhase128kV2
-        | FilterType::IntegratedPhase128kV3
-        | FilterType::IntegratedPhase128kV4) => PhaseMode::IntegratedPhase128k(
-            filter
-                .integrated_phase_profile()
-                .expect("Integrated Phase filter must have a profile"),
-        ),
-        filter @ (FilterType::MinimumPhase128k
-        | FilterType::MinimumPhase128kV2
-        | FilterType::MinimumPhase128kV3
-        | FilterType::MinimumPhase128kV4) => PhaseMode::MinimumPhase128k(
-            filter
-                .minimum_phase128k_profile()
-                .expect("Minimum Phase 128k filter must have a profile"),
-        ),
-        FilterType::MinimumPhaseCompact128kV2 => {
-            PhaseMode::MinimumPhase128k(MinimumPhase128kProfile::One)
-        }
-        filter @ (FilterType::MinimumPhaseCompact128k | FilterType::SmoothPhase128k) => {
-            PhaseMode::MinimumPhaseCompact128k(
-                filter
-                    .minimum_compact_profile()
-                    .expect("Minimum Phase Compact filter must have a profile"),
-            )
-        }
+        FilterType::SplitPhase128kE3 => PhaseMode::FrozenSplitPhase,
+        FilterType::MinimumPhaseCompact128k => PhaseMode::MinimumPhaseCompact128k,
         FilterType::Minimum16k => PhaseMode::Minimum,
-        FilterType::SincExtreme32k | FilterType::LinearPhase128k => PhaseMode::Linear,
+        FilterType::LinearPhase128k => PhaseMode::Linear,
     }
 }
 
@@ -1452,41 +984,15 @@ fn cleanup_stage_spec(stage_idx: usize, family: FilterType) -> StageSpec {
     // sitting well above the audible band — typically > 1.4 MHz — so a short
     // kernel is plenty. Keeping the count ≤ MAX_SIMD_DIRECT_TAPS (257) lets
     // the AVX2/FMA direct path stay engaged for every late stage.
-    let taps_total = match family {
-        FilterType::LinearPhase128k
-        | FilterType::Minimum16k
-        | FilterType::Split128k
-        | FilterType::Split128kV2
-        | FilterType::SplitPhase128kV3
-        | FilterType::SplitPhase128kV4
-        | FilterType::SplitPhase128kE2v3
-        | FilterType::SplitPhase128kE3
-        | FilterType::IntegratedPhase128k
-        | FilterType::IntegratedPhase128kV2
-        | FilterType::IntegratedPhase128kV3
-        | FilterType::IntegratedPhase128kV4
-        | FilterType::MinimumPhase128k
-        | FilterType::MinimumPhase128kV2
-        | FilterType::MinimumPhase128kV3
-        | FilterType::MinimumPhase128kV4
-        | FilterType::MinimumPhaseCompact128k
-        | FilterType::MinimumPhaseCompact128kV2
-        | FilterType::SmoothPhase128k => match stage_idx {
-            1 => 255,
-            2 => 127,
-            3 => 63,
-            _ => 31,
-        },
-        FilterType::SincExtreme32k => match stage_idx {
-            1 => 127,
-            2 => 63,
-            3 | 4 => 31,
-            _ => 15,
-        },
+    let taps_total = match stage_idx {
+        1 => 255,
+        2 => 127,
+        3 => 63,
+        _ => 31,
     };
     StageSpec::CleanupHalfband2x {
         taps_total,
-        beta: if family.frozen_filter_version().is_some() {
+        beta: if family.uses_frozen_coefficients() {
             0.0
         } else {
             family.cleanup_beta()
@@ -1496,9 +1002,8 @@ fn cleanup_stage_spec(stage_idx: usize, family: FilterType) -> StageSpec {
         // can take the true-halfband structure (even branch an exact delay).
         cutoff: 0.5,
         engine: EngineKind::DirectSimd,
-        coefficient_source: if let Some(version) = family.frozen_filter_version() {
+        coefficient_source: if family.uses_frozen_coefficients() {
             CleanupCoefficientSource::Frozen {
-                version,
                 // Frozen bundles were certified through 256x (seven cleanup
                 // stages). At 512x, reuse the terminal halfband: the audio
                 // band occupies half its former normalized width, so this is
@@ -1541,9 +1046,9 @@ fn estimate_plan_memory_bytes(stages: &[StageSpec]) -> usize {
         .iter()
         .find_map(|stage| match stage {
             StageSpec::Character2x {
-                coefficient_source: CharacterCoefficientSource::Frozen(version),
+                coefficient_source: CharacterCoefficientSource::Frozen,
                 ..
-            } => Some(frozen_total_asset_coefficients(*version) * size_of::<f64>()),
+            } => Some(frozen_total_asset_coefficients() * size_of::<f64>()),
             _ => None,
         })
         .unwrap_or(0);
@@ -2024,9 +1529,7 @@ impl TwoXStage {
                     CharacterCoefficientSource::Procedural => {
                         build_character_polyphase_pair(half_width, *beta, *cutoff, *phase_mode)
                     }
-                    CharacterCoefficientSource::Frozen(version) => {
-                        frozen_character_polyphase_pair(*version)
-                    }
+                    CharacterCoefficientSource::Frozen => frozen_character_polyphase_pair(),
                 };
                 (
                     Some(build_engine_with_prepad(phase0_coeffs, *engine, prepad0)),
@@ -2046,10 +1549,9 @@ impl TwoXStage {
                     CleanupCoefficientSource::Procedural => {
                         build_phase_coefficients(half_width, 0.5, *beta, *cutoff)
                     }
-                    CleanupCoefficientSource::Frozen {
-                        version,
-                        stage_index,
-                    } => frozen_cleanup_odd_branch(*version, *stage_index),
+                    CleanupCoefficientSource::Frozen { stage_index } => {
+                        frozen_cleanup_odd_branch(*stage_index)
+                    }
                 };
                 (None, build_engine(phase1_coeffs, *engine), half_width)
             }
@@ -2253,8 +1755,6 @@ impl IntegerCascade {
 struct DownsampleChain {
     steps: Vec<DownsampleStep>,
     source_rate: u32,
-    #[cfg(test)]
-    target_rate: u32,
     latency_ms: f64,
     high_latency: bool,
     estimated_memory_bytes: usize,
@@ -2280,16 +1780,14 @@ impl DownsampleChain {
             .iter()
             .map(DownsampleStep::estimated_memory_bytes)
             .sum();
-        if let Some(version) = filter_type.frozen_filter_version() {
-            estimated_memory_bytes += frozen_total_asset_coefficients(version) * size_of::<f64>();
+        if filter_type.uses_frozen_coefficients() {
+            estimated_memory_bytes += frozen_total_asset_coefficients() * size_of::<f64>();
         }
         let high_latency = filter_type.is_high_latency() || latency_ms > DEFAULT_LATENCY_BUDGET_MS;
 
         Some(Self {
             steps,
             source_rate,
-            #[cfg(test)]
-            target_rate,
             latency_ms,
             high_latency,
             estimated_memory_bytes,
@@ -2454,14 +1952,6 @@ impl DownsampleStep {
 }
 
 struct DecimateBy2Stage {
-    #[cfg(test)]
-    filter_type: FilterType,
-    #[cfg(test)]
-    spec: StageSpec,
-    #[cfg(test)]
-    input_rate: u32,
-    #[cfg(test)]
-    output_rate: u32,
     engine: Box<dyn FirEngine>,
     next_filtered_parity: usize,
     filtered_l: Vec<f64>,
@@ -2471,10 +1961,7 @@ struct DecimateBy2Stage {
 }
 
 impl DecimateBy2Stage {
-    fn new(filter_type: FilterType, spec: &StageSpec, input_rate: u32) -> Self {
-        #[cfg(not(test))]
-        let _ = filter_type;
-
+    fn new(_filter_type: FilterType, spec: &StageSpec, input_rate: u32) -> Self {
         let (coeffs, prepad) = build_decimation_coefficients(spec);
         let taps = coeffs.len();
         let engine = spec.engine();
@@ -2486,14 +1973,6 @@ impl DecimateBy2Stage {
         let estimated_memory_bytes = estimate_single_engine_memory_bytes(taps, engine);
 
         Self {
-            #[cfg(test)]
-            filter_type,
-            #[cfg(test)]
-            spec: spec.clone(),
-            #[cfg(test)]
-            input_rate,
-            #[cfg(test)]
-            output_rate: input_rate / 2,
             engine: build_engine_with_prepad(coeffs, engine, Some(prepad)),
             next_filtered_parity: 0,
             filtered_l: Vec::new(),
@@ -2541,25 +2020,21 @@ impl DecimateBy2Stage {
 
 fn build_decimation_coefficients(spec: &StageSpec) -> (Vec<f64>, usize) {
     if let StageSpec::Character2x {
-        coefficient_source: CharacterCoefficientSource::Frozen(version),
+        coefficient_source: CharacterCoefficientSource::Frozen,
         ..
     } = spec
     {
-        let assets = frozen_filter_assets(*version);
+        let assets = split_phase_e3_assets();
         let mut impulse = assets.character.to_vec();
         impulse.reverse();
         return (impulse, assets.alignment.decimation_prepad);
     }
     if let StageSpec::CleanupHalfband2x {
-        coefficient_source:
-            CleanupCoefficientSource::Frozen {
-                version,
-                stage_index,
-            },
+        coefficient_source: CleanupCoefficientSource::Frozen { stage_index },
         ..
     } = spec
     {
-        let assets = frozen_filter_assets(*version);
+        let assets = split_phase_e3_assets();
         let mut impulse = assets
             .cleanups
             .get(usize::from(*stage_index).saturating_sub(1))
@@ -2581,32 +2056,15 @@ fn build_decimation_coefficients(spec: &StageSpec) -> (Vec<f64>, usize) {
             debug_assert_eq!(*coefficient_source, CharacterCoefficientSource::Procedural);
             let half_width = taps_total / 2;
             let impulse = match phase_mode {
-                PhaseMode::MinimumPhaseCompact128k(profile) => {
-                    minimum_phase_compact_impulse(*profile)
-                }
+                PhaseMode::MinimumPhaseCompact128k => minimum_phase_compact_impulse(),
                 _ => {
                     let proto = build_full_rate_2x_prototype(half_width, *beta, *cutoff);
                     match phase_mode {
                         PhaseMode::Linear => proto,
                         PhaseMode::Minimum => minimum_phase_impulse(&proto),
-                        PhaseMode::MinimumPhase128k(_) => {
-                            minimum_phase_impulse_with_params(&proto, minimum128k_phase_params())
-                        }
-                        PhaseMode::MinimumPhaseCompact128k(_) => unreachable!(),
-                        PhaseMode::SplitPhase128k => {
-                            split_phase_impulse_with_params(&proto, split128k_phase_params())
-                        }
-                        PhaseMode::SplitPhase128kV2 => {
-                            split_phase_v2_impulse_with_params(&proto, split128k_phase_params())
-                        }
-                        PhaseMode::FrozenSplitPhase(_) => {
+                        PhaseMode::MinimumPhaseCompact128k => unreachable!(),
+                        PhaseMode::FrozenSplitPhase => {
                             unreachable!("frozen split phase bypasses procedural generation")
-                        }
-                        PhaseMode::IntegratedPhase128k(profile) => {
-                            integrated_phase_impulse_with_params(
-                                &proto,
-                                integrated128k_phase_params(*profile),
-                            )
                         }
                     }
                 }
@@ -2692,29 +2150,8 @@ impl PolyphaseResampler {
         resampler
     }
 
-    fn base_half_width(filter_type: FilterType) -> usize {
-        match filter_type {
-            FilterType::SincExtreme32k
-            | FilterType::LinearPhase128k
-            | FilterType::Minimum16k
-            | FilterType::Split128k
-            | FilterType::Split128kV2
-            | FilterType::SplitPhase128kV3
-            | FilterType::SplitPhase128kV4
-            | FilterType::SplitPhase128kE2v3
-            | FilterType::SplitPhase128kE3
-            | FilterType::IntegratedPhase128k
-            | FilterType::IntegratedPhase128kV2
-            | FilterType::IntegratedPhase128kV3
-            | FilterType::IntegratedPhase128kV4
-            | FilterType::MinimumPhase128k
-            | FilterType::MinimumPhase128kV2
-            | FilterType::MinimumPhase128kV3
-            | FilterType::MinimumPhase128kV4
-            | FilterType::MinimumPhaseCompact128k
-            | FilterType::MinimumPhaseCompact128kV2
-            | FilterType::SmoothPhase128k => 512,
-        }
+    fn base_half_width(_filter_type: FilterType) -> usize {
+        512
     }
 
     fn fractional_half_width(
@@ -2751,10 +2188,10 @@ impl PolyphaseResampler {
         // grid, so scale the normalized cutoff by target/source (e.g. 192k ->
         // 176.4k with a 0.48 cutoff becomes 0.441, keeping 84.7-92.2 kHz
         // source content from folding back below 88.2 kHz).
-        let (base_cutoff, beta) = if self.filter_type.frozen_filter_version().is_some() {
+        let (base_cutoff, beta) = if self.filter_type.uses_frozen_coefficients() {
             // Unsupported capped paths are intentionally generic linear phase;
             // they do not read V1/V2 tuning environment variables.
-            (SPLIT128K_PRODUCTION_CUTOFF, SPLIT128K_PRODUCTION_BETA)
+            (LINEAR128K_PRODUCTION_CUTOFF, LINEAR128K_PRODUCTION_BETA)
         } else {
             (self.filter_type.cutoff(), self.filter_type.beta())
         };
@@ -2904,10 +2341,10 @@ impl RationalPolyphaseResampler {
     }
 
     fn estimated_memory_bytes(&self) -> usize {
-        let coefficient_bytes = if let Some(version) = self.filter_type.frozen_filter_version()
+        let coefficient_bytes = if self.filter_type.uses_frozen_coefficients()
             && frozen_rational_asset_supported(self.step_num, self.phase_den)
         {
-            frozen_total_asset_coefficients(version) * size_of::<f64>()
+            frozen_total_asset_coefficients() * size_of::<f64>()
         } else {
             self.coefficients.len() * size_of::<f64>()
         };
@@ -2915,8 +2352,8 @@ impl RationalPolyphaseResampler {
     }
 
     fn precompute_coefficients(&mut self) {
-        if let Some(version) = self.filter_type.frozen_filter_version() {
-            let assets = frozen_filter_assets(version);
+        if self.filter_type.uses_frozen_coefficients() {
+            let assets = split_phase_e3_assets();
             self.coefficients = match (self.step_num, self.phase_den) {
                 (147, 160) => {
                     debug_assert_eq!(self.half_width, 512);
@@ -2931,10 +2368,10 @@ impl RationalPolyphaseResampler {
                     self.half_width,
                     self.phase_den,
                     if self.target_rate < self.source_rate {
-                        SPLIT128K_PRODUCTION_CUTOFF * self.target_rate as f64
+                        LINEAR128K_PRODUCTION_CUTOFF * self.target_rate as f64
                             / self.source_rate as f64
                     } else {
-                        SPLIT128K_PRODUCTION_CUTOFF
+                        LINEAR128K_PRODUCTION_CUTOFF
                     },
                     self.source_rate,
                     self.target_rate,
@@ -3059,55 +2496,16 @@ fn build_character_polyphase_pair(
             let prepad1 = Some(phase1.len().saturating_sub(1));
             (phase0, phase1, prepad0, prepad1)
         }
-        PhaseMode::MinimumPhase128k(_) => {
-            let proto = build_full_rate_2x_prototype(half_width, beta, cutoff);
-            let minimum = minimum_phase_impulse_with_params(&proto, minimum128k_phase_params());
-            let (phase0, phase1) = split_full_rate_impulse_into_reversed_branches(&minimum);
-            // Match the established Minimum16k alignment contract: retain the
-            // intrinsic causal delay instead of peak-aligning a pure minimum-
-            // phase kernel as the shifted hybrid families require.
-            let prepad0 = Some(phase0.len().saturating_sub(1));
-            let prepad1 = Some(phase1.len().saturating_sub(1));
-            (phase0, phase1, prepad0, prepad1)
-        }
-        PhaseMode::MinimumPhaseCompact128k(profile) => {
-            let minimum = minimum_phase_compact_impulse(profile);
+        PhaseMode::MinimumPhaseCompact128k => {
+            let minimum = minimum_phase_compact_impulse();
             debug_assert_eq!(minimum.len(), 4 * half_width + 1);
             let (phase0, phase1) = split_full_rate_impulse_into_reversed_branches(&minimum);
             let prepad0 = Some(phase0.len().saturating_sub(1));
             let prepad1 = Some(phase1.len().saturating_sub(1));
             (phase0, phase1, prepad0, prepad1)
         }
-        PhaseMode::SplitPhase128k => {
-            let proto = build_full_rate_2x_prototype(half_width, beta, cutoff);
-            let split = split_phase_impulse_with_params(&proto, split128k_phase_params());
-            let origin = dominant_impulse_index(&split);
-            let (phase0, phase1) = split_full_rate_impulse_into_reversed_branches(&split);
-            let prepad0 = Some(prepad_for_global_origin(phase0.len(), origin, 0));
-            let prepad1 = Some(prepad_for_global_origin(phase1.len(), origin, 1));
-            (phase0, phase1, prepad0, prepad1)
-        }
-        PhaseMode::SplitPhase128kV2 => {
-            let proto = build_full_rate_2x_prototype(half_width, beta, cutoff);
-            let split = split_phase_v2_impulse_with_params(&proto, split128k_phase_params());
-            let origin = dominant_impulse_index(&split);
-            let (phase0, phase1) = split_full_rate_impulse_into_reversed_branches(&split);
-            let prepad0 = Some(prepad_for_global_origin(phase0.len(), origin, 0));
-            let prepad1 = Some(prepad_for_global_origin(phase1.len(), origin, 1));
-            (phase0, phase1, prepad0, prepad1)
-        }
-        PhaseMode::FrozenSplitPhase(_) => {
+        PhaseMode::FrozenSplitPhase => {
             unreachable!("frozen split phase bypasses procedural character generation")
-        }
-        PhaseMode::IntegratedPhase128k(profile) => {
-            let proto = build_full_rate_2x_prototype(half_width, beta, cutoff);
-            let integrated =
-                integrated_phase_impulse_with_params(&proto, integrated128k_phase_params(profile));
-            let origin = dominant_impulse_index(&integrated);
-            let (phase0, phase1) = split_full_rate_impulse_into_reversed_branches(&integrated);
-            let prepad0 = Some(prepad_for_global_origin(phase0.len(), origin, 0));
-            let prepad1 = Some(prepad_for_global_origin(phase1.len(), origin, 1));
-            (phase0, phase1, prepad0, prepad1)
         }
     }
 }
@@ -3192,444 +2590,6 @@ fn dominant_impulse_index(impulse: &[f64]) -> usize {
         .unwrap_or(0)
 }
 
-fn prepad_for_global_origin(branch_len: usize, global_origin: usize, phase_index: usize) -> usize {
-    let branch_origin = global_origin.saturating_sub(phase_index).div_ceil(2);
-    let branch_origin = branch_origin.min(branch_len.saturating_sub(1));
-    branch_len.saturating_sub(1).saturating_sub(branch_origin)
-}
-
-/// Minimum-phase weight for the split-phase filter at a normalized 2x-prototype
-/// frequency (0..0.5): 0.0 (pure linear phase) up to F_LO, 1.0 (pure minimum
-/// phase) from F_HI, smootherstep in log-frequency between.
-#[cfg(test)]
-fn split_phase_blend_weight(freq_norm_2x: f64) -> f64 {
-    split_phase_blend_weight_with_params(freq_norm_2x, SplitPhaseParams::default())
-}
-
-fn split_phase_blend_weight_with_params(freq_norm_2x: f64, params: SplitPhaseParams) -> f64 {
-    if freq_norm_2x <= params.split_f_lo {
-        params.low_blend_floor
-    } else if freq_norm_2x >= params.split_f_hi {
-        1.0
-    } else {
-        let t = (freq_norm_2x.ln() - params.split_f_lo.ln())
-            / (params.split_f_hi.ln() - params.split_f_lo.ln());
-        let smooth = t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
-        params.low_blend_floor + (1.0 - params.low_blend_floor) * smooth
-    }
-}
-
-/// Frequency-split phase reconstruction for the split-phase filter. The magnitude
-/// is the linear prototype's at every bin; only the phase is synthesized:
-/// pure linear phase (exactly constant group delay) below F_LO, pure minimum
-/// phase above F_HI, smootherstep blend in log-frequency between.
-///
-/// The linear-phase reference is NOT the symmetric prototype's phase. The
-/// prototype's group delay is half the kernel length, and blending that in
-/// below F_LO only — while the treble goes minimum phase — would lag the low
-/// band behind the treble by that half-length. A constant phase blend
-/// would turn the symmetric phase into
-/// benign uniform latency, but a frequency-DEPENDENT blend turns it into
-/// inter-band dispersion. Instead the reference slope is matched to the
-/// minimum-phase filter's own mean group delay across [0, F_LO], so the low
-/// band keeps an exactly-constant group delay, stays time-aligned with the
-/// minimum-phase treble, and the whole kernel remains front-loaded.
-fn split_phase_impulse_with_params(linear_phase: &[f64], params: SplitPhaseParams) -> Vec<f64> {
-    let n_lp = linear_phase.len();
-    let fft_len = (n_lp * SPLIT_PHASE_FFT_MULTIPLIER)
-        .next_power_of_two()
-        .max(8);
-    let minimum = minimum_phase_impulse_with_fft_len(linear_phase, fft_len);
-    let linear_spectrum = real_spectrum(linear_phase, fft_len);
-    let minimum_spectrum = real_spectrum(&minimum, fft_len);
-    let peak_magnitude = linear_spectrum
-        .iter()
-        .fold(0.0_f64, |peak, bin| peak.max(bin.norm()));
-    let phase_floor = peak_magnitude * MIXED_PHASE_UNWRAP_MAG_FLOOR_REL;
-    let minimum_phase_unwrapped = unwrap_spectrum_phase_with_floor(&minimum_spectrum, phase_floor);
-
-    // Mean minimum-phase group delay (in 2x-prototype samples) over the pure
-    // linear-phase region: with phase(0) = 0, the chord slope to the F_LO bin
-    // is the exact band average. Matching the reference to it makes the
-    // blended phase continuous (zero phase gap) entering the ramp.
-    let lo_bin = ((params.split_f_lo * fft_len as f64).round() as usize)
-        .clamp(1, minimum_phase_unwrapped.len() - 1);
-    let reference_delay =
-        -minimum_phase_unwrapped[lo_bin] * fft_len as f64 / (2.0 * PI * lo_bin as f64);
-
-    // Bulk causality shift. The exactly-linear-phase low band needs
-    // symmetric time support around its group delay, and the blend ramp's
-    // log-frequency smoothness gives that lobe a slowly decaying left tail.
-    // Centered at the minimum-phase low-band delay (~10 samples) the tail
-    // wraps to negative time and is amputated by the truncation below, which
-    // ripples the passband (±0.02 dB) and sets a poor broadband leakage
-    // floor (~-65 dB). A constant delay on the WHOLE spectrum is
-    // dispersion-free and the dominant-tap prepad alignment cancels it
-    // downstream, so it costs no pipeline latency. The n_lp/64 shift buys a
-    // deep leakage floor while the impulse pre-peak window stays under 2 ms.
-    // Kept even so the Nyquist bin stays real.
-    let causality_shift = (n_lp / 64) as f64 * params.causality_shift_scale;
-
-    let mut split_spectrum = linear_spectrum.clone();
-    for (idx, bin) in split_spectrum.iter_mut().enumerate() {
-        let magnitude = linear_spectrum[idx].norm();
-        let freq_norm_2x = idx as f64 / fft_len as f64;
-        // Below the magnitude floor the band is stopband: keep causal
-        // (minimum-phase) energy rather than symmetric.
-        let blend = if magnitude > phase_floor {
-            split_phase_blend_weight_with_params(freq_norm_2x, params)
-        } else {
-            1.0
-        };
-        let linear_reference_phase = -2.0 * PI * freq_norm_2x * reference_delay;
-        let phase = (1.0 - blend) * linear_reference_phase + blend * minimum_phase_unwrapped[idx]
-            - 2.0 * PI * freq_norm_2x * causality_shift;
-        *bin = Complex64::from_polar(magnitude, phase);
-    }
-    if let Some(dc) = split_spectrum.first_mut() {
-        dc.im = 0.0;
-    }
-    if let Some(nyquist) = split_spectrum.last_mut() {
-        nyquist.im = 0.0;
-    }
-
-    let mut split = inverse_real_spectrum(&mut split_spectrum, fft_len, n_lp);
-    apply_raised_cosine_tail_fade_with_fraction(&mut split, params.tail_fade_fraction);
-    normalize_coefficients(&mut split);
-    split
-}
-
-/// V2 keeps the production split points and low-band minimum-phase floor, but
-/// uses a C3 blend so the phase-increment law and its first three derivatives
-/// settle cleanly at both ends of the transition.
-fn split_phase_v2_blend_weight(freq_norm_2x: f64, params: SplitPhaseParams) -> f64 {
-    if freq_norm_2x <= params.split_f_lo {
-        params.low_blend_floor
-    } else if freq_norm_2x >= params.split_f_hi {
-        1.0
-    } else {
-        let t = (freq_norm_2x.ln() - params.split_f_lo.ln())
-            / (params.split_f_hi.ln() - params.split_f_lo.ln());
-        params.low_blend_floor + (1.0 - params.low_blend_floor) * smootherstep7(t)
-    }
-}
-
-fn split_phase_v2_closure_bump(freq_norm_2x: f64, params: SplitPhaseParams) -> f64 {
-    if freq_norm_2x <= params.split_f_lo || freq_norm_2x >= params.split_f_hi {
-        return 0.0;
-    }
-    let t = (freq_norm_2x.ln() - params.split_f_lo.ln())
-        / (params.split_f_hi.ln() - params.split_f_lo.ln());
-    let one_minus_t = 1.0 - t;
-    t.powi(4) * one_minus_t.powi(4)
-}
-
-/// Preserve V1's low-frequency phase law, blend phase increments only inside
-/// 3–14 kHz, and use a C3 interior bump to close exactly onto minimum phase.
-/// The bump and its first three derivatives are zero at both endpoints, so it
-/// cannot create a new group-delay seam at either split frequency.
-fn split_phase_v2_from_unwrapped_minimum(
-    minimum_phase: &[f64],
-    fft_len: usize,
-    params: SplitPhaseParams,
-) -> Vec<f64> {
-    if minimum_phase.len() < 3 {
-        return minimum_phase.to_vec();
-    }
-
-    let lo_bin =
-        ((params.split_f_lo * fft_len as f64).round() as usize).clamp(1, minimum_phase.len() - 2);
-    let join_bin = ((params.split_f_hi * fft_len as f64 + 0.5).ceil() as usize)
-        .clamp(lo_bin + 1, minimum_phase.len() - 1);
-    let reference_increment = minimum_phase[lo_bin] / lo_bin as f64;
-    if !reference_increment.is_finite() {
-        return minimum_phase.to_vec();
-    }
-
-    let mut target = vec![0.0; minimum_phase.len()];
-    // This is V1's constant-floor absolute-phase law below 3 kHz. At F_LO,
-    // the reference chord meets minimum phase, so the transition begins with
-    // no phase gap.
-    for k in 0..=lo_bin {
-        let reference_phase = reference_increment * k as f64;
-        target[k] = (1.0 - params.low_blend_floor) * reference_phase
-            + params.low_blend_floor * minimum_phase[k];
-    }
-
-    let mut base_increments = Vec::with_capacity(join_bin - lo_bin);
-    let mut closure_shapes = Vec::with_capacity(join_bin - lo_bin);
-    let mut raw_join_phase = target[lo_bin];
-    let mut closure_sum = 0.0;
-    let mut closure_compensation = 0.0;
-    for k in (lo_bin + 1)..=join_bin {
-        let freq_mid = (k as f64 - 0.5) / fft_len as f64;
-        let weight = split_phase_v2_blend_weight(freq_mid, params);
-        let minimum_increment = minimum_phase[k] - minimum_phase[k - 1];
-        let base_increment = (1.0 - weight) * reference_increment + weight * minimum_increment;
-        let closure_shape = split_phase_v2_closure_bump(freq_mid, params);
-        base_increments.push(base_increment);
-        closure_shapes.push(closure_shape);
-        raw_join_phase += base_increment;
-        kahan_add(&mut closure_sum, &mut closure_compensation, closure_shape);
-    }
-
-    let closure_amplitude = if closure_sum > f64::EPSILON {
-        (minimum_phase[join_bin] - raw_join_phase) / closure_sum
-    } else {
-        0.0
-    };
-    for (offset, (&base_increment, &closure_shape)) in base_increments
-        .iter()
-        .zip(closure_shapes.iter())
-        .enumerate()
-    {
-        let k = lo_bin + 1 + offset;
-        target[k] = target[k - 1] + base_increment + closure_amplitude * closure_shape;
-    }
-
-    let join_error_rad = target[join_bin] - minimum_phase[join_bin];
-    debug_assert!(
-        join_error_rad.abs() < 1.0e-8,
-        "Split Phase V2 failed to rejoin minimum phase: {join_error_rad} rad"
-    );
-    target[join_bin..].copy_from_slice(&minimum_phase[join_bin..]);
-    target
-}
-
-/// Split Phase V2 uses the exact complex spectrum produced by the cepstral
-/// exponential. Unlike V1, the minimum-phase reference is never converted to
-/// a finite impulse, faded, truncated, and transformed back before blending.
-fn split_phase_v2_impulse_with_params(linear_phase: &[f64], params: SplitPhaseParams) -> Vec<f64> {
-    let n_lp = linear_phase.len();
-    let fft_len = (n_lp * SPLIT_PHASE_FFT_MULTIPLIER)
-        .next_power_of_two()
-        .max(8);
-    let linear_spectrum = real_spectrum(linear_phase, fft_len);
-    let peak_magnitude = linear_spectrum
-        .iter()
-        .fold(0.0_f64, |peak, bin| peak.max(bin.norm()));
-    let phase_floor = peak_magnitude * MIXED_PHASE_UNWRAP_MAG_FLOOR_REL;
-    let magnitude_floor =
-        (peak_magnitude * MinimumPhaseParams::default().mag_floor_rel).max(f64::MIN_POSITIVE);
-    let cepstral_magnitude = linear_spectrum
-        .iter()
-        .map(|bin| bin.norm().max(magnitude_floor))
-        .collect::<Vec<_>>();
-    let minimum_spectrum = minimum_phase_spectrum_from_magnitude(&cepstral_magnitude, fft_len);
-    let minimum_phase = unwrap_spectrum_phase_with_floor(&minimum_spectrum, phase_floor);
-    let target_phase = split_phase_v2_from_unwrapped_minimum(&minimum_phase, fft_len, params);
-
-    // Keep V1's established global causality shift and tail treatment. They
-    // remain deliberately tunable, but are not retuned as part of V2.
-    let causality_shift = (n_lp / 64) as f64 * params.causality_shift_scale;
-    let mut split_spectrum = linear_spectrum.clone();
-    for (idx, bin) in split_spectrum.iter_mut().enumerate() {
-        let freq = idx as f64 / fft_len as f64;
-        let phase = target_phase[idx] - 2.0 * PI * freq * causality_shift;
-        *bin = Complex64::from_polar(linear_spectrum[idx].norm(), phase);
-    }
-    split_spectrum[0].im = 0.0;
-    if let Some(nyquist) = split_spectrum.last_mut() {
-        nyquist.im = 0.0;
-    }
-
-    let mut split = inverse_real_spectrum(&mut split_spectrum, fft_len, n_lp);
-    apply_raised_cosine_tail_fade_with_fraction(&mut split, params.tail_fade_fraction);
-    normalize_coefficients(&mut split);
-    debug_assert!(split.iter().all(|sample| sample.is_finite()));
-    split
-}
-
-fn split128k_phase_params() -> SplitPhaseParams {
-    static PARAMS: OnceLock<SplitPhaseParams> = OnceLock::new();
-    *PARAMS.get_or_init(|| {
-        let mut params = SplitPhaseParams {
-            low_blend_floor: SPLIT128K_PRODUCTION_BLEND_FLOOR,
-            causality_shift_scale: SPLIT128K_PRODUCTION_CAUSALITY_SHIFT_SCALE,
-            tail_fade_fraction: SPLIT128K_PRODUCTION_TAIL_FADE,
-            ..SplitPhaseParams::default()
-        };
-        if let Some(value) = env_f64("FOZMO_SPLIT128K_F_LO_HZ") {
-            params.split_f_lo = (value / 88_200.0).clamp(1.0 / 88_200.0, params.split_f_hi * 0.95);
-        }
-        if let Some(value) = env_f64("FOZMO_SPLIT128K_F_HI_HZ") {
-            params.split_f_hi = (value / 88_200.0).clamp(params.split_f_lo * 1.05, 0.49);
-        }
-        if let Some(value) = env_f64("FOZMO_SPLIT128K_BLEND_FLOOR") {
-            params.low_blend_floor = value.clamp(0.0, 0.25);
-        }
-        if let Some(value) = env_f64("FOZMO_SPLIT128K_CAUSALITY_SHIFT_SCALE") {
-            params.causality_shift_scale = value.clamp(0.25, 2.0);
-        }
-        if let Some(value) = env_f64("FOZMO_SPLIT128K_TAIL_FADE") {
-            params.tail_fade_fraction = value.clamp(0.001, 0.10);
-        }
-        params
-    })
-}
-
-fn integrated_phase_weight(freq: f64, params: IntegratedPhaseParams) -> f64 {
-    if freq <= params.transition_f_lo {
-        return 0.0;
-    }
-    if freq >= params.transition_f_hi {
-        return 1.0;
-    }
-    let t = (freq.ln() - params.transition_f_lo.ln())
-        / (params.transition_f_hi.ln() - params.transition_f_lo.ln());
-    let t2 = t * t;
-    let t4 = t2 * t2;
-    t4 * (35.0 + t * (-84.0 + t * (70.0 - 20.0 * t)))
-}
-
-fn kahan_add(sum: &mut f64, compensation: &mut f64, value: f64) {
-    let adjusted = value - *compensation;
-    let next = *sum + adjusted;
-    *compensation = (next - *sum) - adjusted;
-    *sum = next;
-}
-
-fn integrated_phase_from_unwrapped_minimum(
-    minimum_phase: &[f64],
-    fft_len: usize,
-    params: IntegratedPhaseParams,
-) -> Vec<f64> {
-    if minimum_phase.len() < 2 {
-        return minimum_phase.to_vec();
-    }
-
-    let mut numerator = 0.0;
-    let mut numerator_compensation = 0.0;
-    let mut denominator = 0.0;
-    let mut denominator_compensation = 0.0;
-    for k in 1..minimum_phase.len() {
-        let freq_mid = (k as f64 - 0.5) / fft_len as f64;
-        let a = 1.0 - integrated_phase_weight(freq_mid, params);
-        let increment = minimum_phase[k] - minimum_phase[k - 1];
-        kahan_add(&mut numerator, &mut numerator_compensation, a * increment);
-        kahan_add(&mut denominator, &mut denominator_compensation, a);
-    }
-
-    if !denominator.is_finite() || denominator <= f64::EPSILON || !numerator.is_finite() {
-        return minimum_phase.to_vec();
-    }
-    let reference_increment = numerator / denominator;
-    if !reference_increment.is_finite() {
-        return minimum_phase.to_vec();
-    }
-
-    let mut target = Vec::with_capacity(minimum_phase.len());
-    target.push(minimum_phase[0]);
-    for k in 1..minimum_phase.len() {
-        let freq_mid = (k as f64 - 0.5) / fft_len as f64;
-        let weight = integrated_phase_weight(freq_mid, params);
-        let minimum_increment = minimum_phase[k] - minimum_phase[k - 1];
-        let target_increment = (1.0 - weight) * reference_increment + weight * minimum_increment;
-        target.push(target[k - 1] + target_increment);
-    }
-
-    let join_bin = ((params.transition_f_hi * fft_len as f64 + 0.5).ceil() as usize)
-        .min(minimum_phase.len() - 1);
-    let join_error_rad = target[join_bin] - minimum_phase[join_bin];
-    debug_assert!(
-        join_error_rad.abs() < 1.0e-8,
-        "Integrated Phase failed to rejoin minimum phase: {join_error_rad} rad"
-    );
-    target
-}
-
-fn nearest_even_delay_samples(value: f64) -> usize {
-    if !value.is_finite() || value <= 0.0 {
-        return 0;
-    }
-    ((value / 2.0).round() as usize).saturating_mul(2)
-}
-
-fn integrated_phase_impulse_with_params(
-    linear_phase: &[f64],
-    params: IntegratedPhaseParams,
-) -> Vec<f64> {
-    let n_lp = linear_phase.len();
-    let padded = n_lp
-        .checked_mul(INTEGRATED_PHASE_FFT_MULTIPLIER)
-        .expect("Integrated Phase FFT length overflow");
-    let fft_len = padded.next_power_of_two().max(8);
-    let minimum =
-        minimum_phase_impulse_with_fft_len_and_params(linear_phase, fft_len, params.minimum_phase);
-    let linear_spectrum = real_spectrum(linear_phase, fft_len);
-    let minimum_spectrum = real_spectrum(&minimum, fft_len);
-    let peak = linear_spectrum
-        .iter()
-        .fold(0.0_f64, |acc, bin| acc.max(bin.norm()));
-    let minimum_phase =
-        unwrap_spectrum_phase_with_floor(&minimum_spectrum, peak * params.phase_floor_rel);
-    let target_phase = integrated_phase_from_unwrapped_minimum(&minimum_phase, fft_len, params);
-    let shift =
-        nearest_even_delay_samples(n_lp as f64 / 64.0 * params.causality_shift_scale) as f64;
-
-    let mut spectrum = linear_spectrum.clone();
-    for (k, bin) in spectrum.iter_mut().enumerate() {
-        let freq = k as f64 / fft_len as f64;
-        let phase = target_phase[k] - 2.0 * PI * freq * shift;
-        *bin = Complex64::from_polar(linear_spectrum[k].norm(), phase);
-    }
-    spectrum[0].im = 0.0;
-    if let Some(nyquist) = spectrum.last_mut() {
-        nyquist.im = 0.0;
-    }
-
-    let mut impulse = inverse_real_spectrum(&mut spectrum, fft_len, n_lp);
-    apply_raised_cosine_tail_fade_with_fraction(&mut impulse, params.tail_fade_fraction);
-    normalize_coefficients(&mut impulse);
-    debug_assert!(impulse.iter().all(|sample| sample.is_finite()));
-    impulse
-}
-
-fn integrated128k_phase_params(profile: IntegratedPhaseProfile) -> IntegratedPhaseParams {
-    static PROFILE_1: OnceLock<IntegratedPhaseParams> = OnceLock::new();
-    static PROFILE_2: OnceLock<IntegratedPhaseParams> = OnceLock::new();
-    static PROFILE_3: OnceLock<IntegratedPhaseParams> = OnceLock::new();
-    static PROFILE_4: OnceLock<IntegratedPhaseParams> = OnceLock::new();
-    let cell = match profile {
-        IntegratedPhaseProfile::One => &PROFILE_1,
-        IntegratedPhaseProfile::Two => &PROFILE_2,
-        IntegratedPhaseProfile::Three => &PROFILE_3,
-        IntegratedPhaseProfile::Four => &PROFILE_4,
-    };
-    *cell.get_or_init(|| {
-        let mut params = IntegratedPhaseParams::default();
-        (params.transition_f_lo, params.transition_f_hi) = profile.transition();
-        // Preserve the original tuning hooks for profile 1 only. Applying
-        // them globally would collapse the numbered listening candidates.
-        if profile == IntegratedPhaseProfile::One {
-            if let Some(value) = env_f64("FOZMO_INTEGRATED128K_F_LO_HZ") {
-                params.transition_f_lo =
-                    (value / 88_200.0).clamp(1.0 / 88_200.0, params.transition_f_hi * 0.95);
-            }
-            if let Some(value) = env_f64("FOZMO_INTEGRATED128K_F_HI_HZ") {
-                params.transition_f_hi =
-                    (value / 88_200.0).clamp(params.transition_f_lo * 1.05, 0.49);
-            }
-        }
-        if let Some(value) = env_f64("FOZMO_INTEGRATED128K_CAUSALITY_SHIFT_SCALE") {
-            params.causality_shift_scale = value.clamp(0.25, 2.0);
-        }
-        if let Some(value) = env_f64("FOZMO_INTEGRATED128K_TAIL_FADE") {
-            params.tail_fade_fraction = value.clamp(0.001, 0.10);
-        }
-        if let Some(value) = env_f64("FOZMO_INTEGRATED128K_PHASE_FLOOR_REL") {
-            params.phase_floor_rel = value.clamp(1.0e-12, 1.0e-3);
-        }
-        if let Some(value) = env_f64("FOZMO_INTEGRATED128K_MIN_TAIL_FADE") {
-            params.minimum_phase.tail_fade_fraction = value.clamp(0.001, 0.10);
-        }
-        if let Some(value) = env_f64("FOZMO_INTEGRATED128K_MIN_MAG_FLOOR_REL") {
-            params.minimum_phase.mag_floor_rel = value.clamp(1.0e-16, 1.0e-6);
-        }
-        params
-    })
-}
-
 fn minimum16k_phase_params() -> MinimumPhaseParams {
     static PARAMS: OnceLock<MinimumPhaseParams> = OnceLock::new();
     *PARAMS.get_or_init(|| {
@@ -3645,13 +2605,6 @@ fn minimum16k_phase_params() -> MinimumPhaseParams {
         }
         params
     })
-}
-
-fn minimum128k_phase_params() -> MinimumPhaseParams {
-    MinimumPhaseParams {
-        tail_fade_fraction: MINIMUM16K_PRODUCTION_TAIL_FADE,
-        mag_floor_rel: MINIMUM16K_PRODUCTION_MAG_FLOOR_REL,
-    }
 }
 
 fn env_f64(name: &str) -> Option<f64> {
@@ -3798,294 +2751,6 @@ fn split_phase_e3_character_asset() -> Arc<[f64]> {
     )
 }
 
-fn split_phase_v3_assets() -> &'static FrozenFilterAssetBundle {
-    static ASSETS: OnceLock<FrozenFilterAssetBundle> = OnceLock::new();
-    ASSETS.get_or_init(|| FrozenFilterAssetBundle {
-        character: decode_f64le_asset(
-            include_bytes!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/assets/filters/split_phase_v3/character_full_rate.f64le"
-            )),
-            SPLIT_PHASE_V3_CHARACTER_COEFFICIENTS,
-            "Split Phase V3 character",
-        ),
-        cleanups: [
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_v3/cleanup_stage_1.f64le"
-                )),
-                509,
-                "Split Phase V3 cleanup stage 1",
-            ),
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_v3/cleanup_stage_2.f64le"
-                )),
-                253,
-                "Split Phase V3 cleanup stage 2",
-            ),
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_v3/cleanup_stage_3.f64le"
-                )),
-                125,
-                "Split Phase V3 cleanup stage 3",
-            ),
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_v3/cleanup_stage_4.f64le"
-                )),
-                61,
-                "Split Phase V3 cleanup stage 4",
-            ),
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_v3/cleanup_stage_5.f64le"
-                )),
-                61,
-                "Split Phase V3 cleanup stage 5",
-            ),
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_v3/cleanup_stage_6.f64le"
-                )),
-                61,
-                "Split Phase V3 cleanup stage 6",
-            ),
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_v3/cleanup_stage_7.f64le"
-                )),
-                61,
-                "Split Phase V3 cleanup stage 7",
-            ),
-        ],
-        rational_tables: FrozenRationalTables {
-            phase_147_160: decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_v3/rational_147_160.f64le"
-                )),
-                SPLIT_PHASE_V3_RATIONAL_147_160_COEFFICIENTS,
-                "Split Phase V3 rational 147/160",
-            ),
-            phase_160_147: decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_v3/rational_160_147.f64le"
-                )),
-                SPLIT_PHASE_V3_RATIONAL_160_147_COEFFICIENTS,
-                "Split Phase V3 rational 160/147",
-            ),
-        },
-        alignment: FrozenAlignment {
-            full_rate_origin: SPLIT_PHASE_V3_FULL_RATE_ORIGIN,
-            phase0_prepad: SPLIT_PHASE_V3_PHASE0_PREPAD,
-            phase1_prepad: SPLIT_PHASE_V3_PHASE1_PREPAD,
-            decimation_prepad: SPLIT_PHASE_V3_DECIMATION_PREPAD,
-        },
-    })
-}
-
-fn split_phase_v4_assets() -> &'static FrozenFilterAssetBundle {
-    static ASSETS: OnceLock<FrozenFilterAssetBundle> = OnceLock::new();
-    ASSETS.get_or_init(|| FrozenFilterAssetBundle {
-        character: decode_f64le_asset(
-            include_bytes!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/assets/filters/split_phase_v4/character_full_rate.f64le"
-            )),
-            SPLIT_PHASE_V4_CHARACTER_COEFFICIENTS,
-            "Split Phase V4 character",
-        ),
-        cleanups: [
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_v4/cleanup_stage_1.f64le"
-                )),
-                SPLIT_PHASE_V4_CLEANUP_COEFFICIENTS[0],
-                "Split Phase V4 cleanup stage 1",
-            ),
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_v4/cleanup_stage_2.f64le"
-                )),
-                SPLIT_PHASE_V4_CLEANUP_COEFFICIENTS[1],
-                "Split Phase V4 cleanup stage 2",
-            ),
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_v4/cleanup_stage_3.f64le"
-                )),
-                SPLIT_PHASE_V4_CLEANUP_COEFFICIENTS[2],
-                "Split Phase V4 cleanup stage 3",
-            ),
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_v4/cleanup_stage_4.f64le"
-                )),
-                SPLIT_PHASE_V4_CLEANUP_COEFFICIENTS[3],
-                "Split Phase V4 cleanup stage 4",
-            ),
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_v4/cleanup_stage_5.f64le"
-                )),
-                SPLIT_PHASE_V4_CLEANUP_COEFFICIENTS[4],
-                "Split Phase V4 cleanup stage 5",
-            ),
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_v4/cleanup_stage_6.f64le"
-                )),
-                SPLIT_PHASE_V4_CLEANUP_COEFFICIENTS[5],
-                "Split Phase V4 cleanup stage 6",
-            ),
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_v4/cleanup_stage_7.f64le"
-                )),
-                SPLIT_PHASE_V4_CLEANUP_COEFFICIENTS[6],
-                "Split Phase V4 cleanup stage 7",
-            ),
-        ],
-        rational_tables: FrozenRationalTables {
-            phase_147_160: decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_v4/rational_147_160.f64le"
-                )),
-                SPLIT_PHASE_V4_RATIONAL_147_160_COEFFICIENTS,
-                "Split Phase V4 rational 147/160",
-            ),
-            phase_160_147: decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_v4/rational_160_147.f64le"
-                )),
-                SPLIT_PHASE_V4_RATIONAL_160_147_COEFFICIENTS,
-                "Split Phase V4 rational 160/147",
-            ),
-        },
-        alignment: FrozenAlignment {
-            full_rate_origin: SPLIT_PHASE_V4_FULL_RATE_ORIGIN,
-            phase0_prepad: SPLIT_PHASE_V4_PHASE0_PREPAD,
-            phase1_prepad: SPLIT_PHASE_V4_PHASE1_PREPAD,
-            decimation_prepad: SPLIT_PHASE_V4_DECIMATION_PREPAD,
-        },
-    })
-}
-
-fn split_phase_e2v3_assets() -> &'static FrozenFilterAssetBundle {
-    static ASSETS: OnceLock<FrozenFilterAssetBundle> = OnceLock::new();
-    ASSETS.get_or_init(|| FrozenFilterAssetBundle {
-        character: decode_f64le_asset(
-            include_bytes!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/assets/filters/split_phase_e2v3/character_full_rate.f64le"
-            )),
-            SPLIT_PHASE_E2V3_CHARACTER_COEFFICIENTS,
-            "Split Phase E2v3 character",
-        ),
-        cleanups: [
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_e2v3/cleanup_stage_1.f64le"
-                )),
-                SPLIT_PHASE_E2V3_CLEANUP_COEFFICIENTS[0],
-                "Split Phase E2v3 cleanup stage 1",
-            ),
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_e2v3/cleanup_stage_2.f64le"
-                )),
-                SPLIT_PHASE_E2V3_CLEANUP_COEFFICIENTS[1],
-                "Split Phase E2v3 cleanup stage 2",
-            ),
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_e2v3/cleanup_stage_3.f64le"
-                )),
-                SPLIT_PHASE_E2V3_CLEANUP_COEFFICIENTS[2],
-                "Split Phase E2v3 cleanup stage 3",
-            ),
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_e2v3/cleanup_stage_4.f64le"
-                )),
-                SPLIT_PHASE_E2V3_CLEANUP_COEFFICIENTS[3],
-                "Split Phase E2v3 cleanup stage 4",
-            ),
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_e2v3/cleanup_stage_5.f64le"
-                )),
-                SPLIT_PHASE_E2V3_CLEANUP_COEFFICIENTS[4],
-                "Split Phase E2v3 cleanup stage 5",
-            ),
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_e2v3/cleanup_stage_6.f64le"
-                )),
-                SPLIT_PHASE_E2V3_CLEANUP_COEFFICIENTS[5],
-                "Split Phase E2v3 cleanup stage 6",
-            ),
-            decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_e2v3/cleanup_stage_7.f64le"
-                )),
-                SPLIT_PHASE_E2V3_CLEANUP_COEFFICIENTS[6],
-                "Split Phase E2v3 cleanup stage 7",
-            ),
-        ],
-        rational_tables: FrozenRationalTables {
-            phase_147_160: decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_e2v3/rational_147_160.f64le"
-                )),
-                SPLIT_PHASE_E2V3_RATIONAL_147_160_COEFFICIENTS,
-                "Split Phase E2v3 rational 147/160",
-            ),
-            phase_160_147: decode_f64le_asset(
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/assets/filters/split_phase_e2v3/rational_160_147.f64le"
-                )),
-                SPLIT_PHASE_E2V3_RATIONAL_160_147_COEFFICIENTS,
-                "Split Phase E2v3 rational 160/147",
-            ),
-        },
-        alignment: FrozenAlignment {
-            full_rate_origin: SPLIT_PHASE_E2V3_FULL_RATE_ORIGIN,
-            phase0_prepad: SPLIT_PHASE_E2V3_PHASE0_PREPAD,
-            phase1_prepad: SPLIT_PHASE_E2V3_PHASE1_PREPAD,
-            decimation_prepad: SPLIT_PHASE_E2V3_DECIMATION_PREPAD,
-        },
-    })
-}
-
 fn split_phase_e3_assets() -> &'static FrozenFilterAssetBundle {
     SPLIT_PHASE_E3_ASSETS.get_or_init(|| FrozenFilterAssetBundle {
         character: split_phase_e3_character_asset(),
@@ -4174,17 +2839,8 @@ fn split_phase_e3_assets() -> &'static FrozenFilterAssetBundle {
     })
 }
 
-fn frozen_filter_assets(version: FrozenFilterVersion) -> &'static FrozenFilterAssetBundle {
-    match version {
-        FrozenFilterVersion::V3 => split_phase_v3_assets(),
-        FrozenFilterVersion::V4 => split_phase_v4_assets(),
-        FrozenFilterVersion::E2v3 => split_phase_e2v3_assets(),
-        FrozenFilterVersion::E3 => split_phase_e3_assets(),
-    }
-}
-
-fn frozen_total_asset_coefficients(version: FrozenFilterVersion) -> usize {
-    let assets = frozen_filter_assets(version);
+fn frozen_total_asset_coefficients() -> usize {
+    let assets = split_phase_e3_assets();
     assets.character.len()
         + assets
             .cleanups
@@ -4195,10 +2851,8 @@ fn frozen_total_asset_coefficients(version: FrozenFilterVersion) -> usize {
         + assets.rational_tables.phase_160_147.len()
 }
 
-fn frozen_character_polyphase_pair(
-    version: FrozenFilterVersion,
-) -> (Vec<f64>, Vec<f64>, Option<usize>, Option<usize>) {
-    let assets = frozen_filter_assets(version);
+fn frozen_character_polyphase_pair() -> (Vec<f64>, Vec<f64>, Option<usize>, Option<usize>) {
+    let assets = split_phase_e3_assets();
     let mut phase0 = assets
         .character
         .iter()
@@ -4225,8 +2879,8 @@ fn frozen_character_polyphase_pair(
     )
 }
 
-fn frozen_cleanup_odd_branch(version: FrozenFilterVersion, stage_index: u8) -> Vec<f64> {
-    let assets = frozen_filter_assets(version);
+fn frozen_cleanup_odd_branch(stage_index: u8) -> Vec<f64> {
+    let assets = split_phase_e3_assets();
     let canonical = assets
         .cleanups
         .get(usize::from(stage_index).saturating_sub(1))
@@ -4240,74 +2894,6 @@ fn frozen_cleanup_odd_branch(version: FrozenFilterVersion, stage_index: u8) -> V
     odd.push(0.0);
     odd.reverse();
     odd
-}
-
-fn real_spectrum(samples: &[f64], fft_len: usize) -> Vec<Complex64> {
-    let mut planner = RealFftPlanner::<f64>::new();
-    let forward = planner.plan_fft_forward(fft_len);
-    let mut time_buf = vec![0.0_f64; fft_len];
-    time_buf[..samples.len()].copy_from_slice(samples);
-    let mut spectrum = forward.make_output_vec();
-    forward
-        .process(&mut time_buf, &mut spectrum)
-        .expect("forward FFT plan should match the allocated buffers");
-    spectrum
-}
-
-fn inverse_real_spectrum(
-    spectrum: &mut [Complex64],
-    fft_len: usize,
-    output_len: usize,
-) -> Vec<f64> {
-    let mut planner = RealFftPlanner::<f64>::new();
-    let inverse = planner.plan_fft_inverse(fft_len);
-    let mut impulse = inverse.make_output_vec();
-    inverse
-        .process(spectrum, &mut impulse)
-        .expect("inverse FFT plan should match the allocated buffers");
-    let scale = 1.0 / fft_len as f64;
-    for sample in impulse.iter_mut() {
-        *sample *= scale;
-    }
-    impulse.truncate(output_len);
-    impulse
-}
-
-fn unwrap_spectrum_phase_with_floor(spectrum: &[Complex64], magnitude_floor: f64) -> Vec<f64> {
-    let mut unwrapped = Vec::with_capacity(spectrum.len());
-    let mut offset = 0.0_f64;
-    let mut previous = 0.0_f64;
-    let mut have_previous = false;
-    for bin in spectrum {
-        if bin.norm() <= magnitude_floor {
-            unwrapped.push(previous);
-            continue;
-        }
-
-        let phase = bin.arg();
-        if !have_previous {
-            previous = phase;
-            have_previous = true;
-            unwrapped.push(phase);
-            continue;
-        }
-
-        let mut candidate = phase + offset;
-        let mut delta = candidate - previous;
-        while delta > PI {
-            offset -= 2.0 * PI;
-            candidate = phase + offset;
-            delta = candidate - previous;
-        }
-        while delta <= -PI {
-            offset += 2.0 * PI;
-            candidate = phase + offset;
-            delta = candidate - previous;
-        }
-        unwrapped.push(candidate);
-        previous = candidate;
-    }
-    unwrapped
 }
 
 /// Cepstral minimum-phase reconstruction:
@@ -4328,14 +2914,6 @@ fn minimum_phase_impulse_with_params(linear_phase: &[f64], params: MinimumPhaseP
     // standard practice for audio-grade min-phase reconstruction.
     let fft_len = (n_lp * 8).next_power_of_two().max(8);
     minimum_phase_impulse_with_fft_len_and_params(linear_phase, fft_len, params)
-}
-
-fn minimum_phase_impulse_with_fft_len(linear_phase: &[f64], fft_len: usize) -> Vec<f64> {
-    minimum_phase_impulse_with_fft_len_and_params(
-        linear_phase,
-        fft_len,
-        MinimumPhaseParams::default(),
-    )
 }
 
 fn minimum_phase_impulse_with_fft_len_and_params(
@@ -4437,22 +3015,6 @@ fn minimum_phase_spectrum_from_magnitude(magnitude: &[f64], fft_len: usize) -> V
     folded_spec
 }
 
-fn planck_step(x: f64) -> f64 {
-    if x <= 0.0 {
-        return 0.0;
-    }
-    if x >= 1.0 {
-        return 1.0;
-    }
-    let z = 1.0 / x - 1.0 / (1.0 - x);
-    if z >= 0.0 {
-        let e = (-z).exp();
-        e / (1.0 + e)
-    } else {
-        1.0 / (1.0 + z.exp())
-    }
-}
-
 fn smootherstep7(x: f64) -> f64 {
     let t = x.clamp(0.0, 1.0);
     let t2 = t * t;
@@ -4460,68 +3022,26 @@ fn smootherstep7(x: f64) -> f64 {
     t4 * (35.0 + t * (-84.0 + t * (70.0 - 20.0 * t)))
 }
 
-fn compact_transition_step(x: f64, transition: MinimumCompactTransition) -> f64 {
-    match transition {
-        MinimumCompactTransition::Planck => planck_step(x),
-        MinimumCompactTransition::Smootherstep7 => smootherstep7(x),
-    }
-}
-
-fn db_to_gain(db: f64) -> f64 {
-    10.0f64.powf(db / 20.0)
-}
-
-fn compact_treble_gain(frequency: f64, params: MinimumCompactParams) -> f64 {
-    let Some(taper) = params.treble_taper else {
-        return 1.0;
-    };
-    if frequency <= taper.start_2x {
-        return 1.0;
-    }
-    if frequency >= taper.end_2x {
-        return db_to_gain(-taper.attenuation_db);
-    }
-    let x = (frequency - taper.start_2x) / (taper.end_2x - taper.start_2x);
-    db_to_gain(-taper.attenuation_db * planck_step(x))
-}
-
 fn compact_minimum_magnitude(frequency: f64, params: MinimumCompactParams) -> f64 {
-    let pass_edge_gain = compact_treble_gain(params.pass_edge_2x, params);
     if frequency <= params.pass_edge_2x {
-        return compact_treble_gain(frequency, params);
+        return 1.0;
     }
     if frequency < params.stop_edge_2x {
         let x = (frequency - params.pass_edge_2x) / (params.stop_edge_2x - params.pass_edge_2x);
-        let blend = compact_transition_step(x, params.transition);
-        return params.stop_gain + (pass_edge_gain - params.stop_gain) * (1.0 - blend);
+        let blend = smootherstep7(x);
+        return params.stop_gain + (1.0 - params.stop_gain) * (1.0 - blend);
     }
-    if params.stop_gain == params.nyquist_gain {
-        return params.stop_gain;
-    }
-    let y = (frequency - params.stop_edge_2x) / (0.5 - params.stop_edge_2x);
-    let blend = planck_step(y);
-    ((1.0 - blend) * params.stop_gain.ln() + blend * params.nyquist_gain.ln()).exp()
+    params.stop_gain
 }
 
-fn minimum_compact_params(profile: MinimumCompactProfile) -> MinimumCompactParams {
-    match profile {
-        MinimumCompactProfile::Original => MINIMUM_COMPACT_PRODUCTION_PARAMS,
-        MinimumCompactProfile::Balanced => MINIMUM_COMPACT_BALANCED_PARAMS,
-        MinimumCompactProfile::Smooth => SMOOTH_PHASE_PARAMS,
-    }
+fn minimum_compact_params() -> MinimumCompactParams {
+    MINIMUM_COMPACT_PRODUCTION_PARAMS
 }
 
-fn minimum_phase_compact_impulse(profile: MinimumCompactProfile) -> Vec<f64> {
+fn minimum_phase_compact_impulse() -> Vec<f64> {
     static PRODUCTION: OnceLock<Vec<f64>> = OnceLock::new();
-    static BALANCED: OnceLock<Vec<f64>> = OnceLock::new();
-    static SMOOTH: OnceLock<Vec<f64>> = OnceLock::new();
-    let cache = match profile {
-        MinimumCompactProfile::Original => &PRODUCTION,
-        MinimumCompactProfile::Balanced => &BALANCED,
-        MinimumCompactProfile::Smooth => &SMOOTH,
-    };
-    let params = minimum_compact_params(profile);
-    cache
+    let params = minimum_compact_params();
+    PRODUCTION
         .get_or_init(|| {
             let fft_len = 524_288 * MINIMUM_COMPACT_FFT_MULTIPLIER;
             debug_assert_eq!(fft_len, 4_194_304);
@@ -4549,13 +3069,6 @@ fn apply_raised_cosine_tail_fade(samples: &mut [f64], fade_samples: usize) {
         let t = idx as f64 / denom;
         *sample *= 0.5 * (1.0 + (PI * t).cos());
     }
-}
-
-fn apply_raised_cosine_tail_fade_with_fraction(samples: &mut [f64], fraction: f64) {
-    let max_fade_len = samples.len() / 4;
-    let fade_len = ((samples.len() as f64) * fraction).round() as usize;
-    let fade_len = fade_len.clamp(8, 2048).min(max_fade_len);
-    apply_raised_cosine_tail_fade(samples, fade_len);
 }
 
 fn max_polyphase_half_width(phase_count: usize) -> usize {
@@ -4620,11 +3133,11 @@ fn build_exact_polyphase_coefficient_table_for_filter(
     source_rate: u32,
     target_rate: u32,
 ) -> Vec<f64> {
-    if filter_type.frozen_filter_version().is_some() {
+    if filter_type.uses_frozen_coefficients() {
         return build_exact_polyphase_coefficient_table(
             half_width,
             phase_den,
-            SPLIT128K_PRODUCTION_BETA,
+            LINEAR128K_PRODUCTION_BETA,
             cutoff,
         );
     }
@@ -4655,47 +3168,19 @@ fn build_phase_aware_exact_polyphase_coefficient_table(
     source_rate: u32,
     target_rate: u32,
 ) -> Vec<f64> {
-    if let PhaseMode::MinimumPhaseCompact128k(profile) = phase_mode {
-        let impulse = minimum_phase_compact_rational_impulse(
-            profile,
-            half_width,
-            phase_den,
-            source_rate,
-            target_rate,
-        );
+    if phase_mode == PhaseMode::MinimumPhaseCompact128k {
+        let impulse =
+            minimum_phase_compact_rational_impulse(half_width, phase_den, source_rate, target_rate);
         return deinterleave_rational_impulse_into_rows(&impulse, half_width, phase_den);
     }
 
     let prototype = build_full_rate_rational_prototype(half_width, phase_den, beta, cutoff);
-    let split_scale = 2.0 / phase_den as f64;
     let impulse = match phase_mode {
         PhaseMode::Linear => prototype,
         PhaseMode::Minimum => minimum16k_phase_impulse(&prototype),
-        PhaseMode::MinimumPhase128k(_) => {
-            minimum_phase_impulse_with_params(&prototype, minimum128k_phase_params())
-        }
-        PhaseMode::MinimumPhaseCompact128k(_) => unreachable!(),
-        PhaseMode::SplitPhase128k => {
-            let mut params = split128k_phase_params();
-            params.split_f_lo *= split_scale;
-            params.split_f_hi *= split_scale;
-            split_phase_impulse_with_params(&prototype, params)
-        }
-        PhaseMode::SplitPhase128kV2 => {
-            let mut params = split128k_phase_params();
-            params.split_f_lo *= split_scale;
-            params.split_f_hi *= split_scale;
-            split_phase_v2_impulse_with_params(&prototype, params)
-        }
-        PhaseMode::FrozenSplitPhase(_) => {
+        PhaseMode::MinimumPhaseCompact128k => unreachable!(),
+        PhaseMode::FrozenSplitPhase => {
             unreachable!("frozen split phase uses a frozen rational table")
-        }
-        PhaseMode::IntegratedPhase128k(profile) => {
-            let mut params = integrated128k_phase_params(profile);
-            let frequency_scale = 2.0 / phase_den as f64;
-            params.transition_f_lo *= frequency_scale;
-            params.transition_f_hi *= frequency_scale;
-            integrated_phase_impulse_with_params(&prototype, params)
         }
     };
 
@@ -4703,21 +3188,16 @@ fn build_phase_aware_exact_polyphase_coefficient_table(
 }
 
 fn minimum_phase_compact_rational_impulse(
-    profile: MinimumCompactProfile,
     half_width: usize,
     phase_den: usize,
     source_rate: u32,
     target_rate: u32,
 ) -> Vec<f64> {
-    let mut params = minimum_compact_params(profile);
+    let mut params = minimum_compact_params();
     // Each fine-grid polyphase component has approximately 1/phase_den of
     // the prototype's DC gain and is normalized back to unity after
-    // deinterleaving. Compensate a flat nonzero stop floor for that gain so
-    // the completed rational rows retain the profile's requested rejection.
-    if params.stop_gain == params.nyquist_gain {
-        params.stop_gain /= phase_den as f64;
-        params.nyquist_gain /= phase_den as f64;
-    }
+    // deinterleaving. Compensate the flat stop floor for that gain.
+    params.stop_gain /= phase_den as f64;
     let num_taps = 2 * half_width + 1;
     let output_len = num_taps
         .checked_mul(phase_den)

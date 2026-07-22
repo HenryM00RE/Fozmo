@@ -2631,12 +2631,12 @@ mod tests {
     #[test]
     fn sonos_source_prep_uses_selected_long_filter_for_downsampling() {
         let target_rate = sonos_target_rate_for_source(96_000);
-        let resampler = SincResampler::new(FilterType::Split128k, 96_000, target_rate);
+        let resampler = SincResampler::new(FilterType::SplitPhase128kE3, 96_000, target_rate);
 
         assert_eq!(target_rate, 48_000);
         assert_eq!(resampler.source_rate(), 96_000);
         assert_eq!(resampler.target_rate(), 48_000);
-        assert_eq!(resampler.filter_type(), FilterType::Split128k);
+        assert_eq!(resampler.filter_type(), FilterType::SplitPhase128kE3);
         assert!(resampler.is_high_latency());
     }
 

@@ -110,7 +110,7 @@ fn run_ecbeam2_qualification_cli(args: &[String], out_dir: Option<PathBuf>) -> E
             },
             harness::SelectableDsdFilter {
                 name: "SplitPhase",
-                filter: FilterType::Split128k,
+                filter: FilterType::SplitPhase128kE3,
             },
         ]
     };
@@ -1930,88 +1930,26 @@ fn parse_selectable_filters_arg(
     for token in value.split(',') {
         let token = token.trim();
         let filter = match token {
-            "SplitPhase" | "split-phase" | "split" | "Split128k" | "split128k" => {
+            "SplitPhase" | "split-phase" | "SplitPhase128kE3" | "SplitPhaseB" | "split-phase-b" => {
                 harness::SelectableDsdFilter {
                     name: "SplitPhase",
-                    filter: FilterType::Split128k,
+                    filter: FilterType::SplitPhase128kE3,
                 }
             }
-            "SplitPhaseE2v3" | "split-phase-e2v3" | "SplitPhase128kE2v3" => {
-                harness::SelectableDsdFilter {
-                    name: "SplitPhaseE2v3",
-                    filter: FilterType::SplitPhase128kE2v3,
-                }
-            }
-            "SplitPhaseE3" | "split-phase-e3" | "SplitPhase128kE3" | "SplitPhaseB"
-            | "split-phase-b" => harness::SelectableDsdFilter {
-                name: "SplitPhaseE3",
-                filter: FilterType::SplitPhase128kE3,
+            "LinearPhase" | "linear-phase" | "LinearPhase128k" => harness::SelectableDsdFilter {
+                name: "LinearPhase",
+                filter: FilterType::LinearPhase128k,
             },
-            "LinearPhase" | "linear-phase" | "linear" | "SincExtreme32k" | "sinc-extreme32k" => {
-                harness::SelectableDsdFilter {
-                    name: "LinearPhase",
-                    filter: FilterType::SincExtreme32k,
-                }
-            }
-            "MinimumPhase" | "minimum-phase" | "minimum" | "Minimum16k" | "minimum16k" => {
+            "MinimumPhase" | "minimum-phase" | "MinimumPhaseCompact128k" => {
                 harness::SelectableDsdFilter {
                     name: "MinimumPhase",
-                    filter: FilterType::Minimum16k,
+                    filter: FilterType::MinimumPhaseCompact128k,
                 }
             }
-            "MinimumPhase128k1" | "minimum-phase-128k-1" | "MinimumPhase128k" => {
-                harness::SelectableDsdFilter {
-                    name: "MinimumPhase128k1",
-                    filter: FilterType::MinimumPhase128k,
-                }
-            }
-            "MinimumPhase128k2" | "minimum-phase-128k-2" | "MinimumPhase128kV2" => {
-                harness::SelectableDsdFilter {
-                    name: "MinimumPhase128k2",
-                    filter: FilterType::MinimumPhase128kV2,
-                }
-            }
-            "MinimumPhase128k3" | "minimum-phase-128k-3" | "MinimumPhase128kV3" => {
-                harness::SelectableDsdFilter {
-                    name: "MinimumPhase128k3",
-                    filter: FilterType::MinimumPhase128kV3,
-                }
-            }
-            "MinimumPhase128k4" | "minimum-phase-128k-4" | "MinimumPhase128kV4" => {
-                harness::SelectableDsdFilter {
-                    name: "MinimumPhase128k4",
-                    filter: FilterType::MinimumPhase128kV4,
-                }
-            }
-            "IntegratedPhase"
-            | "IntegratedPhase1"
-            | "integrated-phase-1"
-            | "integrated-phase"
-            | "integrated"
-            | "IntegratedPhase128k"
-            | "integratedphase128k"
-            | "integrated-phase128k" => harness::SelectableDsdFilter {
-                name: "IntegratedPhase1",
-                filter: FilterType::IntegratedPhase128k,
+            "Minimum16k" | "minimum16k" => harness::SelectableDsdFilter {
+                name: "Minimum16k",
+                filter: FilterType::Minimum16k,
             },
-            "IntegratedPhase2" | "integrated-phase-2" | "IntegratedPhase128kV2" => {
-                harness::SelectableDsdFilter {
-                    name: "IntegratedPhase2",
-                    filter: FilterType::IntegratedPhase128kV2,
-                }
-            }
-            "IntegratedPhase3" | "integrated-phase-3" | "IntegratedPhase128kV3" => {
-                harness::SelectableDsdFilter {
-                    name: "IntegratedPhase3",
-                    filter: FilterType::IntegratedPhase128kV3,
-                }
-            }
-            "IntegratedPhase4" | "integrated-phase-4" | "IntegratedPhase128kV4" => {
-                harness::SelectableDsdFilter {
-                    name: "IntegratedPhase4",
-                    filter: FilterType::IntegratedPhase128kV4,
-                }
-            }
             "" => return Err("--selectable-filter must list one or more filters".to_string()),
             _ => {
                 return Err(format!(

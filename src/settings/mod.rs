@@ -215,7 +215,7 @@ mod tests {
         let macbook = snapshot.playback_for_zone("macbook");
         let pc = snapshot.playback_for_zone("pc");
 
-        assert_eq!(macbook.filter_type.as_deref(), Some("SplitPhase128kE2v3"));
+        assert_eq!(macbook.filter_type.as_deref(), Some("SplitPhase128kE3"));
         assert_eq!(macbook.target_rate, Some(96_000));
         assert_eq!(pc.filter_type.as_deref(), Some("Minimum16k"));
         assert_eq!(pc.target_rate, Some(384_000));
