@@ -610,3 +610,29 @@ describe('browser zones', () => {
     expect(zoneFormatLabel(browserZone)).toBe('This Browser');
   });
 });
+
+describe('zone display names', () => {
+  it('prefers a saved output name over the hardware device name', () => {
+    const zone = {
+      id: 'local-hegel',
+      name: 'Hegel H390',
+      protocol: 'local_core_audio',
+      backend: 'coreaudio',
+      device_name: 'Hegel H390 USB'
+    } satisfies ZoneProfile;
+
+    expect(zoneDisplayName(zone)).toBe('Hegel H390');
+    expect(zoneFormatLabel(zone)).toBe('CoreAudio');
+  });
+
+  it('falls back to the hardware name when an output has no saved name', () => {
+    const zone = {
+      id: 'local-hegel',
+      name: '',
+      protocol: 'local_core_audio',
+      device_name: 'Hegel H390 USB'
+    } satisfies ZoneProfile;
+
+    expect(zoneDisplayName(zone)).toBe('Hegel H390 USB');
+  });
+});

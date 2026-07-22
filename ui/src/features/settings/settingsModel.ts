@@ -986,18 +986,13 @@ export function isUpnpZone(zone: ZoneProfile) {
 
 export function zoneDisplayName(zone: ZoneProfile) {
   if (isBrowserZone(zone)) return browserZoneDisplayName(zone.name);
-  if (isAirPlayZone(zone)) return zone.name || 'AirPlay output';
-  if (isSonosZone(zone)) return zone.name || 'Sonos';
-  if (isUpnpZone(zone)) return zone.name || 'UPnP renderer';
-  const clean = selectedDeviceDisplayName(zone.device_name || zone.name);
-  if (zone.id === 'local-core') return zone.name || 'System Output';
-  if (zone.protocol === 'remote_agent') {
-    const backend = zoneBackendName(zone);
-    return backend
-      ? `${clean || zone.name || 'Audio output'} (${backend})`
-      : clean || zone.name || 'Audio output';
-  }
-  return clean || zone.name || 'Audio output';
+  const name = String(zone.name || '').trim();
+  if (name) return name;
+  if (isAirPlayZone(zone)) return 'AirPlay output';
+  if (isSonosZone(zone)) return 'Sonos';
+  if (isUpnpZone(zone)) return 'UPnP renderer';
+  if (zone.id === 'local-core') return 'System Output';
+  return selectedDeviceDisplayName(zone.device_name);
 }
 
 export function selectedDeviceDisplayName(value: unknown) {
