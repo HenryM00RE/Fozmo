@@ -14,7 +14,8 @@ A local music player that combines a self-hosted library with Qobuz streaming, b
 
 Qobuz is the most complete streaming path and requires your own account and subscription. Experimental integrations include Sonos, AirPlay, Hegel, UPnP, Windows WASAPI/ASIO, and remote agents; treat these as test targets rather than compatibility claims.
 
-See the [DSP guide](docs/dsp.md), [measurements](docs/Measurements.md), and [audio pipeline](docs/audio-pipeline.md) for implementation and quality details.
+See the [DSP guide](docs/dsp.md), [audio measurements](docs/Measurements.md),
+and [audio pipeline](docs/audio-pipeline.md) for processing and playback details.
 
 ## Screenshots
 
