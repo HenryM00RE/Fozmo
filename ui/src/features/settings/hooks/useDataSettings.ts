@@ -5,27 +5,31 @@ import { safeArray } from '../../../shared/lib/appSupport';
 import type { JsonRecord } from '../../../shared/types';
 import { numberValue } from '../settingsModel';
 
+export type HistoryExportRange = 'day' | 'week' | 'month' | 'all';
+
 export function useDataSettings() {
   const [importMode, setImportMode] = useState('merge');
   const [importFile, setImportFile] = useState<File | null>(null);
   const [dataStatus, setDataStatus] = useState('Ready');
 
-  const exportHistory = async () => {
+  const exportHistory = async (range: HistoryExportRange) => {
     setDataStatus('Preparing export...');
     try {
-      const data = await api.get<JsonRecord>('/api/history/export');
+      const data = await api.get<JsonRecord>(`/api/history/export?range=${range}`);
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${APP_SLUG}-listening-history-${new Date().toISOString().slice(0, 10)}.json`;
+      link.download = `${APP_SLUG}-listening-history-${range}-${new Date().toISOString().slice(0, 10)}.json`;
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
       setDataStatus(`${safeArray(data.entries).length} entries exported`);
+      return true;
     } catch {
       setDataStatus('Export failed');
+      return false;
     }
   };
 

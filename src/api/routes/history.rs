@@ -11,6 +11,7 @@ use axum::{
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Deserialize, JsonSchema)]
 pub struct RecentHistoryQuery {
@@ -20,6 +21,11 @@ pub struct RecentHistoryQuery {
 
 #[derive(Deserialize, JsonSchema)]
 pub struct HistoryStatsQuery {
+    pub range: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct HistoryExportQuery {
     pub range: Option<String>,
 }
 
@@ -165,16 +171,39 @@ async fn history_top(
 async fn export_history(
     State(state): State<AppState>,
     profile: Option<Extension<ProfileContext>>,
+    Query(query): Query<HistoryExportQuery>,
 ) -> impl IntoResponse {
+    let range = query.range.as_deref().unwrap_or("all");
+    let since = match history_export_start(range) {
+        Ok(since) => since,
+        Err(message) => return (StatusCode::BAD_REQUEST, message).into_response(),
+    };
     let profile_id = request_profile_id(&state, profile);
     match state
         .library()
-        .run_blocking(move |library| library.export_playback_history_for_profile(&profile_id))
+        .run_blocking(move |library| {
+            library.export_playback_history_for_profile_since(&profile_id, since)
+        })
         .await
     {
         Ok(export) => Json(export).into_response(),
         Err(e) => ApiError::internal(e).into_response(),
     }
+}
+
+fn history_export_start(range: &str) -> Result<Option<i64>, &'static str> {
+    let days = match range {
+        "day" => Some(1),
+        "week" => Some(7),
+        "month" => Some(30),
+        "all" => None,
+        _ => return Err("History export range must be day, week, month, or all"),
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or_default();
+    Ok(days.map(|days| now.saturating_sub(days * 86_400)))
 }
 
 async fn import_history(

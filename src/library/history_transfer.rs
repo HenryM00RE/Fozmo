@@ -17,6 +17,14 @@ impl Library {
         &self,
         profile_id: &str,
     ) -> Result<PlaybackHistoryDataExport, String> {
+        self.export_playback_history_for_profile_since(profile_id, None)
+    }
+
+    pub fn export_playback_history_for_profile_since(
+        &self,
+        profile_id: &str,
+        since: Option<i64>,
+    ) -> Result<PlaybackHistoryDataExport, String> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
             .prepare(
@@ -25,12 +33,13 @@ impl Library {
                        played_secs, duration_secs, completed, counted, radio, played_at
                 FROM playback_history
                 WHERE profile_id = ?1
+                  AND (?2 IS NULL OR played_at >= ?2)
                 ORDER BY played_at ASC, id ASC
                 "#,
             )
             .map_err(|e| format!("export history query: {e}"))?;
         let rows = stmt
-            .query_map([profile_id], |row| {
+            .query_map(params![profile_id, since], |row| {
                 let source_json: String = row.get(1)?;
                 let source = serde_json::from_str::<SourceRef>(&source_json).map_err(|e| {
                     rusqlite::Error::FromSqlConversionFailure(
