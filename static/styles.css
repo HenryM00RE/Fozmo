@@ -3755,6 +3755,16 @@ html[data-custom-display-font="on"] .artist-hero-name {
     font-size: 12.5px;
 }
 
+@media (max-width: 760px) {
+    .artist-hero {
+        grid-template-columns: minmax(100px, 120px) minmax(0, 1fr);
+    }
+
+    .artist-hero-image.placeholder {
+        font-size: 32px;
+    }
+}
+
 /* Loading shimmer for progressively-loaded sections */
 .skeleton-shimmer {
     display: inline-block;

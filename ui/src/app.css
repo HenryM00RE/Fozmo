@@ -2602,6 +2602,32 @@ html[data-custom-display-font="on"]
   margin: 0;
 }
 
+@media (max-width: 760px) {
+  .react-app .artist-hero {
+    column-gap: 32px;
+    row-gap: 20px;
+  }
+
+  .react-app .artist-hero-meta {
+    display: contents;
+  }
+
+  .react-app .artist-hero-primary {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    align-self: center;
+  }
+
+  .react-app .artist-hero-bio {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    max-width: none;
+    margin-top: 0;
+  }
+}
+
 .react-app .artist-section-title {
   margin: 0;
   color: var(--ink, #f5f0e8);

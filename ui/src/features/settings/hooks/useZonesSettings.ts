@@ -105,7 +105,7 @@ export function useZonesSettings(zones: ZoneProfile[], onRefresh: () => Promise<
   const [settingsZoneId, setSettingsZoneId] = useState<string | null>(null);
   const [zoneNameDraft, setZoneNameDraft] = useState('');
   const [zoneDefaultVolumeEnabled, setZoneDefaultVolumeEnabled] = useState(false);
-  const [zoneDefaultVolumePercent, setZoneDefaultVolumePercent] = useState(25);
+  const [zoneDefaultVolumePercent, setZoneDefaultVolumePercent] = useState(40);
   const [zoneQobuzHiresEnabled, setZoneQobuzHiresEnabled] = useState(false);
   const [zoneIconDraft, setZoneIconDraft] = useState<OutputIconId>('auto');
   const [zoneDeviceTypeDraft, setZoneDeviceTypeDraft] = useState<ZoneDeviceType>('none');
@@ -146,7 +146,7 @@ export function useZonesSettings(zones: ZoneProfile[], onRefresh: () => Promise<
     const hasDefaultVolume = Number.isFinite(Number(zone.airplay_default_volume));
     const fallbackVolume = Number.isFinite(Number(zone.airplay_last_volume))
       ? zone.airplay_last_volume
-      : 0.25;
+      : 0.4;
     setSettingsZoneId(zone.id);
     setZoneNameDraft(String(zone.name || zoneDisplayName(zone)));
     setZoneDefaultVolumeEnabled(hasDefaultVolume);
