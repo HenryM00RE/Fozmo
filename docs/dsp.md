@@ -28,15 +28,13 @@ The selectable filters are 128k-class reconstruction filters, but they arrange t
 | --- | ---: | --- |
 | Linear Phase | 131,073 | Uses a long symmetric FIR matched to the Split Phase magnitude target, with constant group delay that keeps relative phase aligned through the passband. |
 | Minimum Phase | 131,071 | Converts the long reconstruction response to minimum phase, moving the impulse energy after its leading edge instead of spreading it symmetrically. |
-| Split Phase | 131,073 | Uses the promoted E2v3 frozen bundle, retaining linear phase at low frequencies and transitioning toward minimum phase at high frequencies with independently optimized interpolation, decimation, cleanup, and rational paths. |
-| Split Phase B | 131,073 | Uses the P17 frozen bundle. It preserves the Split Phase magnitude response while reducing both dominant ringing lobes, integrated side energy, main-lobe width, step overshoot and undershoot, and measured decay relative to Split Phase. |
-| Smooth Phase | 131,071 | Uses a long minimum-phase structure with a gradual high-frequency taper before the cutoff. |
+| Split Phase | 131,073 | Uses the P17 frozen bundle (`SplitPhase128kE3`). It retains linear phase at low frequencies, transitions toward minimum phase at high frequencies, and reduces ringing, side energy, main-lobe width, step excursion, and measured decay relative to the earlier E2v3 implementation. |
 
 It is best to use integer upsampling and keep the source in the same sample-rate family. For example, 44.1 kHz sources should go to 88.2, 176.4, or 352.8 kHz, while 48 kHz sources should go to 96, 192, or 384 kHz. These integer-multiple paths are what I tuned the upsampling filters for.
 
 The tap count is for the first and main reconstruction stage. In my testing I did not find better results from going beyond the filter lengths in the current list, so I left the longer experiments out for now. I am open to feedback and can reinstate some longer filters if people want them. The long filters use partitioned FFT convolution for the first stage, then shorter half-band filters for each extra 2× step up to the selected output rate.
 
-Older saved Linear Phase selections move to the current 128k Linear Phase filter. Saved 16k Minimum Phase and Compact Phase selections move to the current 128k Minimum Phase filter. Older Split Phase selections move to the promoted E2v3 Split Phase filter. The retired implementations remain available internally for diagnostics and benchmarks, but they are not offered during normal playback setup.
+Older saved Linear Phase selections move to the current 128k Linear Phase filter. Saved 16k Minimum Phase and Compact Phase selections move to the current 128k Minimum Phase filter. Saved E2v3 Split Phase, Split Phase B, and Smooth Phase selections move to P17, now named simply Split Phase. Those older identifiers remain available internally for migration, diagnostics, and benchmarks, but they are not offered during normal playback setup.
 
 ### DSD modulators
 
@@ -45,9 +43,9 @@ The two selectable modulators use seventh-order cascaded-resonator-feedback delt
 | Modulator | Architecture | Tuned headroom |
 | --- | --- | ---: |
 | 7th Order | Makes each decision directly from the current loop output. This is the simplest and lightest option. | −4 dB |
-| 7th Order Search | Uses the production fixed M4/N8 beam search with a raw quantizer-error path objective. It supports DSD64, DSD128, and DSD256. | −2 dB |
+| 7th Order Search | Uses the production fixed M4/N8 beam search with a raw quantizer-error path objective. It is selectable at DSD64 and DSD128. | −2 dB |
 
-The headroom here is important. I tuned 7th Order at **−4 dB**, while 7th Order Search uses **−2 dB**. 7th Order Search fixes that headroom and its DSD ISI compensation at zero. Its DSD64, DSD128, and DSD256 plants use one matched production input calibration while retaining their own rate-specific noise-transfer functions. Both modulators work with all supported filters and DSD64, DSD128, or DSD256. The EQ page has its own separate headroom control, which works well for EQ boosts.
+The headroom here is important. I tuned 7th Order at **−4 dB**, while 7th Order Search uses **−2 dB**. 7th Order Search fixes that headroom and its DSD ISI compensation at zero. Its selectable DSD64 and DSD128 plants use one matched production input calibration while retaining their own rate-specific noise-transfer functions. Regular 7th Order supports DSD64, DSD128, and DSD256; 7th Order Search supports DSD64 and DSD128. Both work with every selectable filter. The EQ page has its own separate headroom control, which works well for EQ boosts.
 
 ### What I am currently using
 
@@ -80,24 +78,32 @@ RUSTFLAGS="-C target-cpu=native" cargo run --locked --release --bin filter_timin
 
 If playback cannot keep up, try a lower DSD rate or a lighter modulator. PCM is also there as the safer option when a DAC or output path does not handle DSD reliably.
 
+On an Apple M4 Mac mini, the focused P17 Split Phase + 7th Order Search DSD128
+renderer benchmark averaged **53.762 ms** for 8,192 stereo source frames,
+equivalent to **3.46× real-time** wall throughput. The modulator-only benchmark
+measured **76.69 ns per DSD sample**, or **43.29% of one core per channel** and
+**86.58% aggregate for stereo**; neither benchmark reported a reset or clamp.
+See [Split Phase DSD Measurements](Measurements.md) for the test conditions and
+interpretation.
+
 The [production filter timing bench](filter-timing-bench.md) is a quality
 measurement rather than a throughput benchmark. It compares impulse and step
 behavior, windowed 5-20 kHz tone packets, energy asymmetry, decay, and group
-delay for the five selectable reconstruction filters under one controlled
-integer-upsampling setup.
+delay for the three selectable reconstruction filters, plus retained diagnostic
+comparisons, under one controlled integer-upsampling setup.
 
 ## Testing so far
 
 The reproducible [public PCM-to-DSD measurement bench](dsd-public-quality.md)
 tests the production renderer with generated signals and reports digital
 linearity, noise, spurs, stability, recovery, and hi-res reconstruction. Its
-canonical matrix and versioned score currently use only the default Split
-Phase product path, including distinct rated-input and level-matched stress
-cells. Linear Phase, Minimum Phase, and Smooth Phase are not yet part of that
-canonical score. A separate legacy 32k linear-phase path remains available as
-an internal, non-scoring diagnostic; it is not the selectable 128k Linear Phase
-filter described above. A concise, score-free summary of the current Split
-Phase DSD64, DSD128, stress, idle, and hi-res results is available in
+versioned score still targets the earlier E2v3 path. The current focused P17
+run therefore reports measurements without applying that older presentation
+score; every summarized selectable-path cell completed with zero structural
+failures. A separate legacy 32k linear-phase path remains available
+as an internal, non-scoring diagnostic; it is not the selectable 128k Linear
+Phase filter described above. The current P17 level, stress, idle, hi-res, and
+M4 performance results are collected in
 [Split Phase DSD Measurements](Measurements.md). The bench embeds and verifies
 the native-CPU release build contract rather than trusting launch-time
 environment metadata.
