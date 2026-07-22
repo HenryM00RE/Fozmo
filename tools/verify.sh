@@ -69,8 +69,8 @@ echo "==> Checking the MIT/GPL process and dependency boundary"
 
 echo "==> Checking Rust dependency policy"
 cargo deny check
-cargo deny --manifest-path airplay-helper/Cargo.toml check \
-  --config airplay-helper/deny.toml
+cargo deny --manifest-path airplay-helper/Cargo.toml \
+  --config airplay-helper/deny.toml check
 
 echo "==> Running release Rust library and binary tests"
 RUSTFLAGS="$AUDIO_RUSTFLAGS" cargo test --release --lib --bins

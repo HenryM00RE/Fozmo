@@ -1,18 +1,18 @@
-# GPL Aggregation Assessment For Fozmo 0.0.1
+# GPL Aggregation Assessment For Fozmo 0.0.2
 
 ## Decision
 
 The project accepts distribution of the MIT-licensed Fozmo application and the
-GPL-2.0-only `fozmo-airplay-helper` in the same Fozmo 0.0.1 DMG as an aggregate
+GPL-2.0-only `fozmo-airplay-helper` in the same Fozmo 0.0.2 DMG as an aggregate
 of independently executable programs, subject to every invariant and release
 obligation below passing at build time.
 
-This is the project's recorded distribution decision for the unsigned 0.0.1
+This is the project's recorded distribution decision for the unsigned 0.0.2
 pre-alpha release. It is a scoped open-source compliance assessment, not legal
 advice or a conclusion that every future architecture or release shape has
 automatically been approved.
 
-Assessment recorded: 2026-07-13.
+Assessment recorded: 2026-07-22.
 
 ## Licence Basis
 

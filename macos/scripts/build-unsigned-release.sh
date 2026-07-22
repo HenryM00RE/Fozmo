@@ -21,8 +21,8 @@ VERSION="${VERSION:-$(project_version)}"
 PROJECT_VERSION="$(project_version)"
 [[ "$VERSION" == "$PROJECT_VERSION" ]] \
   || die "unsigned-public VERSION must match Cargo.toml ($PROJECT_VERSION)"
-[[ "$VERSION" == "0.0.1" ]] \
-  || die "this unsigned pre-alpha release entry point is currently limited to version 0.0.1"
+[[ "$VERSION" == "0.0.2" ]] \
+  || die "this unsigned pre-alpha release entry point is currently limited to version 0.0.2"
 verify_gpl_aggregation_policy "$FOZMO_BUILD_MODE" "$VERSION"
 
 if [[ -n "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal)" ]]; then

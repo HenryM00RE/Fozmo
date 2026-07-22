@@ -172,11 +172,7 @@ export function NowPlayingQueueIsland({
     scrollQueueItemIntoView(queue, current, 'auto');
     programmaticScrollRef.current = false;
     hasScrolledOnMountRef.current = true;
-  }, [
-    scrollToCurrentOnMount,
-    snapshot.cursor,
-    snapshot.structuralKey
-  ]);
+  }, [scrollToCurrentOnMount, snapshot.cursor, snapshot.structuralKey]);
 
   useEffect(() => {
     const queue = queueRef.current;
