@@ -11,6 +11,8 @@ import {
 } from '../../../shared/ui/ZoneOutputIcon';
 import {
   BROWSER_OPUS_KBPS_OPTIONS,
+  normalizeAirPlayDefaultVolumePercent,
+  normalizeAirPlayMaxVolumePercent,
   type ZoneBrowserStreamDraft,
   type ZoneDeviceType,
   type ZoneHegelDraft,
@@ -53,8 +55,8 @@ export function ZonesSettingsPage({
   selectSettingsZone,
   setSettingsZoneId,
   setZoneBrowserStreamDraft,
-  setZoneDefaultVolumeEnabled,
   setZoneDefaultVolumePercent,
+  setZoneMaxVolumePercent,
   setZoneQobuzHiresEnabled,
   setZoneDeviceTypeDraft,
   setZoneHegelDraft,
@@ -68,8 +70,8 @@ export function ZonesSettingsPage({
   zoneCalibrationBusy,
   zoneCalibrationMessage,
   zoneDeviceTypeDraft,
-  zoneDefaultVolumeEnabled,
   zoneDefaultVolumePercent,
+  zoneMaxVolumePercent,
   zoneQobuzHiresEnabled,
   zoneGroups,
   zoneHegelDraft,
@@ -91,8 +93,8 @@ export function ZonesSettingsPage({
   selectSettingsZone: (zone: ZoneProfile) => Promise<void>;
   setSettingsZoneId: Dispatch<SetStateAction<string | null>>;
   setZoneBrowserStreamDraft: Dispatch<SetStateAction<ZoneBrowserStreamDraft>>;
-  setZoneDefaultVolumeEnabled: Dispatch<SetStateAction<boolean>>;
-  setZoneDefaultVolumePercent: Dispatch<SetStateAction<number>>;
+  setZoneDefaultVolumePercent: Dispatch<SetStateAction<string>>;
+  setZoneMaxVolumePercent: Dispatch<SetStateAction<string>>;
   setZoneQobuzHiresEnabled: Dispatch<SetStateAction<boolean>>;
   setZoneDeviceTypeDraft: Dispatch<SetStateAction<ZoneDeviceType>>;
   setZoneHegelDraft: Dispatch<SetStateAction<ZoneHegelDraft>>;
@@ -106,8 +108,8 @@ export function ZonesSettingsPage({
   zoneCalibrationBusy: boolean;
   zoneCalibrationMessage: string;
   zoneDeviceTypeDraft: ZoneDeviceType;
-  zoneDefaultVolumeEnabled: boolean;
-  zoneDefaultVolumePercent: number;
+  zoneDefaultVolumePercent: string;
+  zoneMaxVolumePercent: string;
   zoneQobuzHiresEnabled: boolean;
   zoneGroups: ZoneGroup[];
   zoneHegelDraft: ZoneHegelDraft;
@@ -412,15 +414,39 @@ export function ZonesSettingsPage({
                   </label>
                 </div>
               ) : settingsZoneCapabilities && !isBrowserZone(settingsZone) ? (
-                <div className="zone-capability-grid" aria-label="Output capabilities">
-                  <div className="zone-capability-item">
+                <div className="zone-upnp-capability-controls" aria-label="Output capabilities">
+                  <label className="zone-upnp-capability-control">
                     <span>Max PCM Rate</span>
-                    <strong>{settingsZoneCapabilities.pcm}</strong>
-                  </div>
-                  <div className="zone-capability-item">
+                    <SelectMenu
+                      ariaLabel="Maximum PCM rate (read only)"
+                      className="zone-capability-select"
+                      disabled
+                      value={settingsZoneCapabilities.pcm}
+                      onChange={() => undefined}
+                      options={[
+                        {
+                          value: settingsZoneCapabilities.pcm,
+                          label: settingsZoneCapabilities.pcm
+                        }
+                      ]}
+                    />
+                  </label>
+                  <label className="zone-upnp-capability-control">
                     <span>Max DSD Rate</span>
-                    <strong>{settingsZoneCapabilities.dsd}</strong>
-                  </div>
+                    <SelectMenu
+                      ariaLabel="Maximum DSD rate (read only)"
+                      className="zone-capability-select"
+                      disabled
+                      value={settingsZoneCapabilities.dsd}
+                      onChange={() => undefined}
+                      options={[
+                        {
+                          value: settingsZoneCapabilities.dsd,
+                          label: settingsZoneCapabilities.dsd
+                        }
+                      ]}
+                    />
+                  </label>
                 </div>
               ) : null}
               {isUpnpZone(settingsZone) ? (
@@ -461,28 +487,59 @@ export function ZonesSettingsPage({
                 </div>
               ) : null}
               {isAirPlayNetworkZone(settingsZone) ? (
-                <div className="zone-settings-volume">
-                  <label className="zone-volume-toggle">
-                    <input
-                      type="checkbox"
-                      checked={zoneDefaultVolumeEnabled}
-                      onChange={(event) => setZoneDefaultVolumeEnabled(event.target.checked)}
-                    />
+                <div
+                  className="zone-upnp-capability-controls zone-airplay-volume-controls"
+                  aria-label="AirPlay volume limits"
+                >
+                  <label className="zone-upnp-capability-control">
                     <span>Default volume</span>
-                  </label>
-                  <div className="zone-volume-slider-row">
                     <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={zoneDefaultVolumePercent}
-                      className="custom-slider volume-slider"
-                      disabled={!zoneDefaultVolumeEnabled}
-                      onChange={(event) => setZoneDefaultVolumePercent(Number(event.target.value))}
+                      className="zone-settings-input zone-airplay-volume-input"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={`${zoneDefaultVolumePercent}%`}
+                      onChange={(event) =>
+                        setZoneDefaultVolumePercent(
+                          event.target.value.replace(/\D/g, '').slice(0, 3)
+                        )
+                      }
+                      onBlur={() =>
+                        setZoneDefaultVolumePercent(
+                          String(
+                            Math.min(
+                              normalizeAirPlayMaxVolumePercent(zoneMaxVolumePercent),
+                              normalizeAirPlayDefaultVolumePercent(zoneDefaultVolumePercent)
+                            )
+                          )
+                        )
+                      }
                       aria-label="Default AirPlay volume"
                     />
-                    <strong>{zoneDefaultVolumeEnabled ? zoneDefaultVolumePercent : '--'}</strong>
-                  </div>
+                  </label>
+                  <label className="zone-upnp-capability-control">
+                    <span>Max volume</span>
+                    <input
+                      className="zone-settings-input zone-airplay-volume-input"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={`${zoneMaxVolumePercent}%`}
+                      onChange={(event) =>
+                        setZoneMaxVolumePercent(event.target.value.replace(/\D/g, '').slice(0, 3))
+                      }
+                      onBlur={() => {
+                        const maxVolume = normalizeAirPlayMaxVolumePercent(zoneMaxVolumePercent);
+                        setZoneMaxVolumePercent(String(maxVolume));
+                        setZoneDefaultVolumePercent((defaultVolume) =>
+                          String(
+                            Math.min(maxVolume, normalizeAirPlayDefaultVolumePercent(defaultVolume))
+                          )
+                        );
+                      }}
+                      aria-label="Maximum AirPlay volume"
+                    />
+                  </label>
                 </div>
               ) : null}
               {hegelAvailable && !isBrowserZone(settingsZone) ? (

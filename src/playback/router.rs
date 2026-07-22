@@ -13,8 +13,8 @@ use crate::playback::resolver::{
     local_player_queue_items_from_sources, lookup_fallback_cover, resolve_track_path,
 };
 use crate::playback::service::{
-    apply_playback_settings_for_zone, hegel_settings_for_zone, playback_config_for_zone,
-    prepare_airplay_volume_for_zone, prepare_hegel_for_zone,
+    airplay_volume_with_max, apply_playback_settings_for_zone, hegel_settings_for_zone,
+    playback_config_for_zone, prepare_airplay_volume_for_zone, prepare_hegel_for_zone,
     remember_active_zone_playback_settings_applied,
 };
 use crate::playback::sonos::{play_sonos_source_for_zone, sonos_target_for_zone};
@@ -956,6 +956,12 @@ impl<'a> PlaybackRouter<'a> {
                     let Some(player) = self.state.zones().player_for_zone(zone_id) else {
                         return Err(PlaybackError::ZoneNotAvailable);
                     };
+                    let volume = self
+                        .state
+                        .library()
+                        .zone_settings(zone_id)
+                        .map(|settings| airplay_volume_with_max(&settings, volume))
+                        .unwrap_or_else(|_| volume.clamp(0.0, 1.0));
                     player.set_airplay_device_volume(volume);
                     let _ = self
                         .state

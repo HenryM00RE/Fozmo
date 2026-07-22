@@ -108,6 +108,8 @@ pub struct ZoneProfile {
     #[serde(default)]
     pub airplay_default_volume: Option<f32>,
     #[serde(default)]
+    pub airplay_max_volume: Option<f32>,
+    #[serde(default)]
     pub airplay_last_volume: Option<f32>,
     #[serde(default)]
     pub qobuz_hires_enabled: bool,

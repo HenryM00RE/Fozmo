@@ -76,7 +76,32 @@ impl Library {
         volume: Option<f32>,
     ) -> Result<ZoneSettings, String> {
         let mut settings = self.zone_settings(zone_id)?;
-        settings.airplay_default_volume = normalize_volume(volume);
+        settings.airplay_default_volume = normalize_volume(volume).map(|volume| {
+            let max_volume = settings
+                .airplay_max_volume
+                .filter(|max_volume| max_volume.is_finite())
+                .unwrap_or(1.0)
+                .clamp(0.0, 1.0);
+            volume.min(max_volume)
+        });
+        self.save_zone_settings(zone_id, &settings)?;
+        Ok(settings)
+    }
+
+    pub fn set_zone_airplay_max_volume(
+        &self,
+        zone_id: &str,
+        volume: f32,
+    ) -> Result<ZoneSettings, String> {
+        let mut settings = self.zone_settings(zone_id)?;
+        let max_volume = normalize_volume(Some(volume)).unwrap_or(1.0);
+        settings.airplay_max_volume = Some(max_volume);
+        settings.airplay_default_volume = settings
+            .airplay_default_volume
+            .map(|default_volume| default_volume.min(max_volume));
+        settings.airplay_last_volume = settings
+            .airplay_last_volume
+            .map(|last_volume| last_volume.min(max_volume));
         self.save_zone_settings(zone_id, &settings)?;
         Ok(settings)
     }

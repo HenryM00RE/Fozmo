@@ -5388,6 +5388,14 @@
             "null"
           ]
         },
+        "airplay_max_volume": {
+          "default": null,
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "backend": {
           "default": null,
           "type": [
@@ -5531,6 +5539,14 @@
           ]
         },
         "airplay_last_volume": {
+          "default": null,
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "airplay_max_volume": {
           "default": null,
           "format": "float",
           "type": [

@@ -26,6 +26,7 @@ const HEGEL_STANDBY_ZONE_MESSAGE: &str =
 pub(crate) struct ZoneSettingsUpdate {
     pub airplay_default_volume_enabled: Option<bool>,
     pub airplay_default_volume: Option<f32>,
+    pub airplay_max_volume: Option<f32>,
     pub qobuz_hires_enabled: Option<bool>,
     pub icon: Option<String>,
     pub device_type: Option<String>,
@@ -145,6 +146,12 @@ pub(crate) fn update_playback_zone_settings(
         .as_deref()
         .map(normalize_zone_icon)
         .transpose()?;
+    if let Some(max_volume) = update.airplay_max_volume {
+        settings = state
+            .library()
+            .set_zone_airplay_max_volume(zone_id, max_volume)
+            .map_err(PlaybackError::library)?;
+    }
     if let Some(enabled) = update.airplay_default_volume_enabled {
         let default_volume =
             if enabled {
@@ -583,6 +590,7 @@ fn enrich_zone_settings(state: &AppState, mut zones: Vec<ZoneProfile>) -> Vec<Zo
     for zone in &mut zones {
         if let Ok(settings) = state.library().zone_settings(&zone.id) {
             zone.airplay_default_volume = settings.airplay_default_volume;
+            zone.airplay_max_volume = settings.airplay_max_volume;
             zone.airplay_last_volume = settings.airplay_last_volume;
             zone.qobuz_hires_enabled = settings.qobuz_hires_enabled;
             zone.icon = settings.icon;
@@ -983,21 +991,38 @@ mod tests {
             &zone_id,
             ZoneSettingsUpdate {
                 airplay_default_volume_enabled: Some(true),
-                airplay_default_volume: Some(0.25),
+                airplay_default_volume: Some(0.75),
+                airplay_max_volume: Some(0.6),
                 ..ZoneSettingsUpdate::default()
             },
         )
         .unwrap();
 
-        assert_eq!(settings.airplay_default_volume, Some(0.25));
+        assert_eq!(settings.airplay_default_volume, Some(0.6));
+        assert_eq!(settings.airplay_max_volume, Some(0.6));
         assert_eq!(
             state
                 .library()
                 .zone_settings(&zone_id)
                 .unwrap()
                 .airplay_default_volume,
-            Some(0.25)
+            Some(0.6)
         );
+
+        let raised_limits = update_playback_zone_settings(
+            &state,
+            &zone_id,
+            ZoneSettingsUpdate {
+                airplay_default_volume_enabled: Some(true),
+                airplay_default_volume: Some(0.75),
+                airplay_max_volume: Some(0.8),
+                ..ZoneSettingsUpdate::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(raised_limits.airplay_default_volume, Some(0.75));
+        assert_eq!(raised_limits.airplay_max_volume, Some(0.8));
     }
 
     #[test]
@@ -1117,6 +1142,7 @@ mod tests {
             serde_json::from_str(r#"{"airplay_default_volume":0.25}"#).unwrap();
 
         assert_eq!(settings.airplay_default_volume, Some(0.25));
+        assert_eq!(settings.airplay_max_volume, None);
         assert!(!settings.qobuz_hires_enabled);
         assert_eq!(settings.icon, None);
     }
