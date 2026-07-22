@@ -35,10 +35,10 @@ use sha2::{Digest, Sha256};
 
 const REPORT_SCHEMA_VERSION: &str = "dsd-public-quality-report-v5";
 const MEASUREMENT_VERSION: &str = "dsd-public-quality-v5";
-const MATRIX_VERSION: &str = "dsd-public-matrix-28-v6";
+const MATRIX_VERSION: &str = "dsd-public-matrix-14-v7";
 const SCORE_VERSION: &str = "dsd-public-production-score-v3";
 const SCORE_CLAIM: &str = "Fozmo PCM-to-DSD production-path score using Split Phase E3";
-const CANONICAL_PRODUCTION_CELL_COUNT: usize = 28;
+const CANONICAL_PRODUCTION_CELL_COUNT: usize = 14;
 const CHUNK_FRAMES: usize = 1024;
 const SPECTRAL_ANALYSIS_FRAMES: usize = 65_536;
 #[cfg(not(feature = "research-filter-assets"))]
@@ -74,7 +74,7 @@ struct Cli {
     out: PathBuf,
 
     /// Comma-separated production modulators.
-    #[arg(long, default_value = "Standard,EcDepth2,EcBeam,EcBeam2")]
+    #[arg(long, default_value = "Standard,EcBeam2")]
     modulator: String,
 
     /// Reconstruction filter under test. Non-default filters are noncanonical and unscored.
@@ -539,15 +539,9 @@ struct HealthReport {
     truncation_events: u64,
     discarded_left_bits: u64,
     discarded_right_bits: u64,
-    beam_clamps: u64,
-    beam_speculative_clamps: u64,
-    beam_committed_clamps: u64,
-    beam_rejected_hard_limits: u64,
-    beam_all_children_rejected: u64,
     ecbeam2_constraint_escapes: u64,
     ecbeam2_state_repairs: u64,
     ecbeam2_nonfinite_resets: u64,
-    ecbeam2_observer_desynchronizations: u64,
     ecbeam2_invalid_input_substitutions: u64,
     ecbeam2_output_length_events: u64,
 }
@@ -838,18 +832,13 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
             },
         ],
         reconstruction_profiles: vec![AUDIO_BAND, HIRES_BAND],
-        rated_headroom: [
-            DsdModulator::Standard,
-            DsdModulator::EcDepth2,
-            DsdModulator::EcBeam,
-            DsdModulator::EcBeam2,
-        ]
-        .into_iter()
-        .map(|modulator| HeadroomPolicy {
-            modulator: modulator.as_name().to_string(),
-            headroom_db: headroom_db(modulator),
-        })
-        .collect(),
+        rated_headroom: [DsdModulator::Standard, DsdModulator::EcBeam2]
+            .into_iter()
+            .map(|modulator| HeadroomPolicy {
+                modulator: modulator.as_name().to_string(),
+                headroom_db: headroom_db(modulator),
+            })
+            .collect(),
         selected_modulators: selected
             .iter()
             .map(|modulator| modulator.as_name().to_string())
@@ -1129,12 +1118,7 @@ fn rustflags_disable_target_features(flags: &str) -> bool {
 }
 
 fn canonical_selection(modulators: &[DsdModulator]) -> bool {
-    let production = [
-        DsdModulator::Standard,
-        DsdModulator::EcDepth2,
-        DsdModulator::EcBeam,
-        DsdModulator::EcBeam2,
-    ];
+    let production = [DsdModulator::Standard, DsdModulator::EcBeam2];
     production
         .iter()
         .all(|modulator| modulators.contains(modulator))
@@ -1149,12 +1133,10 @@ fn parse_modulators(value: &str) -> Result<Vec<DsdModulator>, String> {
     {
         let modulator = match name.to_ascii_lowercase().as_str() {
             "standard" => DsdModulator::Standard,
-            "ecdepth2" => DsdModulator::EcDepth2,
-            "ecbeam" => DsdModulator::EcBeam,
             "ecbeam2" => DsdModulator::EcBeam2,
             _ => {
                 return Err(format!(
-                    "unsupported modulator {name}; use Standard, EcDepth2, EcBeam, or EcBeam2"
+                    "unsupported modulator {name}; use Standard or EcBeam2"
                 ));
             }
         };
@@ -1269,14 +1251,10 @@ fn build_matrix(
     production_filter: FilterType,
     rates: &[DsdRate],
 ) -> Vec<CellSpec> {
-    let legacy = [
-        DsdModulator::Standard,
-        DsdModulator::EcDepth2,
-        DsdModulator::EcBeam,
-    ]
-    .into_iter()
-    .filter(|modulator| selected.contains(modulator))
-    .collect::<Vec<_>>();
+    let standard = [DsdModulator::Standard]
+        .into_iter()
+        .filter(|modulator| selected.contains(modulator))
+        .collect::<Vec<_>>();
     let mut matrix = Vec::new();
     for (filter, diagnostic) in [(production_filter, false)]
         .into_iter()
@@ -1286,7 +1264,7 @@ fn build_matrix(
             .into_iter()
             .filter(|rate| rates.contains(rate))
         {
-            for &modulator in &legacy {
+            for &modulator in &standard {
                 matrix.push(CellSpec {
                     scenario: Scenario::LevelSweep,
                     source_rate: signals::SOURCE_RATE_44K1_HZ,
@@ -1310,7 +1288,7 @@ fn build_matrix(
             if !rates.contains(&dsd_rate) {
                 continue;
             }
-            for &modulator in &legacy {
+            for &modulator in &standard {
                 matrix.push(CellSpec {
                     scenario,
                     source_rate: signals::SOURCE_RATE_44K1_HZ,
@@ -1322,7 +1300,7 @@ fn build_matrix(
             }
         }
         if rates.contains(&DsdRate::Dsd256) {
-            for &modulator in &legacy {
+            for &modulator in &standard {
                 matrix.push(CellSpec {
                     scenario: Scenario::HiresReconstruction,
                     source_rate: signals::SOURCE_RATE_176K4_HZ,
@@ -1416,12 +1394,7 @@ fn append_rate_comparison_diagnostics(
     selected: &[DsdModulator],
     filter: FilterType,
 ) {
-    for modulator in [
-        DsdModulator::Standard,
-        DsdModulator::EcDepth2,
-        DsdModulator::EcBeam,
-        DsdModulator::EcBeam2,
-    ] {
+    for modulator in [DsdModulator::Standard, DsdModulator::EcBeam2] {
         if selected.contains(&modulator) {
             matrix.push(CellSpec {
                 scenario: Scenario::HiresReconstruction,
@@ -1442,7 +1415,7 @@ fn score_policy() -> ScorePolicy {
         canonical_filter: "SplitPhase128kE3",
         normalization: "each category has a frozen v1 quality-index anchor; normalized score = clamp(100 - max(0, anchor_db - measured_quality_index_db), 0, 100), so one average decibel below the anchor costs one category point before the published category weight is applied",
         anchor_basis: "historical best Split128k category quality index in the clean native 42-cell v2 research comparison at Git commit 82a4395db0e0d3f85a08a0b8a8e700940f78f1f7",
-        eligibility: "scores are emitted only when all 28 canonical Split Phase E3 cells complete with zero canonical structural hard failures; optional Linear Phase cells never affect scores; every production modulator is scored at DSD64, DSD128, and DSD256",
+        eligibility: "scores are emitted only when all 14 canonical Split Phase E3 cells complete with zero canonical structural hard failures; optional Linear Phase cells never affect scores; both production modulators are scored at DSD64, DSD128, and DSD256",
         rated_stress_role: "DSD128 rated stress is a structural qualification gate only; only matched-effective-peak stress contributes ranking points",
         anchors: vec![
             ScoreAnchorPolicy {
@@ -1529,86 +1502,81 @@ fn score_policy() -> ScorePolicy {
 }
 
 fn score_production_path(cells: &[CellReport]) -> Result<Vec<ProductionPathScore>, String> {
-    [
-        DsdModulator::Standard,
-        DsdModulator::EcDepth2,
-        DsdModulator::EcBeam,
-        DsdModulator::EcBeam2,
-    ]
-    .into_iter()
-    .map(|modulator| {
-        let name = modulator.as_name();
-        let dsd64 = rate_score(
-            "DSD64",
-            vec![
-                category_score(
-                    "coherent_level_sweep",
-                    60.0,
-                    level_quality_index(cells, name, "DSD64")?,
-                    SCORE_ANCHOR_LEVEL_DSD64,
-                ),
-                category_score(
-                    "idle_tiny_signal",
-                    40.0,
-                    idle_quality_index(cells, name)?,
-                    SCORE_ANCHOR_IDLE_DSD64,
-                ),
-            ],
-        )?;
-        let dsd128 = rate_score(
-            "DSD128",
-            vec![
-                category_score(
-                    "coherent_level_sweep",
-                    35.0,
-                    level_quality_index(cells, name, "DSD128")?,
-                    SCORE_ANCHOR_LEVEL_DSD128,
-                ),
-                category_score(
-                    "level_matched_stress_spectral_quality",
-                    40.0,
-                    stress_quality_index(cells, name)?,
-                    SCORE_ANCHOR_STRESS_DSD128,
-                ),
-                category_score(
-                    "mute_restart_transition_quality",
-                    25.0,
-                    transition_quality_index(cells, name)?,
-                    SCORE_ANCHOR_TRANSITION_DSD128,
-                ),
-            ],
-        )?;
-        let rates = vec![
-            dsd64,
-            dsd128,
-            rate_score(
-                "DSD256",
+    [DsdModulator::Standard, DsdModulator::EcBeam2]
+        .into_iter()
+        .map(|modulator| {
+            let name = modulator.as_name();
+            let dsd64 = rate_score(
+                "DSD64",
+                vec![
+                    category_score(
+                        "coherent_level_sweep",
+                        60.0,
+                        level_quality_index(cells, name, "DSD64")?,
+                        SCORE_ANCHOR_LEVEL_DSD64,
+                    ),
+                    category_score(
+                        "idle_tiny_signal",
+                        40.0,
+                        idle_quality_index(cells, name)?,
+                        SCORE_ANCHOR_IDLE_DSD64,
+                    ),
+                ],
+            )?;
+            let dsd128 = rate_score(
+                "DSD128",
                 vec![
                     category_score(
                         "coherent_level_sweep",
                         35.0,
-                        level_quality_index(cells, name, "DSD256")?,
-                        SCORE_ANCHOR_LEVEL_DSD256,
+                        level_quality_index(cells, name, "DSD128")?,
+                        SCORE_ANCHOR_LEVEL_DSD128,
                     ),
                     category_score(
-                        "hires_reconstruction_through_70khz",
-                        65.0,
-                        hires_quality_index(cells, name)?,
-                        SCORE_ANCHOR_HIRES_DSD256,
+                        "level_matched_stress_spectral_quality",
+                        40.0,
+                        stress_quality_index(cells, name)?,
+                        SCORE_ANCHOR_STRESS_DSD128,
+                    ),
+                    category_score(
+                        "mute_restart_transition_quality",
+                        25.0,
+                        transition_quality_index(cells, name)?,
+                        SCORE_ANCHOR_TRANSITION_DSD128,
                     ),
                 ],
-            )?,
-        ];
-        let rated =
-            canonical_score_cell(cells, name, Scenario::HighFrequencyRatedStress, "DSD128")?;
-        Ok(ProductionPathScore {
-            modulator: name.to_string(),
-            filter: DEFAULT_FILTER_TYPE.as_name().to_string(),
-            rated_stress_qualified: rated.hard_failures.is_empty(),
-            rates,
+            )?;
+            let rates = vec![
+                dsd64,
+                dsd128,
+                rate_score(
+                    "DSD256",
+                    vec![
+                        category_score(
+                            "coherent_level_sweep",
+                            35.0,
+                            level_quality_index(cells, name, "DSD256")?,
+                            SCORE_ANCHOR_LEVEL_DSD256,
+                        ),
+                        category_score(
+                            "hires_reconstruction_through_70khz",
+                            65.0,
+                            hires_quality_index(cells, name)?,
+                            SCORE_ANCHOR_HIRES_DSD256,
+                        ),
+                    ],
+                )?,
+            ];
+            let rated =
+                canonical_score_cell(cells, name, Scenario::HighFrequencyRatedStress, "DSD128")?;
+            Ok(ProductionPathScore {
+                modulator: name.to_string(),
+                filter: DEFAULT_FILTER_TYPE.as_name().to_string(),
+                rated_stress_qualified: rated.hard_failures.is_empty(),
+                rates,
+            })
         })
-    })
-    .collect()
+        .collect()
 }
 
 fn rate_score(rate: &'static str, categories: Vec<CategoryScore>) -> Result<RateScore, String> {
@@ -2297,18 +2265,10 @@ fn collect_health(renderer: &DsdRenderer) -> HealthReport {
         discarded_right_bits: truncation.discarded_right_bits,
         ..HealthReport::default()
     };
-    for diagnostics in renderer.beam_diagnostics().into_iter().flatten() {
-        report.beam_clamps += diagnostics.beam_clamp_total;
-        report.beam_speculative_clamps += diagnostics.beam_speculative_clamp_total;
-        report.beam_committed_clamps += diagnostics.beam_committed_clamp_total;
-        report.beam_rejected_hard_limits += diagnostics.beam_rejected_hard_limit_total;
-        report.beam_all_children_rejected += diagnostics.beam_all_children_rejected_total;
-    }
     for diagnostics in renderer.ecbeam2_diagnostics().into_iter().flatten() {
         report.ecbeam2_constraint_escapes += diagnostics.constraint_escape;
         report.ecbeam2_state_repairs += diagnostics.state_repair_fallback;
         report.ecbeam2_nonfinite_resets += diagnostics.all_nonfinite_resets;
-        report.ecbeam2_observer_desynchronizations += diagnostics.observer_desynchronizations;
         report.ecbeam2_invalid_input_substitutions += diagnostics.invalid_input_substitutions;
         report.ecbeam2_output_length_events += diagnostics.output_length_events;
     }
@@ -2345,16 +2305,6 @@ fn health_failures(health: &HealthReport) -> Vec<String> {
     );
     push_nonzero(
         &mut failures,
-        "EcBeam committed clamps",
-        health.beam_committed_clamps,
-    );
-    push_nonzero(
-        &mut failures,
-        "EcBeam all-children-rejected events",
-        health.beam_all_children_rejected,
-    );
-    push_nonzero(
-        &mut failures,
         "EcBeam2 constraint escapes",
         health.ecbeam2_constraint_escapes,
     );
@@ -2367,11 +2317,6 @@ fn health_failures(health: &HealthReport) -> Vec<String> {
         &mut failures,
         "EcBeam2 nonfinite resets",
         health.ecbeam2_nonfinite_resets,
-    );
-    push_nonzero(
-        &mut failures,
-        "EcBeam2 observer desynchronizations",
-        health.ecbeam2_observer_desynchronizations,
     );
     push_nonzero(
         &mut failures,
@@ -3053,9 +2998,8 @@ fn profile_for(scenario: Scenario) -> ReconstructionProfile {
 
 fn headroom_db(modulator: DsdModulator) -> f64 {
     match modulator {
-        DsdModulator::Standard | DsdModulator::EcDepth2 => PRODUCTION_HEADROOM_DB,
-        DsdModulator::EcBeam | DsdModulator::EcBeam2 => SEARCH_HEADROOM_DB,
-        _ => PRODUCTION_HEADROOM_DB,
+        DsdModulator::Standard => PRODUCTION_HEADROOM_DB,
+        DsdModulator::EcBeam2 => SEARCH_HEADROOM_DB,
     }
 }
 
@@ -3229,7 +3173,7 @@ fn markdown_summary(report: &BenchReport) -> String {
             }
         }
     } else {
-        output.push_str("Scores were withheld because the complete healthy 28-cell canonical Split Phase E3 matrix was not available. Optional diagnostic cells do not affect eligibility.\n");
+        output.push_str("Scores were withheld because the complete healthy 14-cell canonical Split Phase E3 matrix was not available. Optional diagnostic cells do not affect eligibility.\n");
     }
     output.push('\n');
 
@@ -3679,13 +3623,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_matrix_has_the_declared_twenty_eight_split_cells() {
-        let selected = vec![
-            DsdModulator::Standard,
-            DsdModulator::EcDepth2,
-            DsdModulator::EcBeam,
-            DsdModulator::EcBeam2,
-        ];
+    fn default_matrix_has_the_declared_fourteen_split_cells() {
+        let selected = vec![DsdModulator::Standard, DsdModulator::EcBeam2];
         let matrix = build_matrix(
             &selected,
             false,
@@ -3695,11 +3634,11 @@ mod tests {
         assert_eq!(matrix.len(), CANONICAL_PRODUCTION_CELL_COUNT);
         assert!(canonical_selection(&selected));
         for (scenario, expected) in [
-            (Scenario::LevelSweep, 12),
-            (Scenario::IdleTinySignal, 4),
-            (Scenario::HighFrequencyRatedStress, 4),
-            (Scenario::HighFrequencyMatchedStress, 4),
-            (Scenario::HiresReconstruction, 4),
+            (Scenario::LevelSweep, 6),
+            (Scenario::IdleTinySignal, 2),
+            (Scenario::HighFrequencyRatedStress, 2),
+            (Scenario::HighFrequencyMatchedStress, 2),
+            (Scenario::HiresReconstruction, 2),
         ] {
             assert_eq!(
                 matrix
@@ -3736,33 +3675,28 @@ mod tests {
     }
 
     #[test]
-    fn linear_reference_adds_twenty_one_diagnostic_cells() {
-        let selected = vec![
-            DsdModulator::Standard,
-            DsdModulator::EcDepth2,
-            DsdModulator::EcBeam,
-            DsdModulator::EcBeam2,
-        ];
+    fn linear_reference_adds_seven_diagnostic_cells() {
+        let selected = vec![DsdModulator::Standard, DsdModulator::EcBeam2];
         let matrix = build_matrix(
             &selected,
             true,
             DEFAULT_FILTER_TYPE,
             &[DsdRate::Dsd64, DsdRate::Dsd128, DsdRate::Dsd256],
         );
-        assert_eq!(matrix.len(), 49);
+        assert_eq!(matrix.len(), 21);
         assert_eq!(
             matrix
                 .iter()
                 .filter(|cell| cell.filter == DEFAULT_FILTER_TYPE && !cell.diagnostic)
                 .count(),
-            28
+            14
         );
         assert_eq!(
             matrix
                 .iter()
                 .filter(|cell| cell.filter == FilterType::LinearPhase128k && cell.diagnostic)
                 .count(),
-            21
+            7
         );
         assert!(
             matrix
@@ -3800,12 +3734,7 @@ mod tests {
     #[test]
     fn high_rate_matrix_is_standard_only_and_diagnostic() {
         let matrix = build_matrix(
-            &[
-                DsdModulator::Standard,
-                DsdModulator::EcDepth2,
-                DsdModulator::EcBeam,
-                DsdModulator::EcBeam2,
-            ],
+            &[DsdModulator::Standard, DsdModulator::EcBeam2],
             false,
             DEFAULT_FILTER_TYPE,
             &[DsdRate::Dsd512, DsdRate::Dsd1024],
@@ -3935,8 +3864,6 @@ mod tests {
     #[test]
     fn rated_headroom_and_filter_policy_are_explicit() {
         assert_eq!(headroom_db(DsdModulator::Standard), -4.0);
-        assert_eq!(headroom_db(DsdModulator::EcDepth2), -4.0);
-        assert_eq!(headroom_db(DsdModulator::EcBeam), -2.0);
         assert_eq!(headroom_db(DsdModulator::EcBeam2), -2.0);
         assert_eq!(DEFAULT_FILTER_TYPE, FilterType::SplitPhase128kE3);
         assert_eq!(
@@ -3999,17 +3926,9 @@ mod tests {
 
     #[test]
     fn partial_selections_are_never_canonical() {
-        let production = [
-            DsdModulator::Standard,
-            DsdModulator::EcDepth2,
-            DsdModulator::EcBeam,
-            DsdModulator::EcBeam2,
-        ];
+        let production = [DsdModulator::Standard, DsdModulator::EcBeam2];
         assert!(canonical_selection(&production));
-        assert!(!canonical_selection(&[
-            DsdModulator::Standard,
-            DsdModulator::EcBeam
-        ]));
+        assert!(!canonical_selection(&[DsdModulator::Standard]));
     }
 
     #[test]

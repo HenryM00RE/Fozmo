@@ -57,21 +57,6 @@ pub(crate) fn selected_pair_byte_indices(
 
 pub(crate) type BeamErrorProfileState = [f64; MAX_BEAM_ERROR_PROFILE_STATES];
 
-/// Immutable coefficient view used by offline implementation-equivalence
-/// attribution.  The runtime profile remains the authority; this value merely
-/// copies its exact compiled coefficients so a second implementation can
-/// replay them without calling the runtime transition methods.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct BeamErrorProfileCoefficients {
-    pub(crate) a: [[f64; MAX_BEAM_ERROR_PROFILE_STATES]; MAX_BEAM_ERROR_PROFILE_STATES],
-    pub(crate) b: BeamErrorProfileState,
-    pub(crate) c: BeamErrorProfileState,
-    pub(crate) d: f64,
-    pub(crate) p: [[f64; MAX_BEAM_ERROR_PROFILE_STATES]; MAX_BEAM_ERROR_PROFILE_STATES],
-    pub(crate) h: BeamErrorProfileState,
-    pub(crate) q: f64,
-}
-
 /// Deterministic constant-memory P² quantile estimator used by experiment
 /// diagnostics at the DSD wire rate.  It performs no allocation after
 /// construction and never feeds a selection decision.
@@ -198,18 +183,6 @@ pub(crate) struct BeamErrorProfile {
 }
 
 impl BeamErrorProfile {
-    pub(crate) fn coefficients(&self) -> BeamErrorProfileCoefficients {
-        BeamErrorProfileCoefficients {
-            a: self.a,
-            b: self.b,
-            c: self.c,
-            d: self.d,
-            p: self.p,
-            h: self.h,
-            q: self.q,
-        }
-    }
-
     /// Causal filtered output for the supplied pre-advance state.
     #[inline]
     pub(crate) fn output(&self, state: &BeamErrorProfileState, error: f64) -> f64 {
@@ -239,6 +212,7 @@ impl BeamErrorProfile {
     }
 
     #[inline]
+    #[cfg(test)]
     pub(crate) fn instantaneous_output_energy(
         &self,
         state: &BeamErrorProfileState,
@@ -362,20 +336,6 @@ impl BeamErrorProfile {
             unsafe { _mm256_storeu_pd(increments[sign].as_mut_ptr(), increment) };
         }
         increments
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    #[inline(always)]
-    pub(crate) fn output_pair4(
-        &self,
-        states: &[[f64; 4]; MAX_BEAM_ERROR_PROFILE_STATES],
-        input: f64,
-    ) -> [[f64; 4]; 2] {
-        let linear = Self::state_dot4(&self.c, states);
-        let errors = [1.0 - input, -1.0 - input];
-        core::array::from_fn(|sign| {
-            core::array::from_fn(|lane| self.d.mul_add(errors[sign], linear[lane]))
-        })
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -691,6 +651,7 @@ impl BeamErrorProfile {
 
     /// Definition-form increment used by diagnostics and exact-oracle checks.
     #[inline]
+    #[cfg(test)]
     pub(crate) fn tail_adjusted_energy_increment_from_definition(
         &self,
         state: &BeamErrorProfileState,

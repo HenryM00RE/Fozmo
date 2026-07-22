@@ -31,7 +31,6 @@ hegel = []
 upnp = []
 experimental_dsd256 = []
 dev-secrets-file = []
-ecbeam2_observer = []
 # Research-only runtime replacement of the Split Phase B character asset.
 # Normal production builds do not compile the loader or expose its CLI flags.
 research-filter-assets = []
@@ -109,10 +108,6 @@ proptest = "1"
 
 [build-dependencies]
 sha2 = "0.10"
-
-[[bin]]
-name = "ecbeam2_quality"
-path = "audio_tests/ecbeam2_quality.rs"
 
 [[bin]]
 name = "dsd_modulator_bench"

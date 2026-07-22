@@ -21,52 +21,22 @@ fn main() -> Result<(), String> {
     let case_filter = std::env::var("DSD_RENDERER_BENCH_FILTER").ok();
     let cases = [
         Case {
-            name: "Split Phase DSD128 Search",
+            name: "Split Phase DSD128 Standard",
+            filter: FilterType::SplitPhase128kE3,
+            dsd_rate: DsdRate::Dsd128,
+            modulator: DsdModulator::Standard,
+        },
+        Case {
+            name: "Split Phase DSD128 EcBeam2",
             filter: FilterType::SplitPhase128kE3,
             dsd_rate: DsdRate::Dsd128,
             modulator: DsdModulator::EcBeam2,
         },
         Case {
-            name: "Split Phase B DSD128 Standard",
-            filter: FilterType::SplitPhase128kE3,
-            dsd_rate: DsdRate::Dsd128,
-            modulator: DsdModulator::Standard,
-        },
-        Case {
-            name: "Split Phase B DSD128 EC",
-            filter: FilterType::SplitPhase128kE3,
-            dsd_rate: DsdRate::Dsd128,
-            modulator: DsdModulator::EcDepth2,
-        },
-        Case {
-            name: "Split Phase B DSD128 Search",
-            filter: FilterType::SplitPhase128kE3,
-            dsd_rate: DsdRate::Dsd128,
-            modulator: DsdModulator::EcBeam,
-        },
-        Case {
-            name: "Split Phase B DSD256 Standard",
-            filter: FilterType::SplitPhase128kE3,
-            dsd_rate: DsdRate::Dsd256,
-            modulator: DsdModulator::Standard,
-        },
-        Case {
-            name: "Split Phase B DSD256 EC",
-            filter: FilterType::SplitPhase128kE3,
-            dsd_rate: DsdRate::Dsd256,
-            modulator: DsdModulator::EcDepth2,
-        },
-        Case {
-            name: "Split Phase B DSD256 Search",
-            filter: FilterType::SplitPhase128kE3,
-            dsd_rate: DsdRate::Dsd256,
-            modulator: DsdModulator::EcBeam,
-        },
-        Case {
-            name: "Minimum16k DSD64 EcBeam A1",
+            name: "Minimum16k DSD64 Standard",
             filter: FilterType::Minimum16k,
             dsd_rate: DsdRate::Dsd64,
-            modulator: DsdModulator::EcBeam,
+            modulator: DsdModulator::Standard,
         },
         Case {
             name: "Minimum16k DSD64 EcBeam2",
@@ -75,40 +45,40 @@ fn main() -> Result<(), String> {
             modulator: DsdModulator::EcBeam2,
         },
         Case {
-            name: "Minimum16k DSD128 Standard",
-            filter: FilterType::Minimum16k,
+            name: "Linear Phase DSD128 Standard",
+            filter: FilterType::LinearPhase128k,
             dsd_rate: DsdRate::Dsd128,
             modulator: DsdModulator::Standard,
         },
         Case {
-            name: "Minimum16k DSD128 EcDepth2",
-            filter: FilterType::Minimum16k,
-            dsd_rate: DsdRate::Dsd128,
-            modulator: DsdModulator::EcDepth2,
-        },
-        Case {
-            name: "Linear Phase DSD128 EcDepth2",
+            name: "Linear Phase DSD128 EcBeam2",
             filter: FilterType::LinearPhase128k,
             dsd_rate: DsdRate::Dsd128,
-            modulator: DsdModulator::EcDepth2,
+            modulator: DsdModulator::EcBeam2,
         },
         Case {
-            name: "Minimum Phase DSD128 EcDepth2",
+            name: "Minimum Phase DSD128 Standard",
             filter: FilterType::MinimumPhaseCompact128k,
             dsd_rate: DsdRate::Dsd128,
-            modulator: DsdModulator::EcDepth2,
+            modulator: DsdModulator::Standard,
         },
         Case {
-            name: "Minimum16k DSD256 EcDepth2",
-            filter: FilterType::Minimum16k,
+            name: "Minimum Phase DSD128 EcBeam2",
+            filter: FilterType::MinimumPhaseCompact128k,
+            dsd_rate: DsdRate::Dsd128,
+            modulator: DsdModulator::EcBeam2,
+        },
+        Case {
+            name: "Split Phase DSD256 Standard",
+            filter: FilterType::SplitPhase128kE3,
             dsd_rate: DsdRate::Dsd256,
-            modulator: DsdModulator::EcDepth2,
+            modulator: DsdModulator::Standard,
         },
     ];
 
     println!("DSD renderer throughput (stereo)");
     println!(
-        "{:<28} {:>10} {:>10} {:>10} {:>8} {:>8}",
+        "{:<34} {:>10} {:>10} {:>10} {:>8} {:>8}",
         "case", "min ms", "avg ms", "max ms", "resets", "clamps"
     );
 
@@ -135,10 +105,10 @@ fn main() -> Result<(), String> {
         }
         timings.sort();
         let min = timings[0];
-        let max = *timings.last().unwrap();
+        let max = *timings.last().expect("measured passes");
         let avg = timings.iter().map(Duration::as_secs_f64).sum::<f64>() / timings.len() as f64;
         println!(
-            "{:<28} {:>10.3} {:>10.3} {:>10.3} {:>8} {:>8}",
+            "{:<34} {:>10.3} {:>10.3} {:>10.3} {:>8} {:>8}",
             case.name,
             min.as_secs_f64() * 1000.0,
             avg * 1000.0,
@@ -147,7 +117,6 @@ fn main() -> Result<(), String> {
             clamps
         );
     }
-
     Ok(())
 }
 
@@ -179,8 +148,8 @@ fn run_case(case: &Case, input: &[f64]) -> Result<ResultRow, String> {
 
 fn sine_input() -> Vec<f64> {
     (0..SOURCE_FRAMES)
-        .map(|idx| {
-            let t = idx as f64 / SOURCE_RATE as f64;
+        .map(|sample| {
+            let t = sample as f64 / SOURCE_RATE as f64;
             0.25 * (2.0 * std::f64::consts::PI * 997.0 * t).sin()
         })
         .collect()

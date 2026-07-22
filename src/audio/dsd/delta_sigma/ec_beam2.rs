@@ -7,7 +7,7 @@ use super::beam_error_profile::{
     profiles_for_wire_rate,
 };
 use super::coeff_math::{denormalized_feedback8, mul8};
-use super::modulator::{CrfbModulator, ModulatorMode};
+use super::modulator::CrfbModulator;
 use super::stability::{StateStability, stabilize_state};
 use crate::audio::dsd::dsd_coeffs::{
     CRFB_OSR64_OBG164, CRFB_OSR64_OBG165, CRFB_OSR128_OBG164, CRFB_OSR256_OBG164, ModulatorCoeffs,
@@ -122,7 +122,7 @@ const fn with_input_peak_and_state_limit_scale(
 // Production loudness plants. Their CRFB realizations and OBG1.64 NTFs are
 // unchanged; only the admitted input calibration and proportional hard-state
 // envelopes are equalized to the clean DSD128 matched-stress ceiling. This is
-// exactly 2 dB below the original EcBeam DSD128 calibration.
+// exactly 2 dB below the earlier DSD128 calibration.
 const ECBEAM2_OBG164_PRODUCTION_INPUT468: f64 = 0.467_858_988_519_470_7;
 const ECBEAM2_OSR64_OBG164_INPUT468_SCALE: f64 =
     ECBEAM2_OBG164_PRODUCTION_INPUT468 / CRFB_OSR64_OBG164.input_peak;
@@ -202,13 +202,6 @@ impl EcBeam2PlantId {
     }
 }
 
-/// The read-only production-frontier observer remains bound to EcBeam's
-/// production OBG1.65 plant. Plant-screen admission applies only to the
-/// isolated active EcBeam2 engine.
-pub(crate) fn ecbeam2_v1_coefficients_match(coeffs: &ModulatorCoeffs) -> bool {
-    modulator_coefficients_equal(coeffs, &CRFB_OSR64_OBG165)
-}
-
 fn modulator_coefficients_equal(coeffs: &ModulatorCoeffs, expected: &ModulatorCoeffs) -> bool {
     coeffs.osr == expected.osr
         && coeffs.obg.to_bits() == expected.obg.to_bits()
@@ -263,16 +256,6 @@ impl EcBeam2ObjectiveScales {
     };
 }
 
-/// `ShadowA1` is implemented by the production-frontier observer, not by the
-/// isolated active engine. This keeps production EcBeam as the authoritative
-/// chooser and avoids promising arithmetic identity from a second A1 engine.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum EcBeam2RunMode {
-    #[default]
-    Active,
-    ShadowA1,
-}
-
 /// Half-open committed-modulator sequence range used by quality tooling.
 ///
 /// The engine always advances its CRFB, reconstruction, ultrasonic, and EMA
@@ -304,7 +287,6 @@ impl EcBeam2DiagnosticWindow {
 /// cannot enter the metric unless a candidate explicitly enables them.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EcBeam2ExperimentConfig {
-    pub run_mode: EcBeam2RunMode,
     pub profile: EcBeam2ProfileId,
     /// Weight on the telescoping normalized CRFB state potential delta.
     pub state_terminal_weight: f64,
@@ -323,7 +305,6 @@ pub struct EcBeam2ExperimentConfig {
 impl Default for EcBeam2ExperimentConfig {
     fn default() -> Self {
         Self {
-            run_mode: EcBeam2RunMode::Active,
             profile: EcBeam2ProfileId::Harness24To32V1,
             state_terminal_weight: 0.0,
             state_deadzone: 0.0,
@@ -410,7 +391,6 @@ impl EcBeam2ExperimentConfig {
 /// Fixed production M4/N8 objective shared by DSD64, DSD128, and DSD256.
 pub(crate) fn ecbeam2_production_config() -> EcBeam2ExperimentConfig {
     EcBeam2ExperimentConfig {
-        run_mode: EcBeam2RunMode::Active,
         profile: EcBeam2ProfileId::Harness24To32V1,
         state_terminal_weight: 0.0,
         state_deadzone: 0.0,
@@ -466,18 +446,6 @@ pub struct EcBeam2Diagnostics {
     pub diagnostic_window_positive_bits: u64,
     pub diagnostic_window_starting_tail_energy: f64,
     pub diagnostic_window_remaining_tail_energy: f64,
-    /// ShadowA1-only production frontier count and objective disagreements.
-    /// Active EcBeam2 leaves these at zero because it never reimplements or
-    /// runs the production A1 chooser in parallel.
-    pub a1_frontier_events: u64,
-    pub a1_best_child_disagreements: u64,
-    pub a1_top_m_disagreements: u64,
-    pub a1_frontier_maximum_ultrasonic_ema: f64,
-    pub a1_frontier_maximum_signed_error_ema: f64,
-    pub a1_frontier_ultrasonic_ema_p999: f64,
-    pub a1_frontier_ultrasonic_ema_p9999: f64,
-    pub a1_frontier_signed_error_ema_abs_p999: f64,
-    pub a1_frontier_signed_error_ema_abs_p9999: f64,
     pub path_switches: u64,
     pub pruned_total: u64,
     pub min_survivors: u64,
@@ -505,9 +473,6 @@ pub struct EcBeam2Diagnostics {
     pub state_barrier_raw_scale: EcBeam2ScaleDistribution,
     pub quantizer_error_squared_scale: EcBeam2ScaleDistribution,
     pub all_nonfinite_resets: u64,
-    /// ShadowA1-only frontier/input-ring alignment failures. Any nonzero value
-    /// invalidates calibration because replay may have substituted an input.
-    pub observer_desynchronizations: u64,
     /// Non-finite input samples whose emitted recovery bit is replayed with the
     /// declared diagnostic substitute `u = 0`.
     pub invalid_input_substitutions: u64,
@@ -532,10 +497,6 @@ pub struct EcBeam2Diagnostics {
     pub minimum_best_fourth_margin: f64,
     pub maximum_best_fourth_margin: f64,
     pub best_fourth_margin_samples: u64,
-    pub a1_best_fourth_margin_last: f64,
-    pub a1_minimum_best_fourth_margin: f64,
-    pub a1_maximum_best_fourth_margin: f64,
-    pub a1_best_fourth_margin_samples: u64,
     pub predicted_segments_recorded: u64,
     pub matched_complete_segments: u64,
     pub changed_before_commit_segments: u64,
@@ -672,9 +633,9 @@ pub fn run_ecbeam2_exact_oracle_from_seed(
 ///
 /// `prefix` and `window` are in the precise EcBeam2 `u` domain: post gain,
 /// headroom, and limiter, with `v` represented as ±1. The helper uses the same
-/// explicitly configured DSD64 research plant as the active renderer, consumes
+/// explicitly configured research plant as the active renderer, consumes
 /// the prefix without flushing its delayed frontier, and leaves production
-/// EcBeam untouched.
+/// state untouched.
 pub fn run_ecbeam2_exact_oracle(
     wire_rate: u32,
     seed: u64,
@@ -729,7 +690,6 @@ struct Child {
     signed_error_ema: f64,
     base_norm: [f64; 8],
     reconstruction_increment: f64,
-    path_objective_increment: f64,
     state_terminal_delta: f64,
     state_barrier_raw: f64,
     quantizer_error_squared: f64,
@@ -745,7 +705,6 @@ struct ExactPath {
     state_terminal_delta: f64,
     state_barrier_raw: f64,
     quantizer_error_energy: f64,
-    prev_v: f64,
     history: u16,
     causal_reconstruction_energy: f64,
     causal_ultrasonic_energy: f64,
@@ -851,7 +810,6 @@ pub(super) struct RollingEnergy {
     index: usize,
     filled: usize,
     sum: f64,
-    maximum: f64,
 }
 
 impl RollingEnergy {
@@ -861,7 +819,6 @@ impl RollingEnergy {
             index: 0,
             filled: 0,
             sum: 0.0,
-            maximum: 0.0,
         }
     }
 
@@ -878,7 +835,6 @@ impl RollingEnergy {
             self.index = 0;
         }
         self.sum += energy - replaced;
-        self.maximum = self.maximum.max(self.sum);
     }
 
     pub(super) fn reset(&mut self) {
@@ -886,11 +842,6 @@ impl RollingEnergy {
         self.index = 0;
         self.filled = 0;
         self.sum = 0.0;
-        self.maximum = 0.0;
-    }
-
-    pub(super) fn maximum(&self) -> f64 {
-        self.maximum
     }
 
     pub(super) fn current(&self) -> f64 {
@@ -916,7 +867,6 @@ impl Child {
         signed_error_ema: 0.0,
         base_norm: [0.0; 8],
         reconstruction_increment: 0.0,
-        path_objective_increment: 0.0,
         state_terminal_delta: 0.0,
         state_barrier_raw: 0.0,
         quantizer_error_squared: 0.0,
@@ -1128,9 +1078,6 @@ impl EcBeam2Modulator {
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     #[inline(always)]
     fn simd_m4n8_eligible(&self) -> bool {
-        if cfg!(feature = "ecbeam2_observer") {
-            return false;
-        }
         #[cfg(test)]
         if self.force_scalar_path {
             return false;
@@ -1671,9 +1618,6 @@ impl EcBeam2Modulator {
         full_diagnostics: bool,
     ) -> Result<Self, &'static str> {
         let config = config.validated()?;
-        if !matches!(config.run_mode, EcBeam2RunMode::Active) {
-            return Err("EcBeam2 ShadowA1 requires the production-frontier observer");
-        }
         let plant = EcBeam2PlantId::for_coefficients(coeffs)
             .ok_or("EcBeam2 requires a registered production or legacy-oracle coefficient table")?;
         let expected_osr = match wire_rate {
@@ -1694,9 +1638,8 @@ impl EcBeam2Modulator {
             )?,
         };
         let objective_scales = EcBeam2ObjectiveScales::RAW;
-        let mut core = CrfbModulator::new_with_mode(coeffs, seed, ModulatorMode::Ec)?;
+        let mut core = CrfbModulator::new(coeffs, seed)?;
         core.set_dither_scale(0.0);
-        core.set_isi_penalty(0.0);
         #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
         let simd_both_sign_safe_abs_base = core
             .bv_norm
@@ -2101,10 +2044,6 @@ impl EcBeam2Modulator {
         self.diagnostics.state_terminal_delta_scale = EcBeam2ScaleDistribution::default();
         self.diagnostics.state_barrier_raw_scale = EcBeam2ScaleDistribution::default();
         self.diagnostics.quantizer_error_squared_scale = EcBeam2ScaleDistribution::default();
-        self.diagnostics.a1_best_fourth_margin_last = 0.0;
-        self.diagnostics.a1_minimum_best_fourth_margin = 0.0;
-        self.diagnostics.a1_maximum_best_fourth_margin = 0.0;
-        self.diagnostics.a1_best_fourth_margin_samples = 0;
         self.diagnostics.predicted_segments_recorded = 0;
         self.diagnostics.matched_complete_segments = 0;
         self.diagnostics.changed_before_commit_segments = 0;
@@ -2181,7 +2120,6 @@ impl EcBeam2Modulator {
             state_terminal_delta: 0.0,
             state_barrier_raw: 0.0,
             quantizer_error_energy: 0.0,
-            prev_v: start.prev_v,
             history: 0,
             causal_reconstruction_energy: 0.0,
             causal_ultrasonic_energy: 0.0,
@@ -2326,7 +2264,6 @@ impl EcBeam2Modulator {
                             state_barrier_raw: parent.state_barrier_raw + state_barrier_raw,
                             quantizer_error_energy: parent.quantizer_error_energy
                                 + quantizer_error_squared,
-                            prev_v: v,
                             history: (parent.history << 1) | u16::from(v > 0.0),
                             causal_reconstruction_energy: parent.causal_reconstruction_energy
                                 + reconstruction_output * reconstruction_output,
@@ -3587,7 +3524,6 @@ impl EcBeam2Modulator {
                     signed_error_ema,
                     base_norm,
                     reconstruction_increment: reconstruction_delta,
-                    path_objective_increment,
                     state_terminal_delta,
                     state_barrier_raw,
                     quantizer_error_squared,
@@ -3999,24 +3935,6 @@ impl EcBeam2Modulator {
         }
         debug_assert!(compatible_len > 0);
         (compatible_len, chosen_bit, old_top_m_prunes)
-    }
-
-    #[inline]
-    fn persistent_path_before(left: EcBeam2Path, right: EcBeam2Path) -> bool {
-        left.metric < right.metric || (left.metric == right.metric && left.bits > right.bits)
-    }
-
-    fn sort_parents_by_persistent_metric(&mut self) {
-        let parents = &mut self.parents[self.parents_bank];
-        for sorted in 1..self.parents_len {
-            let key = parents[sorted];
-            let mut position = sorted;
-            while position > 0 && Self::persistent_path_before(key, parents[position - 1]) {
-                parents[position] = parents[position - 1];
-                position -= 1;
-            }
-            parents[position] = key;
-        }
     }
 
     fn commit_oldest<const SIMD: bool>(&mut self, out_bits: &mut Vec<u8>) {
@@ -4633,7 +4551,7 @@ mod tests {
     }
 
     #[test]
-    fn ecbeam2_rejects_unsupported_wire_rates_and_shadow_mode() {
+    fn ecbeam2_rejects_unsupported_wire_rates() {
         assert!(
             EcBeam2Modulator::new(
                 &CRFB_OSR64_OBG164,
@@ -4643,19 +4561,6 @@ mod tests {
             )
             .is_err()
         );
-        assert!(
-            EcBeam2Modulator::new(
-                &CRFB_OSR64_OBG164,
-                1,
-                2_822_400,
-                EcBeam2ExperimentConfig {
-                    run_mode: EcBeam2RunMode::ShadowA1,
-                    ..EcBeam2ExperimentConfig::default()
-                },
-            )
-            .is_err()
-        );
-
         let mut wrong_coefficients = CRFB_OSR64_OBG164;
         wrong_coefficients.input_peak = f64::from_bits(wrong_coefficients.input_peak.to_bits() + 1);
         let wrong_coefficients = Box::leak(Box::new(wrong_coefficients));
@@ -5106,9 +5011,9 @@ mod tests {
                 false,
             )
             .unwrap();
-            #[cfg(all(target_arch = "aarch64", not(feature = "ecbeam2_observer")))]
+            #[cfg(target_arch = "aarch64")]
             assert!(lean_simd.simd_m4n8_eligible(), "wire rate {wire_rate}");
-            #[cfg(all(target_arch = "x86_64", not(feature = "ecbeam2_observer")))]
+            #[cfg(target_arch = "x86_64")]
             if std::arch::is_x86_feature_detected!("avx2")
                 && std::arch::is_x86_feature_detected!("fma")
             {

@@ -80,6 +80,3 @@ RUSTFLAGS="$AUDIO_RUSTFLAGS" cargo test --release --lib --bins --no-default-feat
 
 echo "==> Running release audio smoke checks"
 RUSTFLAGS="$AUDIO_RUSTFLAGS" cargo test --release --test audio_smoke
-
-echo "==> Running EcBeam2 campaign unit tests"
-PYTHONPATH=tools python3 -m unittest tools/test_dsd64_ecbeam2_experiment.py

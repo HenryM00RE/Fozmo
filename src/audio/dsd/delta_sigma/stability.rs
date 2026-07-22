@@ -29,27 +29,3 @@ pub(super) fn stabilize_state(
     state[7] = 0.0;
     StateStability::Ok { clamped }
 }
-
-/// Normalized-space equivalent used by the fixed EcBeam kernel. The state
-/// limits are exactly +/-1 here, avoiding a raw-space round trip for every
-/// surviving child.
-#[inline(always)]
-pub(super) fn stabilize_normalized_state(state: &mut [f64; 8]) -> StateStability {
-    let mut probe = 0.0f64;
-    for &lane in &state[..7] {
-        probe += lane;
-    }
-    if !probe.is_finite() {
-        return StateStability::Reset;
-    }
-
-    let mut clamped = false;
-    for lane in &mut state[..7] {
-        if lane.abs() > 1.0 {
-            *lane = lane.clamp(-1.0, 1.0);
-            clamped = true;
-        }
-    }
-    state[7] = 0.0;
-    StateStability::Ok { clamped }
-}

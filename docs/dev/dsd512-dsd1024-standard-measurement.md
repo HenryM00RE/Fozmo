@@ -38,8 +38,8 @@ audio band. It is not an end-to-end reconstructed SINAD measurement.
 OBG 1.60 was the initial measurement default at both rates because it gives the
 strongest modeled shaping while retaining a calibrated stable range. The
 end-to-end optimization below promotes OBG 1.50 for DSD512; DSD1024 remains at
-OBG 1.60 pending an equivalent sweep. All nine candidates remain in
-`ALL_VARIANTS` for later A/B work.
+OBG 1.60 pending an equivalent sweep. All nine candidates remain available as
+named coefficient tables for later A/B work.
 
 ## Runtime cost and stability
 

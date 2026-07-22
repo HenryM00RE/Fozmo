@@ -10,12 +10,7 @@ const FRAMES: usize = 1024;
 
 #[test]
 fn production_modulators_render_native_dsd() {
-    for modulator in [
-        DsdModulator::Standard,
-        DsdModulator::EcDepth2,
-        DsdModulator::EcBeam,
-        DsdModulator::EcBeam2,
-    ] {
+    for modulator in [DsdModulator::Standard, DsdModulator::EcBeam2] {
         let filter = if modulator == DsdModulator::EcBeam2 {
             FilterType::SplitPhase128kE3
         } else {
@@ -81,6 +76,8 @@ fn stale_persisted_modulator_aliases_normalize_to_standard() {
     for name in [
         "EcDepth1",
         "ec-1",
+        "EcDepth2",
+        "ec-2",
         "EcDepth3",
         "ec-3",
         "EcDepth4",
@@ -89,6 +86,8 @@ fn stale_persisted_modulator_aliases_normalize_to_standard() {
         "ec-8",
         "EcDepth4Adaptive",
         "ec-4a",
+        "EcBeam",
+        "ec-beam",
     ] {
         assert_eq!(DsdModulator::from_name(name), Some(DsdModulator::Standard));
     }
@@ -106,7 +105,7 @@ fn render_native_bits(
     let mut out_l = Vec::new();
     let mut out_r = Vec::new();
     renderer.upsample(&input, &input);
-    let headroom_db = if matches!(modulator, DsdModulator::EcBeam | DsdModulator::EcBeam2) {
+    let headroom_db = if modulator == DsdModulator::EcBeam2 {
         -2.0
     } else {
         -4.0
@@ -132,16 +131,6 @@ fn render_native_bits(
     assert_eq!(truncation.events, 0, "truncation events");
     assert_eq!(truncation.discarded_left_bits, 0, "discarded left bits");
     assert_eq!(truncation.discarded_right_bits, 0, "discarded right bits");
-    for diagnostics in renderer.beam_diagnostics().into_iter().flatten() {
-        assert_eq!(
-            diagnostics.beam_committed_clamp_total, 0,
-            "EcBeam committed clamps"
-        );
-        assert_eq!(
-            diagnostics.beam_all_children_rejected_total, 0,
-            "EcBeam all-children-rejected events"
-        );
-    }
     (out_l, out_r)
 }
 

@@ -5,7 +5,7 @@
   "exclusive": true,
   "dither_mode": "Auto",
   "output_mode": "Pcm",
-  "dsd_modulator": "EcDepth2",
+  "dsd_modulator": "Standard",
   "dsd_rules_enabled": false,
   "dsd_rules": [],
   "headroom_db": -4.0,

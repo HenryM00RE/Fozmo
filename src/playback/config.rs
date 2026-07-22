@@ -243,9 +243,6 @@ pub(crate) fn playback_config_for_zone(
         .as_deref()
         .unwrap_or(&fallback.dsd_modulator);
     let dsd_modulator = DsdModulator::from_name(configured_dsd_modulator).unwrap_or_default();
-    let configured_headroom_db = settings
-        .headroom_db
-        .unwrap_or(fallback.headroom_db.min(DEFAULT_HEADROOM_DB));
     PlaybackConfig {
         filter_type: settings
             .filter_type
@@ -274,7 +271,6 @@ pub(crate) fn playback_config_for_zone(
             match dsd_modulator {
                 DsdModulator::Standard => DEFAULT_HEADROOM_DB,
                 DsdModulator::EcBeam2 => -2.0,
-                _ => configured_headroom_db,
             }
         },
         dsp_buffer_ms: if dsp_unavailable {
@@ -350,10 +346,6 @@ pub(crate) fn update_playback_config_for_zone(
         update.dsd_rules_enabled,
         &update.dsd_rules,
     )?;
-    let legacy_ecbeam = update
-        .dsd_modulator
-        .as_deref()
-        .is_some_and(DsdModulator::is_legacy_ecbeam_name);
     let dsd_modulator = match update.dsd_modulator.as_deref() {
         Some(name) => DsdModulator::from_name(name)
             .ok_or_else(|| PlaybackError::bad_request("Invalid DSD modulator"))?,
@@ -365,12 +357,11 @@ pub(crate) fn update_playback_config_for_zone(
     }
     let headroom_db = if dsp_unavailable || !update.upsampling_enabled {
         0.0
-    } else if dsd_modulator == DsdModulator::Standard || legacy_ecbeam {
-        DEFAULT_HEADROOM_DB
-    } else if dsd_modulator == DsdModulator::EcBeam2 {
-        -2.0
     } else {
-        update.headroom_db.clamp(-24.0, 0.0)
+        match dsd_modulator {
+            DsdModulator::Standard => DEFAULT_HEADROOM_DB,
+            DsdModulator::EcBeam2 => -2.0,
+        }
     };
     if !update.dsd_isi_penalty.is_finite() {
         return Err(PlaybackError::bad_request("Invalid DSD ISI penalty"));
@@ -1088,7 +1079,7 @@ mod tests {
                 upsampling_enabled: true,
                 exclusive: false,
                 output_mode: Some("Dsd128".to_string()),
-                dsd_modulator: Some("EcDepth2".to_string()),
+                dsd_modulator: Some("Standard".to_string()),
                 dsd_isi_penalty: 0.0,
                 dsd_rules_enabled: false,
                 dsd_rules: Vec::new(),
@@ -1128,7 +1119,7 @@ mod tests {
                 upsampling_enabled: true,
                 exclusive: false,
                 output_mode: Some("Dsd128".to_string()),
-                dsd_modulator: Some("EcDepth2".to_string()),
+                dsd_modulator: Some("Standard".to_string()),
                 dsd_isi_penalty: 0.0,
                 dsd_rules_enabled: false,
                 dsd_rules: Vec::new(),
@@ -1161,7 +1152,7 @@ mod tests {
                 upsampling_enabled: true,
                 exclusive: false,
                 output_mode: Some("Dsd64".to_string()),
-                dsd_modulator: Some("EcDepth2".to_string()),
+                dsd_modulator: Some("Standard".to_string()),
                 dsd_isi_penalty: 0.0,
                 dsd_rules_enabled: false,
                 dsd_rules: Vec::new(),

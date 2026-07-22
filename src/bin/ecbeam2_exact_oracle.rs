@@ -12,7 +12,7 @@ struct Args {
     /// Frozen ecbeam2-corpus-v1 manifest.
     #[arg(long)]
     corpus_manifest: PathBuf,
-    /// Request emitted by dsd64_ecbeam2_experiment.py.
+    /// Exact-oracle request JSON.
     #[arg(long)]
     request: PathBuf,
     /// Frozen calibration budget document required by a budget-bound request.
