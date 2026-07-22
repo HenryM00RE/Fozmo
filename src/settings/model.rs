@@ -265,8 +265,9 @@ pub struct PersistedSettings {
     pub dither_mode: Option<String>,
     /// "Pcm" (default), "Dsd64", "Dsd128", or "Dsd256".
     pub output_mode: Option<String>,
-    /// Selectable values are "Standard" and "EcBeam2". Retired EC-depth and
-    /// EcBeam values are accepted as legacy input and normalize to "Standard".
+    /// Selectable values are `Standard` and `7th-order-search`. Pre-rename
+    /// search values are migrated to `7th-order-search`; retired EC-depth and
+    /// EcBeam values normalize to `Standard`.
     pub dsd_modulator: Option<String>,
     /// DSD EC transition-loss compensation. 0.0 means no compensation.
     pub dsd_isi_penalty: Option<f32>,

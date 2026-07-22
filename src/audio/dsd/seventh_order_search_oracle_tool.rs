@@ -1,7 +1,7 @@
-//! Frozen-corpus driver for the EcBeam2 exact N8/N12/N16 quality oracle.
+//! Frozen-corpus driver for the 7th Order Search exact N8/N12/N16 quality oracle.
 //!
-//! This module is invoked only by the `ecbeam2_exact_oracle` quality binary;
-//! it is not part of renderer selection or playback policy.
+//! This module is invoked only by the `seventh_order_search_exact_oracle`
+//! quality binary; it is not part of renderer selection or playback policy.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::f64::consts::PI;
@@ -13,20 +13,24 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::delta_sigma::{
-    EcBeam2ExactOracleReport, EcBeam2ExperimentConfig, prepare_ecbeam2_oracle_seed,
-    run_ecbeam2_exact_oracle_from_seed,
+    SeventhOrderSearchExactOracleReport, SeventhOrderSearchExperimentConfig,
+    prepare_seventh_order_search_oracle_seed, run_seventh_order_search_exact_oracle_from_seed,
 };
 use super::dsd_coeffs::CRFB_OSR64_OBG165;
 use super::dsd_render::{DsdRate, DsdRenderer, dsd_source_window_to_modulator_samples};
 use crate::audio::dsd::delta_sigma::DsdModulator;
 use crate::audio::dsp::resampler::{FilterType, SincResampler};
 
-const CORPUS_SCHEMA: &str = "ecbeam2-corpus-v1";
-const ORACLE_SCHEMA: &str = "ecbeam2-exact-oracle-v2";
-const BUDGET_SCHEMA: &str = "ecbeam2-frozen-budgets-v1";
+// These identifiers are hashed into existing frozen research artifacts. They
+// intentionally retain their pre-rename wire values; current code and UI use
+// the 7th Order Search name everywhere else.
+const FROZEN_CORPUS_SCHEMA: &str = "ecbeam2-corpus-v1";
+const FROZEN_ORACLE_SCHEMA: &str = "ecbeam2-exact-oracle-v2";
+const FROZEN_BUDGET_SCHEMA: &str = "ecbeam2-frozen-budgets-v1";
+const FROZEN_FEASIBILITY_ID: &str = "ecbeam2-v1";
 const PROFILE: &str = "harness24to32-v1";
 const SOURCE_CHUNK_FRAMES: usize = 1024;
-const V1_PLANT_ID: &str = "ecbeam2-crfb-osr64-obg165-v1";
+const FROZEN_V1_PLANT_ID: &str = "ecbeam2-crfb-osr64-obg165-v1";
 const V1_COEFFICIENT_TABLE: &str = "CRFB_OSR64_OBG165";
 const V1_COEFFICIENT_ENCODING: &str =
     "a-row-major,b-row-major,c,d1,state-limit,input-peak,osr-u32,obg;little-endian";
@@ -107,15 +111,15 @@ struct OracleObjectiveConfig {
 }
 
 impl OracleObjectiveConfig {
-    fn engine_config(self) -> EcBeam2ExperimentConfig {
-        EcBeam2ExperimentConfig {
+    fn engine_config(self) -> SeventhOrderSearchExperimentConfig {
+        SeventhOrderSearchExperimentConfig {
             state_terminal_weight: self.state_terminal_weight,
             state_deadzone: self.state_deadzone,
             state_deadzone_weight: self.state_deadzone_weight,
             quantizer_regularizer: self.quantizer_regularizer,
             ultrasonic_budget: self.ultrasonic_budget,
             signed_error_budget: self.signed_error_budget,
-            ..EcBeam2ExperimentConfig::default()
+            ..SeventhOrderSearchExperimentConfig::default()
         }
     }
 }
@@ -413,11 +417,12 @@ pub fn run_frozen_exact_oracle(
             .get(&case.wire_rate.to_string())
             .ok_or_else(|| format!("missing objective config for {}", case.wire_rate))?;
         let config = objective_config.engine_config();
-        let oracle_seed = prepare_ecbeam2_oracle_seed(case.wire_rate, case.seed, prefix, config)
-            .map_err(|err| format!("exact oracle prefix {}: {err}", case.case_id))?;
+        let oracle_seed =
+            prepare_seventh_order_search_oracle_seed(case.wire_rate, case.seed, prefix, config)
+                .map_err(|err| format!("exact oracle prefix {}: {err}", case.case_id))?;
         for &horizon in &request.exact_horizons {
             let window = &input[prefix_len..prefix_len + horizon];
-            let comparison = run_ecbeam2_exact_oracle_from_seed(&oracle_seed, window)
+            let comparison = run_seventh_order_search_exact_oracle_from_seed(&oracle_seed, window)
                 .map_err(|err| format!("exact oracle {} N{horizon}: {err}", case.case_id))?;
             let exact = comparison.exact;
             validate_objective_accounting(&exact)
@@ -476,7 +481,7 @@ pub fn run_frozen_exact_oracle(
 
     let comparisons = comparison_summaries(&request.cases, &rows)?;
     let results = ExactOracleResults {
-        schema_version: ORACLE_SCHEMA.to_string(),
+        schema_version: FROZEN_ORACLE_SCHEMA.to_string(),
         request_digest: request.request_digest,
         request_sha256: request.request_sha256,
         request_file_sha256,
@@ -512,14 +517,16 @@ fn validate_request(
     request_value: &Value,
     corpus_sha256: &str,
 ) -> Result<(), String> {
-    if corpus.schema_version != CORPUS_SCHEMA || request.schema_version != ORACLE_SCHEMA {
-        return Err("unexpected EcBeam2 corpus/oracle schema".to_string());
+    if corpus.schema_version != FROZEN_CORPUS_SCHEMA
+        || request.schema_version != FROZEN_ORACLE_SCHEMA
+    {
+        return Err("unexpected 7th Order Search corpus/oracle schema".to_string());
     }
     if request.corpus_id != corpus.corpus_id
         || request.corpus_manifest_sha256 != corpus_sha256
         || request.profile != PROFILE
         || request.objective != "tail_adjusted_energy_increment"
-        || request.feasibility != "ecbeam2-v1"
+        || request.feasibility != FROZEN_FEASIBILITY_ID
         || request.candidate_id.trim().is_empty()
         || request.start_mode != "active-prefix"
         || request.input_hash_encoding != "f64-le"
@@ -576,7 +583,7 @@ fn validate_request(
             .keys()
             .cloned()
             .collect::<BTreeSet<_>>();
-        if binding.schema_version != BUDGET_SCHEMA
+        if binding.schema_version != FROZEN_BUDGET_SCHEMA
             || binding.calibration_digest.is_empty()
             || actual_wires != expected_wires
         {
@@ -708,7 +715,7 @@ fn v1_plant_binding() -> V1PlantBinding {
     debug_assert_eq!(coefficients_sha256, V1_COEFFICIENTS_SHA256);
     debug_assert_eq!(state_limit_sha256, V1_STATE_LIMIT_SHA256);
     V1PlantBinding {
-        plant_id: V1_PLANT_ID.to_string(),
+        plant_id: FROZEN_V1_PLANT_ID.to_string(),
         coefficient_table: V1_COEFFICIENT_TABLE.to_string(),
         coefficient_encoding: V1_COEFFICIENT_ENCODING.to_string(),
         coefficients_sha256,
@@ -953,7 +960,9 @@ fn parse_primary_filter(name: &str) -> Result<FilterType, String> {
     match name {
         "MinimumPhase" => Ok(FilterType::Minimum16k),
         "SplitPhase" => Ok(FilterType::SplitPhase128kE3),
-        _ => Err(format!("unsupported primary EcBeam2 filter {name}")),
+        _ => Err(format!(
+            "unsupported primary 7th Order Search filter {name}"
+        )),
     }
 }
 
@@ -967,7 +976,7 @@ fn materialize_modulator_input(
         filter,
         source_rate,
         DsdRate::Dsd64,
-        DsdModulator::EcBeam2,
+        DsdModulator::SeventhOrderSearch,
     )
     .map_err(str::to_string)?;
     let frames = left.len().min(right.len());
@@ -977,32 +986,32 @@ fn materialize_modulator_input(
         let end = (start + SOURCE_CHUNK_FRAMES).min(frames);
         renderer.upsample(&left[start..end], &right[start..end]);
         let (block_left, block_right) = renderer
-            .ecbeam2_oracle_modulator_input_block(1.0)
+            .seventh_order_search_oracle_modulator_input_block(1.0)
             .map_err(str::to_string)?;
         output_left.extend(block_left);
         output_right.extend(block_right);
     }
     renderer.drain_resampler_eof();
     let (block_left, block_right) = renderer
-        .ecbeam2_oracle_modulator_input_block(1.0)
+        .seventh_order_search_oracle_modulator_input_block(1.0)
         .map_err(str::to_string)?;
     output_left.extend(block_left);
     output_right.extend(block_right);
     if output_left.len() != output_right.len() {
-        return Err("EcBeam2 oracle produced unequal stereo input lengths".to_string());
+        return Err("7th Order Search oracle produced unequal stereo input lengths".to_string());
     }
     let wire_rate = DsdRate::Dsd64
         .wire_rate_for_source(source_rate)
-        .ok_or_else(|| format!("unsupported EcBeam2 oracle source rate {source_rate}"))?;
+        .ok_or_else(|| format!("unsupported 7th Order Search oracle source rate {source_rate}"))?;
     if wire_rate % source_rate != 0 {
-        return Err("EcBeam2 oracle source-to-wire ratio is not integral".to_string());
+        return Err("7th Order Search oracle source-to-wire ratio is not integral".to_string());
     }
     let expected = frames
         .checked_mul((wire_rate / source_rate) as usize)
-        .ok_or_else(|| "EcBeam2 oracle nominal input length overflow".to_string())?;
+        .ok_or_else(|| "7th Order Search oracle nominal input length overflow".to_string())?;
     if output_left.len() != expected {
         return Err(format!(
-            "EcBeam2 oracle produced {} samples per channel, expected {expected}",
+            "7th Order Search oracle produced {} samples per channel, expected {expected}",
             output_left.len()
         ));
     }
@@ -1077,7 +1086,9 @@ fn validate_generator_spec(spec: &str) -> Result<(), String> {
     if valid {
         Ok(())
     } else {
-        Err(format!("unsupported EcBeam2 generator spec {spec}"))
+        Err(format!(
+            "unsupported 7th Order Search generator spec {spec}"
+        ))
     }
 }
 
@@ -1351,7 +1362,9 @@ fn comparison_summaries(
         .collect()
 }
 
-fn validate_objective_accounting(report: &EcBeam2ExactOracleReport) -> Result<(), String> {
+fn validate_objective_accounting(
+    report: &SeventhOrderSearchExactOracleReport,
+) -> Result<(), String> {
     let component_sum = report.reconstruction_objective
         + report.state_terminal_cost
         + report.state_barrier_cost
@@ -1558,15 +1571,17 @@ mod tests {
     #[test]
     fn frozen_budget_binding_checks_document_hash_and_limits() {
         let path = std::env::temp_dir().join(format!(
-            "ecbeam2-oracle-budgets-{}-{}.json",
+            "seventh_order_search-oracle-budgets-{}-{}.json",
             std::process::id(),
             std::thread::current().name().unwrap_or("test")
         ));
-        let bytes = br#"{"schema_version":"ecbeam2-frozen-budgets-v1","calibration_digest":"cal-1","by_wire_rate":{"2822400":{"ultrasonic_ema_max":0.25,"signed_error_ema_abs_max":0.01}}}"#;
-        fs::write(&path, bytes).unwrap();
+        let bytes = format!(
+            r#"{{"schema_version":"{FROZEN_BUDGET_SCHEMA}","calibration_digest":"cal-1","by_wire_rate":{{"2822400":{{"ultrasonic_ema_max":0.25,"signed_error_ema_abs_max":0.01}}}}}}"#
+        );
+        fs::write(&path, bytes.as_bytes()).unwrap();
         let binding = FrozenBudgetBinding {
-            schema_version: BUDGET_SCHEMA.to_string(),
-            document_sha256: sha256_hex(bytes),
+            schema_version: FROZEN_BUDGET_SCHEMA.to_string(),
+            document_sha256: sha256_hex(bytes.as_bytes()),
             calibration_digest: "cal-1".to_string(),
             by_wire_rate: BTreeMap::from([(
                 "2822400".to_string(),

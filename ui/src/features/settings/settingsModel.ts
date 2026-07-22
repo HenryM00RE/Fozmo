@@ -126,10 +126,11 @@ export const filterOptions = [
 ] as const;
 
 const defaultVisibleFilterId = 'SplitPhase128kE3';
+export const SEVENTH_ORDER_SEARCH_ID = '7th-order-search';
 
 export const dsdModulatorOptions = [
   ['Standard', '7th Order'],
-  ['EcBeam2', '7th Order Search']
+  [SEVENTH_ORDER_SEARCH_ID, '7th Order Search']
 ] as const;
 
 export const legacyFilterIds = [
@@ -191,23 +192,22 @@ export function visibleFilterType(name: unknown) {
 
 const knownDsdModulatorIds = new Set<string>(dsdModulatorOptions.map(([value]) => value));
 const defaultHeadroomDb = -4;
+// Input-only aliases for settings written before `7th-order-search` became the
+// canonical ID. New settings and status payloads always use the canonical ID.
+const legacySeventhOrderSearchPattern =
+  /^(EC ?Beam ?2|ECB2|7th Order Search|7th Order Beam|7th Order ECB2(?: \(Experimental\))?)$/i;
 
 export function visibleDsdModulator(name: unknown) {
   const key = stringValue(name, 'Standard');
   if (knownDsdModulatorIds.has(key)) return key;
-  if (
-    /^(EC ?Beam ?2|ECB2|7th Order Search|7th Order Beam|7th Order ECB2(?: \(Experimental\))?)$/i.test(
-      key
-    )
-  )
-    return 'EcBeam2';
+  if (legacySeventhOrderSearchPattern.test(key)) return SEVENTH_ORDER_SEARCH_ID;
   // Collapse retired EC and EcBeam values to the selectable baseline.
   return 'Standard';
 }
 
 export function headroomAfterDsdModulatorChange(currentHeadroomDb: number, modulator: string) {
   if (modulator === 'Standard') return -4;
-  if (modulator === 'EcBeam2') return -2;
+  if (modulator === SEVENTH_ORDER_SEARCH_ID) return -2;
   return currentHeadroomDb;
 }
 
@@ -220,38 +220,41 @@ export function headroomAfterUpsamplingChange(
 }
 
 export function headroomLockedForDsdModulator(modulator: string) {
-  return modulator === 'Standard' || modulator === 'EcBeam2';
+  return modulator === 'Standard' || modulator === SEVENTH_ORDER_SEARCH_ID;
 }
 
 export function isiPenaltyAfterDsdModulatorChange(currentIsiPenalty: number, modulator: string) {
-  return modulator === 'EcBeam2' ? 0 : currentIsiPenalty;
+  return modulator === SEVENTH_ORDER_SEARCH_ID ? 0 : currentIsiPenalty;
 }
 
-export function ecBeam2FilterSupported(filterType: unknown) {
+export function seventhOrderSearchFilterSupported(filterType: unknown) {
   const key = stringValue(filterType);
   return knownFilterIds.has(key) && visibleFilterIds.has(visibleFilterType(key));
 }
 
-export function ecBeam2SelectableForDsdConfig(
+export function seventhOrderSearchSelectableForDsdConfig(
   outputMode: unknown,
   filterType: unknown,
   dsdRulesEnabled: unknown,
   dsdRules: unknown
 ) {
-  if (!dsdModulatorSupportsOutputMode('EcBeam2', outputMode) || !ecBeam2FilterSupported(filterType))
+  if (
+    !dsdModulatorSupportsOutputMode(SEVENTH_ORDER_SEARCH_ID, outputMode) ||
+    !seventhOrderSearchFilterSupported(filterType)
+  )
     return false;
   if (!boolValue(dsdRulesEnabled, false)) return true;
   return safeArray<JsonRecord>(dsdRules).every(
     (rule) =>
-      dsdModulatorSupportsOutputMode('EcBeam2', rule.output_mode) &&
-      ecBeam2FilterSupported(stringValue(rule.filter_type))
+      dsdModulatorSupportsOutputMode(SEVENTH_ORDER_SEARCH_ID, rule.output_mode) &&
+      seventhOrderSearchFilterSupported(stringValue(rule.filter_type))
   );
 }
 
 export function dsdModulatorSupportsOutputMode(modulator: unknown, outputMode: unknown) {
   const mode = stringValue(outputMode);
   if (!['Dsd64', 'Dsd128', 'Dsd256'].includes(mode)) return false;
-  return stringValue(modulator) !== 'EcBeam2' || mode !== 'Dsd256';
+  return stringValue(modulator) !== SEVENTH_ORDER_SEARCH_ID || mode !== 'Dsd256';
 }
 
 export const sampleRateOptions = [

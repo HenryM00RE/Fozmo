@@ -1,29 +1,32 @@
 //! Seventh-order PCM-to-DSD modulation.
 //!
 //! Playback has two implementations: the standard hard-sign CRFB quantizer and
-//! the isolated EcBeam2 search engine. They share coefficient validation,
-//! normalized CRFB matrices, and state-stability handling; EcBeam2 owns all of
-//! its candidate search, delayed commitment, diagnostics, and SIMD kernels.
+//! the isolated 7th Order Search engine. They share coefficient validation,
+//! normalized CRFB matrices, and state-stability handling; 7th Order Search
+//! owns all of its candidate search, delayed commitment, diagnostics, and SIMD
+//! kernels.
 
 pub(crate) mod beam_error_profile;
 mod coeff_math;
 mod dither;
-mod ec_beam2;
 mod modulator;
+mod seventh_order_search;
 mod stability;
 
 #[cfg(test)]
 mod tests;
 
-pub use ec_beam2::{
-    EcBeam2BenchmarkModulator, EcBeam2DiagnosticWindow, EcBeam2Diagnostics,
-    EcBeam2ExactOracleReport, EcBeam2ExperimentConfig, EcBeam2ObjectiveComponents,
-    EcBeam2OracleComparison, EcBeam2OracleSeed, EcBeam2ProfileId, EcBeam2ScaleDistribution,
-    prepare_ecbeam2_oracle_seed, run_ecbeam2_exact_oracle, run_ecbeam2_exact_oracle_from_seed,
-};
-pub(crate) use ec_beam2::{
-    EcBeam2Modulator, ecbeam2_dsd64_production_coefficients,
-    ecbeam2_dsd128_production_coefficients, ecbeam2_dsd256_production_coefficients,
-    ecbeam2_production_config,
-};
 pub use modulator::*;
+pub use seventh_order_search::{
+    SeventhOrderSearchBenchmarkModulator, SeventhOrderSearchDiagnosticWindow,
+    SeventhOrderSearchDiagnostics, SeventhOrderSearchExactOracleReport,
+    SeventhOrderSearchExperimentConfig, SeventhOrderSearchObjectiveComponents,
+    SeventhOrderSearchOracleComparison, SeventhOrderSearchOracleSeed, SeventhOrderSearchProfileId,
+    SeventhOrderSearchScaleDistribution, prepare_seventh_order_search_oracle_seed,
+    run_seventh_order_search_exact_oracle, run_seventh_order_search_exact_oracle_from_seed,
+};
+pub(crate) use seventh_order_search::{
+    SeventhOrderSearchModulator, seventh_order_search_dsd64_production_coefficients,
+    seventh_order_search_dsd128_production_coefficients,
+    seventh_order_search_dsd256_production_coefficients, seventh_order_search_production_config,
+};

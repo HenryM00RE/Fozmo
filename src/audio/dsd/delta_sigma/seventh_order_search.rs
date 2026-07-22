@@ -14,11 +14,11 @@ use crate::audio::dsd::dsd_coeffs::{
 };
 use serde::Serialize;
 
-const ECBEAM2_WIDTH: usize = 4;
-const ECBEAM2_HORIZON: usize = 8;
-const ECBEAM2_MAX_WIDTH: usize = 8;
-const ECBEAM2_MAX_CHILDREN: usize = 2 * ECBEAM2_MAX_WIDTH;
-const ECBEAM2_EXACT_MAX_HORIZON: usize = 16;
+const SEVENTH_ORDER_SEARCH_WIDTH: usize = 4;
+const SEVENTH_ORDER_SEARCH_HORIZON: usize = 8;
+const SEVENTH_ORDER_SEARCH_MAX_WIDTH: usize = 8;
+const SEVENTH_ORDER_SEARCH_MAX_CHILDREN: usize = 2 * SEVENTH_ORDER_SEARCH_MAX_WIDTH;
+const SEVENTH_ORDER_SEARCH_EXACT_MAX_HORIZON: usize = 16;
 const ERROR_EMA_SECONDS: f64 = 0.010;
 
 #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
@@ -32,13 +32,13 @@ enum SimdSteadyStep {
 
 #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
 #[inline(always)]
-fn ecbeam2_child_index(index: u8) -> usize {
+fn seventh_order_search_child_index(index: u8) -> usize {
     let index = index as usize;
-    debug_assert!(index < 2 * ECBEAM2_WIDTH);
+    debug_assert!(index < 2 * SEVENTH_ORDER_SEARCH_WIDTH);
     // SAFETY: every order entry is written from the fixed eight-child M4
     // selector. Stating that invariant here removes repeated bounds branches
     // from survivor materialization.
-    unsafe { core::hint::assert_unchecked(index < 2 * ECBEAM2_WIDTH) };
+    unsafe { core::hint::assert_unchecked(index < 2 * SEVENTH_ORDER_SEARCH_WIDTH) };
     index
 }
 
@@ -55,11 +55,11 @@ unsafe fn ordered_le_mask_x86_avx512vl(
 
 #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
 #[inline(always)]
-fn insert_ecbeam2_top4(
+fn insert_seventh_order_search_top4(
     index: u8,
-    metrics: &[f64; 2 * ECBEAM2_WIDTH],
-    bits: &[u8; 2 * ECBEAM2_WIDTH],
-    order: &mut [u8; ECBEAM2_WIDTH],
+    metrics: &[f64; 2 * SEVENTH_ORDER_SEARCH_WIDTH],
+    bits: &[u8; 2 * SEVENTH_ORDER_SEARCH_WIDTH],
+    order: &mut [u8; SEVENTH_ORDER_SEARCH_WIDTH],
     len: &mut usize,
 ) {
     let index_usize = index as usize;
@@ -67,26 +67,26 @@ fn insert_ecbeam2_top4(
         metrics[left] < metrics[right]
             || (metrics[left] == metrics[right] && bits[left] > bits[right])
     };
-    if *len == ECBEAM2_WIDTH && !before(index_usize, order[*len - 1] as usize) {
+    if *len == SEVENTH_ORDER_SEARCH_WIDTH && !before(index_usize, order[*len - 1] as usize) {
         return;
     }
-    let mut position = (*len).min(ECBEAM2_WIDTH - 1);
+    let mut position = (*len).min(SEVENTH_ORDER_SEARCH_WIDTH - 1);
     while position > 0 && before(index_usize, order[position - 1] as usize) {
-        if position < ECBEAM2_WIDTH {
+        if position < SEVENTH_ORDER_SEARCH_WIDTH {
             order[position] = order[position - 1];
         }
         position -= 1;
     }
     order[position] = index;
-    *len = (*len + 1).min(ECBEAM2_WIDTH);
+    *len = (*len + 1).min(SEVENTH_ORDER_SEARCH_WIDTH);
 }
 
 #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
 #[inline(always)]
-fn sort_ecbeam2_four(
-    order: &mut [u8; ECBEAM2_WIDTH],
-    metrics: &[f64; 2 * ECBEAM2_WIDTH],
-    bits: &[u8; 2 * ECBEAM2_WIDTH],
+fn sort_seventh_order_search_four(
+    order: &mut [u8; SEVENTH_ORDER_SEARCH_WIDTH],
+    metrics: &[f64; 2 * SEVENTH_ORDER_SEARCH_WIDTH],
+    bits: &[u8; 2 * SEVENTH_ORDER_SEARCH_WIDTH],
 ) {
     let before = |left: u8, right: u8| {
         let left = left as usize;
@@ -94,7 +94,7 @@ fn sort_ecbeam2_four(
         metrics[left] < metrics[right]
             || (metrics[left] == metrics[right] && bits[left] > bits[right])
     };
-    for index in 1..ECBEAM2_WIDTH {
+    for index in 1..SEVENTH_ORDER_SEARCH_WIDTH {
         let value = order[index];
         let mut position = index;
         while position > 0 && before(value, order[position - 1]) {
@@ -123,49 +123,52 @@ const fn with_input_peak_and_state_limit_scale(
 // unchanged; only the admitted input calibration and proportional hard-state
 // envelopes are equalized to the clean DSD128 matched-stress ceiling. This is
 // exactly 2 dB below the earlier DSD128 calibration.
-const ECBEAM2_OBG164_PRODUCTION_INPUT468: f64 = 0.467_858_988_519_470_7;
-const ECBEAM2_OSR64_OBG164_INPUT468_SCALE: f64 =
-    ECBEAM2_OBG164_PRODUCTION_INPUT468 / CRFB_OSR64_OBG164.input_peak;
-static ECBEAM2_OSR64_OBG164_INPUT468_V1: ModulatorCoeffs = with_input_peak_and_state_limit_scale(
-    CRFB_OSR64_OBG164,
-    ECBEAM2_OBG164_PRODUCTION_INPUT468,
-    ECBEAM2_OSR64_OBG164_INPUT468_SCALE,
-);
-const ECBEAM2_OSR128_OBG164_INPUT468_SCALE: f64 =
-    ECBEAM2_OBG164_PRODUCTION_INPUT468 / CRFB_OSR128_OBG164.input_peak;
-static ECBEAM2_OSR128_OBG164_INPUT468_V1: ModulatorCoeffs = with_input_peak_and_state_limit_scale(
-    CRFB_OSR128_OBG164,
-    ECBEAM2_OBG164_PRODUCTION_INPUT468,
-    ECBEAM2_OSR128_OBG164_INPUT468_SCALE,
-);
-const ECBEAM2_OSR256_OBG164_INPUT468_SCALE: f64 =
-    ECBEAM2_OBG164_PRODUCTION_INPUT468 / CRFB_OSR256_OBG164.input_peak;
-static ECBEAM2_OSR256_OBG164_INPUT468_V1: ModulatorCoeffs = with_input_peak_and_state_limit_scale(
-    CRFB_OSR256_OBG164,
-    ECBEAM2_OBG164_PRODUCTION_INPUT468,
-    ECBEAM2_OSR256_OBG164_INPUT468_SCALE,
-);
+const SEVENTH_ORDER_SEARCH_OBG164_PRODUCTION_INPUT468: f64 = 0.467_858_988_519_470_7;
+const SEVENTH_ORDER_SEARCH_OSR64_OBG164_INPUT468_SCALE: f64 =
+    SEVENTH_ORDER_SEARCH_OBG164_PRODUCTION_INPUT468 / CRFB_OSR64_OBG164.input_peak;
+static SEVENTH_ORDER_SEARCH_OSR64_OBG164_INPUT468_V1: ModulatorCoeffs =
+    with_input_peak_and_state_limit_scale(
+        CRFB_OSR64_OBG164,
+        SEVENTH_ORDER_SEARCH_OBG164_PRODUCTION_INPUT468,
+        SEVENTH_ORDER_SEARCH_OSR64_OBG164_INPUT468_SCALE,
+    );
+const SEVENTH_ORDER_SEARCH_OSR128_OBG164_INPUT468_SCALE: f64 =
+    SEVENTH_ORDER_SEARCH_OBG164_PRODUCTION_INPUT468 / CRFB_OSR128_OBG164.input_peak;
+static SEVENTH_ORDER_SEARCH_OSR128_OBG164_INPUT468_V1: ModulatorCoeffs =
+    with_input_peak_and_state_limit_scale(
+        CRFB_OSR128_OBG164,
+        SEVENTH_ORDER_SEARCH_OBG164_PRODUCTION_INPUT468,
+        SEVENTH_ORDER_SEARCH_OSR128_OBG164_INPUT468_SCALE,
+    );
+const SEVENTH_ORDER_SEARCH_OSR256_OBG164_INPUT468_SCALE: f64 =
+    SEVENTH_ORDER_SEARCH_OBG164_PRODUCTION_INPUT468 / CRFB_OSR256_OBG164.input_peak;
+static SEVENTH_ORDER_SEARCH_OSR256_OBG164_INPUT468_V1: ModulatorCoeffs =
+    with_input_peak_and_state_limit_scale(
+        CRFB_OSR256_OBG164,
+        SEVENTH_ORDER_SEARCH_OBG164_PRODUCTION_INPUT468,
+        SEVENTH_ORDER_SEARCH_OSR256_OBG164_INPUT468_SCALE,
+    );
 
-pub(crate) fn ecbeam2_dsd64_production_coefficients() -> &'static ModulatorCoeffs {
-    &ECBEAM2_OSR64_OBG164_INPUT468_V1
+pub(crate) fn seventh_order_search_dsd64_production_coefficients() -> &'static ModulatorCoeffs {
+    &SEVENTH_ORDER_SEARCH_OSR64_OBG164_INPUT468_V1
 }
 
-pub(crate) fn ecbeam2_dsd128_production_coefficients() -> &'static ModulatorCoeffs {
-    &ECBEAM2_OSR128_OBG164_INPUT468_V1
+pub(crate) fn seventh_order_search_dsd128_production_coefficients() -> &'static ModulatorCoeffs {
+    &SEVENTH_ORDER_SEARCH_OSR128_OBG164_INPUT468_V1
 }
 
 // Future tuning target: higher-OBG OSR256 plants can materially lower in-band
 // noise, but the equal-level OBG1.66 candidate exhibited long-run state drift
 // with the DSD128 objective. Keep the shared OBG1.64 policy until a near-limit
 // safeguard passes the full rated-stress fixture without sacrificing quality.
-pub(crate) fn ecbeam2_dsd256_production_coefficients() -> &'static ModulatorCoeffs {
-    &ECBEAM2_OSR256_OBG164_INPUT468_V1
+pub(crate) fn seventh_order_search_dsd256_production_coefficients() -> &'static ModulatorCoeffs {
+    &SEVENTH_ORDER_SEARCH_OSR256_OBG164_INPUT468_V1
 }
 
 /// Internal identity for the production coefficient tables plus the legacy
 /// DSD64 oracle table retained from `main`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) enum EcBeam2PlantId {
+pub(crate) enum SeventhOrderSearchPlantId {
     #[default]
     Obg164V1,
     Obg164Osr64Input468V1,
@@ -174,13 +177,13 @@ pub(crate) enum EcBeam2PlantId {
     Obg165V1,
 }
 
-impl EcBeam2PlantId {
+impl SeventhOrderSearchPlantId {
     pub(crate) fn coefficients(self) -> &'static ModulatorCoeffs {
         match self {
             Self::Obg164V1 => &CRFB_OSR64_OBG164,
-            Self::Obg164Osr64Input468V1 => &ECBEAM2_OSR64_OBG164_INPUT468_V1,
-            Self::Obg164Osr128Input468V1 => &ECBEAM2_OSR128_OBG164_INPUT468_V1,
-            Self::Obg164Osr256Input468V1 => &ECBEAM2_OSR256_OBG164_INPUT468_V1,
+            Self::Obg164Osr64Input468V1 => &SEVENTH_ORDER_SEARCH_OSR64_OBG164_INPUT468_V1,
+            Self::Obg164Osr128Input468V1 => &SEVENTH_ORDER_SEARCH_OSR128_OBG164_INPUT468_V1,
+            Self::Obg164Osr256Input468V1 => &SEVENTH_ORDER_SEARCH_OSR256_OBG164_INPUT468_V1,
             Self::Obg165V1 => &CRFB_OSR64_OBG165,
         }
     }
@@ -231,23 +234,23 @@ fn modulator_coefficients_equal(coeffs: &ModulatorCoeffs, expected: &ModulatorCo
             .all(|(left, right)| left.to_bits() == right.to_bits())
 }
 
-/// EcBeam2 uses rate-specific realizations of the fixed physical-frequency
+/// 7th Order Search uses rate-specific realizations of the fixed physical-frequency
 /// reconstruction experiment described by `Harness24To32V1`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum EcBeam2ProfileId {
+pub enum SeventhOrderSearchProfileId {
     #[default]
     Harness24To32V1,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct EcBeam2ObjectiveScales {
+struct SeventhOrderSearchObjectiveScales {
     reconstruction_abs_p95: f64,
     state_terminal_abs_p95: f64,
     state_barrier_p95: f64,
     quantizer_error_squared_p95: f64,
 }
 
-impl EcBeam2ObjectiveScales {
+impl SeventhOrderSearchObjectiveScales {
     const RAW: Self = Self {
         reconstruction_abs_p95: 1.0,
         state_terminal_abs_p95: 1.0,
@@ -263,12 +266,12 @@ impl EcBeam2ObjectiveScales {
 /// extrema, and quantiles are gated, so a difficult window retains its real
 /// warmed-up starting state without attributing prefix extrema to the window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EcBeam2DiagnosticWindow {
+pub struct SeventhOrderSearchDiagnosticWindow {
     pub start_sequence: u64,
     pub end_sequence: u64,
 }
 
-impl EcBeam2DiagnosticWindow {
+impl SeventhOrderSearchDiagnosticWindow {
     #[inline]
     pub(crate) fn contains(self, sequence: u64) -> bool {
         self.start_sequence <= sequence && sequence < self.end_sequence
@@ -280,14 +283,14 @@ impl EcBeam2DiagnosticWindow {
     }
 }
 
-/// Experiment-only controls for the isolated EcBeam2 objective.
+/// Experiment-only controls for the isolated 7th Order Search objective.
 ///
 /// Every zero/`None` value is inert. In particular, the reconstruction-only
 /// control remains available; state potential, barrier, and raw-quantizer terms
 /// cannot enter the metric unless a candidate explicitly enables them.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct EcBeam2ExperimentConfig {
-    pub profile: EcBeam2ProfileId,
+pub struct SeventhOrderSearchExperimentConfig {
+    pub profile: SeventhOrderSearchProfileId,
     /// Weight on the telescoping normalized CRFB state potential delta.
     pub state_terminal_weight: f64,
     /// Normalized barrier knee. This is not a terminal cost.
@@ -299,13 +302,13 @@ pub struct EcBeam2ExperimentConfig {
     pub signed_error_budget: Option<f64>,
     /// Optional quality-tool measurement boundary in the post-filter,
     /// post-headroom, post-limiter `u` sequence domain.
-    pub diagnostic_window: Option<EcBeam2DiagnosticWindow>,
+    pub diagnostic_window: Option<SeventhOrderSearchDiagnosticWindow>,
 }
 
-impl Default for EcBeam2ExperimentConfig {
+impl Default for SeventhOrderSearchExperimentConfig {
     fn default() -> Self {
         Self {
-            profile: EcBeam2ProfileId::Harness24To32V1,
+            profile: SeventhOrderSearchProfileId::Harness24To32V1,
             state_terminal_weight: 0.0,
             state_deadzone: 0.0,
             state_deadzone_weight: 0.0,
@@ -317,7 +320,7 @@ impl Default for EcBeam2ExperimentConfig {
     }
 }
 
-impl EcBeam2ExperimentConfig {
+impl SeventhOrderSearchExperimentConfig {
     pub const MAX_STATE_TERMINAL_WEIGHT: f64 = 1.0e6;
     pub const MAX_STATE_DEADZONE: f64 = 1.0;
     pub const MAX_STATE_DEADZONE_WEIGHT: f64 = 4.0;
@@ -329,69 +332,81 @@ impl EcBeam2ExperimentConfig {
     /// rejected instead of being silently clamped or disabling a constraint.
     pub fn validated(self) -> Result<Self, &'static str> {
         if !self.state_terminal_weight.is_finite() || self.state_terminal_weight < 0.0 {
-            return Err("EcBeam2 state-terminal weight must be finite and non-negative");
+            return Err("7th Order Search state-terminal weight must be finite and non-negative");
         }
         if self.state_terminal_weight > Self::MAX_STATE_TERMINAL_WEIGHT {
-            return Err("EcBeam2 state-terminal weight must be finite and between 0 and 1e6");
+            return Err(
+                "7th Order Search state-terminal weight must be finite and between 0 and 1e6",
+            );
         }
         if !self.state_deadzone.is_finite()
             || !(0.0..=Self::MAX_STATE_DEADZONE).contains(&self.state_deadzone)
         {
-            return Err("EcBeam2 state dead-zone must be finite and in 0..=1");
+            return Err("7th Order Search state dead-zone must be finite and in 0..=1");
         }
         if !self.state_deadzone_weight.is_finite() || self.state_deadzone_weight < 0.0 {
-            return Err("EcBeam2 state dead-zone weight must be finite and non-negative");
+            return Err("7th Order Search state dead-zone weight must be finite and non-negative");
         }
         if self.state_deadzone_weight > Self::MAX_STATE_DEADZONE_WEIGHT {
-            return Err("EcBeam2 state dead-zone weight must be finite and between 0 and 4");
+            return Err(
+                "7th Order Search state dead-zone weight must be finite and between 0 and 4",
+            );
         }
         if self.state_deadzone_weight > 0.0 && self.state_deadzone >= 1.0 {
-            return Err("EcBeam2 enabled state barrier requires a knee below the hard limit");
+            return Err(
+                "7th Order Search enabled state barrier requires a knee below the hard limit",
+            );
         }
         if !self.quantizer_regularizer.is_finite() || self.quantizer_regularizer < 0.0 {
-            return Err("EcBeam2 quantizer regularizer must be finite and non-negative");
+            return Err("7th Order Search quantizer regularizer must be finite and non-negative");
         }
         if self.quantizer_regularizer > Self::MAX_QUANTIZER_REGULARIZER {
-            return Err("EcBeam2 quantizer regularizer must be finite and between 0 and 4");
+            return Err(
+                "7th Order Search quantizer regularizer must be finite and between 0 and 4",
+            );
         }
         if self
             .ultrasonic_budget
             .is_some_and(|value| !value.is_finite() || value <= 0.0)
         {
-            return Err("EcBeam2 ultrasonic budget must be finite and positive");
+            return Err("7th Order Search ultrasonic budget must be finite and positive");
         }
         if self
             .ultrasonic_budget
             .is_some_and(|value| value > Self::MAX_ULTRASONIC_BUDGET)
         {
-            return Err("EcBeam2 ultrasonic budget must be finite, positive, and at most 16");
+            return Err(
+                "7th Order Search ultrasonic budget must be finite, positive, and at most 16",
+            );
         }
         if self
             .signed_error_budget
             .is_some_and(|value| !value.is_finite() || value <= 0.0)
         {
-            return Err("EcBeam2 signed-error budget must be finite and positive");
+            return Err("7th Order Search signed-error budget must be finite and positive");
         }
         if self
             .signed_error_budget
             .is_some_and(|value| value > Self::MAX_SIGNED_ERROR_BUDGET)
         {
-            return Err("EcBeam2 signed-error budget must be finite, positive, and at most 2");
+            return Err(
+                "7th Order Search signed-error budget must be finite, positive, and at most 2",
+            );
         }
         if self
             .diagnostic_window
             .is_some_and(|window| !window.is_valid())
         {
-            return Err("EcBeam2 diagnostic window must be a non-empty half-open range");
+            return Err("7th Order Search diagnostic window must be a non-empty half-open range");
         }
         Ok(self)
     }
 }
 
 /// Fixed production M4/N8 objective shared by DSD64, DSD128, and DSD256.
-pub(crate) fn ecbeam2_production_config() -> EcBeam2ExperimentConfig {
-    EcBeam2ExperimentConfig {
-        profile: EcBeam2ProfileId::Harness24To32V1,
+pub(crate) fn seventh_order_search_production_config() -> SeventhOrderSearchExperimentConfig {
+    SeventhOrderSearchExperimentConfig {
+        profile: SeventhOrderSearchProfileId::Harness24To32V1,
         state_terminal_weight: 0.0,
         state_deadzone: 0.0,
         state_deadzone_weight: 0.0,
@@ -405,14 +420,14 @@ pub(crate) fn ecbeam2_production_config() -> EcBeam2ExperimentConfig {
 /// Path-consistent objective totals. State-terminal is already weighted; its
 /// raw telescoping delta is reported separately by the exact oracle.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct EcBeam2ObjectiveComponents {
+pub struct SeventhOrderSearchObjectiveComponents {
     pub reconstruction: f64,
     pub state_terminal: f64,
     pub state_barrier: f64,
     pub quantizer_regularizer: f64,
 }
 
-impl EcBeam2ObjectiveComponents {
+impl SeventhOrderSearchObjectiveComponents {
     #[inline]
     pub fn total(self) -> f64 {
         self.reconstruction + self.state_terminal + self.state_barrier + self.quantizer_regularizer
@@ -420,18 +435,18 @@ impl EcBeam2ObjectiveComponents {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
-pub struct EcBeam2ScaleDistribution {
+pub struct SeventhOrderSearchScaleDistribution {
     pub median: f64,
     pub p95: f64,
     pub p99: f64,
     pub maximum: f64,
 }
 
-/// Cumulative diagnostics for the actual committed EcBeam2 output path.
+/// Cumulative diagnostics for the actual committed 7th Order Search output path.
 /// Candidate-expansion counters are intentionally kept separate from replayed
 /// energy so provisional best-path switches cannot be mistaken for output.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
-pub struct EcBeam2Diagnostics {
+pub struct SeventhOrderSearchDiagnostics {
     pub committed_samples: u64,
     /// Candidate transitions evaluated by the active C0 search. This is an
     /// observational work counter and never enters the objective.
@@ -468,10 +483,10 @@ pub struct EcBeam2Diagnostics {
     pub both_budget_escape_count: u64,
     pub state_repair_stage_counts: [u64; 7],
     pub maximum_normalized_state_by_stage: [f64; 7],
-    pub reconstruction_increment_scale: EcBeam2ScaleDistribution,
-    pub state_terminal_delta_scale: EcBeam2ScaleDistribution,
-    pub state_barrier_raw_scale: EcBeam2ScaleDistribution,
-    pub quantizer_error_squared_scale: EcBeam2ScaleDistribution,
+    pub reconstruction_increment_scale: SeventhOrderSearchScaleDistribution,
+    pub state_terminal_delta_scale: SeventhOrderSearchScaleDistribution,
+    pub state_barrier_raw_scale: SeventhOrderSearchScaleDistribution,
+    pub quantizer_error_squared_scale: SeventhOrderSearchScaleDistribution,
     pub all_nonfinite_resets: u64,
     /// Non-finite input samples whose emitted recovery bit is replayed with the
     /// declared diagnostic substitute `u = 0`.
@@ -513,13 +528,13 @@ pub struct EcBeam2Diagnostics {
 /// significant used bit, matching the packed-history tie-break used by the
 /// runtime beam.
 #[derive(Debug, Clone, PartialEq)]
-pub struct EcBeam2ExactOracleReport {
+pub struct SeventhOrderSearchExactOracleReport {
     pub horizon: usize,
     pub complete_sequences: usize,
     pub chosen_first_bit: u8,
     pub chosen_sequence: u16,
     pub sequence_objective: f64,
-    pub objective_components: EcBeam2ObjectiveComponents,
+    pub objective_components: SeventhOrderSearchObjectiveComponents,
     pub reconstruction_objective: f64,
     pub starting_state_potential: f64,
     pub terminal_state_potential: f64,
@@ -545,9 +560,9 @@ pub struct EcBeam2ExactOracleReport {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct EcBeam2OracleComparison {
+pub struct SeventhOrderSearchOracleComparison {
     pub m4n8_first_bit: u8,
-    pub exact: EcBeam2ExactOracleReport,
+    pub exact: SeventhOrderSearchExactOracleReport,
     pub first_bit_disagrees: bool,
     pub prefix_constraint_escapes: u64,
     pub prefix_state_repairs: u64,
@@ -561,25 +576,26 @@ pub struct EcBeam2OracleComparison {
 /// subtly different starting states and makes prefix health part of candidate
 /// qualification rather than a reconstruction-only precondition.
 #[derive(Debug, Clone)]
-pub struct EcBeam2OracleSeed {
+pub struct SeventhOrderSearchOracleSeed {
     wire_rate: u32,
     random_seed: u64,
-    config: EcBeam2ExperimentConfig,
-    start: EcBeam2Path,
-    prefix_diagnostics: EcBeam2Diagnostics,
+    config: SeventhOrderSearchExperimentConfig,
+    start: SeventhOrderSearchPath,
+    prefix_diagnostics: SeventhOrderSearchDiagnostics,
 }
 
 /// Advance the requested candidate through the complete active prefix once.
-pub fn prepare_ecbeam2_oracle_seed(
+pub fn prepare_seventh_order_search_oracle_seed(
     wire_rate: u32,
     seed: u64,
     prefix: &[f64],
-    config: EcBeam2ExperimentConfig,
-) -> Result<EcBeam2OracleSeed, &'static str> {
-    let mut modulator = EcBeam2Modulator::new(&CRFB_OSR64_OBG165, seed, wire_rate, config)?;
+    config: SeventhOrderSearchExperimentConfig,
+) -> Result<SeventhOrderSearchOracleSeed, &'static str> {
+    let mut modulator =
+        SeventhOrderSearchModulator::new(&CRFB_OSR64_OBG165, seed, wire_rate, config)?;
     let mut discarded_commits = Vec::new();
     modulator.process_into_bits(prefix, &mut discarded_commits);
-    Ok(EcBeam2OracleSeed {
+    Ok(SeventhOrderSearchOracleSeed {
         wire_rate,
         random_seed: seed,
         config,
@@ -589,11 +605,11 @@ pub fn prepare_ecbeam2_oracle_seed(
 }
 
 /// Run one horizon from a previously prepared, candidate-specific prefix.
-pub fn run_ecbeam2_exact_oracle_from_seed(
-    seed: &EcBeam2OracleSeed,
+pub fn run_seventh_order_search_exact_oracle_from_seed(
+    seed: &SeventhOrderSearchOracleSeed,
     window: &[f64],
-) -> Result<EcBeam2OracleComparison, &'static str> {
-    let mut exact_modulator = EcBeam2Modulator::new(
+) -> Result<SeventhOrderSearchOracleComparison, &'static str> {
+    let mut exact_modulator = SeventhOrderSearchModulator::new(
         &CRFB_OSR64_OBG165,
         seed.random_seed,
         seed.wire_rate,
@@ -604,7 +620,7 @@ pub fn run_ecbeam2_exact_oracle_from_seed(
 
     // M4/N8 and the exact search start from the identical collapsed CRFB,
     // profile, EMA, and previous-output state. Neither can revise the prefix.
-    let mut beam_modulator = EcBeam2Modulator::new(
+    let mut beam_modulator = SeventhOrderSearchModulator::new(
         &CRFB_OSR64_OBG165,
         seed.random_seed,
         seed.wire_rate,
@@ -615,8 +631,8 @@ pub fn run_ecbeam2_exact_oracle_from_seed(
     beam_modulator.process_into_bits(window, &mut beam_bits);
     let m4n8_first_bit = *beam_bits
         .first()
-        .ok_or("EcBeam2 oracle window did not materialize its first M4/N8 decision")?;
-    Ok(EcBeam2OracleComparison {
+        .ok_or("7th Order Search oracle window did not materialize its first M4/N8 decision")?;
+    Ok(SeventhOrderSearchOracleComparison {
         m4n8_first_bit,
         first_bit_disagrees: m4n8_first_bit != exact.chosen_first_bit,
         exact,
@@ -631,24 +647,24 @@ pub fn run_ecbeam2_exact_oracle_from_seed(
 /// Run one exact N8/N12/N16 oracle from the same isolated, guard-cold M4/N8
 /// state reached by an already-normalized modulator-input prefix.
 ///
-/// `prefix` and `window` are in the precise EcBeam2 `u` domain: post gain,
+/// `prefix` and `window` are in the precise 7th Order Search `u` domain: post gain,
 /// headroom, and limiter, with `v` represented as ±1. The helper uses the same
 /// explicitly configured research plant as the active renderer, consumes
 /// the prefix without flushing its delayed frontier, and leaves production
 /// state untouched.
-pub fn run_ecbeam2_exact_oracle(
+pub fn run_seventh_order_search_exact_oracle(
     wire_rate: u32,
     seed: u64,
     prefix: &[f64],
     window: &[f64],
-    config: EcBeam2ExperimentConfig,
-) -> Result<EcBeam2OracleComparison, &'static str> {
-    let seed = prepare_ecbeam2_oracle_seed(wire_rate, seed, prefix, config)?;
-    run_ecbeam2_exact_oracle_from_seed(&seed, window)
+    config: SeventhOrderSearchExperimentConfig,
+) -> Result<SeventhOrderSearchOracleComparison, &'static str> {
+    let seed = prepare_seventh_order_search_oracle_seed(wire_rate, seed, prefix, config)?;
+    run_seventh_order_search_exact_oracle_from_seed(&seed, window)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct EcBeam2Path {
+struct SeventhOrderSearchPath {
     state: [f64; 8],
     reconstruction_state: [f64; MAX_BEAM_ERROR_PROFILE_STATES],
     ultrasonic_state: [f64; MAX_BEAM_ERROR_PROFILE_STATES],
@@ -659,7 +675,7 @@ struct EcBeam2Path {
     signed_error_ema: f64,
 }
 
-impl EcBeam2Path {
+impl SeventhOrderSearchPath {
     const INERT: Self = Self {
         state: [0.0; 8],
         reconstruction_state: [0.0; MAX_BEAM_ERROR_PROFILE_STATES],
@@ -701,7 +717,7 @@ struct ExactPath {
     reconstruction_state: [f64; MAX_BEAM_ERROR_PROFILE_STATES],
     ultrasonic_state: [f64; MAX_BEAM_ERROR_PROFILE_STATES],
     metric: f64,
-    objective_components: EcBeam2ObjectiveComponents,
+    objective_components: SeventhOrderSearchObjectiveComponents,
     state_terminal_delta: f64,
     state_barrier_raw: f64,
     quantizer_error_energy: f64,
@@ -716,7 +732,7 @@ struct ExactPath {
     state_repairs: u64,
     state_feasible: bool,
     budgets_feasible: bool,
-    reconstructed_output: [f64; ECBEAM2_EXACT_MAX_HORIZON],
+    reconstructed_output: [f64; SEVENTH_ORDER_SEARCH_EXACT_MAX_HORIZON],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -748,8 +764,8 @@ impl ObjectiveScaleTracker {
         self.maximum = self.maximum.max(value);
     }
 
-    fn snapshot(&self) -> EcBeam2ScaleDistribution {
-        EcBeam2ScaleDistribution {
+    fn snapshot(&self) -> SeventhOrderSearchScaleDistribution {
+        SeventhOrderSearchScaleDistribution {
             median: self.median.estimate(),
             p95: self.p95.estimate(),
             p99: self.p99.estimate(),
@@ -874,7 +890,7 @@ impl Child {
 }
 
 /// Isolated, fixed M4/N8 tail-aware beam modulator.
-pub(crate) struct EcBeam2Modulator {
+pub(crate) struct SeventhOrderSearchModulator {
     core: CrfbModulator,
     wire_rate: u32,
     /// Full qualification telemetry is intentionally orthogonal to every
@@ -883,60 +899,62 @@ pub(crate) struct EcBeam2Modulator {
     full_diagnostics: bool,
     reconstruction_profile: BeamErrorProfile,
     ultrasonic_profile: BeamErrorProfile,
-    plant: EcBeam2PlantId,
-    config: EcBeam2ExperimentConfig,
-    objective_scales: EcBeam2ObjectiveScales,
-    parents: [[EcBeam2Path; ECBEAM2_MAX_WIDTH]; 2],
+    plant: SeventhOrderSearchPlantId,
+    config: SeventhOrderSearchExperimentConfig,
+    objective_scales: SeventhOrderSearchObjectiveScales,
+    parents: [[SeventhOrderSearchPath; SEVENTH_ORDER_SEARCH_MAX_WIDTH]; 2],
     parents_bank: usize,
     parents_len: usize,
     /// Stage-major raw survivor state for the architecture-specific M4 kernel. Raw space is
     /// retained deliberately: every normalization and materialization keeps
     /// the same rounding boundary as the frozen production scalar implementation.
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-    simd_raw_state: [[[f64; ECBEAM2_WIDTH]; 8]; 2],
+    simd_raw_state: [[[f64; SEVENTH_ORDER_SEARCH_WIDTH]; 8]; 2],
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-    simd_base_norm: [[f64; ECBEAM2_WIDTH]; 8],
+    simd_base_norm: [[f64; SEVENTH_ORDER_SEARCH_WIDTH]; 8],
     /// Conservative per-stage certificate boundary. If every normalized base
     /// is inside this boundary, both feedback signs are exactly known to stay
     /// finite and within the hard state limit.
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_both_sign_safe_abs_base: [f64; 8],
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-    simd_y: [f64; ECBEAM2_WIDTH],
+    simd_y: [f64; SEVENTH_ORDER_SEARCH_WIDTH],
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-    simd_reconstruction_state: [[[f64; ECBEAM2_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES]; 2],
+    simd_reconstruction_state:
+        [[[f64; SEVENTH_ORDER_SEARCH_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES]; 2],
     /// Eight generations of already-computed survivor reconstruction states
     /// and their ancestry. This makes the state after the oldest committed
     /// decision available without replaying a fifth dense profile transition.
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-    simd_reconstruction_history:
-        [[[f64; ECBEAM2_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES]; ECBEAM2_HORIZON],
+    simd_reconstruction_history: [[[f64; SEVENTH_ORDER_SEARCH_WIDTH];
+        MAX_BEAM_ERROR_PROFILE_STATES];
+        SEVENTH_ORDER_SEARCH_HORIZON],
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-    simd_reconstruction_parent: [[u8; ECBEAM2_WIDTH]; ECBEAM2_HORIZON],
+    simd_reconstruction_parent: [[u8; SEVENTH_ORDER_SEARCH_WIDTH]; SEVENTH_ORDER_SEARCH_HORIZON],
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_reconstruction_generation: usize,
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_reconstruction_history_depth: usize,
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-    simd_ultrasonic_state: [[[f64; ECBEAM2_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES]; 2],
+    simd_ultrasonic_state: [[[f64; SEVENTH_ORDER_SEARCH_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES]; 2],
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-    simd_metric: [[f64; ECBEAM2_WIDTH]; 2],
+    simd_metric: [[f64; SEVENTH_ORDER_SEARCH_WIDTH]; 2],
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-    simd_prev_v: [[f64; ECBEAM2_WIDTH]; 2],
+    simd_prev_v: [[f64; SEVENTH_ORDER_SEARCH_WIDTH]; 2],
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-    simd_bits: [[u8; ECBEAM2_WIDTH]; 2],
+    simd_bits: [[u8; SEVENTH_ORDER_SEARCH_WIDTH]; 2],
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-    simd_reconstruction_increment: [[f64; ECBEAM2_WIDTH]; 2],
+    simd_reconstruction_increment: [[f64; SEVENTH_ORDER_SEARCH_WIDTH]; 2],
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-    simd_ultrasonic_output: [[f64; ECBEAM2_WIDTH]; 2],
+    simd_ultrasonic_output: [[f64; SEVENTH_ORDER_SEARCH_WIDTH]; 2],
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-    simd_maximum_overflow: [[f64; ECBEAM2_WIDTH]; 2],
+    simd_maximum_overflow: [[f64; SEVENTH_ORDER_SEARCH_WIDTH]; 2],
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-    simd_squared_overflow: [[f64; ECBEAM2_WIDTH]; 2],
+    simd_squared_overflow: [[f64; SEVENTH_ORDER_SEARCH_WIDTH]; 2],
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-    simd_candidate_finite: [[bool; ECBEAM2_WIDTH]; 2],
+    simd_candidate_finite: [[bool; SEVENTH_ORDER_SEARCH_WIDTH]; 2],
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-    simd_candidate_metric: [[f64; ECBEAM2_WIDTH]; 2],
+    simd_candidate_metric: [[f64; SEVENTH_ORDER_SEARCH_WIDTH]; 2],
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     simd_state_valid: bool,
     #[cfg(test)]
@@ -945,7 +963,7 @@ pub(crate) struct EcBeam2Modulator {
     force_avx2_path: bool,
     survivor_initial_fill_complete: bool,
     buffered: usize,
-    input_buffer: [f64; ECBEAM2_HORIZON],
+    input_buffer: [f64; SEVENTH_ORDER_SEARCH_HORIZON],
     input_head: usize,
     ema_beta_10ms: f64,
     ema_beta_1ms: f64,
@@ -967,9 +985,9 @@ pub(crate) struct EcBeam2Modulator {
     quantizer_error_squared_scale: ObjectiveScaleTracker,
     consecutive_constraint_escapes: u64,
     consecutive_state_repairs: u64,
-    segment_predictions: [Option<SegmentPrediction>; ECBEAM2_HORIZON],
+    segment_predictions: [Option<SegmentPrediction>; SEVENTH_ORDER_SEARCH_HORIZON],
     replayed_output_energy: f64,
-    diagnostics: EcBeam2Diagnostics,
+    diagnostics: SeventhOrderSearchDiagnostics,
 }
 
 /// Narrow public adapter used by the standalone modulator microbenchmark.
@@ -979,23 +997,25 @@ pub(crate) struct EcBeam2Modulator {
 /// renderer playback without making the research engine part of the public
 /// API.
 #[doc(hidden)]
-pub struct EcBeam2BenchmarkModulator {
-    inner: EcBeam2Modulator,
+pub struct SeventhOrderSearchBenchmarkModulator {
+    inner: SeventhOrderSearchModulator,
 }
 
-impl EcBeam2BenchmarkModulator {
+impl SeventhOrderSearchBenchmarkModulator {
     fn coefficients(wire_rate: u32) -> Result<&'static ModulatorCoeffs, &'static str> {
         match wire_rate {
             DSD64_44K_FAMILY_WIRE_RATE | DSD64_48K_FAMILY_WIRE_RATE => {
-                Ok(ecbeam2_dsd64_production_coefficients())
+                Ok(seventh_order_search_dsd64_production_coefficients())
             }
             DSD128_44K_FAMILY_WIRE_RATE | DSD128_48K_FAMILY_WIRE_RATE => {
-                Ok(ecbeam2_dsd128_production_coefficients())
+                Ok(seventh_order_search_dsd128_production_coefficients())
             }
             DSD256_44K_FAMILY_WIRE_RATE | DSD256_48K_FAMILY_WIRE_RATE => {
-                Ok(ecbeam2_dsd256_production_coefficients())
+                Ok(seventh_order_search_dsd256_production_coefficients())
             }
-            _ => Err("EcBeam2 benchmark supports only DSD64, DSD128, and DSD256 wire rates"),
+            _ => {
+                Err("7th Order Search benchmark supports only DSD64, DSD128, and DSD256 wire rates")
+            }
         }
     }
 
@@ -1005,11 +1025,11 @@ impl EcBeam2BenchmarkModulator {
 
     pub fn new_playback(seed: u64, wire_rate: u32) -> Result<Self, &'static str> {
         Ok(Self {
-            inner: EcBeam2Modulator::new_with_diagnostics(
+            inner: SeventhOrderSearchModulator::new_with_diagnostics(
                 Self::coefficients(wire_rate)?,
                 seed,
                 wire_rate,
-                ecbeam2_production_config(),
+                seventh_order_search_production_config(),
                 false,
             )?,
         })
@@ -1034,22 +1054,22 @@ impl EcBeam2BenchmarkModulator {
     }
 }
 
-impl EcBeam2Modulator {
+impl SeventhOrderSearchModulator {
     #[inline]
     fn beam_width(&self) -> usize {
-        ECBEAM2_WIDTH
+        SEVENTH_ORDER_SEARCH_WIDTH
     }
 
     #[inline(always)]
     fn buffered_input(&self, index: usize) -> f64 {
         debug_assert!(index < self.buffered);
-        self.input_buffer[(self.input_head + index) & (ECBEAM2_HORIZON - 1)]
+        self.input_buffer[(self.input_head + index) & (SEVENTH_ORDER_SEARCH_HORIZON - 1)]
     }
 
     #[inline(always)]
     fn push_buffered_input(&mut self, input: f64) {
-        debug_assert!(self.buffered < ECBEAM2_HORIZON);
-        let tail = (self.input_head + self.buffered) & (ECBEAM2_HORIZON - 1);
+        debug_assert!(self.buffered < SEVENTH_ORDER_SEARCH_HORIZON);
+        let tail = (self.input_head + self.buffered) & (SEVENTH_ORDER_SEARCH_HORIZON - 1);
         self.input_buffer[tail] = input;
         self.buffered += 1;
     }
@@ -1058,7 +1078,7 @@ impl EcBeam2Modulator {
     fn remove_oldest_buffered_input(&mut self) {
         debug_assert!(self.buffered != 0);
         self.input_buffer[self.input_head] = 0.0;
-        self.input_head = (self.input_head + 1) & (ECBEAM2_HORIZON - 1);
+        self.input_head = (self.input_head + 1) & (SEVENTH_ORDER_SEARCH_HORIZON - 1);
         self.buffered -= 1;
         if self.buffered == 0 {
             self.input_head = 0;
@@ -1067,12 +1087,13 @@ impl EcBeam2Modulator {
 
     #[inline(always)]
     fn replace_oldest_buffered_input_steady(&mut self, input: f64) {
-        debug_assert_eq!(self.buffered, ECBEAM2_HORIZON - 1);
+        debug_assert_eq!(self.buffered, SEVENTH_ORDER_SEARCH_HORIZON - 1);
         let old_head = self.input_head;
-        let tail = (old_head + ECBEAM2_HORIZON - 1) & (ECBEAM2_HORIZON - 1);
+        let tail =
+            (old_head + SEVENTH_ORDER_SEARCH_HORIZON - 1) & (SEVENTH_ORDER_SEARCH_HORIZON - 1);
         self.input_buffer[tail] = input;
         self.input_buffer[old_head] = 0.0;
-        self.input_head = (old_head + 1) & (ECBEAM2_HORIZON - 1);
+        self.input_head = (old_head + 1) & (SEVENTH_ORDER_SEARCH_HORIZON - 1);
     }
 
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
@@ -1090,15 +1111,15 @@ impl EcBeam2Modulator {
         }
         let q_path = self.config.quantizer_regularizer.to_bits();
         !self.full_diagnostics
-            && self.beam_width() == ECBEAM2_WIDTH
+            && self.beam_width() == SEVENTH_ORDER_SEARCH_WIDTH
             && self.core.crfb_sparse
             && matches!(
                 self.plant,
-                EcBeam2PlantId::Obg164V1
-                    | EcBeam2PlantId::Obg164Osr64Input468V1
-                    | EcBeam2PlantId::Obg164Osr128Input468V1
-                    | EcBeam2PlantId::Obg164Osr256Input468V1
-                    | EcBeam2PlantId::Obg165V1
+                SeventhOrderSearchPlantId::Obg164V1
+                    | SeventhOrderSearchPlantId::Obg164Osr64Input468V1
+                    | SeventhOrderSearchPlantId::Obg164Osr128Input468V1
+                    | SeventhOrderSearchPlantId::Obg164Osr256Input468V1
+                    | SeventhOrderSearchPlantId::Obg165V1
             )
             && self.config.state_terminal_weight == 0.0
             && self.config.state_deadzone == 0.0
@@ -1116,7 +1137,7 @@ impl EcBeam2Modulator {
             return;
         }
         let bank = self.parents_bank;
-        self.simd_raw_state[bank] = [[0.0; ECBEAM2_WIDTH]; 8];
+        self.simd_raw_state[bank] = [[0.0; SEVENTH_ORDER_SEARCH_WIDTH]; 8];
         for parent in 0..self.parents_len {
             self.simd_metric[bank][parent] = self.parents[bank][parent].metric;
             self.simd_prev_v[bank][parent] = self.parents[bank][parent].prev_v;
@@ -1170,32 +1191,32 @@ impl EcBeam2Modulator {
     fn record_simd_reconstruction_generation(
         &mut self,
         bank: usize,
-        selected_parents: [usize; ECBEAM2_WIDTH],
+        selected_parents: [usize; SEVENTH_ORDER_SEARCH_WIDTH],
     ) {
         let generation = if self.simd_reconstruction_history_depth == 0 {
             0
         } else {
-            (self.simd_reconstruction_generation + 1) & (ECBEAM2_HORIZON - 1)
+            (self.simd_reconstruction_generation + 1) & (SEVENTH_ORDER_SEARCH_HORIZON - 1)
         };
         self.simd_reconstruction_generation = generation;
         self.simd_reconstruction_history[generation] = self.simd_reconstruction_state[bank];
         for (slot, parent) in selected_parents.into_iter().enumerate() {
-            debug_assert!(parent < ECBEAM2_WIDTH);
+            debug_assert!(parent < SEVENTH_ORDER_SEARCH_WIDTH);
             self.simd_reconstruction_parent[generation][slot] = parent as u8;
         }
         self.simd_reconstruction_history_depth =
-            (self.simd_reconstruction_history_depth + 1).min(ECBEAM2_HORIZON);
+            (self.simd_reconstruction_history_depth + 1).min(SEVENTH_ORDER_SEARCH_HORIZON);
     }
 
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     #[inline(always)]
     fn committed_reconstruction_from_simd_ancestry(&mut self) -> bool {
-        if self.simd_reconstruction_history_depth < ECBEAM2_HORIZON {
+        if self.simd_reconstruction_history_depth < SEVENTH_ORDER_SEARCH_HORIZON {
             return false;
         }
         let mut generation = self.simd_reconstruction_generation;
         let mut slot = 0usize;
-        for _ in 0..ECBEAM2_HORIZON - 1 {
+        for _ in 0..SEVENTH_ORDER_SEARCH_HORIZON - 1 {
             // SAFETY: every ancestry entry is recorded from an M4 survivor
             // slot, and the generation is masked to the eight-entry ring.
             slot = unsafe {
@@ -1204,9 +1225,9 @@ impl EcBeam2Modulator {
                     .get_unchecked(generation)
                     .get_unchecked(slot)
             } as usize;
-            debug_assert!(slot < ECBEAM2_WIDTH);
-            unsafe { core::hint::assert_unchecked(slot < ECBEAM2_WIDTH) };
-            generation = generation.wrapping_sub(1) & (ECBEAM2_HORIZON - 1);
+            debug_assert!(slot < SEVENTH_ORDER_SEARCH_WIDTH);
+            unsafe { core::hint::assert_unchecked(slot < SEVENTH_ORDER_SEARCH_WIDTH) };
+            generation = generation.wrapping_sub(1) & (SEVENTH_ORDER_SEARCH_HORIZON - 1);
         }
         for stage in 0..MAX_BEAM_ERROR_PROFILE_STATES {
             self.committed_reconstruction_state[stage] =
@@ -1320,7 +1341,7 @@ impl EcBeam2Modulator {
                 vst1q_f64(self.simd_y.as_mut_ptr().add(offset), y);
             }
         }
-        self.simd_base_norm[7] = [0.0; ECBEAM2_WIDTH];
+        self.simd_base_norm[7] = [0.0; SEVENTH_ORDER_SEARCH_WIDTH];
         self.simd_reconstruction_increment = self
             .reconstruction_profile
             .tail_adjusted_energy_increment_pair4(&self.simd_reconstruction_state[bank], u);
@@ -1440,7 +1461,7 @@ impl EcBeam2Modulator {
                 both_signs_safe = _mm256_and_si256(both_signs_safe, _mm256_castpd_si256(safe));
             }
         }
-        self.simd_base_norm[7] = [0.0; ECBEAM2_WIDTH];
+        self.simd_base_norm[7] = [0.0; SEVENTH_ORDER_SEARCH_WIDTH];
         let y = _mm256_fmadd_pd(
             input,
             splat(self.core.coeffs.d1),
@@ -1483,7 +1504,7 @@ impl EcBeam2Modulator {
         };
         let mut metric_finite_mask = 0u8;
         for (sign, v) in [1.0, -1.0].into_iter().enumerate() {
-            for lane in 0..ECBEAM2_WIDTH {
+            for lane in 0..SEVENTH_ORDER_SEARCH_WIDTH {
                 let quantizer_error_squared = (self.simd_y[lane] - v).powi(2);
                 let quantizer_path_increment =
                     self.config.quantizer_regularizer * quantizer_error_squared;
@@ -1497,21 +1518,22 @@ impl EcBeam2Modulator {
                 path_increment += quantizer_path_increment;
                 let metric = self.simd_metric[bank][lane] + path_increment;
                 self.simd_candidate_metric[sign][lane] = metric;
-                metric_finite_mask |= u8::from(metric.is_finite()) << (sign * ECBEAM2_WIDTH + lane);
+                metric_finite_mask |=
+                    u8::from(metric.is_finite()) << (sign * SEVENTH_ORDER_SEARCH_WIDTH + lane);
             }
         }
         if !all_signs_certified {
             for sign in 0..2 {
-                for lane in 0..ECBEAM2_WIDTH {
+                for lane in 0..SEVENTH_ORDER_SEARCH_WIDTH {
                     self.simd_candidate_finite[sign][lane] &=
-                        metric_finite_mask & (1 << (sign * ECBEAM2_WIDTH + lane)) != 0;
+                        metric_finite_mask & (1 << (sign * SEVENTH_ORDER_SEARCH_WIDTH + lane)) != 0;
                 }
             }
         } else if metric_finite_mask != u8::MAX {
-            self.simd_maximum_overflow = [[0.0; ECBEAM2_WIDTH]; 2];
+            self.simd_maximum_overflow = [[0.0; SEVENTH_ORDER_SEARCH_WIDTH]; 2];
             for sign in 0..2 {
                 self.simd_candidate_finite[sign] = core::array::from_fn(|lane| {
-                    metric_finite_mask & (1 << (sign * ECBEAM2_WIDTH + lane)) != 0
+                    metric_finite_mask & (1 << (sign * SEVENTH_ORDER_SEARCH_WIDTH + lane)) != 0
                 });
             }
         }
@@ -1564,7 +1586,7 @@ impl EcBeam2Modulator {
     fn parent_prediction<const SIMD: bool>(
         &self,
         parent_index: usize,
-        parent: EcBeam2Path,
+        parent: SeventhOrderSearchPath,
         u: f64,
     ) -> ([f64; 8], [f64; 8], f64) {
         #[cfg(target_arch = "aarch64")]
@@ -1595,7 +1617,7 @@ impl EcBeam2Modulator {
         coeffs: &'static ModulatorCoeffs,
         seed: u64,
         wire_rate: u32,
-        config: EcBeam2ExperimentConfig,
+        config: SeventhOrderSearchExperimentConfig,
     ) -> Result<Self, &'static str> {
         Self::new_inner(coeffs, seed, wire_rate, config, true)
     }
@@ -1604,7 +1626,7 @@ impl EcBeam2Modulator {
         coeffs: &'static ModulatorCoeffs,
         seed: u64,
         wire_rate: u32,
-        config: EcBeam2ExperimentConfig,
+        config: SeventhOrderSearchExperimentConfig,
         full_diagnostics: bool,
     ) -> Result<Self, &'static str> {
         Self::new_inner(coeffs, seed, wire_rate, config, full_diagnostics)
@@ -1614,12 +1636,13 @@ impl EcBeam2Modulator {
         coeffs: &'static ModulatorCoeffs,
         seed: u64,
         wire_rate: u32,
-        config: EcBeam2ExperimentConfig,
+        config: SeventhOrderSearchExperimentConfig,
         full_diagnostics: bool,
     ) -> Result<Self, &'static str> {
         let config = config.validated()?;
-        let plant = EcBeam2PlantId::for_coefficients(coeffs)
-            .ok_or("EcBeam2 requires a registered production or legacy-oracle coefficient table")?;
+        let plant = SeventhOrderSearchPlantId::for_coefficients(coeffs).ok_or(
+            "7th Order Search requires a registered production or legacy-oracle coefficient table",
+        )?;
         let expected_osr = match wire_rate {
             DSD64_44K_FAMILY_WIRE_RATE | DSD64_48K_FAMILY_WIRE_RATE => 64,
             DSD128_44K_FAMILY_WIRE_RATE | DSD128_48K_FAMILY_WIRE_RATE => 128,
@@ -1627,17 +1650,17 @@ impl EcBeam2Modulator {
             _ => 0,
         };
         if coeffs.osr != expected_osr {
-            return Err("EcBeam2 coefficient OSR does not match the selected wire rate");
+            return Err("7th Order Search coefficient OSR does not match the selected wire rate");
         }
         // Keep profile selection exhaustive even while there is only one
         // profile. A future profile variant must not compile while silently
         // continuing to use the original reconstruction/ultrasonic pair.
         let profiles = match config.profile {
-            EcBeam2ProfileId::Harness24To32V1 => profiles_for_wire_rate(wire_rate).map_err(
-                |_| "EcBeam2 supports only DSD64, DSD128, and DSD256 44.1/48 kHz-family wire rates",
+            SeventhOrderSearchProfileId::Harness24To32V1 => profiles_for_wire_rate(wire_rate).map_err(
+                |_| "7th Order Search supports only DSD64, DSD128, and DSD256 44.1/48 kHz-family wire rates",
             )?,
         };
-        let objective_scales = EcBeam2ObjectiveScales::RAW;
+        let objective_scales = SeventhOrderSearchObjectiveScales::RAW;
         let mut core = CrfbModulator::new(coeffs, seed)?;
         core.set_dither_scale(0.0);
         #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
@@ -1654,48 +1677,52 @@ impl EcBeam2Modulator {
             plant,
             config,
             objective_scales,
-            parents: [[EcBeam2Path::INERT; ECBEAM2_MAX_WIDTH]; 2],
+            parents: [[SeventhOrderSearchPath::INERT; SEVENTH_ORDER_SEARCH_MAX_WIDTH]; 2],
             parents_bank: 0,
             parents_len: 1,
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-            simd_raw_state: [[[0.0; ECBEAM2_WIDTH]; 8]; 2],
+            simd_raw_state: [[[0.0; SEVENTH_ORDER_SEARCH_WIDTH]; 8]; 2],
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-            simd_base_norm: [[0.0; ECBEAM2_WIDTH]; 8],
+            simd_base_norm: [[0.0; SEVENTH_ORDER_SEARCH_WIDTH]; 8],
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_both_sign_safe_abs_base,
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-            simd_y: [0.0; ECBEAM2_WIDTH],
+            simd_y: [0.0; SEVENTH_ORDER_SEARCH_WIDTH],
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-            simd_reconstruction_state: [[[0.0; ECBEAM2_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES]; 2],
+            simd_reconstruction_state: [[[0.0; SEVENTH_ORDER_SEARCH_WIDTH];
+                MAX_BEAM_ERROR_PROFILE_STATES]; 2],
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-            simd_reconstruction_history: [[[0.0; ECBEAM2_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES];
-                ECBEAM2_HORIZON],
+            simd_reconstruction_history: [[[0.0; SEVENTH_ORDER_SEARCH_WIDTH];
+                MAX_BEAM_ERROR_PROFILE_STATES];
+                SEVENTH_ORDER_SEARCH_HORIZON],
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-            simd_reconstruction_parent: [[0; ECBEAM2_WIDTH]; ECBEAM2_HORIZON],
+            simd_reconstruction_parent: [[0; SEVENTH_ORDER_SEARCH_WIDTH];
+                SEVENTH_ORDER_SEARCH_HORIZON],
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_reconstruction_generation: 0,
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_reconstruction_history_depth: 0,
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-            simd_ultrasonic_state: [[[0.0; ECBEAM2_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES]; 2],
+            simd_ultrasonic_state: [[[0.0; SEVENTH_ORDER_SEARCH_WIDTH];
+                MAX_BEAM_ERROR_PROFILE_STATES]; 2],
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-            simd_metric: [[0.0; ECBEAM2_WIDTH]; 2],
+            simd_metric: [[0.0; SEVENTH_ORDER_SEARCH_WIDTH]; 2],
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-            simd_prev_v: [[1.0; ECBEAM2_WIDTH]; 2],
+            simd_prev_v: [[1.0; SEVENTH_ORDER_SEARCH_WIDTH]; 2],
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-            simd_bits: [[0; ECBEAM2_WIDTH]; 2],
+            simd_bits: [[0; SEVENTH_ORDER_SEARCH_WIDTH]; 2],
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-            simd_reconstruction_increment: [[0.0; ECBEAM2_WIDTH]; 2],
+            simd_reconstruction_increment: [[0.0; SEVENTH_ORDER_SEARCH_WIDTH]; 2],
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-            simd_ultrasonic_output: [[0.0; ECBEAM2_WIDTH]; 2],
+            simd_ultrasonic_output: [[0.0; SEVENTH_ORDER_SEARCH_WIDTH]; 2],
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-            simd_maximum_overflow: [[0.0; ECBEAM2_WIDTH]; 2],
+            simd_maximum_overflow: [[0.0; SEVENTH_ORDER_SEARCH_WIDTH]; 2],
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-            simd_squared_overflow: [[0.0; ECBEAM2_WIDTH]; 2],
+            simd_squared_overflow: [[0.0; SEVENTH_ORDER_SEARCH_WIDTH]; 2],
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-            simd_candidate_finite: [[true; ECBEAM2_WIDTH]; 2],
+            simd_candidate_finite: [[true; SEVENTH_ORDER_SEARCH_WIDTH]; 2],
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
-            simd_candidate_metric: [[0.0; ECBEAM2_WIDTH]; 2],
+            simd_candidate_metric: [[0.0; SEVENTH_ORDER_SEARCH_WIDTH]; 2],
             #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
             simd_state_valid: false,
             #[cfg(test)]
@@ -1704,7 +1731,7 @@ impl EcBeam2Modulator {
             force_avx2_path: false,
             survivor_initial_fill_complete: false,
             buffered: 0,
-            input_buffer: [0.0; ECBEAM2_HORIZON],
+            input_buffer: [0.0; SEVENTH_ORDER_SEARCH_HORIZON],
             input_head: 0,
             ema_beta_10ms: beta(ERROR_EMA_SECONDS),
             ema_beta_1ms: beta(0.001),
@@ -1734,10 +1761,10 @@ impl EcBeam2Modulator {
             quantizer_error_squared_scale: ObjectiveScaleTracker::new(),
             consecutive_constraint_escapes: 0,
             consecutive_state_repairs: 0,
-            segment_predictions: [None; ECBEAM2_HORIZON],
+            segment_predictions: [None; SEVENTH_ORDER_SEARCH_HORIZON],
             replayed_output_energy: 0.0,
-            diagnostics: EcBeam2Diagnostics {
-                min_survivors: ECBEAM2_WIDTH as u64,
+            diagnostics: SeventhOrderSearchDiagnostics {
+                min_survivors: SEVENTH_ORDER_SEARCH_WIDTH as u64,
                 diagnostic_window_enabled: config.diagnostic_window.is_some(),
                 diagnostic_window_start_sequence: config
                     .diagnostic_window
@@ -1745,7 +1772,7 @@ impl EcBeam2Modulator {
                 diagnostic_window_end_sequence: config
                     .diagnostic_window
                     .map_or(0, |window| window.end_sequence),
-                ..EcBeam2Diagnostics::default()
+                ..SeventhOrderSearchDiagnostics::default()
             },
         };
         this.reseed_from_core();
@@ -1988,7 +2015,7 @@ impl EcBeam2Modulator {
         }
         self.core.reset();
         self.buffered = 0;
-        self.input_buffer = [0.0; ECBEAM2_HORIZON];
+        self.input_buffer = [0.0; SEVENTH_ORDER_SEARCH_HORIZON];
         self.input_head = 0;
         self.committed_reconstruction_state = [0.0; MAX_BEAM_ERROR_PROFILE_STATES];
         self.committed_ultrasonic_state = [0.0; MAX_BEAM_ERROR_PROFILE_STATES];
@@ -2009,7 +2036,7 @@ impl EcBeam2Modulator {
         self.consecutive_constraint_escapes = 0;
         self.consecutive_state_repairs = 0;
         self.replayed_output_energy = 0.0;
-        self.segment_predictions = [None; ECBEAM2_HORIZON];
+        self.segment_predictions = [None; SEVENTH_ORDER_SEARCH_HORIZON];
         // An explicit stream reset starts a new profile/measurement epoch.
         // Health/fallback counters remain cumulative, but all quantities that
         // telescope against the now-zero profile state restart coherently.
@@ -2040,10 +2067,13 @@ impl EcBeam2Modulator {
         self.diagnostics.minimum_best_fourth_margin = 0.0;
         self.diagnostics.maximum_best_fourth_margin = 0.0;
         self.diagnostics.best_fourth_margin_samples = 0;
-        self.diagnostics.reconstruction_increment_scale = EcBeam2ScaleDistribution::default();
-        self.diagnostics.state_terminal_delta_scale = EcBeam2ScaleDistribution::default();
-        self.diagnostics.state_barrier_raw_scale = EcBeam2ScaleDistribution::default();
-        self.diagnostics.quantizer_error_squared_scale = EcBeam2ScaleDistribution::default();
+        self.diagnostics.reconstruction_increment_scale =
+            SeventhOrderSearchScaleDistribution::default();
+        self.diagnostics.state_terminal_delta_scale =
+            SeventhOrderSearchScaleDistribution::default();
+        self.diagnostics.state_barrier_raw_scale = SeventhOrderSearchScaleDistribution::default();
+        self.diagnostics.quantizer_error_squared_scale =
+            SeventhOrderSearchScaleDistribution::default();
         self.diagnostics.predicted_segments_recorded = 0;
         self.diagnostics.matched_complete_segments = 0;
         self.diagnostics.changed_before_commit_segments = 0;
@@ -2062,8 +2092,8 @@ impl EcBeam2Modulator {
         self.core.state_clamps()
     }
 
-    pub(crate) fn diagnostics(&self) -> EcBeam2Diagnostics {
-        EcBeam2Diagnostics {
+    pub(crate) fn diagnostics(&self) -> SeventhOrderSearchDiagnostics {
+        SeventhOrderSearchDiagnostics {
             reconstruction_increment_scale: self.reconstruction_increment_scale.snapshot(),
             state_terminal_delta_scale: self.state_terminal_delta_scale.snapshot(),
             state_barrier_raw_scale: self.state_barrier_raw_scale.snapshot(),
@@ -2092,21 +2122,21 @@ impl EcBeam2Modulator {
     pub(crate) fn exact_horizon_oracle(
         &self,
         input: &[f64],
-    ) -> Result<EcBeam2ExactOracleReport, &'static str> {
+    ) -> Result<SeventhOrderSearchExactOracleReport, &'static str> {
         let start = self.parents[self.parents_bank][0];
         self.exact_horizon_oracle_from_start(start, input)
     }
 
     fn exact_horizon_oracle_from_start(
         &self,
-        start: EcBeam2Path,
+        start: SeventhOrderSearchPath,
         input: &[f64],
-    ) -> Result<EcBeam2ExactOracleReport, &'static str> {
+    ) -> Result<SeventhOrderSearchExactOracleReport, &'static str> {
         if !matches!(input.len(), 8 | 12 | 16) {
-            return Err("EcBeam2 exact oracle supports only N8, N12, or N16");
+            return Err("7th Order Search exact oracle supports only N8, N12, or N16");
         }
         if input.iter().any(|sample| !sample.is_finite()) {
-            return Err("EcBeam2 exact oracle requires finite input samples");
+            return Err("7th Order Search exact oracle requires finite input samples");
         }
 
         let starting_state_potential =
@@ -2116,7 +2146,7 @@ impl EcBeam2Modulator {
             reconstruction_state: start.reconstruction_state,
             ultrasonic_state: start.ultrasonic_state,
             metric: 0.0,
-            objective_components: EcBeam2ObjectiveComponents::default(),
+            objective_components: SeventhOrderSearchObjectiveComponents::default(),
             state_terminal_delta: 0.0,
             state_barrier_raw: 0.0,
             quantizer_error_energy: 0.0,
@@ -2131,7 +2161,7 @@ impl EcBeam2Modulator {
             state_repairs: 0,
             state_feasible: true,
             budgets_feasible: true,
-            reconstructed_output: [0.0; ECBEAM2_EXACT_MAX_HORIZON],
+            reconstructed_output: [0.0; SEVENTH_ORDER_SEARCH_EXACT_MAX_HORIZON],
         }];
         let one_minus_beta = 1.0 - self.ema_beta_10ms;
 
@@ -2235,7 +2265,7 @@ impl EcBeam2Modulator {
                     }
                     let quantizer_cost = parent.objective_components.quantizer_regularizer
                         + self.config.quantizer_regularizer * quantizer_error_squared;
-                    let objective_components = EcBeam2ObjectiveComponents {
+                    let objective_components = SeventhOrderSearchObjectiveComponents {
                         reconstruction: parent.objective_components.reconstruction
                             + reconstruction_delta / self.objective_scales.reconstruction_abs_p95,
                         state_terminal: parent.objective_components.state_terminal
@@ -2290,7 +2320,7 @@ impl EcBeam2Modulator {
                 }
             }
             if expanded.is_empty() {
-                return Err("EcBeam2 exact oracle found no finite child");
+                return Err("7th Order Search exact oracle found no finite child");
             }
 
             let has_fully_feasible = expanded
@@ -2356,7 +2386,7 @@ impl EcBeam2Modulator {
         let terminal_state_potential =
             normalized_state_potential(&mul8(&winner.state, &self.core.inverse_state_limit));
         let chosen_first_bit = ((winner.history >> (input.len() - 1)) & 1) as u8;
-        Ok(EcBeam2ExactOracleReport {
+        Ok(SeventhOrderSearchExactOracleReport {
             horizon: input.len(),
             complete_sequences,
             chosen_first_bit,
@@ -2398,21 +2428,21 @@ impl EcBeam2Modulator {
         self.parents_bank = 0;
         self.parents_len = 1;
         self.survivor_initial_fill_complete = false;
-        self.parents[0][0] = EcBeam2Path {
+        self.parents[0][0] = SeventhOrderSearchPath {
             state: self.core.state,
             reconstruction_state: self.committed_reconstruction_state,
             ultrasonic_state: self.committed_ultrasonic_state,
             prev_v: self.core.prev_v,
             ultrasonic_ema: self.committed_ultrasonic_ema,
             signed_error_ema: self.committed_signed_error_ema,
-            ..EcBeam2Path::INERT
+            ..SeventhOrderSearchPath::INERT
         };
     }
 
     /// Collapse a fresh engine onto one frozen path so M4/N8 and an exact
     /// horizon comparison begin from precisely the same CRFB, profile, EMA,
     /// and previous-output state. This is oracle tooling only.
-    fn reseed_for_oracle(&mut self, start: EcBeam2Path) {
+    fn reseed_for_oracle(&mut self, start: SeventhOrderSearchPath) {
         #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
         {
             self.simd_state_valid = false;
@@ -2427,19 +2457,19 @@ impl EcBeam2Modulator {
         self.diagnostics.remaining_tail_energy = self
             .reconstruction_profile
             .remaining_zero_input_energy(&start.reconstruction_state);
-        self.parents = [[EcBeam2Path::INERT; ECBEAM2_MAX_WIDTH]; 2];
+        self.parents = [[SeventhOrderSearchPath::INERT; SEVENTH_ORDER_SEARCH_MAX_WIDTH]; 2];
         self.parents_bank = 0;
         self.parents_len = 1;
         self.survivor_initial_fill_complete = false;
-        self.parents[0][0] = EcBeam2Path {
+        self.parents[0][0] = SeventhOrderSearchPath {
             metric: 0.0,
             bits: 0,
             ..start
         };
         self.buffered = 0;
-        self.input_buffer = [0.0; ECBEAM2_HORIZON];
+        self.input_buffer = [0.0; SEVENTH_ORDER_SEARCH_HORIZON];
         self.input_head = 0;
-        self.segment_predictions = [None; ECBEAM2_HORIZON];
+        self.segment_predictions = [None; SEVENTH_ORDER_SEARCH_HORIZON];
     }
 
     /// Abandon the delayed frontier after a finite input produces no evaluable
@@ -2495,16 +2525,16 @@ impl EcBeam2Modulator {
         use core::arch::aarch64::*;
 
         let all_signs_certified = self.prepare_simd_frontier_core::<true>(u);
-        if self.parents_len != ECBEAM2_WIDTH {
+        if self.parents_len != SEVENTH_ORDER_SEARCH_WIDTH {
             return SimdSteadyStep::NotHandled;
         }
 
-        const CHILDREN: usize = 2 * ECBEAM2_WIDTH;
+        const CHILDREN: usize = 2 * SEVENTH_ORDER_SEARCH_WIDTH;
         let parent_bank = self.parents_bank;
         let mut child_metric = [0.0; CHILDREN];
         let mut child_bits = [0u8; CHILDREN];
         let mut child_feasible = [false; CHILDREN];
-        for parent in 0..ECBEAM2_WIDTH {
+        for parent in 0..SEVENTH_ORDER_SEARCH_WIDTH {
             let parent_bits = self.simd_bits[parent_bank][parent];
             let positive = 2 * parent;
             child_metric[positive] = self.simd_candidate_metric[0][parent];
@@ -2517,8 +2547,8 @@ impl EcBeam2Modulator {
                 && self.simd_maximum_overflow[1][parent] == 0.0;
         }
 
-        let committing = self.buffered + 1 == ECBEAM2_HORIZON;
-        let mut order = [0u8; ECBEAM2_WIDTH];
+        let committing = self.buffered + 1 == SEVENTH_ORDER_SEARCH_HORIZON;
+        let mut order = [0u8; SEVENTH_ORDER_SEARCH_WIDTH];
         let mut order_len = 0usize;
         let all_children_feasible = all_signs_certified
             && self.simd_candidate_finite[0]
@@ -2533,8 +2563,8 @@ impl EcBeam2Modulator {
                     || (child_metric[left] == child_metric[right]
                         && child_bits[left] > child_bits[right])
             };
-            let mut best_by_parent = [0u8; ECBEAM2_WIDTH];
-            for parent in 0..ECBEAM2_WIDTH {
+            let mut best_by_parent = [0u8; SEVENTH_ORDER_SEARCH_WIDTH];
+            for parent in 0..SEVENTH_ORDER_SEARCH_WIDTH {
                 let positive = 2 * parent;
                 best_by_parent[parent] = if before(positive, positive + 1) {
                     positive as u8
@@ -2549,12 +2579,12 @@ impl EcBeam2Modulator {
                     best = candidate;
                 }
             }
-            let chosen_root = (child_bits[best] >> (ECBEAM2_HORIZON - 1)) & 1;
-            let mut compatible_parents = [0u8; ECBEAM2_WIDTH];
+            let chosen_root = (child_bits[best] >> (SEVENTH_ORDER_SEARCH_HORIZON - 1)) & 1;
+            let mut compatible_parents = [0u8; SEVENTH_ORDER_SEARCH_WIDTH];
             let mut compatible_len = 0usize;
-            for parent in 0..ECBEAM2_WIDTH {
+            for parent in 0..SEVENTH_ORDER_SEARCH_WIDTH {
                 let parent_root =
-                    (self.simd_bits[parent_bank][parent] >> (ECBEAM2_HORIZON - 2)) & 1;
+                    (self.simd_bits[parent_bank][parent] >> (SEVENTH_ORDER_SEARCH_HORIZON - 2)) & 1;
                 if parent_root == chosen_root {
                     compatible_parents[compatible_len] = parent as u8;
                     compatible_len += 1;
@@ -2564,12 +2594,12 @@ impl EcBeam2Modulator {
                 let first = 2 * compatible_parents[0];
                 let second = 2 * compatible_parents[1];
                 order = [first, first + 1, second, second + 1];
-                sort_ecbeam2_four(&mut order, &child_metric, &child_bits);
-                order_len = ECBEAM2_WIDTH;
+                sort_seventh_order_search_four(&mut order, &child_metric, &child_bits);
+                order_len = SEVENTH_ORDER_SEARCH_WIDTH;
             } else {
                 for &parent in &compatible_parents[..compatible_len] {
                     for index in [2 * parent, 2 * parent + 1] {
-                        insert_ecbeam2_top4(
+                        insert_seventh_order_search_top4(
                             index,
                             &child_metric,
                             &child_bits,
@@ -2592,12 +2622,13 @@ impl EcBeam2Modulator {
                     best = index;
                 }
             }
-            let chosen_root = (child_bits[best] >> (ECBEAM2_HORIZON - 1)) & 1;
+            let chosen_root = (child_bits[best] >> (SEVENTH_ORDER_SEARCH_HORIZON - 1)) & 1;
             for index in 0..CHILDREN {
                 if child_feasible[index]
-                    && ((child_bits[index] >> (ECBEAM2_HORIZON - 1)) & 1) == chosen_root
+                    && ((child_bits[index] >> (SEVENTH_ORDER_SEARCH_HORIZON - 1)) & 1)
+                        == chosen_root
                 {
-                    insert_ecbeam2_top4(
+                    insert_seventh_order_search_top4(
                         index as u8,
                         &child_metric,
                         &child_bits,
@@ -2609,7 +2640,7 @@ impl EcBeam2Modulator {
         } else {
             for index in 0..CHILDREN {
                 if child_feasible[index] {
-                    insert_ecbeam2_top4(
+                    insert_seventh_order_search_top4(
                         index as u8,
                         &child_metric,
                         &child_bits,
@@ -2619,7 +2650,7 @@ impl EcBeam2Modulator {
                 }
             }
         }
-        if order_len != ECBEAM2_WIDTH {
+        if order_len != SEVENTH_ORDER_SEARCH_WIDTH {
             return SimdSteadyStep::NotHandled;
         }
 
@@ -2631,11 +2662,11 @@ impl EcBeam2Modulator {
         }
 
         let materialize_bank = parent_bank ^ 1;
-        let mut selected_parents = [0usize; ECBEAM2_WIDTH];
-        let mut selected_v = [0.0; ECBEAM2_WIDTH];
-        let mut errors = [0.0; ECBEAM2_WIDTH];
-        for slot in 0..ECBEAM2_WIDTH {
-            let child = ecbeam2_child_index(order[slot]);
+        let mut selected_parents = [0usize; SEVENTH_ORDER_SEARCH_WIDTH];
+        let mut selected_v = [0.0; SEVENTH_ORDER_SEARCH_WIDTH];
+        let mut errors = [0.0; SEVENTH_ORDER_SEARCH_WIDTH];
+        for slot in 0..SEVENTH_ORDER_SEARCH_WIDTH {
+            let child = seventh_order_search_child_index(order[slot]);
             let parent = child >> 1;
             let v = if child & 1 == 0 { 1.0 } else { -1.0 };
             selected_parents[slot] = parent;
@@ -2691,21 +2722,22 @@ impl EcBeam2Modulator {
             }
         }
         self.record_simd_reconstruction_generation(materialize_bank, selected_parents);
-        let mut minimum_metric = child_metric[ecbeam2_child_index(order[0])];
-        for slot in 1..ECBEAM2_WIDTH {
-            minimum_metric = minimum_metric.min(child_metric[ecbeam2_child_index(order[slot])]);
+        let mut minimum_metric = child_metric[seventh_order_search_child_index(order[0])];
+        for slot in 1..SEVENTH_ORDER_SEARCH_WIDTH {
+            minimum_metric =
+                minimum_metric.min(child_metric[seventh_order_search_child_index(order[slot])]);
         }
-        for slot in 0..ECBEAM2_WIDTH {
-            let child = ecbeam2_child_index(order[slot]);
+        for slot in 0..SEVENTH_ORDER_SEARCH_WIDTH {
+            let child = seventh_order_search_child_index(order[slot]);
             self.simd_metric[materialize_bank][slot] = child_metric[child] - minimum_metric;
             self.simd_bits[materialize_bank][slot] = child_bits[child];
         }
 
         self.parents_bank = materialize_bank;
-        self.parents_len = ECBEAM2_WIDTH;
+        self.parents_len = SEVENTH_ORDER_SEARCH_WIDTH;
         if committing {
             let parent_bank = self.parents_bank;
-            let bit = (self.simd_bits[parent_bank][0] >> (ECBEAM2_HORIZON - 1)) & 1;
+            let bit = (self.simd_bits[parent_bank][0] >> (SEVENTH_ORDER_SEARCH_HORIZON - 1)) & 1;
             if self.committed_reconstruction_from_simd_ancestry() {
                 self.replace_oldest_buffered_input_steady(u);
                 SimdSteadyStep::Emitted(bit)
@@ -2728,15 +2760,15 @@ impl EcBeam2Modulator {
     unsafe fn materialize_selected_crfb_x86_avx512vl(
         &mut self,
         materialize_bank: usize,
-        selected_parents: [usize; ECBEAM2_WIDTH],
-        selected_v: [f64; ECBEAM2_WIDTH],
+        selected_parents: [usize; SEVENTH_ORDER_SEARCH_WIDTH],
+        selected_v: [f64; SEVENTH_ORDER_SEARCH_WIDTH],
     ) {
         use core::arch::x86_64::*;
 
         debug_assert!(
             selected_parents
                 .into_iter()
-                .all(|parent| parent < ECBEAM2_WIDTH)
+                .all(|parent| parent < SEVENTH_ORDER_SEARCH_WIDTH)
         );
         let permutation = _mm256_set_epi64x(
             selected_parents[3] as i64,
@@ -2771,15 +2803,15 @@ impl EcBeam2Modulator {
 
         let all_children_feasible =
             unsafe { self.prepare_simd_frontier_core_x86::<true, AVX512VL>(u) };
-        if self.parents_len != ECBEAM2_WIDTH {
+        if self.parents_len != SEVENTH_ORDER_SEARCH_WIDTH {
             return SimdSteadyStep::NotHandled;
         }
 
-        const CHILDREN: usize = 2 * ECBEAM2_WIDTH;
+        const CHILDREN: usize = 2 * SEVENTH_ORDER_SEARCH_WIDTH;
         let parent_bank = self.parents_bank;
         let mut child_metric = [0.0; CHILDREN];
         let mut child_bits = [0u8; CHILDREN];
-        for parent in 0..ECBEAM2_WIDTH {
+        for parent in 0..SEVENTH_ORDER_SEARCH_WIDTH {
             let parent_bits = self.simd_bits[parent_bank][parent];
             let positive = 2 * parent;
             child_metric[positive] = self.simd_candidate_metric[0][parent];
@@ -2788,8 +2820,8 @@ impl EcBeam2Modulator {
             child_bits[positive + 1] = parent_bits << 1;
         }
 
-        let committing = self.buffered + 1 == ECBEAM2_HORIZON;
-        let mut order = [0u8; ECBEAM2_WIDTH];
+        let committing = self.buffered + 1 == SEVENTH_ORDER_SEARCH_HORIZON;
+        let mut order = [0u8; SEVENTH_ORDER_SEARCH_WIDTH];
         let mut order_len = 0usize;
         if committing && all_children_feasible {
             let before = |left: usize, right: usize| {
@@ -2797,8 +2829,8 @@ impl EcBeam2Modulator {
                     || (child_metric[left] == child_metric[right]
                         && child_bits[left] > child_bits[right])
             };
-            let mut best_by_parent = [0u8; ECBEAM2_WIDTH];
-            for parent in 0..ECBEAM2_WIDTH {
+            let mut best_by_parent = [0u8; SEVENTH_ORDER_SEARCH_WIDTH];
+            for parent in 0..SEVENTH_ORDER_SEARCH_WIDTH {
                 let positive = 2 * parent;
                 best_by_parent[parent] = if child_metric[positive] <= child_metric[positive + 1] {
                     positive as u8
@@ -2813,12 +2845,12 @@ impl EcBeam2Modulator {
                     best = candidate;
                 }
             }
-            let chosen_root = (child_bits[best] >> (ECBEAM2_HORIZON - 1)) & 1;
-            let mut compatible_parents = [0u8; ECBEAM2_WIDTH];
+            let chosen_root = (child_bits[best] >> (SEVENTH_ORDER_SEARCH_HORIZON - 1)) & 1;
+            let mut compatible_parents = [0u8; SEVENTH_ORDER_SEARCH_WIDTH];
             let mut compatible_len = 0usize;
-            for parent in 0..ECBEAM2_WIDTH {
+            for parent in 0..SEVENTH_ORDER_SEARCH_WIDTH {
                 let parent_root =
-                    (self.simd_bits[parent_bank][parent] >> (ECBEAM2_HORIZON - 2)) & 1;
+                    (self.simd_bits[parent_bank][parent] >> (SEVENTH_ORDER_SEARCH_HORIZON - 2)) & 1;
                 if parent_root == chosen_root {
                     compatible_parents[compatible_len] = parent as u8;
                     compatible_len += 1;
@@ -2828,12 +2860,12 @@ impl EcBeam2Modulator {
                 let first = 2 * compatible_parents[0];
                 let second = 2 * compatible_parents[1];
                 order = [first, first + 1, second, second + 1];
-                sort_ecbeam2_four(&mut order, &child_metric, &child_bits);
-                order_len = ECBEAM2_WIDTH;
+                sort_seventh_order_search_four(&mut order, &child_metric, &child_bits);
+                order_len = SEVENTH_ORDER_SEARCH_WIDTH;
             } else {
                 for &parent in &compatible_parents[..compatible_len] {
                     for index in [2 * parent, 2 * parent + 1] {
-                        insert_ecbeam2_top4(
+                        insert_seventh_order_search_top4(
                             index,
                             &child_metric,
                             &child_bits,
@@ -2845,7 +2877,7 @@ impl EcBeam2Modulator {
             }
         } else {
             let mut child_feasible = [false; CHILDREN];
-            for parent in 0..ECBEAM2_WIDTH {
+            for parent in 0..SEVENTH_ORDER_SEARCH_WIDTH {
                 let positive = 2 * parent;
                 child_feasible[positive] = self.simd_candidate_finite[0][parent]
                     && self.simd_maximum_overflow[0][parent] == 0.0;
@@ -2865,12 +2897,13 @@ impl EcBeam2Modulator {
                         best = index;
                     }
                 }
-                let chosen_root = (child_bits[best] >> (ECBEAM2_HORIZON - 1)) & 1;
+                let chosen_root = (child_bits[best] >> (SEVENTH_ORDER_SEARCH_HORIZON - 1)) & 1;
                 for index in 0..CHILDREN {
                     if child_feasible[index]
-                        && ((child_bits[index] >> (ECBEAM2_HORIZON - 1)) & 1) == chosen_root
+                        && ((child_bits[index] >> (SEVENTH_ORDER_SEARCH_HORIZON - 1)) & 1)
+                            == chosen_root
                     {
-                        insert_ecbeam2_top4(
+                        insert_seventh_order_search_top4(
                             index as u8,
                             &child_metric,
                             &child_bits,
@@ -2882,7 +2915,7 @@ impl EcBeam2Modulator {
             } else {
                 for index in 0..CHILDREN {
                     if child_feasible[index] {
-                        insert_ecbeam2_top4(
+                        insert_seventh_order_search_top4(
                             index as u8,
                             &child_metric,
                             &child_bits,
@@ -2893,7 +2926,7 @@ impl EcBeam2Modulator {
                 }
             }
         }
-        if order_len != ECBEAM2_WIDTH {
+        if order_len != SEVENTH_ORDER_SEARCH_WIDTH {
             return SimdSteadyStep::NotHandled;
         }
 
@@ -2901,11 +2934,11 @@ impl EcBeam2Modulator {
         self.consecutive_state_repairs = 0;
 
         let materialize_bank = parent_bank ^ 1;
-        let mut selected_parents = [0usize; ECBEAM2_WIDTH];
-        let mut selected_v = [0.0; ECBEAM2_WIDTH];
-        let mut errors = [0.0; ECBEAM2_WIDTH];
-        for slot in 0..ECBEAM2_WIDTH {
-            let child = ecbeam2_child_index(order[slot]);
+        let mut selected_parents = [0usize; SEVENTH_ORDER_SEARCH_WIDTH];
+        let mut selected_v = [0.0; SEVENTH_ORDER_SEARCH_WIDTH];
+        let mut errors = [0.0; SEVENTH_ORDER_SEARCH_WIDTH];
+        for slot in 0..SEVENTH_ORDER_SEARCH_WIDTH {
+            let child = seventh_order_search_child_index(order[slot]);
             let parent = child >> 1;
             let v = if child & 1 == 0 { 1.0 } else { -1.0 };
             selected_parents[slot] = parent;
@@ -2998,24 +3031,25 @@ impl EcBeam2Modulator {
             }
         }
         self.record_simd_reconstruction_generation(materialize_bank, selected_parents);
-        let mut minimum_metric = child_metric[ecbeam2_child_index(order[0])];
-        for slot in 1..ECBEAM2_WIDTH {
-            minimum_metric = minimum_metric.min(child_metric[ecbeam2_child_index(order[slot])]);
+        let mut minimum_metric = child_metric[seventh_order_search_child_index(order[0])];
+        for slot in 1..SEVENTH_ORDER_SEARCH_WIDTH {
+            minimum_metric =
+                minimum_metric.min(child_metric[seventh_order_search_child_index(order[slot])]);
         }
-        let first_child = ecbeam2_child_index(order[0]);
+        let first_child = seventh_order_search_child_index(order[0]);
         self.simd_metric[materialize_bank][0] = 0.0;
         self.simd_bits[materialize_bank][0] = child_bits[first_child];
-        for slot in 1..ECBEAM2_WIDTH {
-            let child = ecbeam2_child_index(order[slot]);
+        for slot in 1..SEVENTH_ORDER_SEARCH_WIDTH {
+            let child = seventh_order_search_child_index(order[slot]);
             self.simd_metric[materialize_bank][slot] = child_metric[child] - minimum_metric;
             self.simd_bits[materialize_bank][slot] = child_bits[child];
         }
 
         self.parents_bank = materialize_bank;
-        self.parents_len = ECBEAM2_WIDTH;
+        self.parents_len = SEVENTH_ORDER_SEARCH_WIDTH;
         if committing {
             let parent_bank = self.parents_bank;
-            let bit = (self.simd_bits[parent_bank][0] >> (ECBEAM2_HORIZON - 1)) & 1;
+            let bit = (self.simd_bits[parent_bank][0] >> (SEVENTH_ORDER_SEARCH_HORIZON - 1)) & 1;
             if self.committed_reconstruction_from_simd_ancestry() {
                 self.replace_oldest_buffered_input_steady(u);
                 SimdSteadyStep::Emitted(bit)
@@ -3041,7 +3075,7 @@ impl EcBeam2Modulator {
         u: f64,
         out_bits: &mut Vec<u8>,
     ) {
-        const CHILDREN: usize = 2 * ECBEAM2_WIDTH;
+        const CHILDREN: usize = 2 * SEVENTH_ORDER_SEARCH_WIDTH;
         if !u.is_finite() {
             self.sync_simd_paths();
             self.emit_buffered_best(out_bits);
@@ -3112,15 +3146,15 @@ impl EcBeam2Modulator {
         let has_state_feasible = child_state_feasible[..child_count]
             .iter()
             .any(|&value| value);
-        let committing = self.buffered + 1 == ECBEAM2_HORIZON;
-        let mut order = [0u8; ECBEAM2_WIDTH];
+        let committing = self.buffered + 1 == SEVENTH_ORDER_SEARCH_HORIZON;
+        let mut order = [0u8; SEVENTH_ORDER_SEARCH_WIDTH];
         let mut order_len = 0usize;
         if has_state_feasible {
             if committing {
                 let mut best = child_state_feasible[..child_count]
                     .iter()
                     .position(|&feasible| feasible)
-                    .expect("EcBeam2 feasible frontier must contain a winner");
+                    .expect("7th Order Search feasible frontier must contain a winner");
                 for index in best + 1..child_count {
                     if child_state_feasible[index]
                         && (child_metric[index] < child_metric[best]
@@ -3130,12 +3164,13 @@ impl EcBeam2Modulator {
                         best = index;
                     }
                 }
-                let chosen_root = (child_bits[best] >> (ECBEAM2_HORIZON - 1)) & 1;
+                let chosen_root = (child_bits[best] >> (SEVENTH_ORDER_SEARCH_HORIZON - 1)) & 1;
                 for index in 0..child_count {
                     if child_state_feasible[index]
-                        && ((child_bits[index] >> (ECBEAM2_HORIZON - 1)) & 1) == chosen_root
+                        && ((child_bits[index] >> (SEVENTH_ORDER_SEARCH_HORIZON - 1)) & 1)
+                            == chosen_root
                     {
-                        insert_ecbeam2_top4(
+                        insert_seventh_order_search_top4(
                             index as u8,
                             &child_metric,
                             &child_bits,
@@ -3149,7 +3184,7 @@ impl EcBeam2Modulator {
                     if !child_state_feasible[index] {
                         continue;
                     }
-                    insert_ecbeam2_top4(
+                    insert_seventh_order_search_top4(
                         index as u8,
                         &child_metric,
                         &child_bits,
@@ -3222,9 +3257,9 @@ impl EcBeam2Modulator {
         }
 
         let materialize_bank = parent_bank ^ 1;
-        let keep = order_len.min(ECBEAM2_WIDTH);
-        let mut selected_parents = [0usize; ECBEAM2_WIDTH];
-        let mut errors = [0.0; ECBEAM2_WIDTH];
+        let keep = order_len.min(SEVENTH_ORDER_SEARCH_WIDTH);
+        let mut selected_parents = [0usize; SEVENTH_ORDER_SEARCH_WIDTH];
+        let mut errors = [0.0; SEVENTH_ORDER_SEARCH_WIDTH];
         for slot in 0..keep {
             let child = order[slot] as usize;
             let parent = child_parent[child] as usize;
@@ -3296,7 +3331,7 @@ impl EcBeam2Modulator {
         self.parents_len = keep;
         self.record_simd_reconstruction_generation(materialize_bank, selected_parents);
         self.push_buffered_input(u);
-        if self.buffered == ECBEAM2_HORIZON {
+        if self.buffered == SEVENTH_ORDER_SEARCH_HORIZON {
             self.commit_oldest_simd(out_bits);
         }
         self.renormalize_metrics_simd();
@@ -3309,7 +3344,7 @@ impl EcBeam2Modulator {
     #[inline(always)]
     fn commit_oldest_simd(&mut self, out_bits: &mut Vec<u8>) {
         let parent_bank = self.parents_bank;
-        let bit = (self.simd_bits[parent_bank][0] >> (ECBEAM2_HORIZON - 1)) & 1;
+        let bit = (self.simd_bits[parent_bank][0] >> (SEVENTH_ORDER_SEARCH_HORIZON - 1)) & 1;
         let input = self.buffered_input(0);
         if self.committed_reconstruction_from_simd_ancestry() {
             self.commit_bit_simd_lean(bit, out_bits);
@@ -3366,13 +3401,13 @@ impl EcBeam2Modulator {
         }
 
         let parent_bank = self.parents_bank;
-        let mut children = [Child::INERT; ECBEAM2_MAX_CHILDREN];
+        let mut children = [Child::INERT; SEVENTH_ORDER_SEARCH_MAX_CHILDREN];
         // The lean SIMD path reuses the already-stabilized candidate for a
         // retained winner. The scalar reference deliberately keeps its
         // historical rematerialization path as the behavior oracle.
-        let mut candidate_states = [[0.0; 8]; ECBEAM2_MAX_CHILDREN];
+        let mut candidate_states = [[0.0; 8]; SEVENTH_ORDER_SEARCH_MAX_CHILDREN];
         // 0 = feasible/no action, 1 = stabilized/clamped, 2 = reset.
-        let mut candidate_stability = [0u8; ECBEAM2_MAX_CHILDREN];
+        let mut candidate_stability = [0u8; SEVENTH_ORDER_SEARCH_MAX_CHILDREN];
         let mut child_count = 0usize;
         let one_minus_beta = 1.0 - self.ema_beta_10ms;
         for parent_index in 0..self.parents_len {
@@ -3397,7 +3432,7 @@ impl EcBeam2Modulator {
                     }
                     #[cfg(not(target_arch = "aarch64"))]
                     {
-                        unreachable!("EcBeam2 SIMD is available only on AArch64")
+                        unreachable!("7th Order Search SIMD is available only on AArch64")
                     }
                 } else {
                     self.reconstruction_profile
@@ -3410,7 +3445,7 @@ impl EcBeam2Modulator {
                     }
                     #[cfg(not(target_arch = "aarch64"))]
                     {
-                        unreachable!("EcBeam2 SIMD is available only on AArch64")
+                        unreachable!("7th Order Search SIMD is available only on AArch64")
                     }
                 } else {
                     self.ultrasonic_profile.output(&parent.ultrasonic_state, e)
@@ -3546,7 +3581,7 @@ impl EcBeam2Modulator {
         let has_state_feasible = children[..child_count]
             .iter()
             .any(|child| child.state_feasible);
-        let mut order = [0u8; ECBEAM2_MAX_CHILDREN];
+        let mut order = [0u8; SEVENTH_ORDER_SEARCH_MAX_CHILDREN];
         let mut order_len = 0usize;
         for (index, child) in children[..child_count].iter().copied().enumerate() {
             let eligible = if has_fully_feasible {
@@ -3566,9 +3601,12 @@ impl EcBeam2Modulator {
             .diagnostics
             .committed_sequence
             .wrapping_add(self.buffered as u64);
-        if order_len >= ECBEAM2_WIDTH && self.diagnostic_sequence_selected(frontier_sequence) {
+        if order_len >= SEVENTH_ORDER_SEARCH_WIDTH
+            && self.diagnostic_sequence_selected(frontier_sequence)
+        {
             let best_metric = children[order[0] as usize].rank_metric;
-            let fourth_metric = children[order[ECBEAM2_WIDTH - 1] as usize].rank_metric;
+            let fourth_metric =
+                children[order[SEVENTH_ORDER_SEARCH_WIDTH - 1] as usize].rank_metric;
             let margin = (fourth_metric - best_metric).max(0.0);
             self.diagnostics.best_fourth_margin_last = margin;
             self.diagnostics.minimum_best_fourth_margin =
@@ -3677,7 +3715,7 @@ impl EcBeam2Modulator {
             self.consecutive_state_repairs = 0;
         }
 
-        let committing = self.buffered + 1 == ECBEAM2_HORIZON;
+        let committing = self.buffered + 1 == SEVENTH_ORDER_SEARCH_HORIZON;
         if committing {
             let (compatible_len, chosen_bit, old_top_m_prunes) =
                 Self::condition_child_order_for_commit(
@@ -3695,9 +3733,11 @@ impl EcBeam2Modulator {
         let keep = order_len.min(self.beam_width());
         #[cfg(target_arch = "aarch64")]
         let (simd_reconstruction_next, simd_ultrasonic_next) = if SIMD {
-            let mut reconstruction_parents = [[0.0; ECBEAM2_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES];
-            let mut ultrasonic_parents = [[0.0; ECBEAM2_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES];
-            let mut errors = [0.0; ECBEAM2_WIDTH];
+            let mut reconstruction_parents =
+                [[0.0; SEVENTH_ORDER_SEARCH_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES];
+            let mut ultrasonic_parents =
+                [[0.0; SEVENTH_ORDER_SEARCH_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES];
+            let mut errors = [0.0; SEVENTH_ORDER_SEARCH_WIDTH];
             for slot in 0..keep {
                 let child = children[order[slot] as usize];
                 let parent = child.parent as usize;
@@ -3717,8 +3757,8 @@ impl EcBeam2Modulator {
             )
         } else {
             (
-                [[0.0; ECBEAM2_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES],
-                [[0.0; ECBEAM2_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES],
+                [[0.0; SEVENTH_ORDER_SEARCH_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES],
+                [[0.0; SEVENTH_ORDER_SEARCH_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES],
             )
         };
         for slot in 0..keep {
@@ -3748,7 +3788,7 @@ impl EcBeam2Modulator {
                             state = self.core.state;
                             self.core.stability_resets = self.core.stability_resets.wrapping_add(1);
                         }
-                        _ => unreachable!("invalid EcBeam2 candidate stability marker"),
+                        _ => unreachable!("invalid 7th Order Search candidate stability marker"),
                     }
                 } else {
                     match stabilize_state(
@@ -3785,7 +3825,7 @@ impl EcBeam2Modulator {
                 }
                 #[cfg(not(target_arch = "aarch64"))]
                 {
-                    unreachable!("EcBeam2 SIMD is available only on AArch64")
+                    unreachable!("7th Order Search SIMD is available only on AArch64")
                 }
             } else {
                 self.reconstruction_profile
@@ -3798,7 +3838,7 @@ impl EcBeam2Modulator {
                 }
                 #[cfg(not(target_arch = "aarch64"))]
                 {
-                    unreachable!("EcBeam2 SIMD is available only on AArch64")
+                    unreachable!("7th Order Search SIMD is available only on AArch64")
                 }
             } else {
                 self.ultrasonic_profile
@@ -3821,7 +3861,7 @@ impl EcBeam2Modulator {
                         ultrasonic_state[stage];
                 }
             }
-            self.parents[materialize_bank][slot] = EcBeam2Path {
+            self.parents[materialize_bank][slot] = SeventhOrderSearchPath {
                 state,
                 reconstruction_state,
                 ultrasonic_state,
@@ -3841,9 +3881,9 @@ impl EcBeam2Modulator {
         self.observe_survivor_frontier_width();
         self.push_buffered_input(u);
 
-        if self.buffered == ECBEAM2_HORIZON {
+        if self.buffered == SEVENTH_ORDER_SEARCH_HORIZON {
             let best = self.parents[self.parents_bank][0];
-            self.record_segment_prediction(best, ECBEAM2_HORIZON);
+            self.record_segment_prediction(best, SEVENTH_ORDER_SEARCH_HORIZON);
             self.commit_oldest::<SIMD>(out_bits);
         }
         self.diagnostics.min_survivors =
@@ -3864,7 +3904,7 @@ impl EcBeam2Modulator {
 
     fn sort_children(
         &self,
-        children: &[Child; ECBEAM2_MAX_CHILDREN],
+        children: &[Child; SEVENTH_ORDER_SEARCH_MAX_CHILDREN],
         order: &mut [u8],
         feasible: bool,
     ) {
@@ -3911,24 +3951,28 @@ impl EcBeam2Modulator {
     /// diagnostic semantics even though incompatible children are no longer
     /// materialized first.
     fn condition_child_order_for_commit(
-        children: &[Child; ECBEAM2_MAX_CHILDREN],
+        children: &[Child; SEVENTH_ORDER_SEARCH_MAX_CHILDREN],
         order: &mut [u8],
         order_len: usize,
         beam_width: usize,
     ) -> (usize, u8, u64) {
         debug_assert!(order_len > 0 && order_len <= order.len());
-        let chosen_bit = (children[order[0] as usize].bits >> (ECBEAM2_HORIZON - 1)) & 1;
+        let chosen_bit =
+            (children[order[0] as usize].bits >> (SEVENTH_ORDER_SEARCH_HORIZON - 1)) & 1;
         let old_top_m_prunes = order[..order_len.min(beam_width)]
             .iter()
             .filter(|&&index| {
-                ((children[index as usize].bits >> (ECBEAM2_HORIZON - 1)) & 1) != chosen_bit
+                ((children[index as usize].bits >> (SEVENTH_ORDER_SEARCH_HORIZON - 1)) & 1)
+                    != chosen_bit
             })
             .count() as u64;
 
         let mut compatible_len = 0usize;
         for read in 0..order_len {
             let index = order[read];
-            if ((children[index as usize].bits >> (ECBEAM2_HORIZON - 1)) & 1) == chosen_bit {
+            if ((children[index as usize].bits >> (SEVENTH_ORDER_SEARCH_HORIZON - 1)) & 1)
+                == chosen_bit
+            {
                 order[compatible_len] = index;
                 compatible_len += 1;
             }
@@ -3940,12 +3984,13 @@ impl EcBeam2Modulator {
     fn commit_oldest<const SIMD: bool>(&mut self, out_bits: &mut Vec<u8>) {
         #[cfg(target_arch = "aarch64")]
         let bit = if SIMD {
-            (self.simd_bits[self.parents_bank][0] >> (ECBEAM2_HORIZON - 1)) & 1
+            (self.simd_bits[self.parents_bank][0] >> (SEVENTH_ORDER_SEARCH_HORIZON - 1)) & 1
         } else {
-            (self.parents[self.parents_bank][0].bits >> (ECBEAM2_HORIZON - 1)) & 1
+            (self.parents[self.parents_bank][0].bits >> (SEVENTH_ORDER_SEARCH_HORIZON - 1)) & 1
         };
         #[cfg(not(target_arch = "aarch64"))]
-        let bit = (self.parents[self.parents_bank][0].bits >> (ECBEAM2_HORIZON - 1)) & 1;
+        let bit =
+            (self.parents[self.parents_bank][0].bits >> (SEVENTH_ORDER_SEARCH_HORIZON - 1)) & 1;
         let input = self.buffered_input(0);
         self.commit_bit(bit, input, out_bits);
 
@@ -3961,7 +4006,7 @@ impl EcBeam2Modulator {
             };
             #[cfg(not(target_arch = "aarch64"))]
             let parent_bits = self.parents[parent_bank][index].bits;
-            if ((parent_bits >> (ECBEAM2_HORIZON - 1)) & 1) == bit {
+            if ((parent_bits >> (SEVENTH_ORDER_SEARCH_HORIZON - 1)) & 1) == bit {
                 #[cfg(target_arch = "aarch64")]
                 if SIMD {
                     self.simd_metric[compact_bank][kept] = self.simd_metric[parent_bank][index];
@@ -4191,16 +4236,16 @@ impl EcBeam2Modulator {
             self.commit_bit(bit, self.buffered_input(index), out_bits);
         }
         self.buffered = 0;
-        self.input_buffer = [0.0; ECBEAM2_HORIZON];
+        self.input_buffer = [0.0; SEVENTH_ORDER_SEARCH_HORIZON];
         self.input_head = 0;
     }
 
-    fn record_segment_prediction(&mut self, best: EcBeam2Path, length: usize) {
-        if !self.full_diagnostics || length == 0 || length > ECBEAM2_HORIZON {
+    fn record_segment_prediction(&mut self, best: SeventhOrderSearchPath, length: usize) {
+        if !self.full_diagnostics || length == 0 || length > SEVENTH_ORDER_SEARCH_HORIZON {
             return;
         }
         let Some(slot) = self.segment_predictions.iter().position(Option::is_none) else {
-            debug_assert!(false, "EcBeam2 segment prediction ring overflow");
+            debug_assert!(false, "7th Order Search segment prediction ring overflow");
             return;
         };
         let mut state = self.committed_reconstruction_state;
@@ -4339,33 +4384,39 @@ mod tests {
 
     #[cfg(target_arch = "x86_64")]
     #[test]
-    fn ecbeam2_x86_certified_nonfinite_metrics_populate_fallback_scratch() {
+    fn seventh_order_search_x86_certified_nonfinite_metrics_populate_fallback_scratch() {
         if !(std::arch::is_x86_feature_detected!("avx2")
             && std::arch::is_x86_feature_detected!("fma"))
         {
             return;
         }
         let prepared = || {
-            let mut modulator = EcBeam2Modulator::new_with_diagnostics(
-                ecbeam2_dsd128_production_coefficients(),
+            let mut modulator = SeventhOrderSearchModulator::new_with_diagnostics(
+                seventh_order_search_dsd128_production_coefficients(),
                 0xCE47_1F1C_A7E,
                 DSD128_44K_FAMILY_WIRE_RATE,
-                EcBeam2ExperimentConfig::default(),
+                SeventhOrderSearchExperimentConfig::default(),
                 false,
             )
             .unwrap();
             modulator.ensure_simd_raw_state();
             let bank = modulator.parents_bank;
-            modulator.simd_metric[bank] = [f64::INFINITY; ECBEAM2_WIDTH];
-            modulator.simd_maximum_overflow = [[1.0; ECBEAM2_WIDTH]; 2];
-            modulator.simd_candidate_finite = [[true; ECBEAM2_WIDTH]; 2];
+            modulator.simd_metric[bank] = [f64::INFINITY; SEVENTH_ORDER_SEARCH_WIDTH];
+            modulator.simd_maximum_overflow = [[1.0; SEVENTH_ORDER_SEARCH_WIDTH]; 2];
+            modulator.simd_candidate_finite = [[true; SEVENTH_ORDER_SEARCH_WIDTH]; 2];
             modulator
         };
         let mut avx2 = prepared();
         let avx2_feasible = unsafe { avx2.prepare_simd_frontier_core_x86::<true, false>(0.0) };
         assert!(!avx2_feasible);
-        assert_eq!(avx2.simd_maximum_overflow, [[0.0; ECBEAM2_WIDTH]; 2]);
-        assert_eq!(avx2.simd_candidate_finite, [[false; ECBEAM2_WIDTH]; 2]);
+        assert_eq!(
+            avx2.simd_maximum_overflow,
+            [[0.0; SEVENTH_ORDER_SEARCH_WIDTH]; 2]
+        );
+        assert_eq!(
+            avx2.simd_candidate_finite,
+            [[false; SEVENTH_ORDER_SEARCH_WIDTH]; 2]
+        );
 
         if std::arch::is_x86_feature_detected!("avx512f")
             && std::arch::is_x86_feature_detected!("avx512vl")
@@ -4382,18 +4433,18 @@ mod tests {
 
     #[cfg(target_arch = "x86_64")]
     #[test]
-    fn ecbeam2_avx512vl_and_avx2_paths_are_bit_exact() {
+    fn seventh_order_search_avx512vl_and_avx2_paths_are_bit_exact() {
         if !(std::arch::is_x86_feature_detected!("avx512f")
             && std::arch::is_x86_feature_detected!("avx512vl"))
         {
             return;
         }
         let new_modulator = || {
-            EcBeam2Modulator::new_with_diagnostics(
-                ecbeam2_dsd128_production_coefficients(),
+            SeventhOrderSearchModulator::new_with_diagnostics(
+                seventh_order_search_dsd128_production_coefficients(),
                 0xA512_A2B1_7E57,
                 DSD128_44K_FAMILY_WIRE_RATE,
-                EcBeam2ExperimentConfig::default(),
+                SeventhOrderSearchExperimentConfig::default(),
                 false,
             )
             .unwrap()
@@ -4440,12 +4491,12 @@ mod tests {
 
     #[cfg(target_arch = "aarch64")]
     #[test]
-    fn ecbeam2_both_sign_certificate_implies_exact_candidate_feasibility() {
-        let modulator = EcBeam2Modulator::new_with_diagnostics(
-            ecbeam2_dsd128_production_coefficients(),
+    fn seventh_order_search_both_sign_certificate_implies_exact_candidate_feasibility() {
+        let modulator = SeventhOrderSearchModulator::new_with_diagnostics(
+            seventh_order_search_dsd128_production_coefficients(),
             0x0CE4_71F1_CA7E,
             DSD128_44K_FAMILY_WIRE_RATE,
-            EcBeam2ExperimentConfig::default(),
+            SeventhOrderSearchExperimentConfig::default(),
             false,
         )
         .unwrap();
@@ -4477,25 +4528,25 @@ mod tests {
 
     #[cfg(target_arch = "aarch64")]
     #[test]
-    fn ecbeam2_selected_profile_transition_is_bit_exact_and_reports_finiteness() {
-        let modulator = EcBeam2Modulator::new_with_diagnostics(
-            ecbeam2_dsd128_production_coefficients(),
+    fn seventh_order_search_selected_profile_transition_is_bit_exact_and_reports_finiteness() {
+        let modulator = SeventhOrderSearchModulator::new_with_diagnostics(
+            seventh_order_search_dsd128_production_coefficients(),
             0x00F1_A17E,
             DSD128_44K_FAMILY_WIRE_RATE,
-            EcBeam2ExperimentConfig::default(),
+            SeventhOrderSearchExperimentConfig::default(),
             false,
         )
         .unwrap();
         let profile = modulator.reconstruction_profile;
-        let states: [[f64; ECBEAM2_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES] =
+        let states: [[f64; SEVENTH_ORDER_SEARCH_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES] =
             core::array::from_fn(|stage| {
                 core::array::from_fn(|lane| {
-                    ((stage * ECBEAM2_WIDTH + lane) as f64 - 11.5) * 0.03125
+                    ((stage * SEVENTH_ORDER_SEARCH_WIDTH + lane) as f64 - 11.5) * 0.03125
                 })
             });
         let selected = [3, 1, 0, 2];
         let errors = [0.75, -1.125, 1.375, -0.625];
-        let mut next = [[0.0; ECBEAM2_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES];
+        let mut next = [[0.0; SEVENTH_ORDER_SEARCH_WIDTH]; MAX_BEAM_ERROR_PROFILE_STATES];
         let selected_byte_indices = selected_pair_byte_indices(selected);
         let finite = profile.next_state4_selected_gathered(
             &states,
@@ -4503,8 +4554,8 @@ mod tests {
             errors,
             &mut next,
         );
-        assert_eq!(finite, [true; ECBEAM2_WIDTH]);
-        for lane in 0..ECBEAM2_WIDTH {
+        assert_eq!(finite, [true; SEVENTH_ORDER_SEARCH_WIDTH]);
+        for lane in 0..SEVENTH_ORDER_SEARCH_WIDTH {
             let parent = core::array::from_fn(|stage| states[stage][selected[lane]]);
             let expected = profile.next_state(&parent, errors[lane]);
             for stage in 0..MAX_BEAM_ERROR_PROFILE_STATES {
@@ -4515,12 +4566,12 @@ mod tests {
 
     #[cfg(target_arch = "aarch64")]
     #[test]
-    fn ecbeam2_simd_ancestry_commit_matches_direct_transition_bits() {
-        let mut modulator = EcBeam2Modulator::new_with_diagnostics(
-            ecbeam2_dsd128_production_coefficients(),
+    fn seventh_order_search_simd_ancestry_commit_matches_direct_transition_bits() {
+        let mut modulator = SeventhOrderSearchModulator::new_with_diagnostics(
+            seventh_order_search_dsd128_production_coefficients(),
             0xA11C_E57A,
             DSD128_44K_FAMILY_WIRE_RATE,
-            EcBeam2ExperimentConfig::default(),
+            SeventhOrderSearchExperimentConfig::default(),
             false,
         )
         .unwrap();
@@ -4547,17 +4598,17 @@ mod tests {
                 emitted += 1;
             }
         }
-        assert!(emitted > ECBEAM2_HORIZON);
+        assert!(emitted > SEVENTH_ORDER_SEARCH_HORIZON);
     }
 
     #[test]
-    fn ecbeam2_rejects_unsupported_wire_rates() {
+    fn seventh_order_search_rejects_unsupported_wire_rates() {
         assert!(
-            EcBeam2Modulator::new(
+            SeventhOrderSearchModulator::new(
                 &CRFB_OSR64_OBG164,
                 1,
                 12_288_000,
-                EcBeam2ExperimentConfig::default(),
+                SeventhOrderSearchExperimentConfig::default(),
             )
             .is_err()
         );
@@ -4565,30 +4616,30 @@ mod tests {
         wrong_coefficients.input_peak = f64::from_bits(wrong_coefficients.input_peak.to_bits() + 1);
         let wrong_coefficients = Box::leak(Box::new(wrong_coefficients));
         assert_eq!(
-            EcBeam2Modulator::new(
+            SeventhOrderSearchModulator::new(
                 wrong_coefficients,
                 1,
                 2_822_400,
-                EcBeam2ExperimentConfig::default(),
+                SeventhOrderSearchExperimentConfig::default(),
             )
             .err()
-            .expect("mutated EcBeam2 coefficient table must be rejected"),
-            "EcBeam2 requires a registered production or legacy-oracle coefficient table"
+            .expect("mutated 7th Order Search coefficient table must be rejected"),
+            "7th Order Search requires a registered production or legacy-oracle coefficient table"
         );
 
         for (coefficients, wire_rate) in [
             (&CRFB_OSR64_OBG164, 2_822_400),
-            (&ECBEAM2_OSR64_OBG164_INPUT468_V1, 2_822_400),
-            (&ECBEAM2_OSR128_OBG164_INPUT468_V1, 5_644_800),
-            (&ECBEAM2_OSR256_OBG164_INPUT468_V1, 11_289_600),
+            (&SEVENTH_ORDER_SEARCH_OSR64_OBG164_INPUT468_V1, 2_822_400),
+            (&SEVENTH_ORDER_SEARCH_OSR128_OBG164_INPUT468_V1, 5_644_800),
+            (&SEVENTH_ORDER_SEARCH_OSR256_OBG164_INPUT468_V1, 11_289_600),
             (&CRFB_OSR64_OBG165, 2_822_400),
         ] {
             assert!(
-                EcBeam2Modulator::new(
+                SeventhOrderSearchModulator::new(
                     coefficients,
                     1,
                     wire_rate,
-                    EcBeam2ExperimentConfig::default(),
+                    SeventhOrderSearchExperimentConfig::default(),
                 )
                 .is_ok(),
                 "registered coefficient table should construct"
@@ -4597,53 +4648,69 @@ mod tests {
     }
 
     #[test]
-    fn ecbeam2_dsd128_production_coefficients_preserve_obg_and_scale_limits() {
-        let coefficients = ecbeam2_dsd128_production_coefficients();
+    fn seventh_order_search_dsd128_production_coefficients_preserve_obg_and_scale_limits() {
+        let coefficients = seventh_order_search_dsd128_production_coefficients();
         assert_eq!(coefficients.a, CRFB_OSR128_OBG164.a);
         assert_eq!(coefficients.b, CRFB_OSR128_OBG164.b);
         assert_eq!(coefficients.c, CRFB_OSR128_OBG164.c);
         assert_eq!(coefficients.d1, CRFB_OSR128_OBG164.d1);
         assert_eq!(coefficients.obg, 1.64);
         assert_eq!(coefficients.osr, 128);
-        assert_eq!(coefficients.input_peak, ECBEAM2_OBG164_PRODUCTION_INPUT468);
+        assert_eq!(
+            coefficients.input_peak,
+            SEVENTH_ORDER_SEARCH_OBG164_PRODUCTION_INPUT468
+        );
     }
 
     #[test]
-    fn ecbeam2_dsd64_and_dsd256_production_coefficients_preserve_ntf_and_scale_limits() {
-        let dsd64 = ecbeam2_dsd64_production_coefficients();
+    fn seventh_order_search_dsd64_and_dsd256_production_coefficients_preserve_ntf_and_scale_limits()
+    {
+        let dsd64 = seventh_order_search_dsd64_production_coefficients();
         assert_eq!(dsd64.a, CRFB_OSR64_OBG164.a);
         assert_eq!(dsd64.b, CRFB_OSR64_OBG164.b);
         assert_eq!(dsd64.c, CRFB_OSR64_OBG164.c);
         assert_eq!(dsd64.obg, 1.64);
         assert_eq!(dsd64.osr, 64);
-        assert_eq!(dsd64.input_peak, ECBEAM2_OBG164_PRODUCTION_INPUT468);
+        assert_eq!(
+            dsd64.input_peak,
+            SEVENTH_ORDER_SEARCH_OBG164_PRODUCTION_INPUT468
+        );
         for (scaled, generated) in dsd64.state_limit.iter().zip(CRFB_OSR64_OBG164.state_limit) {
-            assert_eq!(*scaled, generated * ECBEAM2_OSR64_OBG164_INPUT468_SCALE);
+            assert_eq!(
+                *scaled,
+                generated * SEVENTH_ORDER_SEARCH_OSR64_OBG164_INPUT468_SCALE
+            );
         }
 
-        let coefficients = ecbeam2_dsd256_production_coefficients();
+        let coefficients = seventh_order_search_dsd256_production_coefficients();
         assert_eq!(coefficients.a, CRFB_OSR256_OBG164.a);
         assert_eq!(coefficients.b, CRFB_OSR256_OBG164.b);
         assert_eq!(coefficients.c, CRFB_OSR256_OBG164.c);
-        assert_eq!(coefficients.input_peak, ECBEAM2_OBG164_PRODUCTION_INPUT468);
+        assert_eq!(
+            coefficients.input_peak,
+            SEVENTH_ORDER_SEARCH_OBG164_PRODUCTION_INPUT468
+        );
         for (scaled, generated) in coefficients
             .state_limit
             .iter()
             .zip(CRFB_OSR256_OBG164.state_limit)
         {
-            assert_eq!(*scaled, generated * ECBEAM2_OSR256_OBG164_INPUT468_SCALE);
+            assert_eq!(
+                *scaled,
+                generated * SEVENTH_ORDER_SEARCH_OSR256_OBG164_INPUT468_SCALE
+            );
         }
         assert_eq!(coefficients.obg, 1.64);
         assert_eq!(coefficients.osr, 256);
     }
 
     #[test]
-    fn ecbeam2_nonfinite_materialized_profile_state_fails_closed_before_storage() {
-        let mut modulator = EcBeam2Modulator::new(
-            EcBeam2PlantId::default().coefficients(),
+    fn seventh_order_search_nonfinite_materialized_profile_state_fails_closed_before_storage() {
+        let mut modulator = SeventhOrderSearchModulator::new(
+            SeventhOrderSearchPlantId::default().coefficients(),
             0x50_7A_7E,
             2_822_400,
-            EcBeam2ExperimentConfig::default(),
+            SeventhOrderSearchExperimentConfig::default(),
         )
         .unwrap();
 
@@ -4700,16 +4767,16 @@ mod tests {
     }
 
     #[test]
-    fn ecbeam2_retained_profile_state_checks_preserve_valid_path_bits() {
+    fn seventh_order_search_retained_profile_state_checks_preserve_valid_path_bits() {
         let input = [
             0.0, 0.125, -0.125, 0.25, -0.25, 0.375, -0.375, 0.5, -0.5, 0.25, -0.125, 0.0625, 0.0,
             -0.0625, 0.125, -0.25, 0.375, -0.5, 0.375, -0.25, 0.125, -0.0625, 0.0, 0.0625,
         ];
-        let mut modulator = EcBeam2Modulator::new(
-            EcBeam2PlantId::default().coefficients(),
+        let mut modulator = SeventhOrderSearchModulator::new(
+            SeventhOrderSearchPlantId::default().coefficients(),
             0x50_7A_7E,
             2_822_400,
-            EcBeam2ExperimentConfig::default(),
+            SeventhOrderSearchExperimentConfig::default(),
         )
         .unwrap();
         let mut bits = Vec::new();
@@ -4727,16 +4794,16 @@ mod tests {
 
     #[test]
     fn diagnostic_window_excludes_frontier_objective_scale_trackers() {
-        let mut modulator = EcBeam2Modulator::new(
-            EcBeam2PlantId::default().coefficients(),
+        let mut modulator = SeventhOrderSearchModulator::new(
+            SeventhOrderSearchPlantId::default().coefficients(),
             0xD_1A65_CA1E,
             2_822_400,
-            EcBeam2ExperimentConfig {
-                diagnostic_window: Some(EcBeam2DiagnosticWindow {
+            SeventhOrderSearchExperimentConfig {
+                diagnostic_window: Some(SeventhOrderSearchDiagnosticWindow {
                     start_sequence: 10_000,
                     end_sequence: 10_100,
                 }),
-                ..EcBeam2ExperimentConfig::default()
+                ..SeventhOrderSearchExperimentConfig::default()
             },
         )
         .unwrap();
@@ -4751,33 +4818,33 @@ mod tests {
         assert_eq!(diagnostics.diagnostic_window_samples, 0);
         assert_eq!(
             diagnostics.reconstruction_increment_scale,
-            EcBeam2ScaleDistribution::default()
+            SeventhOrderSearchScaleDistribution::default()
         );
         assert_eq!(
             diagnostics.state_terminal_delta_scale,
-            EcBeam2ScaleDistribution::default()
+            SeventhOrderSearchScaleDistribution::default()
         );
         assert_eq!(
             diagnostics.state_barrier_raw_scale,
-            EcBeam2ScaleDistribution::default()
+            SeventhOrderSearchScaleDistribution::default()
         );
         assert_eq!(
             diagnostics.quantizer_error_squared_scale,
-            EcBeam2ScaleDistribution::default()
+            SeventhOrderSearchScaleDistribution::default()
         );
     }
 
     #[test]
-    fn ecbeam2_is_chunk_and_flush_invariant() {
+    fn seventh_order_search_is_chunk_and_flush_invariant() {
         let input: Vec<f64> = (0..4096)
             .map(|index| 0.2 * (index as f64 * 0.013).sin())
             .collect();
         let run = |chunks: bool| {
-            let mut modulator = EcBeam2Modulator::new(
-                EcBeam2PlantId::default().coefficients(),
+            let mut modulator = SeventhOrderSearchModulator::new(
+                SeventhOrderSearchPlantId::default().coefficients(),
                 7,
                 2_822_400,
-                EcBeam2ExperimentConfig::default(),
+                SeventhOrderSearchExperimentConfig::default(),
             )
             .unwrap();
             let mut bits = Vec::new();
@@ -4803,7 +4870,7 @@ mod tests {
     }
 
     #[test]
-    fn ecbeam2_full_lean_scalar_and_native_simd_are_bit_exact() {
+    fn seventh_order_search_full_lean_scalar_and_native_simd_are_bit_exact() {
         fn assert_bits(reference: &[u8], candidate: &[u8], context: &str) {
             if let Some(index) = reference
                 .iter()
@@ -4836,8 +4903,8 @@ mod tests {
         }
 
         fn assert_decision_state(
-            reference: &EcBeam2Modulator,
-            candidate: &EcBeam2Modulator,
+            reference: &SeventhOrderSearchModulator,
+            candidate: &SeventhOrderSearchModulator,
             context: &str,
         ) {
             assert_eq!(reference.parents_len, candidate.parents_len, "{context}");
@@ -4868,8 +4935,8 @@ mod tests {
         }
 
         fn assert_final_state(
-            reference: &EcBeam2Modulator,
-            candidate: &EcBeam2Modulator,
+            reference: &SeventhOrderSearchModulator,
+            candidate: &SeventhOrderSearchModulator,
             context: &str,
         ) {
             assert_eq!(
@@ -4928,37 +4995,37 @@ mod tests {
                 Some((0x70f1_1281_770d_c9ad, 1635)),
             ),
             (
-                ecbeam2_dsd64_production_coefficients(),
+                seventh_order_search_dsd64_production_coefficients(),
                 2_822_400,
                 Some((0xb355_9ff9_308a_053b, 1635)),
             ),
             (
-                ecbeam2_dsd64_production_coefficients(),
+                seventh_order_search_dsd64_production_coefficients(),
                 3_072_000,
                 Some((0x3cd8_848a_2e6b_335f, 1635)),
             ),
             (
-                ecbeam2_dsd128_production_coefficients(),
+                seventh_order_search_dsd128_production_coefficients(),
                 5_644_800,
                 Some((0xdef1_df05_0202_6094, 1635)),
             ),
             (
-                ecbeam2_dsd128_production_coefficients(),
+                seventh_order_search_dsd128_production_coefficients(),
                 6_144_000,
                 Some((0xee56_43a6_2831_ff48, 1635)),
             ),
             (
-                ecbeam2_dsd256_production_coefficients(),
+                seventh_order_search_dsd256_production_coefficients(),
                 11_289_600,
                 Some((0xdac0_d90d_ab3a_53e8, 1638)),
             ),
             (
-                ecbeam2_dsd256_production_coefficients(),
+                seventh_order_search_dsd256_production_coefficients(),
                 12_288_000,
                 Some((0xa3db_7e5b_64d0_bd3b, 1635)),
             ),
         ];
-        let config = ecbeam2_production_config();
+        let config = seventh_order_search_production_config();
         let mut input = vec![0.0; 3072];
         input[256..512].fill(0.2);
         input[512] = 0.95;
@@ -4993,8 +5060,9 @@ mod tests {
 
         for (coefficients, wire_rate, frozen_reference) in cases {
             let mut full =
-                EcBeam2Modulator::new(coefficients, 0xB17_EA7, wire_rate, config).unwrap();
-            let mut lean_scalar = EcBeam2Modulator::new_with_diagnostics(
+                SeventhOrderSearchModulator::new(coefficients, 0xB17_EA7, wire_rate, config)
+                    .unwrap();
+            let mut lean_scalar = SeventhOrderSearchModulator::new_with_diagnostics(
                 coefficients,
                 0xB17_EA7,
                 wire_rate,
@@ -5003,7 +5071,7 @@ mod tests {
             )
             .unwrap();
             lean_scalar.force_scalar_path = true;
-            let mut lean_simd = EcBeam2Modulator::new_with_diagnostics(
+            let mut lean_simd = SeventhOrderSearchModulator::new_with_diagnostics(
                 coefficients,
                 0xB17_EA7,
                 wire_rate,
@@ -5095,13 +5163,13 @@ mod tests {
     }
 
     #[test]
-    fn ecbeam2_committed_tail_is_single_counted() {
+    fn seventh_order_search_committed_tail_is_single_counted() {
         let input = vec![0.0; 512];
-        let mut modulator = EcBeam2Modulator::new(
-            EcBeam2PlantId::default().coefficients(),
+        let mut modulator = SeventhOrderSearchModulator::new(
+            SeventhOrderSearchPlantId::default().coefficients(),
             9,
             3_072_000,
-            EcBeam2ExperimentConfig::default(),
+            SeventhOrderSearchExperimentConfig::default(),
         )
         .unwrap();
         let mut bits = Vec::new();
@@ -5113,21 +5181,21 @@ mod tests {
     }
 
     #[test]
-    fn ecbeam2_diagnostic_window_measures_only_warmed_committed_samples() {
-        let window = EcBeam2DiagnosticWindow {
+    fn seventh_order_search_diagnostic_window_measures_only_warmed_committed_samples() {
+        let window = SeventhOrderSearchDiagnosticWindow {
             start_sequence: 9,
             end_sequence: 23,
         };
         let input: Vec<f64> = (0..40)
             .map(|index| 0.14 * (index as f64 * 0.083).sin())
             .collect();
-        let mut modulator = EcBeam2Modulator::new(
-            EcBeam2PlantId::default().coefficients(),
+        let mut modulator = SeventhOrderSearchModulator::new(
+            SeventhOrderSearchPlantId::default().coefficients(),
             0xD1A6_0057,
             2_822_400,
-            EcBeam2ExperimentConfig {
+            SeventhOrderSearchExperimentConfig {
                 diagnostic_window: Some(window),
-                ..EcBeam2ExperimentConfig::default()
+                ..SeventhOrderSearchExperimentConfig::default()
             },
         )
         .unwrap();
@@ -5169,7 +5237,7 @@ mod tests {
     }
 
     #[test]
-    fn ecbeam2_flush_preserves_profile_and_constraint_history() {
+    fn seventh_order_search_flush_preserves_profile_and_constraint_history() {
         let first: Vec<f64> = (0..73)
             .map(|index| 0.18 * (index as f64 * 0.071).sin())
             .collect();
@@ -5177,11 +5245,11 @@ mod tests {
             .map(|index| 0.11 * (index as f64 * 0.053).cos())
             .collect();
         let wire_rate = 2_822_400;
-        let mut modulator = EcBeam2Modulator::new(
-            EcBeam2PlantId::default().coefficients(),
+        let mut modulator = SeventhOrderSearchModulator::new(
+            SeventhOrderSearchPlantId::default().coefficients(),
             0xF1_057,
             wire_rate,
-            EcBeam2ExperimentConfig::default(),
+            SeventhOrderSearchExperimentConfig::default(),
         )
         .unwrap();
         let mut bits = Vec::new();
@@ -5241,7 +5309,7 @@ mod tests {
     }
 
     #[test]
-    fn ecbeam2_budget_violation_stays_finite_for_subnormal_budgets() {
+    fn seventh_order_search_budget_violation_stays_finite_for_subnormal_budgets() {
         let violation = relative_budget_violation(1.0, f64::from_bits(1));
         assert_eq!(violation, f64::MAX);
         assert!(violation.is_finite());
@@ -5250,15 +5318,15 @@ mod tests {
     }
 
     #[test]
-    fn ecbeam2_nonfinite_recovery_replays_the_emitted_stream() {
+    fn seventh_order_search_nonfinite_recovery_replays_the_emitted_stream() {
         let input = [0.0, 0.1, f64::NAN, -0.2, f64::INFINITY, 0.05, -0.03];
         let replay_input = [0.0, 0.1, 0.0, -0.2, 0.0, 0.05, -0.03];
         let wire_rate = 3_072_000;
-        let mut modulator = EcBeam2Modulator::new(
-            EcBeam2PlantId::default().coefficients(),
+        let mut modulator = SeventhOrderSearchModulator::new(
+            SeventhOrderSearchPlantId::default().coefficients(),
             0xBAD_F1A7,
             wire_rate,
-            EcBeam2ExperimentConfig::default(),
+            SeventhOrderSearchExperimentConfig::default(),
         )
         .unwrap();
         let mut bits = Vec::new();
@@ -5303,11 +5371,11 @@ mod tests {
 
     #[test]
     fn exact_n8_n12_n16_oracle_is_deterministic_and_non_mutating() {
-        let modulator = EcBeam2Modulator::new(
-            EcBeam2PlantId::default().coefficients(),
+        let modulator = SeventhOrderSearchModulator::new(
+            SeventhOrderSearchPlantId::default().coefficients(),
             11,
             2_822_400,
-            EcBeam2ExperimentConfig::default(),
+            SeventhOrderSearchExperimentConfig::default(),
         )
         .unwrap();
         let initial_state = modulator.parents[modulator.parents_bank][0].state;
@@ -5350,11 +5418,11 @@ mod tests {
 
     #[test]
     fn exact_oracle_rejects_unfrozen_horizons_and_nonfinite_windows() {
-        let modulator = EcBeam2Modulator::new(
-            EcBeam2PlantId::default().coefficients(),
+        let modulator = SeventhOrderSearchModulator::new(
+            SeventhOrderSearchPlantId::default().coefficients(),
             13,
             3_072_000,
-            EcBeam2ExperimentConfig::default(),
+            SeventhOrderSearchExperimentConfig::default(),
         )
         .unwrap();
         assert!(modulator.exact_horizon_oracle(&[0.0; 7]).is_err());
@@ -5371,14 +5439,16 @@ mod tests {
         let window: Vec<f64> = (0..12)
             .map(|index| 0.03 * (index as f64 * 0.19).cos())
             .collect();
-        let config = EcBeam2ExperimentConfig {
-            ..EcBeam2ExperimentConfig::default()
+        let config = SeventhOrderSearchExperimentConfig {
+            ..SeventhOrderSearchExperimentConfig::default()
         };
-        let public = run_ecbeam2_exact_oracle(2_822_400, 0x000A_11CE, &prefix, &window, config)
-            .expect("public exact oracle");
+        let public =
+            run_seventh_order_search_exact_oracle(2_822_400, 0x000A_11CE, &prefix, &window, config)
+                .expect("public exact oracle");
 
         let mut direct =
-            EcBeam2Modulator::new(&CRFB_OSR64_OBG165, 0x000A_11CE, 2_822_400, config).unwrap();
+            SeventhOrderSearchModulator::new(&CRFB_OSR64_OBG165, 0x000A_11CE, 2_822_400, config)
+                .unwrap();
         let mut discarded = Vec::new();
         direct.process_into_bits(&prefix, &mut discarded);
         let oracle_start = direct.parents[direct.parents_bank][0];
@@ -5389,7 +5459,8 @@ mod tests {
         );
         assert_eq!(public.exact, expected);
         let mut singular_beam =
-            EcBeam2Modulator::new(&CRFB_OSR64_OBG165, 0x000A_11CE, 2_822_400, config).unwrap();
+            SeventhOrderSearchModulator::new(&CRFB_OSR64_OBG165, 0x000A_11CE, 2_822_400, config)
+                .unwrap();
         singular_beam.reseed_for_oracle(oracle_start);
         let mut singular_bits = Vec::new();
         singular_beam.process_into_bits(&window, &mut singular_bits);
@@ -5419,16 +5490,17 @@ mod tests {
             .collect();
         let render = |config| {
             let mut modulator =
-                EcBeam2Modulator::new(&CRFB_OSR64_OBG165, 0x1D_EA, 2_822_400, config).unwrap();
+                SeventhOrderSearchModulator::new(&CRFB_OSR64_OBG165, 0x1D_EA, 2_822_400, config)
+                    .unwrap();
             let mut bits = Vec::new();
             modulator.process_into_bits(&input, &mut bits);
             modulator.flush_into_bits(&mut bits);
             bits
         };
-        let reconstruction_only = EcBeam2ExperimentConfig {
-            ..EcBeam2ExperimentConfig::default()
+        let reconstruction_only = SeventhOrderSearchExperimentConfig {
+            ..SeventhOrderSearchExperimentConfig::default()
         };
-        let diagnostic_knee = EcBeam2ExperimentConfig {
+        let diagnostic_knee = SeventhOrderSearchExperimentConfig {
             state_terminal_weight: 0.0,
             state_deadzone: 0.88,
             state_deadzone_weight: 0.0,
@@ -5446,16 +5518,17 @@ mod tests {
         let window: Vec<f64> = (0..16)
             .map(|index| 0.04 * (index as f64 * 0.23).cos())
             .collect();
-        let config = EcBeam2ExperimentConfig {
+        let config = SeventhOrderSearchExperimentConfig {
             state_terminal_weight: 0.17,
             state_deadzone: 0.80,
             state_deadzone_weight: 0.03,
             quantizer_regularizer: 0.002,
-            ..EcBeam2ExperimentConfig::default()
+            ..SeventhOrderSearchExperimentConfig::default()
         };
-        let report = run_ecbeam2_exact_oracle(3_072_000, 0x51A_B1E, &prefix, &window, config)
-            .unwrap()
-            .exact;
+        let report =
+            run_seventh_order_search_exact_oracle(3_072_000, 0x51A_B1E, &prefix, &window, config)
+                .unwrap()
+                .exact;
         let expected_delta = report.terminal_state_potential - report.starting_state_potential;
         assert!((report.state_terminal_delta - expected_delta).abs() < 1.0e-12);
         assert!(
@@ -5474,15 +5547,17 @@ mod tests {
         let full_window: Vec<f64> = (0..16)
             .map(|index| 0.025 * (index as f64 * 0.17).cos())
             .collect();
-        let config = EcBeam2ExperimentConfig {
+        let config = SeventhOrderSearchExperimentConfig {
             state_terminal_weight: 0.08,
-            ..EcBeam2ExperimentConfig::default()
+            ..SeventhOrderSearchExperimentConfig::default()
         };
-        let seed = prepare_ecbeam2_oracle_seed(2_822_400, 0x5EED, &prefix, config).unwrap();
+        let seed =
+            prepare_seventh_order_search_oracle_seed(2_822_400, 0x5EED, &prefix, config).unwrap();
         for horizon in [8usize, 12, 16] {
             let reused =
-                run_ecbeam2_exact_oracle_from_seed(&seed, &full_window[..horizon]).unwrap();
-            let separate = run_ecbeam2_exact_oracle(
+                run_seventh_order_search_exact_oracle_from_seed(&seed, &full_window[..horizon])
+                    .unwrap();
+            let separate = run_seventh_order_search_exact_oracle(
                 2_822_400,
                 0x5EED,
                 &prefix,
@@ -5495,18 +5570,18 @@ mod tests {
     }
 
     #[test]
-    fn ecbeam2_constant_input_has_small_mean_error_with_explicit_regularizer() {
+    fn seventh_order_search_constant_input_has_small_mean_error_with_explicit_regularizer() {
         for level in [-0.30, -0.10, 0.0, 0.10, 0.30] {
             let input = vec![level; 32_768];
-            let config = EcBeam2ExperimentConfig {
+            let config = SeventhOrderSearchExperimentConfig {
                 // Explicit ablation: the formal reconstruction-only default is
                 // still zero. This upper-bound control verifies that the engine
                 // can retain CRFB DC balance without a hidden objective term.
                 quantizer_regularizer: 0.01,
-                ..EcBeam2ExperimentConfig::default()
+                ..SeventhOrderSearchExperimentConfig::default()
             };
-            let mut modulator = EcBeam2Modulator::new(
-                EcBeam2PlantId::default().coefficients(),
+            let mut modulator = SeventhOrderSearchModulator::new(
+                SeventhOrderSearchPlantId::default().coefficients(),
                 17,
                 2_822_400,
                 config,
@@ -5530,10 +5605,10 @@ mod tests {
     }
 
     #[test]
-    fn ecbeam2_escape_repair_reset_and_output_length_are_deterministic() {
-        let run = |input: &[f64], config: EcBeam2ExperimentConfig| {
-            let mut modulator = EcBeam2Modulator::new(
-                EcBeam2PlantId::default().coefficients(),
+    fn seventh_order_search_escape_repair_reset_and_output_length_are_deterministic() {
+        let run = |input: &[f64], config: SeventhOrderSearchExperimentConfig| {
+            let mut modulator = SeventhOrderSearchModulator::new(
+                SeventhOrderSearchPlantId::default().coefficients(),
                 19,
                 3_072_000,
                 config,
@@ -5545,10 +5620,10 @@ mod tests {
             (bits, modulator.diagnostics())
         };
 
-        let escape_config = EcBeam2ExperimentConfig {
+        let escape_config = SeventhOrderSearchExperimentConfig {
             ultrasonic_budget: Some(1.0e-18),
             signed_error_budget: Some(1.0e-18),
-            ..EcBeam2ExperimentConfig::default()
+            ..SeventhOrderSearchExperimentConfig::default()
         };
         let escape_input = vec![0.0; 64];
         let escape_a = run(&escape_input, escape_config);
@@ -5559,13 +5634,19 @@ mod tests {
         assert_eq!(escape_a.1.output_length_events, 0);
 
         let overload_input = vec![8.0; 64];
-        let overload = run(&overload_input, EcBeam2ExperimentConfig::default());
+        let overload = run(
+            &overload_input,
+            SeventhOrderSearchExperimentConfig::default(),
+        );
         assert_eq!(overload.0.len(), overload_input.len());
         assert!(overload.1.state_repair_fallback > 0);
         assert_eq!(overload.1.output_length_events, 0);
 
         let nonfinite_input = [0.0, f64::NAN, 0.1, f64::INFINITY, -0.1];
-        let nonfinite = run(&nonfinite_input, EcBeam2ExperimentConfig::default());
+        let nonfinite = run(
+            &nonfinite_input,
+            SeventhOrderSearchExperimentConfig::default(),
+        );
         assert_eq!(nonfinite.0.len(), nonfinite_input.len());
         assert_eq!(nonfinite.1.all_nonfinite_resets, 2);
         assert_eq!(nonfinite.1.output_length_events, 0);
@@ -5573,11 +5654,11 @@ mod tests {
 
     #[test]
     fn missing_survivor_counter_ignores_initial_fill_and_resets_fill_state() {
-        let mut modulator = EcBeam2Modulator::new(
-            EcBeam2PlantId::default().coefficients(),
+        let mut modulator = SeventhOrderSearchModulator::new(
+            SeventhOrderSearchPlantId::default().coefficients(),
             23,
             2_822_400,
-            EcBeam2ExperimentConfig::default(),
+            SeventhOrderSearchExperimentConfig::default(),
         )
         .unwrap();
         assert!(!modulator.survivor_initial_fill_complete);
@@ -5589,7 +5670,7 @@ mod tests {
                 .missing_survivor_events_after_initial_fill,
             0
         );
-        modulator.parents_len = ECBEAM2_WIDTH;
+        modulator.parents_len = SEVENTH_ORDER_SEARCH_WIDTH;
         modulator.observe_survivor_frontier_width();
         assert!(modulator.survivor_initial_fill_complete);
         modulator.parents_len = 3;

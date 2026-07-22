@@ -112,8 +112,8 @@ Select nothing unless this exits successfully and the JSON says
 
 ## Work already implemented
 
-- V4 identity/ID, Rust generic frozen-bundle runtime, UI label and EcBeam2 / 7th
-  Order Search wiring.
+- V4 identity/ID, Rust generic frozen-bundle runtime, and 7th Order Search UI
+  wiring.
 - Exact interpolation, decimation and rational model; worst randomized model
   comparison is about `1.3e-12`.
 - Consistent A/B/C temporal baselines and physical log-frequency derivatives.
@@ -123,7 +123,7 @@ Select nothing unless this exits successfully and the JSON says
 - Matrix-free FFT-CG Lawson character solver. On the difficult warm target it
   reached complex error `5.06e-10`, stop `4.64e-9`, and exact 0.5 parity sums.
 - Complete-cascade cleanup acceptance and joint finite-support rational rows.
-- Rust chunk/reset/EOF/drift/runtime tests, UI tests/check/build and EcBeam2 path
+- Rust chunk/reset/EOF/drift/runtime tests, UI tests/check/build and 7th Order Search path
   passed with temporary plumbing assets; rerun all with final assets.
 
 ## After accepted magnitude

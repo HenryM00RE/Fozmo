@@ -1,5 +1,6 @@
 use super::dsd::DsdSourceRule;
 use super::model::PersistedSettings;
+use crate::audio::dsd::delta_sigma::DsdModulator;
 use crate::audio::eq::EqConfig;
 use crate::audio::resampler::FilterType;
 use serde::{Deserialize, Serialize};
@@ -16,8 +17,9 @@ pub struct ZonePlaybackSettings {
     pub dither_mode: Option<String>,
     /// "Pcm" (default), "Dsd64", "Dsd128", or "Dsd256".
     pub output_mode: Option<String>,
-    /// Selectable values are "Standard" and "EcBeam2". Retired EC-depth and
-    /// EcBeam values are accepted as legacy input and normalize to "Standard".
+    /// Selectable values are `Standard` and `7th-order-search`. Pre-rename
+    /// search values are migrated to `7th-order-search`; retired EC-depth and
+    /// EcBeam values normalize to `Standard`.
     pub dsd_modulator: Option<String>,
     /// DSD EC transition-loss compensation. 0.0 means no compensation.
     pub dsd_isi_penalty: Option<f32>,
@@ -47,7 +49,7 @@ impl PersistedSettings {
         if playback.upsampling_enabled.is_none() {
             playback.upsampling_enabled = Some(false);
         }
-        playback.normalize_filters();
+        playback.normalize_names();
         playback
     }
 
@@ -72,8 +74,9 @@ impl PersistedSettings {
 }
 
 impl ZonePlaybackSettings {
-    pub(super) fn normalize_filters(&mut self) {
+    pub(super) fn normalize_names(&mut self) {
         self.filter_type = normalize_filter_name(self.filter_type.as_deref());
+        self.dsd_modulator = normalize_modulator_name(self.dsd_modulator.as_deref());
         for rule in &mut self.dsd_rules {
             if let Some(filter_type) = normalize_filter_name(Some(&rule.filter_type)) {
                 rule.filter_type = filter_type;
@@ -100,7 +103,7 @@ impl ZonePlaybackSettings {
             volume: settings.volume,
             eq: settings.eq.clone(),
         };
-        playback.normalize_filters();
+        playback.normalize_names();
         playback
     }
 }
@@ -109,6 +112,14 @@ fn normalize_filter_name(name: Option<&str>) -> Option<String> {
     name.map(|value| {
         FilterType::from_name(value)
             .map(|filter| filter.as_name().to_string())
+            .unwrap_or_else(|| value.to_string())
+    })
+}
+
+fn normalize_modulator_name(name: Option<&str>) -> Option<String> {
+    name.map(|value| {
+        DsdModulator::from_name(value)
+            .map(|modulator| modulator.as_name().to_string())
             .unwrap_or_else(|| value.to_string())
     })
 }

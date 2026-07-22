@@ -5,26 +5,27 @@ use super::stability::{StateStability, stabilize_state};
 use crate::audio::dsd::dsd_coeffs::{CALIBRATED, ModulatorCoeffs};
 
 const QUANTIZER_DITHER_SCALE: f64 = 1.0 / 256.0;
+const SEVENTH_ORDER_SEARCH_NAME: &str = "7th-order-search";
 
 /// The two modulator implementations available to playback.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum DsdModulator {
     #[default]
     Standard,
-    EcBeam2,
+    SeventhOrderSearch,
 }
 
 impl DsdModulator {
     pub fn as_id(self) -> u32 {
         match self {
             Self::Standard => 0,
-            Self::EcBeam2 => 7,
+            Self::SeventhOrderSearch => 7,
         }
     }
 
     pub fn from_id(id: u32) -> Self {
         match id {
-            7 => Self::EcBeam2,
+            7 => Self::SeventhOrderSearch,
             // IDs 1-6 belonged to retired EC implementations. Treat them as
             // Standard so persisted settings remain safe after an upgrade.
             _ => Self::Standard,
@@ -34,14 +35,18 @@ impl DsdModulator {
     pub fn as_name(self) -> &'static str {
         match self {
             Self::Standard => "Standard",
-            Self::EcBeam2 => "EcBeam2",
+            Self::SeventhOrderSearch => SEVENTH_ORDER_SEARCH_NAME,
         }
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
         match name.trim().to_ascii_lowercase().as_str() {
             "standard" => Some(Self::Standard),
-            "ecbeam2"
+            SEVENTH_ORDER_SEARCH_NAME
+            | "seventh_order_search"
+            // Pre-rename spellings remain input-only aliases so existing
+            // persisted settings migrate to the canonical name on save.
+            | "ecbeam2"
             | "ec beam 2"
             | "ec_beam_2"
             | "ec-beam-2"
@@ -49,7 +54,7 @@ impl DsdModulator {
             | "7th order beam"
             | "7th order ecb2"
             | "7th order ecb2 (experimental)"
-            | "7th order search" => Some(Self::EcBeam2),
+            | "7th order search" => Some(Self::SeventhOrderSearch),
             // Retired names are accepted only as migration aliases. No legacy
             // implementation remains behind these values.
             "ecdepth1"
@@ -96,13 +101,13 @@ impl DsdModulator {
     pub fn lookahead_depth(self) -> usize {
         match self {
             Self::Standard => 1,
-            Self::EcBeam2 => 2,
+            Self::SeventhOrderSearch => 2,
         }
     }
 }
 
 /// Shared seventh-order CRFB state core and the standard hard-sign quantizer.
-/// EcBeam2 reuses the normalized matrices and state storage, but owns its own
+/// 7th Order Search reuses the normalized matrices and state storage, but owns its own
 /// candidate search and buffering implementation.
 pub struct CrfbModulator {
     pub(super) state: [f64; 8],
@@ -114,7 +119,7 @@ pub struct CrfbModulator {
     pub(super) a_rows_norm: [[f64; 8]; 7],
     pub(super) bu_norm: [f64; 7],
     pub(super) c_row_norm: [f64; 8],
-    /// Packed normalized row pairs for EcBeam2's aarch64 sparse matvec.
+    /// Packed normalized row pairs for 7th Order Search's aarch64 sparse matvec.
     pub(super) a_pair_cols: [[[f64; 2]; 4]; 3],
     pub(super) state_limit8: [f64; 8],
     pub(super) inverse_state_limit: [f64; 8],

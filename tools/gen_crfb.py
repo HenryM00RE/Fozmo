@@ -222,7 +222,7 @@ DITHER_SCALE = 0.00390625
 # conservative anchor; the higher entries trade stable input range for deeper
 # in-band suppression.
 LOW_RATE_STANDARD_OBG_FAMILY = {
-    # OBG 1.64 plants are used by EcBeam2 production. Its DSD64 exact-oracle
+    # OBG 1.64 plants are used by 7th Order Search production. Its DSD64 exact-oracle
     # compatibility path additionally retains the frozen OBG 1.65 plant.
     64: [1.5, 1.64, 1.65],
     128: [1.5, 1.64],

@@ -10,8 +10,8 @@ const FRAMES: usize = 1024;
 
 #[test]
 fn production_modulators_render_native_dsd() {
-    for modulator in [DsdModulator::Standard, DsdModulator::EcBeam2] {
-        let filter = if modulator == DsdModulator::EcBeam2 {
+    for modulator in [DsdModulator::Standard, DsdModulator::SeventhOrderSearch] {
+        let filter = if modulator == DsdModulator::SeventhOrderSearch {
             FilterType::SplitPhase128kE3
         } else {
             FilterType::LinearPhase128k
@@ -32,7 +32,7 @@ fn production_modulators_render_native_dsd() {
 }
 
 #[test]
-fn ecbeam2_renders_every_supported_filter_and_rate() {
+fn seventh_order_search_renders_every_supported_filter_and_rate() {
     for filter in [
         FilterType::LinearPhase128k,
         FilterType::Minimum16k,
@@ -40,7 +40,7 @@ fn ecbeam2_renders_every_supported_filter_and_rate() {
         FilterType::SplitPhase128kE3,
     ] {
         for rate in [DsdRate::Dsd64, DsdRate::Dsd128] {
-            let (left, right) = render_native_bits(DsdModulator::EcBeam2, filter, rate);
+            let (left, right) = render_native_bits(DsdModulator::SeventhOrderSearch, filter, rate);
             assert!(!left.is_empty(), "{filter:?} {rate:?} produced no DSD");
             assert_eq!(
                 left.len(),
@@ -53,7 +53,7 @@ fn ecbeam2_renders_every_supported_filter_and_rate() {
 
 #[test]
 fn linear128k_renders_every_selectable_modulator() {
-    for modulator in [DsdModulator::Standard, DsdModulator::EcBeam2] {
+    for modulator in [DsdModulator::Standard, DsdModulator::SeventhOrderSearch] {
         let (left, right) =
             render_native_bits(modulator, FilterType::LinearPhase128k, DsdRate::Dsd128);
         assert!(!left.is_empty());
@@ -105,7 +105,7 @@ fn render_native_bits(
     let mut out_l = Vec::new();
     let mut out_r = Vec::new();
     renderer.upsample(&input, &input);
-    let headroom_db = if modulator == DsdModulator::EcBeam2 {
+    let headroom_db = if modulator == DsdModulator::SeventhOrderSearch {
         -2.0
     } else {
         -4.0

@@ -2,11 +2,15 @@ use super::{CrfbModulator, DsdModulator};
 use crate::audio::dsd::dsd_coeffs::CRFB7_STANDARD_OSR64;
 
 #[test]
-fn public_modulator_ids_only_select_standard_and_ecbeam2() {
+fn public_modulator_ids_only_select_standard_and_seventh_order_search() {
     assert_eq!(DsdModulator::Standard.as_id(), 0);
-    assert_eq!(DsdModulator::EcBeam2.as_id(), 7);
+    assert_eq!(DsdModulator::SeventhOrderSearch.as_id(), 7);
+    assert_eq!(
+        DsdModulator::SeventhOrderSearch.as_name(),
+        "7th-order-search"
+    );
     assert_eq!(DsdModulator::from_id(0), DsdModulator::Standard);
-    assert_eq!(DsdModulator::from_id(7), DsdModulator::EcBeam2);
+    assert_eq!(DsdModulator::from_id(7), DsdModulator::SeventhOrderSearch);
     for retired_id in 1..=6 {
         assert_eq!(DsdModulator::from_id(retired_id), DsdModulator::Standard);
     }
@@ -30,8 +34,12 @@ fn retired_names_are_migration_aliases_for_standard() {
         );
     }
     assert_eq!(
-        DsdModulator::from_name("7th Order Search"),
-        Some(DsdModulator::EcBeam2)
+        DsdModulator::from_name("7th-order-search"),
+        Some(DsdModulator::SeventhOrderSearch)
+    );
+    assert_eq!(
+        DsdModulator::from_name("EcBeam2"),
+        Some(DsdModulator::SeventhOrderSearch)
     );
 }
 

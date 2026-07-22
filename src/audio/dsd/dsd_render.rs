@@ -27,8 +27,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::audio::dsd::delta_sigma::{
-    CrfbModulator, DsdModulator, EcBeam2Diagnostics, EcBeam2ExperimentConfig, EcBeam2Modulator,
-    ecbeam2_production_config,
+    CrfbModulator, DsdModulator, SeventhOrderSearchDiagnostics, SeventhOrderSearchExperimentConfig,
+    SeventhOrderSearchModulator, seventh_order_search_production_config,
 };
 use crate::audio::dsd::dop::DopPacker;
 use crate::audio::dsd::dsd_coeffs::{
@@ -45,13 +45,13 @@ const DEFAULT_DSD_ISI_PENALTY: f64 = 0.0;
 /// record this separately from their own schema so policy-only changes cannot
 /// masquerade as an equivalent renderer configuration.
 pub const DSD_PRODUCTION_POLICY_VERSION: &str = "dsd-production-policy-v4";
-pub const DSD64_ECBEAM2_REQUIRED_HEADROOM_DB: f64 = -2.0;
+pub const DSD64_SEVENTH_ORDER_SEARCH_REQUIRED_HEADROOM_DB: f64 = -2.0;
 
 /// Map a source-PCM window onto the wire-rate sample domain emitted by the DSD
 /// resampler. The FIR engines pre-pad their kernels to compensate group delay,
 /// and EOF draining emits exactly `input_frames * ratio`, so source sample zero
 /// is wire sequence zero. Quality tools use this single boundary for both
-/// frozen-corpus diagnostics and EcBeam2 exact-oracle state prefixes.
+/// frozen-corpus diagnostics and 7th Order Search exact-oracle state prefixes.
 pub fn dsd_source_window_to_modulator_samples(
     filter_type: FilterType,
     source_rate: u32,
@@ -97,11 +97,11 @@ fn effective_modulator_input_gain(
     experiment_gain_db: f64,
 ) -> f64 {
     let requested = input_gain * 10.0f64.powf(experiment_gain_db / 20.0);
-    if dsd_modulator == DsdModulator::EcBeam2 {
+    if dsd_modulator == DsdModulator::SeventhOrderSearch {
         // Playback settings already supply -2 dB, so cap instead of multiplying
         // by a second headroom factor.  This also protects direct renderer
         // callers while preserving deliberately quieter input gain.
-        requested.min(10.0f64.powf(DSD64_ECBEAM2_REQUIRED_HEADROOM_DB / 20.0))
+        requested.min(10.0f64.powf(DSD64_SEVENTH_ORDER_SEARCH_REQUIRED_HEADROOM_DB / 20.0))
     } else {
         requested
     }
@@ -127,29 +127,36 @@ struct NamedModulatorCoeffs {
 }
 
 #[derive(Clone, Copy)]
-struct EcBeam2ProductionPolicy {
-    config: EcBeam2ExperimentConfig,
+struct SeventhOrderSearchProductionPolicy {
+    config: SeventhOrderSearchExperimentConfig,
     coefficients: NamedModulatorCoeffs,
 }
 
-fn ecbeam2_production_policy(dsd_rate: DsdRate) -> Option<EcBeam2ProductionPolicy> {
+fn seventh_order_search_production_policy(
+    dsd_rate: DsdRate,
+) -> Option<SeventhOrderSearchProductionPolicy> {
     let coefficients = match dsd_rate {
         DsdRate::Dsd64 => NamedModulatorCoeffs {
-            coeffs: crate::audio::dsd::delta_sigma::ecbeam2_dsd64_production_coefficients(),
-            name: "ECBEAM2_OSR64_OBG164_INPUT468_V1",
+            coeffs:
+                crate::audio::dsd::delta_sigma::seventh_order_search_dsd64_production_coefficients(),
+            name: "SEVENTH_ORDER_SEARCH_OSR64_OBG164_INPUT468_V1",
         },
         DsdRate::Dsd128 => NamedModulatorCoeffs {
-            coeffs: crate::audio::dsd::delta_sigma::ecbeam2_dsd128_production_coefficients(),
-            name: "ECBEAM2_OSR128_OBG164_INPUT468_V1",
+            coeffs:
+                crate::audio::dsd::delta_sigma::seventh_order_search_dsd128_production_coefficients(
+                ),
+            name: "SEVENTH_ORDER_SEARCH_OSR128_OBG164_INPUT468_V1",
         },
         DsdRate::Dsd256 => NamedModulatorCoeffs {
-            coeffs: crate::audio::dsd::delta_sigma::ecbeam2_dsd256_production_coefficients(),
-            name: "ECBEAM2_OSR256_OBG164_INPUT468_V1",
+            coeffs:
+                crate::audio::dsd::delta_sigma::seventh_order_search_dsd256_production_coefficients(
+                ),
+            name: "SEVENTH_ORDER_SEARCH_OSR256_OBG164_INPUT468_V1",
         },
         DsdRate::Dsd512 | DsdRate::Dsd1024 => return None,
     };
-    Some(EcBeam2ProductionPolicy {
-        config: ecbeam2_production_config(),
+    Some(SeventhOrderSearchProductionPolicy {
+        config: seventh_order_search_production_config(),
         coefficients,
     })
 }
@@ -284,7 +291,7 @@ pub struct DsdRenderer {
     /// result is collected.
     stability_resets_lr: [u64; 2],
     state_clamps_lr: [u64; 2],
-    ecbeam2_diagnostics_lr: [Option<EcBeam2Diagnostics>; 2],
+    seventh_order_search_diagnostics_lr: [Option<SeventhOrderSearchDiagnostics>; 2],
     limiter_telemetry: DsdLimiterTelemetry,
     truncation_telemetry: DsdTruncationTelemetry,
     source_rate: u32,
@@ -351,13 +358,13 @@ impl DsdRenderTiming {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DsdExperimentTweaks {
-    /// Isolated EcBeam2 controls. `None` selects its versioned production defaults.
-    pub ecbeam2_config: Option<EcBeam2ExperimentConfig>,
+    /// Isolated 7th Order Search controls. `None` selects its versioned production defaults.
+    pub seventh_order_search_config: Option<SeventhOrderSearchExperimentConfig>,
     /// `Some(true)` retains qualification telemetry, while `Some(false)` uses
     /// the bit-identical lean playback path. `None` resolves to full telemetry
     /// for explicit research configurations and lean telemetry for ordinary
     /// playback.
-    pub ecbeam2_full_diagnostics: Option<bool>,
+    pub seventh_order_search_full_diagnostics: Option<bool>,
     pub seed_left: Option<u64>,
     pub seed_right: Option<u64>,
     pub input_gain_db: f64,
@@ -369,14 +376,14 @@ impl DsdExperimentTweaks {
         dsd_rate: DsdRate,
         dsd_modulator: DsdModulator,
     ) -> Self {
-        if dsd_modulator == DsdModulator::EcBeam2 {
-            let explicit_research_config = self.ecbeam2_config.is_some();
-            if self.ecbeam2_full_diagnostics.is_none() {
-                self.ecbeam2_full_diagnostics = Some(explicit_research_config);
+        if dsd_modulator == DsdModulator::SeventhOrderSearch {
+            let explicit_research_config = self.seventh_order_search_config.is_some();
+            if self.seventh_order_search_full_diagnostics.is_none() {
+                self.seventh_order_search_full_diagnostics = Some(explicit_research_config);
             }
-            if self.ecbeam2_config.is_none() {
-                self.ecbeam2_config =
-                    ecbeam2_production_policy(dsd_rate).map(|policy| policy.config);
+            if self.seventh_order_search_config.is_none() {
+                self.seventh_order_search_config =
+                    seventh_order_search_production_policy(dsd_rate).map(|policy| policy.config);
             }
         }
         self
@@ -391,8 +398,8 @@ fn select_modulator_coeffs(
     _experiment_tweaks: DsdExperimentTweaks,
 ) -> Result<NamedModulatorCoeffs, &'static str> {
     if let Some(coeffs) = coeffs_override {
-        if dsd_modulator == DsdModulator::EcBeam2 {
-            return Err("EcBeam2 coefficient overrides are not supported");
+        if dsd_modulator == DsdModulator::SeventhOrderSearch {
+            return Err("7th Order Search coefficient overrides are not supported");
         }
         if coeffs.osr != dsd_rate.oversample() {
             return Err("DSD coefficient override OSR does not match the selected DSD rate");
@@ -402,10 +409,10 @@ fn select_modulator_coeffs(
             name: "custom_override",
         });
     }
-    if dsd_modulator == DsdModulator::EcBeam2 {
-        return ecbeam2_production_policy(dsd_rate)
+    if dsd_modulator == DsdModulator::SeventhOrderSearch {
+        return seventh_order_search_production_policy(dsd_rate)
             .map(|policy| policy.coefficients)
-            .ok_or("EcBeam2 has no production policy for the selected DSD rate");
+            .ok_or("7th Order Search has no production policy for the selected DSD rate");
     }
     Ok(standard_coeffs_for_rate(dsd_rate))
 }
@@ -413,7 +420,7 @@ fn select_modulator_coeffs(
 enum ModJob {
     /// Modulate one block of gained, limited per-channel PCM into bits.
     Process { input: Vec<f64>, bits: Vec<u8> },
-    /// Emit EcBeam2's delayed tail (no-op for Standard).
+    /// Emit 7th Order Search's delayed tail (no-op for Standard).
     Flush { bits: Vec<u8> },
     /// Reset integrator state (keeps the dither RNG running). No response.
     Reset,
@@ -421,49 +428,49 @@ enum ModJob {
 
 enum WorkerModulator {
     Crfb(Box<CrfbModulator>),
-    EcBeam2(Box<EcBeam2Modulator>),
+    SeventhOrderSearch(Box<SeventhOrderSearchModulator>),
 }
 
 impl WorkerModulator {
     fn process_into_bits(&mut self, input: &[f64], bits: &mut Vec<u8>) {
         match self {
             Self::Crfb(modulator) => modulator.process_into_bits(input, bits),
-            Self::EcBeam2(modulator) => modulator.process_into_bits(input, bits),
+            Self::SeventhOrderSearch(modulator) => modulator.process_into_bits(input, bits),
         }
     }
 
     fn flush_into_bits(&mut self, bits: &mut Vec<u8>) {
         match self {
             Self::Crfb(modulator) => modulator.flush_into_bits(bits),
-            Self::EcBeam2(modulator) => modulator.flush_into_bits(bits),
+            Self::SeventhOrderSearch(modulator) => modulator.flush_into_bits(bits),
         }
     }
 
     fn reset(&mut self) {
         match self {
             Self::Crfb(modulator) => modulator.reset(),
-            Self::EcBeam2(modulator) => modulator.reset(),
+            Self::SeventhOrderSearch(modulator) => modulator.reset(),
         }
     }
 
     fn stability_resets(&self) -> u64 {
         match self {
             Self::Crfb(modulator) => modulator.stability_resets(),
-            Self::EcBeam2(modulator) => modulator.stability_resets(),
+            Self::SeventhOrderSearch(modulator) => modulator.stability_resets(),
         }
     }
 
     fn state_clamps(&self) -> u64 {
         match self {
             Self::Crfb(modulator) => modulator.state_clamps(),
-            Self::EcBeam2(modulator) => modulator.state_clamps(),
+            Self::SeventhOrderSearch(modulator) => modulator.state_clamps(),
         }
     }
 
-    fn ecbeam2_diagnostics(&self) -> Option<EcBeam2Diagnostics> {
+    fn seventh_order_search_diagnostics(&self) -> Option<SeventhOrderSearchDiagnostics> {
         match self {
             Self::Crfb(_) => None,
-            Self::EcBeam2(modulator) => Some(modulator.diagnostics()),
+            Self::SeventhOrderSearch(modulator) => Some(modulator.diagnostics()),
         }
     }
 }
@@ -474,7 +481,7 @@ struct ModOutput {
     input: Option<Vec<f64>>,
     stability_resets: u64,
     state_clamps: u64,
-    ecbeam2_diagnostics: Option<EcBeam2Diagnostics>,
+    seventh_order_search_diagnostics: Option<SeventhOrderSearchDiagnostics>,
 }
 
 /// Persistent single-channel modulator thread. Owning the `CrfbModulator` on a
@@ -497,20 +504,26 @@ impl ModulatorWorker {
         wire_rate: u32,
         name: &str,
     ) -> Result<Self, &'static str> {
-        if tweaks.ecbeam2_config.is_some() && dsd_modulator != DsdModulator::EcBeam2 {
-            return Err("EcBeam2 controls require the EcBeam2 modulator");
+        if tweaks.seventh_order_search_config.is_some()
+            && dsd_modulator != DsdModulator::SeventhOrderSearch
+        {
+            return Err("7th Order Search controls require the 7th Order Search modulator");
         }
-        let mut modulator = if dsd_modulator == DsdModulator::EcBeam2 {
+        let mut modulator = if dsd_modulator == DsdModulator::SeventhOrderSearch {
             if isi_penalty != 0.0 {
-                return Err("EcBeam2 requires zero ISI compensation");
+                return Err("7th Order Search requires zero ISI compensation");
             }
-            WorkerModulator::EcBeam2(Box::new(EcBeam2Modulator::new_with_diagnostics(
-                coeffs,
-                seed,
-                wire_rate,
-                tweaks.ecbeam2_config.unwrap_or_default(),
-                tweaks.ecbeam2_full_diagnostics.unwrap_or(false),
-            )?))
+            WorkerModulator::SeventhOrderSearch(Box::new(
+                SeventhOrderSearchModulator::new_with_diagnostics(
+                    coeffs,
+                    seed,
+                    wire_rate,
+                    tweaks.seventh_order_search_config.unwrap_or_default(),
+                    tweaks
+                        .seventh_order_search_full_diagnostics
+                        .unwrap_or(false),
+                )?,
+            ))
         } else {
             WorkerModulator::Crfb(Box::new(CrfbModulator::new(coeffs, seed)?))
         };
@@ -550,7 +563,8 @@ impl ModulatorWorker {
                                 input: Some(input),
                                 stability_resets: modulator.stability_resets(),
                                 state_clamps: modulator.state_clamps(),
-                                ecbeam2_diagnostics: modulator.ecbeam2_diagnostics(),
+                                seventh_order_search_diagnostics: modulator
+                                    .seventh_order_search_diagnostics(),
                             }
                         }
                         ModJob::Flush { mut bits } => {
@@ -561,7 +575,8 @@ impl ModulatorWorker {
                                 input: None,
                                 stability_resets: modulator.stability_resets(),
                                 state_clamps: modulator.state_clamps(),
-                                ecbeam2_diagnostics: modulator.ecbeam2_diagnostics(),
+                                seventh_order_search_diagnostics: modulator
+                                    .seventh_order_search_diagnostics(),
                             }
                         }
                         ModJob::Reset => {
@@ -973,11 +988,11 @@ impl DsdRenderer {
         if !dsd_rate.supports_modulator(dsd_modulator) {
             return Err("DSD512 and DSD1024 currently support only the Standard modulator");
         }
-        if dsd_modulator == DsdModulator::EcBeam2 {
+        if dsd_modulator == DsdModulator::SeventhOrderSearch {
             // Reject negative and non-finite values rather than silently
             // normalizing either one to zero.
             if isi_penalty != 0.0 {
-                return Err("EcBeam2 requires zero ISI compensation");
+                return Err("7th Order Search requires zero ISI compensation");
             }
         }
         let upsampler = DsdUpsampler::new(filter_type, source_rate, target_rate);
@@ -1051,7 +1066,7 @@ impl DsdRenderer {
             spare_bits_r: Vec::new(),
             stability_resets_lr: [0; 2],
             state_clamps_lr: [0; 2],
-            ecbeam2_diagnostics_lr: [None, None],
+            seventh_order_search_diagnostics_lr: [None, None],
             limiter_telemetry: DsdLimiterTelemetry::default(),
             truncation_telemetry: DsdTruncationTelemetry::default(),
             source_rate,
@@ -1131,7 +1146,7 @@ impl DsdRenderer {
         self.limiter_telemetry.peak_ratio_max = 0.0;
         self.limiter_telemetry.current_block_gain = 1.0;
         self.limiter_telemetry.current_block_limited_samples = 0;
-        self.ecbeam2_diagnostics_lr = [None, None];
+        self.seventh_order_search_diagnostics_lr = [None, None];
         self.truncation_telemetry = DsdTruncationTelemetry::default();
     }
 
@@ -1145,8 +1160,8 @@ impl DsdRenderer {
         self.state_clamps_lr[0] + self.state_clamps_lr[1]
     }
 
-    pub fn ecbeam2_diagnostics(&self) -> [Option<EcBeam2Diagnostics>; 2] {
-        self.ecbeam2_diagnostics_lr
+    pub fn seventh_order_search_diagnostics(&self) -> [Option<SeventhOrderSearchDiagnostics>; 2] {
+        self.seventh_order_search_diagnostics_lr
     }
 
     pub fn limiter_telemetry(&self) -> DsdLimiterTelemetry {
@@ -1163,7 +1178,7 @@ impl DsdRenderer {
         let channel = if left { 0 } else { 1 };
         self.stability_resets_lr[channel] = output.stability_resets;
         self.state_clamps_lr[channel] = output.state_clamps;
-        self.ecbeam2_diagnostics_lr[channel] = output.ecbeam2_diagnostics;
+        self.seventh_order_search_diagnostics_lr[channel] = output.seventh_order_search_diagnostics;
         if left {
             self.spare_bits_l = output.bits;
         } else {
@@ -1213,7 +1228,7 @@ impl DsdRenderer {
     }
 
     /// Materialize the current upsampler block in the exact scalar domain seen
-    /// by EcBeam2 (`u`): post coefficient-table gain, mandatory headroom, block
+    /// by 7th Order Search (`u`): post coefficient-table gain, mandatory headroom, block
     /// rider, and soft limiter. This is a quality-tool inspection boundary; it
     /// neither submits work to the modulators nor changes renderer telemetry.
     ///
@@ -1221,12 +1236,15 @@ impl DsdRenderer {
     /// production normalization implementation instead of approximating it in
     /// a second command-line program.
     #[doc(hidden)]
-    pub fn ecbeam2_oracle_modulator_input_block(
+    pub fn seventh_order_search_oracle_modulator_input_block(
         &self,
         input_gain: f64,
     ) -> Result<(Vec<f64>, Vec<f64>), &'static str> {
-        if self.dsd_modulator != DsdModulator::EcBeam2 || self.dsd_rate != DsdRate::Dsd64 {
-            return Err("EcBeam2 oracle input inspection requires the DSD64 EcBeam2 renderer");
+        if self.dsd_modulator != DsdModulator::SeventhOrderSearch || self.dsd_rate != DsdRate::Dsd64
+        {
+            return Err(
+                "7th Order Search oracle input inspection requires the DSD64 7th Order Search renderer",
+            );
         }
         let mut left = Vec::new();
         let mut right = Vec::new();
@@ -1246,7 +1264,7 @@ impl DsdRenderer {
     /// domain entering either production modulator. This research-only probe
     /// shares coefficient gain, mandatory headroom, block riding, and limiting
     /// with production, then divides out the coefficient-table input peak so
-    /// Standard and EcBeam2 captures remain directly comparable in PCM units.
+    /// Standard and 7th Order Search captures remain directly comparable in PCM units.
     #[cfg(feature = "research-filter-assets")]
     #[doc(hidden)]
     pub fn research_normalized_modulator_input_block(
@@ -1435,7 +1453,7 @@ impl DsdRenderer {
                 input: out_l.input,
                 stability_resets: out_l.stability_resets,
                 state_clamps: out_l.state_clamps,
-                ecbeam2_diagnostics: out_l.ecbeam2_diagnostics,
+                seventh_order_search_diagnostics: out_l.seventh_order_search_diagnostics,
             },
             true,
         );
@@ -1445,7 +1463,7 @@ impl DsdRenderer {
                 input: out_r.input,
                 stability_resets: out_r.stability_resets,
                 state_clamps: out_r.state_clamps,
-                ecbeam2_diagnostics: out_r.ecbeam2_diagnostics,
+                seventh_order_search_diagnostics: out_r.seventh_order_search_diagnostics,
             },
             false,
         );
@@ -1456,7 +1474,7 @@ impl DsdRenderer {
         // First reel in the pipelined block still held by the workers…
         self.collect_in_flight_into_bits();
 
-        // …then append EcBeam2's delayed tail (empty in Standard mode).
+        // …then append 7th Order Search's delayed tail (empty in Standard mode).
         self.worker_l.submit(ModJob::Flush {
             bits: std::mem::take(&mut self.spare_bits_l),
         });
@@ -1754,11 +1772,11 @@ mod tests {
     fn rate_support_matches_the_two_active_modulators() {
         for rate in [DsdRate::Dsd64, DsdRate::Dsd128, DsdRate::Dsd256] {
             assert!(rate.supports_modulator(DsdModulator::Standard));
-            assert!(rate.supports_modulator(DsdModulator::EcBeam2));
+            assert!(rate.supports_modulator(DsdModulator::SeventhOrderSearch));
         }
         for rate in [DsdRate::Dsd512, DsdRate::Dsd1024] {
             assert!(rate.supports_modulator(DsdModulator::Standard));
-            assert!(!rate.supports_modulator(DsdModulator::EcBeam2));
+            assert!(!rate.supports_modulator(DsdModulator::SeventhOrderSearch));
         }
     }
 
@@ -1775,42 +1793,42 @@ mod tests {
         assert_eq!(renderer.dsd_modulator(), DsdModulator::Standard);
         assert_eq!(renderer.coefficient_table_name(), "CRFB7_STANDARD_OSR128");
         assert_eq!(renderer.coefficient_osr(), 128);
-        assert_eq!(renderer.ecbeam2_diagnostics(), [None, None]);
+        assert_eq!(renderer.seventh_order_search_diagnostics(), [None, None]);
     }
 
     #[test]
-    fn ecbeam2_renderer_uses_its_isolated_production_policy() {
+    fn seventh_order_search_renderer_uses_its_isolated_production_policy() {
         let renderer = DsdRenderer::new_with_dsd_modulator(
             FILTER,
             44_100,
             DsdRate::Dsd128,
-            DsdModulator::EcBeam2,
+            DsdModulator::SeventhOrderSearch,
         )
         .unwrap();
 
-        assert_eq!(renderer.dsd_modulator(), DsdModulator::EcBeam2);
+        assert_eq!(renderer.dsd_modulator(), DsdModulator::SeventhOrderSearch);
         assert_eq!(
             renderer.coefficient_table_name(),
-            "ECBEAM2_OSR128_OBG164_INPUT468_V1"
+            "SEVENTH_ORDER_SEARCH_OSR128_OBG164_INPUT468_V1"
         );
         assert_eq!(
             renderer
                 .effective_experiment_tweaks()
-                .ecbeam2_full_diagnostics,
+                .seventh_order_search_full_diagnostics,
             Some(false)
         );
     }
 
     #[test]
-    fn explicit_ecbeam2_research_config_enables_diagnostics_by_default() {
+    fn explicit_seventh_order_search_research_config_enables_diagnostics_by_default() {
         let renderer = DsdRenderer::new_with_dsd_modulator_and_experiment_tweaks(
             FILTER,
             44_100,
             DsdRate::Dsd64,
-            DsdModulator::EcBeam2,
+            DsdModulator::SeventhOrderSearch,
             None,
             DsdExperimentTweaks {
-                ecbeam2_config: Some(EcBeam2ExperimentConfig::default()),
+                seventh_order_search_config: Some(SeventhOrderSearchExperimentConfig::default()),
                 ..DsdExperimentTweaks::default()
             },
         )
@@ -1819,34 +1837,34 @@ mod tests {
         assert_eq!(
             renderer
                 .effective_experiment_tweaks()
-                .ecbeam2_full_diagnostics,
+                .seventh_order_search_full_diagnostics,
             Some(true)
         );
     }
 
     #[test]
-    fn ecbeam2_rejects_isi_and_coefficient_overrides() {
+    fn seventh_order_search_rejects_isi_and_coefficient_overrides() {
         assert_eq!(
             DsdRenderer::new_with_dsd_modulator_and_isi_penalty(
                 FILTER,
                 44_100,
                 DsdRate::Dsd64,
-                DsdModulator::EcBeam2,
+                DsdModulator::SeventhOrderSearch,
                 0.01,
             )
             .err(),
-            Some("EcBeam2 requires zero ISI compensation")
+            Some("7th Order Search requires zero ISI compensation")
         );
         assert_eq!(
             DsdRenderer::new_with_dsd_modulator_and_coeffs(
                 FILTER,
                 44_100,
                 DsdRate::Dsd64,
-                DsdModulator::EcBeam2,
+                DsdModulator::SeventhOrderSearch,
                 Some(&CRFB7_STANDARD_OSR64),
             )
             .err(),
-            Some("EcBeam2 coefficient overrides are not supported")
+            Some("7th Order Search coefficient overrides are not supported")
         );
     }
 
@@ -1864,7 +1882,7 @@ mod tests {
 
     #[test]
     fn both_modulators_complete_a_small_native_render() {
-        for modulator in [DsdModulator::Standard, DsdModulator::EcBeam2] {
+        for modulator in [DsdModulator::Standard, DsdModulator::SeventhOrderSearch] {
             let mut renderer =
                 DsdRenderer::new_with_dsd_modulator(FILTER, 44_100, DsdRate::Dsd64, modulator)
                     .unwrap();

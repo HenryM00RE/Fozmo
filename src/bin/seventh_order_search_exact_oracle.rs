@@ -1,15 +1,15 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use fozmo::audio::dsd::ecbeam2_oracle_tool::run_frozen_exact_oracle;
+use fozmo::audio::dsd::seventh_order_search_oracle_tool::run_frozen_exact_oracle;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "ecbeam2_exact_oracle",
-    about = "Run frozen EcBeam2 exact N8/N12/N16 difficult-window oracles"
+    name = "seventh_order_search_exact_oracle",
+    about = "Run frozen 7th Order Search exact N8/N12/N16 difficult-window oracles"
 )]
 struct Args {
-    /// Frozen ecbeam2-corpus-v1 manifest.
+    /// Frozen v1 corpus manifest.
     #[arg(long)]
     corpus_manifest: PathBuf,
     /// Exact-oracle request JSON.
@@ -18,7 +18,7 @@ struct Args {
     /// Frozen calibration budget document required by a budget-bound request.
     #[arg(long)]
     budgets: Option<PathBuf>,
-    /// Destination ecbeam2-exact-oracle-v1 JSON file.
+    /// Destination exact-oracle JSON file.
     #[arg(long)]
     out: PathBuf,
 }
@@ -39,7 +39,7 @@ fn main() {
             );
         }
         Err(error) => {
-            eprintln!("ecbeam2_exact_oracle: {error}");
+            eprintln!("seventh_order_search_exact_oracle: {error}");
             std::process::exit(2);
         }
     }

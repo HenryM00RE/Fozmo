@@ -27,10 +27,10 @@ fn main() -> Result<(), String> {
             modulator: DsdModulator::Standard,
         },
         Case {
-            name: "Split Phase DSD128 EcBeam2",
+            name: "Split Phase DSD128 7th Order Search",
             filter: FilterType::SplitPhase128kE3,
             dsd_rate: DsdRate::Dsd128,
-            modulator: DsdModulator::EcBeam2,
+            modulator: DsdModulator::SeventhOrderSearch,
         },
         Case {
             name: "Minimum16k DSD64 Standard",
@@ -39,10 +39,10 @@ fn main() -> Result<(), String> {
             modulator: DsdModulator::Standard,
         },
         Case {
-            name: "Minimum16k DSD64 EcBeam2",
+            name: "Minimum16k DSD64 7th Order Search",
             filter: FilterType::Minimum16k,
             dsd_rate: DsdRate::Dsd64,
-            modulator: DsdModulator::EcBeam2,
+            modulator: DsdModulator::SeventhOrderSearch,
         },
         Case {
             name: "Linear Phase DSD128 Standard",
@@ -51,10 +51,10 @@ fn main() -> Result<(), String> {
             modulator: DsdModulator::Standard,
         },
         Case {
-            name: "Linear Phase DSD128 EcBeam2",
+            name: "Linear Phase DSD128 7th Order Search",
             filter: FilterType::LinearPhase128k,
             dsd_rate: DsdRate::Dsd128,
-            modulator: DsdModulator::EcBeam2,
+            modulator: DsdModulator::SeventhOrderSearch,
         },
         Case {
             name: "Minimum Phase DSD128 Standard",
@@ -63,10 +63,10 @@ fn main() -> Result<(), String> {
             modulator: DsdModulator::Standard,
         },
         Case {
-            name: "Minimum Phase DSD128 EcBeam2",
+            name: "Minimum Phase DSD128 7th Order Search",
             filter: FilterType::MinimumPhaseCompact128k,
             dsd_rate: DsdRate::Dsd128,
-            modulator: DsdModulator::EcBeam2,
+            modulator: DsdModulator::SeventhOrderSearch,
         },
         Case {
             name: "Split Phase DSD256 Standard",

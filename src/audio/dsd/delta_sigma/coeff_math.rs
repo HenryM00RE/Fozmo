@@ -170,7 +170,7 @@ pub(super) fn mul8(a: &[f64; 8], b: &[f64; 8]) -> [f64; 8] {
 }
 
 /// `(base_norm * state_limit) + feedback*bv`. Multiplication is deliberately
-/// rounded before the FMA so scalar and SIMD EcBeam2 paths agree.
+/// rounded before the FMA so scalar and SIMD 7th Order Search paths agree.
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
 pub(super) fn denormalized_feedback8(

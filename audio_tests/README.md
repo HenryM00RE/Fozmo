@@ -1,7 +1,7 @@
 # Audio development checks
 
 The retained audio checks cover the public production-quality bench, focused
-EcBeam2 oracle checks, functional smoke coverage, and performance measurement.
+7th Order Search oracle checks, functional smoke coverage, and performance measurement.
 
 ## Public PCM-to-DSD quality
 
@@ -31,7 +31,7 @@ cargo run --locked --release --bin dsd_public_quality -- \
   --out target/dsd-public-quality-e3-dsd64-dsd128 \
   --filter SplitPhase128kE3 \
   --rates 64,128 \
-  --modulator Standard,EcBeam2
+  --modulator Standard,7th-order-search
 ```
 
 Any reduced `--rates` or `--modulator` selection is noncanonical, reports
@@ -58,17 +58,19 @@ source snapshot; setting `RUSTFLAGS` only when launching an old binary does not
 satisfy that contract. The versioned 100-point presentation is explicitly a
 Split Phase E3 production-path comparison, not a `--check` quality gate or a
 listening score. The checked-in baseline remains the historical 26-cell v4
-result from before EcBeam2 gained DSD256 qualification.
+result from before 7th Order Search gained DSD256 qualification. As an
+immutable measurement artifact, its JSON retains the legacy `EcBeam2` field
+values and metric prefixes.
 The full methodology is documented in
 [docs/dsd-public-quality.md](../docs/dsd-public-quality.md).
 
-## EcBeam2 exact oracle
+## 7th Order Search exact oracle
 
 Build the retained exact-oracle tool with:
 
 ```sh
 RUSTFLAGS="-C target-cpu=native" cargo build --release \
-  --bin ecbeam2_exact_oracle
+  --bin seventh_order_search_exact_oracle
 ```
 
 ## Performance
@@ -101,8 +103,8 @@ controls.
 
 The lightweight integration test checks that both production modulators
 complete the real native-DSD EOF path with exact output length and clean health
-counters. EcBeam2 additionally covers every supported filter at DSD64 and
-DSD128:
+counters. 7th Order Search additionally covers every supported filter at DSD64
+and DSD128:
 
 ```sh
 RUSTFLAGS="-C target-cpu=native" cargo test --release --test audio_smoke

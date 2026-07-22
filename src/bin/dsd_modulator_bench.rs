@@ -1,7 +1,7 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use fozmo::audio::dsd::delta_sigma::{CrfbModulator, EcBeam2BenchmarkModulator};
+use fozmo::audio::dsd::delta_sigma::{CrfbModulator, SeventhOrderSearchBenchmarkModulator};
 use fozmo::audio::dsd::dsd_coeffs::{
     CRFB7_STANDARD_OSR64, CRFB7_STANDARD_OSR128, CRFB7_STANDARD_OSR256, CRFB7_STANDARD_OSR512,
     CRFB7_STANDARD_OSR1024, ModulatorCoeffs,
@@ -16,7 +16,7 @@ const MEASURED_PASSES: usize = 5;
 #[derive(Clone, Copy)]
 enum Engine {
     Standard(&'static ModulatorCoeffs),
-    EcBeam2,
+    SeventhOrderSearch,
 }
 
 struct BenchCase {
@@ -42,9 +42,9 @@ fn main() {
             engine: Engine::Standard(&CRFB7_STANDARD_OSR64),
         },
         BenchCase {
-            name: "EcBeam2 DSD64",
+            name: "7th Order Search DSD64",
             dsd_rate: DsdRate::Dsd64,
-            engine: Engine::EcBeam2,
+            engine: Engine::SeventhOrderSearch,
         },
         BenchCase {
             name: "Standard DSD128",
@@ -52,9 +52,9 @@ fn main() {
             engine: Engine::Standard(&CRFB7_STANDARD_OSR128),
         },
         BenchCase {
-            name: "EcBeam2 DSD128",
+            name: "7th Order Search DSD128",
             dsd_rate: DsdRate::Dsd128,
-            engine: Engine::EcBeam2,
+            engine: Engine::SeventhOrderSearch,
         },
         BenchCase {
             name: "Standard DSD256",
@@ -62,9 +62,9 @@ fn main() {
             engine: Engine::Standard(&CRFB7_STANDARD_OSR256),
         },
         BenchCase {
-            name: "EcBeam2 DSD256",
+            name: "7th Order Search DSD256",
             dsd_rate: DsdRate::Dsd256,
-            engine: Engine::EcBeam2,
+            engine: Engine::SeventhOrderSearch,
         },
         BenchCase {
             name: "Standard DSD512",
@@ -105,8 +105,10 @@ fn main() {
         let wire_rate = case.dsd_rate.wire_rate_44k_family();
         let input_peak = match case.engine {
             Engine::Standard(coeffs) => coeffs.input_peak,
-            Engine::EcBeam2 => EcBeam2BenchmarkModulator::input_peak(wire_rate)
-                .expect("EcBeam2 benchmark rate should be supported"),
+            Engine::SeventhOrderSearch => {
+                SeventhOrderSearchBenchmarkModulator::input_peak(wire_rate)
+                    .expect("7th Order Search benchmark rate should be supported")
+            }
         };
         let input = make_input(wire_rate as usize, audio_seconds, input_peak);
 
@@ -152,10 +154,12 @@ fn run_case(case: &BenchCase, input: &[f64], seed: u64) -> BenchResult {
             modulator.flush_into_bits(&mut bits);
             (modulator.state_clamps(), modulator.stability_resets())
         }
-        Engine::EcBeam2 => {
-            let mut modulator =
-                EcBeam2BenchmarkModulator::new_playback(seed, case.dsd_rate.wire_rate_44k_family())
-                    .expect("EcBeam2 benchmark configuration");
+        Engine::SeventhOrderSearch => {
+            let mut modulator = SeventhOrderSearchBenchmarkModulator::new_playback(
+                seed,
+                case.dsd_rate.wire_rate_44k_family(),
+            )
+            .expect("7th Order Search benchmark configuration");
             modulator.process_into_bits(input, &mut bits);
             modulator.flush_into_bits(&mut bits);
             (modulator.state_clamps(), modulator.stability_resets())

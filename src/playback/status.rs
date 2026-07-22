@@ -1625,7 +1625,7 @@ fn build_status_response_for_player(
     } else {
         match selected_dsd_modulator {
             DsdModulator::Standard => -4.0,
-            DsdModulator::EcBeam2 => -2.0,
+            DsdModulator::SeventhOrderSearch => -2.0,
         }
     };
     let exclusive = zone_playback_settings.exclusive.unwrap_or(config.exclusive);
