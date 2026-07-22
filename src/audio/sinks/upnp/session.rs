@@ -508,6 +508,37 @@ impl UpnpRendererService {
         play_id
     }
 
+    pub(super) fn restore_session_after_failed_play(
+        &self,
+        zone_id: &str,
+        failed_play_id: u64,
+        previous_session: Option<UpnpSession>,
+        error: &str,
+    ) {
+        let mut sessions = self.sessions.lock().unwrap();
+        if sessions
+            .get(zone_id)
+            .is_none_or(|session| session.play_id != failed_play_id)
+        {
+            return;
+        }
+        let mut restored = previous_session.unwrap_or_default();
+        // Invalidate late HTTP evidence from the failed asset before another
+        // attempt reuses this zone. The previous source remains available for
+        // completion detection, but Stop/SetURI may already have interrupted
+        // it, so never claim that it is still playing.
+        restored.play_id = failed_play_id.saturating_add(1);
+        restored.armed_next = None;
+        restored.state = "Stopped".to_string();
+        restored.started_at = None;
+        restored.playback_polled_at = None;
+        restored.notice = Some(error.to_string());
+        restored.startup = None;
+        restored.transport_pending = None;
+        restored.transport_pending_position_secs = None;
+        sessions.insert(zone_id.to_string(), restored);
+    }
+
     pub(super) fn command_lock_for_zone(&self, zone_id: &str) -> Arc<AsyncMutex<()>> {
         let mut locks = self.command_locks.lock().unwrap();
         locks
@@ -874,10 +905,30 @@ pub(super) fn apply_upnp_transport_error(
     snapshot: &UpnpTransportSnapshot,
     error: &str,
 ) {
+    let projected_position = session_position(session);
+    let known_duration = snapshot
+        .duration_secs
+        .filter(|duration| *duration > 0.0)
+        .or_else(|| {
+            session
+                .current
+                .as_ref()
+                .and_then(|current| current.duration_secs)
+        });
+    let completed_before_error = known_duration.is_some_and(|duration| {
+        upnp_position_is_complete(projected_position, duration)
+            || upnp_position_is_complete(session.paused_position, duration)
+    });
     session.state = "Stopped".to_string();
     session.started_at = None;
     session.playback_speed = snapshot.playback_speed.clone();
-    if let Some(position) = snapshot.position_secs {
+    if completed_before_error
+        && snapshot
+            .position_secs
+            .is_none_or(|position| position <= UPNP_ENDED_RESET_POSITION_SECS)
+    {
+        session.paused_position = known_duration.unwrap_or(projected_position);
+    } else if let Some(position) = snapshot.position_secs {
         session.paused_position = position.max(0.0);
     }
     if let (Some(current), Some(duration)) = (session.current.as_mut(), snapshot.duration_secs)
@@ -910,6 +961,7 @@ pub(super) fn reconcile_session_with_transport(
     }
     session.playback_speed = transport.playback_speed;
 
+    let mut deferred_armed_next_uri = false;
     if let Some(current_uri) = transport.current_uri.as_deref() {
         let current_uri = current_uri.trim();
         if !current_uri.is_empty()
@@ -920,11 +972,11 @@ pub(super) fn reconcile_session_with_transport(
                 .as_ref()
                 .is_some_and(|asset| asset.stream_url != current_uri)
         {
-            if session
+            let matches_armed_next = session
                 .armed_next
                 .as_ref()
-                .is_some_and(|asset| asset.stream_url == current_uri)
-            {
+                .is_some_and(|asset| asset.stream_url == current_uri);
+            if matches_armed_next && session.state == "Playing" {
                 if let Some(next) = session.armed_next.take() {
                     promoted_source_key = Some(next.source_ref.key());
                     session.current = Some(next);
@@ -932,6 +984,12 @@ pub(super) fn reconcile_session_with_transport(
                     session.transport_pending = None;
                     session.transport_pending_position_secs = None;
                 }
+            } else if matches_armed_next {
+                // Some KEF firmware loads NextURI as CurrentURI at the end of
+                // a track but remains STOPPED. Loading is not playback: keep
+                // the old current source and armed next item so the monitor can
+                // issue a fresh Play fallback without consuming the queue.
+                deferred_armed_next_uri = true;
             } else {
                 session.current = None;
             }
@@ -959,7 +1017,8 @@ pub(super) fn reconcile_session_with_transport(
         session.transport_pending_position_secs = None;
     }
 
-    if let (Some(current), Some(duration)) = (session.current.as_mut(), transport.duration_secs)
+    if !deferred_armed_next_uri
+        && let (Some(current), Some(duration)) = (session.current.as_mut(), transport.duration_secs)
         && duration > 0.0
     {
         current.duration_secs = Some(duration);

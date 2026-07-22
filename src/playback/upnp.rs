@@ -173,15 +173,6 @@ pub(crate) async fn prewarm_upnp_source_for_zone(
         Err(error) if error == "Playback changed" => {
             return Err(PlaybackError::conflict("Playback changed"));
         }
-        Err(error) if error == upnp::UPNP_KEF_NEXT_HANDOFF_DISABLED => {
-            debug!(
-                event = "upnp_next_asset_intentionally_unarmed",
-                zone_id,
-                asset_id = %asset.id,
-                next_source_key = %source_ref.key(),
-                "KEF next-track prewarm completed; stopped-state auto-advance remains active"
-            );
-        }
         Err(error) => {
             warn!(
                 event = "upnp_next_asset_arm_failed",
