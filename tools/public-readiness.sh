@@ -62,6 +62,8 @@ old_identity_matches="$(rg -n --max-columns 240 \
   --glob '!docs/audio-pipeline.md' \
   --glob '!docs/dsd-public-quality.md' \
   --glob '!docs/dsp.md' \
+  --glob '!docs/filter-timing-bench.md' \
+  --glob '!src/bin/external_filter_bench.rs' \
   --glob '!tools/public-readiness.sh' \
   --glob '!.git/**' \
   2>/dev/null || true)"

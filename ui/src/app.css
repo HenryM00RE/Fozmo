@@ -6223,7 +6223,10 @@ html[data-theme="dark"] .react-app .album-description-panel {
 .react-app .album-metadata-editor-linked-card .zone-settings-danger:hover,
 .react-app .album-metadata-editor-linked-card .zone-settings-danger:focus-visible,
 .react-app .album-metadata-editor-panel .metadata-assigner-result .zone-settings-pill:hover,
-.react-app .album-metadata-editor-panel .metadata-assigner-result .zone-settings-pill:focus-visible {
+.react-app
+  .album-metadata-editor-panel
+  .metadata-assigner-result
+  .zone-settings-pill:focus-visible {
   background: transparent;
   box-shadow: none;
   outline: 0;
@@ -10387,12 +10390,7 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
       #000 calc(100% - 28px),
       transparent 100%
     );
-    mask-image: linear-gradient(
-      to bottom,
-      #000 0,
-      #000 calc(100% - 28px),
-      transparent 100%
-    );
+    mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 28px), transparent 100%);
   }
 
   .react-app .now-playing-view .now-playing-queue-header {

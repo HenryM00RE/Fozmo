@@ -1,7 +1,7 @@
 # Packaging And License Notes
 
 Fozmo has an Apple-silicon macOS application/DMG pipeline with three explicit
-modes: marked development output, the intentionally unsigned `0.0.1` public
+modes: marked development output, the intentionally unsigned `0.0.2` public
 release, and a separate future Developer ID/notarized release. The two public
 modes share architecture, source, licence, and privacy gates; only the future
 signed mode requires Apple and Sparkle publishing credentials.
@@ -30,11 +30,11 @@ The macOS release shape is `Fozmo.app` in a drag-to-Applications DMG:
   license texts, component metadata, and build provenance.
 - Exclude frontend source maps.
 - Exclude local runtime data, service tokens, pairing tokens, and local paths.
-- Sign nested frameworks/helpers first and the outer app last. The 0.0.1
+- Sign nested frameworks/helpers first and the outer app last. The 0.0.2
   unsigned release uses ad-hoc signatures; the future signed release uses its
   Developer ID identity. Never use `codesign --deep` as a signing shortcut.
 - Notarization, stapling, Gatekeeper assessment, and Sparkle appcast generation
-  apply only to the future signed release, not the unsigned 0.0.1 artifact.
+  apply only to the future signed release, not the unsigned 0.0.2 artifact.
 
 For a local ad-hoc artifact:
 
@@ -42,13 +42,13 @@ For a local ad-hoc artifact:
 ./macos/scripts/build-dev-dmg.sh
 ```
 
-For the clean, unsigned 0.0.1 public artifact:
+For the clean, unsigned 0.0.2 public artifact:
 
 ```sh
 ./macos/scripts/build-unsigned-release.sh
 ```
 
-This produces `Fozmo-0.0.1-macos-arm64.dmg` without a development marker,
+This produces `Fozmo-0.0.2-macos-arm64.dmg` without a development marker,
 alongside individual and aggregate SHA-256 files, the exact source archive,
 versioned release notes, release/source verification receipts, and
 `build-manifest.json`. It does not invoke Apple notarization or stapling and
@@ -175,7 +175,7 @@ Before a public artifact:
   database, settings, or internal Rust types with the server.
 - Keep `fdk-aac`, `fdk-aac-sys`, FDK symbols, and AAC encoder symbols out of
   both processes. The pinned helper build is ALAC-only.
-- The scoped same-DMG distribution decision for version 0.0.1 is recorded in
+- The scoped same-DMG distribution decision for version 0.0.2 is recorded in
   [GPL Aggregation Assessment](gpl-aggregation-assessment.md). Public builds
   validate the tracked `LICENSES/gpl-aggregation-policy.json` decision and all
   mechanical process-boundary/source obligations instead of relying on an
@@ -241,7 +241,7 @@ Before publishing:
 ./tools/verify.sh
 ```
 
-For 0.0.1, run the unsigned entry point from a clean checkout and record the
+For 0.0.2, run the unsigned entry point from a clean checkout and record the
 clean-Mac checklist in [manual-smoke-tests.md](manual-smoke-tests.md). The
 artifact must be described as ad-hoc signed, unsigned by Apple, and
 non-notarized. Do not publish an appcast, claim Gatekeeper approval, or claim a

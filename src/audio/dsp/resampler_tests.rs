@@ -1320,10 +1320,10 @@ fn planner_supports_dsd_ratios() {
 }
 
 #[test]
-fn planner_rejects_ratio_above_256() {
+fn planner_rejects_ratio_above_512() {
     assert!(matches!(
-        build_integer_stage_plan(44_100, 44_100 * 512, FilterType::SincExtreme32k, 10_000.0),
-        Err(StagePlanError::UnsupportedIntegerRatio(512))
+        build_integer_stage_plan(44_100, 44_100 * 1024, FilterType::SincExtreme32k, 10_000.0),
+        Err(StagePlanError::UnsupportedIntegerRatio(1024))
     ));
 }
 

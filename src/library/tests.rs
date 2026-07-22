@@ -1014,6 +1014,7 @@ fn pair_tracks_accepts_live_suffix_with_matching_title_words() {
 }
 
 #[tokio::test]
+#[ignore = "requires the live musicbrainz.org API; run explicitly as an integration check"]
 async fn metabrainz_test_unknown_album_does_not_store_candidates() {
     let library = test_library("metabrainz-readonly");
     let now = now_secs();
@@ -1046,6 +1047,7 @@ async fn metabrainz_test_unknown_album_does_not_store_candidates() {
 }
 
 #[tokio::test]
+#[ignore = "requires the live musicbrainz.org API; run explicitly as an integration check"]
 async fn metabrainz_test_uses_primary_local_version_tracks() {
     let library = test_library("metabrainz-primary-version");
     let now = now_secs();

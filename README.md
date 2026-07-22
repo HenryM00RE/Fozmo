@@ -3,7 +3,7 @@
 Fozmo is a local music player with Qobuz streaming functionality, built with Rust and React.
 
 > **Installing Fozmo on a Mac?** Start with the [macOS installation guide](docs/install.md).
-> Fozmo 0.0.1 is distributed without Apple Developer ID signing or notarization,
+> Fozmo 0.0.2 is distributed without Apple Developer ID signing or notarization,
 > so its first launch requires approval in macOS Privacy & Security settings.
 
 Fozmo is intended for listeners who already use Qobuz alongside a local music library and want both available through one locally hosted interface.
@@ -94,7 +94,7 @@ Bug reports, compatibility notes, ideas, and feedback are welcome.
 
 The macOS release is an Apple-silicon menu-bar application for macOS 13 or
 later. No separate Rust, Node or FFmpeg installation is needed. Because Fozmo
-0.0.1 is not signed with an Apple Developer ID or notarized, follow the
+0.0.2 is not signed with an Apple Developer ID or notarized, follow the
 [macOS installation guide](docs/install.md) for the first-launch approval
 steps and optional command-line setup.
 
@@ -133,14 +133,14 @@ An unsigned development DMG can be built on an Apple-silicon Mac with Xcode
 ./macos/scripts/build-dev-dmg.sh
 ```
 
-Build the normally named, intentionally unsigned 0.0.1 public DMG from a clean
+Build the normally named, intentionally unsigned 0.0.2 public DMG from a clean
 checkout with the pinned toolchains and Gitleaks using:
 
 ```sh
 ./macos/scripts/build-unsigned-release.sh
 ```
 
-Fozmo 0.0.1 is intentionally released without Developer ID signing,
+Fozmo 0.0.2 is intentionally released without Developer ID signing,
 notarization or automatic updates. The optional future signed-release pipeline
 is described in [the packaging guide](docs/packaging.md).
 
@@ -309,7 +309,7 @@ Direct network AirPlay is implemented by the independent
 `fozmo-airplay-helper` executable, licensed GPL-2.0-only. It communicates with
 the MIT server through a versioned Unix-socket protocol and can list receivers
 and play standard PCM/WAV input without Fozmo. The source layout and process
-boundary are covered by the scoped 0.0.1 distribution decision in the
+boundary are covered by the scoped 0.0.2 distribution decision in the
 [GPL aggregation assessment](docs/gpl-aggregation-assessment.md). Public builds
 fail closed if the tracked decision, process boundary, licence notices, or
 complete corresponding source are missing. Architectural or distribution
