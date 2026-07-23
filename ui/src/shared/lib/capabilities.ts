@@ -7,6 +7,7 @@ export type BuildCapabilityKey =
   | 'airplay2'
   | 'asio'
   | 'apple_music_capture'
+  | 'apple_music_musickit'
   | 'sonos'
   | 'hegel'
   | 'upnp'
@@ -21,6 +22,7 @@ const defaultCapabilities: BuildCapabilities = {
   airplay2: false,
   asio: false,
   apple_music_capture: false,
+  apple_music_musickit: false,
   sonos: false,
   hegel: false,
   upnp: false,

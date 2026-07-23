@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.fozmo.server</string>
+    <key>CFBundleName</key>
+    <string>Fozmo Server</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Fozmo captures audio from the Music app only when you start the Apple Music DSP experiment.</string>
+</dict>
+</plist>

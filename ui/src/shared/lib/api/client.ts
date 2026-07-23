@@ -690,6 +690,26 @@ export const endpoints = {
   appleMusicAppStatus: () => api.get<JsonRecord>('/api/apple-music-capture/music-app/status'),
   controlAppleMusicApp: (command: string) =>
     api.post<JsonRecord>('/api/apple-music-capture/music-app/control', { command }),
+  appleMusicStatus: () =>
+    api.get<JsonRecord>('/api/apple-music/status', undefined, undefined, 'no-store'),
+  launchAppleMusicHelper: () => api.post<JsonRecord>('/api/apple-music/launch'),
+  authorizeAppleMusic: () =>
+    api.post<JsonRecord>('/api/apple-music/authorize', { present_ui: true }),
+  playAppleMusicSong: (songId: string, storefront?: string) =>
+    api.post<JsonRecord>('/api/apple-music/dev/play-song', {
+      song_id: songId,
+      storefront: storefront || null
+    }),
+  controlAppleMusic: (command: string) =>
+    api.post<JsonRecord>('/api/apple-music/transport', { command }),
+  stopAppleMusic: () => api.post<JsonRecord>('/api/apple-music/stop'),
+  shutdownAppleMusicHelper: () => api.post<JsonRecord>('/api/apple-music/shutdown'),
+  startAppleMusicProcessTap: (confirmSystemAudioCapture: boolean, muteOriginalAudio = true) =>
+    api.post<JsonRecord>('/api/apple-music/process-tap/start', {
+      confirm_system_audio_capture: confirmSystemAudioCapture,
+      mute_original_audio: muteOriginalAudio
+    }),
+  stopAppleMusicProcessTap: () => api.post<JsonRecord>('/api/apple-music/process-tap/stop'),
 
   nowPlayingQueue: (zoneId: string, signal?: AbortSignal) =>
     api.get<{

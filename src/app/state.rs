@@ -12,6 +12,8 @@ use crate::playback::sequencer::PlaybackCommandSequencer;
 use crate::secrets::{SecretKey, SecretsStore};
 #[cfg(feature = "apple_music_capture")]
 use crate::services::apple_music::AppleMusicCaptureService;
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+use crate::services::apple_music_musickit::AppleMusicService;
 use crate::services::hegel;
 use crate::services::lastfm::LastFmService;
 use crate::services::qobuz::QobuzService;
@@ -30,6 +32,8 @@ pub struct AppState {
     lastfm: Arc<LastFmService>,
     #[cfg(feature = "apple_music_capture")]
     apple_music_capture: Arc<AppleMusicCaptureService>,
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    apple_music: Arc<AppleMusicService>,
     airplay: Arc<airplay::AirPlayRegistry>,
     sonos: Arc<sonos::SonosService>,
     upnp: Arc<upnp::UpnpRendererService>,
@@ -63,6 +67,8 @@ pub(crate) struct AppMediaServices {
     pub(crate) lastfm: Arc<LastFmService>,
     #[cfg(feature = "apple_music_capture")]
     pub(crate) apple_music_capture: Arc<AppleMusicCaptureService>,
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    pub(crate) apple_music: Arc<AppleMusicService>,
     pub(crate) airplay: Arc<airplay::AirPlayRegistry>,
     pub(crate) sonos: Arc<sonos::SonosService>,
     pub(crate) upnp: Arc<upnp::UpnpRendererService>,
@@ -109,6 +115,8 @@ impl AppState {
             lastfm: media.lastfm,
             #[cfg(feature = "apple_music_capture")]
             apple_music_capture: media.apple_music_capture,
+            #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+            apple_music: media.apple_music,
             airplay: media.airplay,
             sonos: media.sonos,
             upnp: media.upnp,
@@ -188,6 +196,11 @@ impl AppState {
     #[cfg(feature = "apple_music_capture")]
     pub(crate) fn apple_music_capture(&self) -> &Arc<AppleMusicCaptureService> {
         &self.apple_music_capture
+    }
+
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    pub(crate) fn apple_music(&self) -> &Arc<AppleMusicService> {
+        &self.apple_music
     }
 
     pub(crate) fn airplay(&self) -> &Arc<airplay::AirPlayRegistry> {

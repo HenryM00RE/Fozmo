@@ -15,6 +15,8 @@ use crate::protocol::{AgentCapabilities, OutputDeviceCapabilities, SourceRef};
 use crate::secrets::{MemorySecretsStore, SecretsStore};
 #[cfg(feature = "apple_music_capture")]
 use crate::services::apple_music::AppleMusicCaptureService;
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+use crate::services::apple_music_musickit::AppleMusicService;
 use crate::services::hegel::HegelStatusCache;
 use crate::services::lastfm::LastFmService;
 use crate::services::qobuz::QobuzService;
@@ -64,6 +66,8 @@ pub(crate) fn app_state_with_pairing(
             lastfm: Arc::new(LastFmService::new().unwrap()),
             #[cfg(feature = "apple_music_capture")]
             apple_music_capture: Arc::new(AppleMusicCaptureService::new(Arc::clone(&player))),
+            #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+            apple_music: Arc::new(AppleMusicService::new(&root, &root.join("cache"))),
             airplay: Arc::new(airplay::AirPlayRegistry::new()),
             sonos: Arc::new(
                 sonos::SonosService::new(root.join("sonos-cache"), "http://core.test".to_string())

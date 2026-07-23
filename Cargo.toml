@@ -26,6 +26,9 @@ airplay_helper = []
 # See README for setup details.
 asio = ["dep:ndsd-asio-sys"]
 apple_music_capture = []
+# Native MusicKit helper proof. This is intentionally separate from the
+# legacy virtual-device capture feature while the PID-tap path is developed.
+apple_music_musickit = []
 sonos = []
 hegel = []
 upnp = []
@@ -107,6 +110,7 @@ jsonschema = "0.17"
 proptest = "1"
 
 [build-dependencies]
+cc = "1"
 sha2 = "0.10"
 
 [[bin]]

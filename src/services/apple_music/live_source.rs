@@ -18,6 +18,8 @@ pub(super) type CaptureConsumer = Consumer<f32, Arc<SharedRb<f32, Vec<MaybeUnini
 
 pub(super) const LIVE_CHANNELS: u16 = 2;
 const BYTES_PER_SAMPLE: usize = 4;
+pub(super) const LIVE_SAMPLE_CONTAINER_BITS: u32 = (BYTES_PER_SAMPLE * 8) as u32;
+pub(super) const LIVE_SAMPLE_PRECISION_BITS: u32 = f32::MANTISSA_DIGITS;
 const STAGE_SAMPLES: usize = 4096;
 const EMPTY_RING_POLL: Duration = Duration::from_millis(2);
 
@@ -262,5 +264,32 @@ mod tests {
         assert_eq!(ring_capacity_samples(192_000, 250), 96_000);
         // Floor keeps tiny buffers usable.
         assert_eq!(ring_capacity_samples(44_100, 1), STAGE_SAMPLES * 2);
+    }
+
+    #[test]
+    fn float32_capture_exactly_preserves_integer_pcm_through_24_bits() {
+        for bits in [16_u32, 24] {
+            let scale = 1_i32 << (bits - 1);
+            let samples = [
+                -scale,
+                -scale + 1,
+                -1,
+                0,
+                1,
+                scale / 3,
+                scale - 2,
+                scale - 1,
+            ];
+
+            for sample in samples {
+                let captured = sample as f32 / scale as f32;
+                let widened_for_dsp = f64::from(captured);
+                let recovered = (widened_for_dsp * f64::from(scale)).round() as i32;
+                assert_eq!(
+                    recovered, sample,
+                    "{bits}-bit PCM value {sample} did not round-trip through F32"
+                );
+            }
+        }
     }
 }

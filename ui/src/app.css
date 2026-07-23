@@ -8930,6 +8930,32 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
   padding-right: 28px;
 }
 
+.react-app .apple-music-mvp-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-5);
+  margin-bottom: var(--s-6);
+  padding: 22px 24px;
+  border-radius: var(--r-panel);
+  background: var(--canvas-tint);
+  box-shadow: var(--panel-rest);
+}
+
+.react-app .apple-music-mvp-banner h2 {
+  margin: 7px 0 10px;
+  font-size: 30px;
+}
+
+.react-app .apple-music-mvp-banner p {
+  margin: 0;
+  color: var(--ink-muted);
+}
+
+.react-app .apple-music-mvp-banner .stamp {
+  flex-shrink: 0;
+}
+
 .react-app .apple-music-message {
   margin: 0;
 }
@@ -8941,10 +8967,71 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
 .react-app .apple-music-form-panel,
 .react-app .apple-music-search-panel,
 .react-app .apple-music-warning-panel,
-.react-app .apple-music-app-panel {
+.react-app .apple-music-app-panel,
+.react-app .apple-music-tap-panel {
   display: grid;
   gap: 16px;
   padding: 22px 28px;
+}
+
+.react-app .apple-music-tap-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--line-08, rgba(255, 255, 255, 0.08));
+}
+
+.react-app .apple-music-tap-metrics > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px;
+  background: var(--canvas-tint, rgba(255, 255, 255, 0.025));
+}
+
+.react-app .apple-music-tap-metrics span {
+  color: var(--ink-muted, #a8a297);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.react-app .apple-music-tap-metrics strong {
+  overflow: hidden;
+  color: var(--ink, #f5f0e8);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-app .apple-music-tap-rate-note {
+  margin: -6px 0 0;
+  color: var(--ink-muted, #a8a297);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.react-app .apple-music-capture-confirmation {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  color: var(--ink-muted, #a8a297);
+  font-size: 12px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.react-app .apple-music-capture-confirmation input {
+  margin: 2px 0 0;
+  accent-color: var(--accent, #59b6ff);
+}
+
+.react-app .apple-music-capture-confirmation:has(input:disabled) {
+  cursor: default;
+  opacity: 0.72;
 }
 
 .react-app .apple-music-app-panel {

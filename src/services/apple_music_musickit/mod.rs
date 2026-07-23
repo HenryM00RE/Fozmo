@@ -1,0 +1,19 @@
+//! Native Apple Music helper proof.
+//!
+//! This module deliberately stops at the first implementation gate: launching
+//! a real MusicKit application bundle, authenticating a private local IPC
+//! channel, and coordinating a single helper-owned playback session. PCM
+//! capture and playback-router integration are separate follow-on gates.
+
+mod ipc;
+#[path = "../apple_music/live_source.rs"]
+mod live_source;
+mod model;
+mod process_tap;
+mod service;
+
+pub(crate) use model::{
+    AppleMusicAuthorizeRequest, AppleMusicDevPlaySongRequest, AppleMusicMvpError,
+    AppleMusicMvpStatus, AppleMusicProcessTapStartRequest, AppleMusicTransportRequest,
+};
+pub(crate) use service::AppleMusicService;

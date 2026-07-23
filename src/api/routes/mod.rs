@@ -8,6 +8,8 @@ use axum::{
 
 mod agents;
 mod appearance;
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+mod apple_music;
 #[cfg(feature = "apple_music_capture")]
 mod apple_music_capture;
 mod artist_radio;
@@ -94,6 +96,8 @@ pub fn create_router() -> Router<AppState> {
         .merge(streams::routes());
     #[cfg(feature = "apple_music_capture")]
     let router = router.merge(apple_music_capture::routes());
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    let router = router.merge(apple_music::routes());
     #[cfg(feature = "qobuz")]
     let router = router.merge(qobuz::routes());
     #[cfg(feature = "hegel")]

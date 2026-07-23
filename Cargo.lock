@@ -1124,6 +1124,7 @@ dependencies = [
  "axum-server",
  "base64 0.22.1",
  "bytes",
+ "cc",
  "clap",
  "core-foundation 0.9.4",
  "coreaudio-rs",

@@ -39,6 +39,8 @@
     <string>Copyright © Fozmo contributors. MIT core; see bundled notices.</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>Fozmo finds and streams to audio devices on your local network and lets paired browsers control this Mac's music server.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Fozmo captures audio from the Music app only when you start the Apple Music DSP experiment.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
     <key>FozmoUpdatesEnabled</key>

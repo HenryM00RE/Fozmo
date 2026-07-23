@@ -300,6 +300,9 @@
         "apple_music_capture": {
           "type": "boolean"
         },
+        "apple_music_musickit": {
+          "type": "boolean"
+        },
         "asio": {
           "type": "boolean"
         },
@@ -328,6 +331,7 @@
       "required": [
         "airplay2",
         "apple_music_capture",
+        "apple_music_musickit",
         "asio",
         "experimental_dsd256",
         "hegel",

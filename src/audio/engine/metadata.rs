@@ -407,6 +407,15 @@ pub(super) fn apply_fallback_tags(tags: &mut TrackTags, fallback: Option<TrackTa
     if tags.duration_secs.is_none() {
         tags.duration_secs = fallback.duration_secs;
     }
+    if tags.sample_rate.is_none() {
+        tags.sample_rate = fallback.sample_rate;
+    }
+    if tags.channels.is_none() {
+        tags.channels = fallback.channels;
+    }
+    if tags.bits_per_sample.is_none() {
+        tags.bits_per_sample = fallback.bits_per_sample;
+    }
 }
 
 fn parse_tag_number(value: &str) -> Option<u32> {
@@ -456,6 +465,36 @@ mod tests {
     use super::*;
     use std::fs;
     use symphonia::core::meta::{MetadataBuilder, Tag, Value, Visual};
+
+    #[test]
+    fn fallback_tags_fill_missing_technical_metadata_without_overwriting_probe_values() {
+        let fallback = TrackTags {
+            sample_rate: Some(48_000),
+            channels: Some(2),
+            bits_per_sample: Some(32),
+            ..TrackTags::default()
+        };
+        let mut missing = TrackTags::default();
+
+        apply_fallback_tags(&mut missing, Some(fallback.clone()));
+
+        assert_eq!(missing.sample_rate, Some(48_000));
+        assert_eq!(missing.channels, Some(2));
+        assert_eq!(missing.bits_per_sample, Some(32));
+
+        let mut probed = TrackTags {
+            sample_rate: Some(96_000),
+            channels: Some(6),
+            bits_per_sample: Some(24),
+            ..TrackTags::default()
+        };
+
+        apply_fallback_tags(&mut probed, Some(fallback));
+
+        assert_eq!(probed.sample_rate, Some(96_000));
+        assert_eq!(probed.channels, Some(6));
+        assert_eq!(probed.bits_per_sample, Some(24));
+    }
 
     #[test]
     fn flac_streaminfo_fallback_reads_bit_depth() {

@@ -18,6 +18,8 @@ use crate::secrets::KeyringSecretsStore;
 use crate::secrets::{SecretKey, SecretValue, SecretsStore};
 #[cfg(feature = "apple_music_capture")]
 use crate::services::apple_music::AppleMusicCaptureService;
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+use crate::services::apple_music_musickit::AppleMusicService;
 use crate::services::hegel::HegelStatusCache;
 use crate::services::lastfm::LastFmService;
 use crate::services::qobuz::QobuzService;
@@ -142,6 +144,11 @@ pub(crate) fn build_app_state(
     let lastfm = Arc::new(LastFmService::new().map_err(AppError::lastfm)?);
     #[cfg(feature = "apple_music_capture")]
     let apple_music_capture = Arc::new(AppleMusicCaptureService::new(Arc::clone(&player)));
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    let apple_music = Arc::new(AppleMusicService::new(
+        &paths.resource_dir,
+        &paths.cache_dir,
+    ));
     let airplay = Arc::new(AirPlayRegistry::new());
     let sonos = Arc::new(
         SonosService::new(paths.sonos_cache_dir.clone(), public_base_url.clone())
@@ -169,6 +176,8 @@ pub(crate) fn build_app_state(
             lastfm,
             #[cfg(feature = "apple_music_capture")]
             apple_music_capture,
+            #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+            apple_music,
             airplay,
             sonos,
             upnp,
