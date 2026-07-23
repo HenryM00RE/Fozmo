@@ -5,13 +5,14 @@ use crate::playback::commands::{
     is_current_playback_request_sequence, is_current_playback_sequence,
     playback_request_sequence_is_stale,
 };
+use crate::playback::dispatcher::PlaybackDispatcher;
 use crate::playback::error::PlaybackError;
-use crate::playback::intent::{PlaybackGuard, PlaybackIntent};
+use crate::playback::intent::PlaybackIntent;
 use crate::playback::now_playing::{
     current_playback_matches_expected, sonos_current_file_name, sonos_current_matches,
 };
 use crate::playback::queue::queue_loop_enabled_for_zone;
-use crate::playback::router::PlaybackRouter;
+use crate::playback::request::{PlaybackGuard, PlaybackRequest};
 use crate::playback::service::playback_config_for_zone;
 use crate::playback::sonos::{prepare_sonos_asset, sonos_target_for_zone};
 use crate::playback::source::{
@@ -78,16 +79,18 @@ pub(crate) async fn play_qobuz_request_for_zone_with_profile(
     let queue_sources = qobuz_queue_source_refs(&req);
     let source_ref = qobuz_source_ref_from_play_request(&req);
     let radio_auto = req.radio_auto;
-    PlaybackRouter::new(&state)
+    PlaybackDispatcher::new(&state)
         .execute(
             zone_id,
             PlaybackIntent::Play {
-                profile_id: profile_id.to_string(),
-                source: source_ref,
-                queue: queue_sources,
-                radio_auto,
-                guard: PlaybackGuard::from_expected_sequence(sequence),
-                qobuz_request: Some(Box::new(req)),
+                request: PlaybackRequest {
+                    profile_id: profile_id.to_string(),
+                    source: source_ref,
+                    queue: queue_sources,
+                    radio_auto,
+                    guard: PlaybackGuard::from_expected_sequence(sequence),
+                    qobuz_request: Some(Box::new(req)),
+                },
             },
         )
         .await

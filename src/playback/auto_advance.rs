@@ -1,6 +1,7 @@
 use crate::app::state::AppState;
 use crate::playback::artist_radio::local_artist_radio_next_source_from_source_for_zone;
-use crate::playback::intent::{PlaybackGuard, PlaybackIntent};
+use crate::playback::dispatcher::PlaybackDispatcher;
+use crate::playback::intent::PlaybackIntent;
 use crate::playback::lastfm::{
     lastfm_radio_has_future_queue, lastfm_radio_next_source_from_source_for_zone,
 };
@@ -9,8 +10,8 @@ use crate::playback::qobuz::{
     qobuz_radio_next_request_from_source_for_zone,
 };
 use crate::playback::queue::{append_source_to_now_playing_queue, queue_loop_enabled_for_zone};
+use crate::playback::request::{PlaybackGuard, PlaybackRequest};
 use crate::playback::resolver::local_player_queue_items_from_sources;
-use crate::playback::router::PlaybackRouter;
 use crate::playback::service::playback_config_for_zone;
 use crate::playback::sonos::{prefetch_sonos_next, sonos_target_for_zone};
 use crate::playback::source::{
@@ -1226,19 +1227,21 @@ async fn queue_auto_advance(
     rest_sources: Vec<SourceRef>,
 ) -> Result<(), String> {
     let radio_auto = source.is_radio();
-    PlaybackRouter::new(&state)
+    PlaybackDispatcher::new(&state)
         .execute(
             &zone_id,
             PlaybackIntent::Play {
-                profile_id: state
-                    .listening()
-                    .profile_id(&zone_id)
-                    .unwrap_or_else(|| crate::settings::DEFAULT_PROFILE_ID.to_string()),
-                source,
-                queue: rest_sources,
-                radio_auto,
-                guard: PlaybackGuard::none(),
-                qobuz_request: None,
+                request: PlaybackRequest {
+                    profile_id: state
+                        .listening()
+                        .profile_id(&zone_id)
+                        .unwrap_or_else(|| crate::settings::DEFAULT_PROFILE_ID.to_string()),
+                    source,
+                    queue: rest_sources,
+                    radio_auto,
+                    guard: PlaybackGuard::none(),
+                    qobuz_request: None,
+                },
             },
         )
         .await

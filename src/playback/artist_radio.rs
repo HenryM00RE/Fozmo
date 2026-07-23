@@ -1,10 +1,11 @@
 use crate::app::state::AppState;
 use crate::library::{TrackSummary, normalize_library_match_key};
 use crate::playback::commands::{PlaybackRequestSequence, accept_playback_request_sequence};
+use crate::playback::dispatcher::PlaybackDispatcher;
 use crate::playback::error::PlaybackError;
-use crate::playback::intent::{PlaybackGuard, PlaybackIntent};
+use crate::playback::intent::PlaybackIntent;
 use crate::playback::lastfm::lastfm_radio_next_source_from_source_for_zone;
-use crate::playback::router::PlaybackRouter;
+use crate::playback::request::{PlaybackGuard, PlaybackRequest};
 use crate::playback::source::{
     qobuz_play_request_from_source_ref, qobuz_source_ref_from_track, source_ref_with_radio,
     source_ref_with_radio_context,
@@ -108,16 +109,18 @@ pub(crate) async fn play_artist_radio_for_zone_with_profile(
         .ok_or_else(|| PlaybackError::not_found("No playable Artist Radio track found"))?;
     let radio_auto = source.is_radio();
     let qobuz_request = qobuz_play_request_from_source_ref(&source, &[], radio_auto).map(Box::new);
-    PlaybackRouter::new(&state)
+    PlaybackDispatcher::new(&state)
         .execute(
             zone_id,
             PlaybackIntent::Play {
-                profile_id: profile_id.to_string(),
-                source,
-                queue: Vec::new(),
-                radio_auto,
-                guard: PlaybackGuard::from_expected_sequence(sequence),
-                qobuz_request,
+                request: PlaybackRequest {
+                    profile_id: profile_id.to_string(),
+                    source,
+                    queue: Vec::new(),
+                    radio_auto,
+                    guard: PlaybackGuard::from_expected_sequence(sequence),
+                    qobuz_request,
+                },
             },
         )
         .await

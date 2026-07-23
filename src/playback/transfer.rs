@@ -1,10 +1,11 @@
 use crate::app::state::AppState;
 use crate::playback::control::{pause_for_zone, seek_for_zone};
+use crate::playback::dispatcher::PlaybackDispatcher;
 use crate::playback::error::PlaybackError;
-use crate::playback::intent::{PlaybackGuard, PlaybackIntent};
+use crate::playback::intent::PlaybackIntent;
 use crate::playback::now_playing::current_playback_matches_expected;
 use crate::playback::queue::apply_zone_queue_sources;
-use crate::playback::router::PlaybackRouter;
+use crate::playback::request::{PlaybackGuard, PlaybackRequest};
 use crate::playback::status::build_status_response_for_zone;
 use crate::protocol::SourceRef;
 use serde::{Deserialize, Serialize};
@@ -105,16 +106,18 @@ pub async fn transfer_zone(
         .map_err(PlaybackError::library)?
         .map(|snapshot| snapshot.state);
 
-    PlaybackRouter::new(state)
+    PlaybackDispatcher::new(state)
         .execute(
             destination_zone_id,
             PlaybackIntent::Play {
-                profile_id,
-                source: source.clone(),
-                queue: queue.clone(),
-                radio_auto: source.is_radio(),
-                guard: PlaybackGuard::none(),
-                qobuz_request: None,
+                request: PlaybackRequest {
+                    profile_id,
+                    source: source.clone(),
+                    queue: queue.clone(),
+                    radio_auto: source.is_radio(),
+                    guard: PlaybackGuard::none(),
+                    qobuz_request: None,
+                },
             },
         )
         .await?;

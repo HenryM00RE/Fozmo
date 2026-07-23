@@ -1,11 +1,12 @@
 use crate::app::state::AppState;
 use crate::playback::commands::{PlaybackRequestSequence, accept_playback_request_sequence};
+use crate::playback::dispatcher::PlaybackDispatcher;
 use crate::playback::error::PlaybackError;
-use crate::playback::intent::{PlaybackGuard, PlaybackIntent};
+use crate::playback::intent::PlaybackIntent;
+use crate::playback::request::{PlaybackGuard, PlaybackRequest};
 use crate::playback::resolver::{
     QueueRequestItem, source_ref_from_play_request, source_ref_from_queue_request,
 };
-use crate::playback::router::PlaybackRouter;
 use crate::playback::source::source_ref_with_playlist_context;
 use crate::protocol::{PlaylistContext, SourceRef};
 
@@ -54,16 +55,18 @@ pub(crate) async fn play_file_request_for_zone_with_profile(
         playlist_context,
     );
     let queue_sources = queue_source_refs_from_request(state, queue)?;
-    PlaybackRouter::new(state)
+    PlaybackDispatcher::new(state)
         .execute(
             zone_id,
             PlaybackIntent::Play {
-                profile_id: profile_id.to_string(),
-                source,
-                queue: queue_sources,
-                radio_auto: false,
-                guard: PlaybackGuard::from_expected_sequence(sequence),
-                qobuz_request: None,
+                request: PlaybackRequest {
+                    profile_id: profile_id.to_string(),
+                    source,
+                    queue: queue_sources,
+                    radio_auto: false,
+                    guard: PlaybackGuard::from_expected_sequence(sequence),
+                    qobuz_request: None,
+                },
             },
         )
         .await

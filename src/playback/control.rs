@@ -1,7 +1,7 @@
 use crate::app::state::AppState;
+use crate::playback::dispatcher::PlaybackDispatcher;
 use crate::playback::error::PlaybackError;
 use crate::playback::intent::{LoopMode, PlaybackIntent};
-use crate::playback::router::PlaybackRouter;
 
 pub(crate) async fn next_for_active_zone(state: &AppState) -> Result<(), PlaybackError> {
     let zone_id = state.zones().active_zone_id();
@@ -9,7 +9,7 @@ pub(crate) async fn next_for_active_zone(state: &AppState) -> Result<(), Playbac
 }
 
 pub(crate) async fn next_for_zone(state: &AppState, zone_id: &str) -> Result<(), PlaybackError> {
-    PlaybackRouter::new(state)
+    PlaybackDispatcher::new(state)
         .execute(zone_id, PlaybackIntent::Next)
         .await
         .map(|_| ())
@@ -21,7 +21,7 @@ pub(crate) async fn pause_for_active_zone(state: &AppState) -> Result<(), Playba
 }
 
 pub(crate) async fn pause_for_zone(state: &AppState, zone_id: &str) -> Result<(), PlaybackError> {
-    PlaybackRouter::new(state)
+    PlaybackDispatcher::new(state)
         .execute(zone_id, PlaybackIntent::Pause)
         .await
         .map(|_| ())
@@ -33,7 +33,7 @@ pub(crate) async fn resume_for_active_zone(state: &AppState) -> Result<(), Playb
 }
 
 pub(crate) async fn resume_for_zone(state: &AppState, zone_id: &str) -> Result<(), PlaybackError> {
-    PlaybackRouter::new(state)
+    PlaybackDispatcher::new(state)
         .execute(zone_id, PlaybackIntent::Resume)
         .await
         .map(|_| ())
@@ -45,7 +45,7 @@ pub(crate) async fn stop_active_zone(state: &AppState) -> Result<(), PlaybackErr
 }
 
 pub(crate) async fn stop_for_zone(state: &AppState, zone_id: &str) -> Result<(), PlaybackError> {
-    PlaybackRouter::new(state)
+    PlaybackDispatcher::new(state)
         .execute(zone_id, PlaybackIntent::Stop)
         .await
         .map(|_| ())
@@ -66,7 +66,7 @@ pub(crate) async fn seek_for_zone(
             "Seek position must be a finite non-negative value",
         ));
     }
-    PlaybackRouter::new(state)
+    PlaybackDispatcher::new(state)
         .execute(zone_id, PlaybackIntent::Seek { seconds })
         .await
         .map(|_| ())
@@ -85,7 +85,7 @@ pub(crate) fn set_loop_mode_for_zone(
     zone_id: &str,
     mode: &str,
 ) -> Result<(), PlaybackError> {
-    PlaybackRouter::new(state)
+    PlaybackDispatcher::new(state)
         .execute_immediate(
             zone_id,
             PlaybackIntent::SetLoopMode {
@@ -105,7 +105,7 @@ pub(crate) async fn set_volume_for_zone(
     zone_id: &str,
     volume: f32,
 ) -> Result<(), PlaybackError> {
-    PlaybackRouter::new(state)
+    PlaybackDispatcher::new(state)
         .execute(zone_id, PlaybackIntent::SetVolume { volume })
         .await
         .map(|_| ())
@@ -124,7 +124,7 @@ pub(crate) async fn set_device_volume_for_zone(
     zone_id: &str,
     volume: f32,
 ) -> Result<(), PlaybackError> {
-    PlaybackRouter::new(state)
+    PlaybackDispatcher::new(state)
         .execute(zone_id, PlaybackIntent::SetDeviceVolume { volume })
         .await
         .map(|_| ())
