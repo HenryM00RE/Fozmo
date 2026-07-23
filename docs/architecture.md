@@ -238,7 +238,9 @@ External integrations include:
 - `src/services/hegel/`: Hegel amplifier status/control helpers.
 - `src/services/discovery/`: Bonjour/mDNS discovery and advertisement for LAN
   core and agent pairing.
-- `src/agent.rs`: Remote playback endpoint for paired LAN agents.
+- `src/agent/`: Remote playback endpoint for paired LAN agents, split into
+  runtime state, control-loop, stream-source, range-fetch, prefetch,
+  capability, and identity modules.
 
 External clients stay separate from route-specific request and response types.
 
