@@ -41,9 +41,9 @@ There are two runtime modes:
 5. `api::routes::create_router()` builds API routes and serves
    `static/react-app`.
 6. Playback requests become playback intents and flow through
-   `PlaybackRouter`.
-7. The selected zone dispatches to a local player, remote agent, Sonos, or
-   local-player-backed AirPlay path.
+   `PlaybackDispatcher`.
+7. The selected zone dispatches to a local player, remote agent, Sonos, UPnP,
+   or local-player-backed AirPlay path.
 8. The listening monitor polls zone status, records listening history, and
    performs Qobuz auto-advance when configured.
 
@@ -58,8 +58,10 @@ flowchart LR
   Route["HTTP Route"] --> Dto["Route DTO"]
   Dto --> Domain["Domain Resolver"]
   Domain --> Intent["PlaybackIntent"]
-  Intent --> Router["PlaybackRouter"]
-  Router --> Sink["Zone Sink"]
+  Intent --> Dispatcher["PlaybackDispatcher"]
+  Dispatcher --> Policy["QueueAdvancePolicy"]
+  Dispatcher --> Resolver["SinkResolver"]
+  Resolver --> Sink["Resolved Sink"]
   Sink --> Engine["Engine or Integration"]
 ```
 
@@ -74,8 +76,9 @@ flowchart LR
 ```mermaid
 flowchart LR
   Registry["ZoneRegistry"] --> Policy["ActiveZonePolicy"]
-  Policy --> Router["PlaybackRouter"]
-  Router --> Sink["Zone Sink"]
+  Policy --> Dispatcher["PlaybackDispatcher"]
+  Dispatcher --> Resolver["SinkResolver"]
+  Resolver --> Sink["Resolved Sink"]
 ```
 
 ## Backend Ownership
@@ -145,13 +148,15 @@ intents, not directly mutate player internals.
 `src/playback/` owns product-level playback intent: queue decisions, source
 resolution, active-zone routing, now-playing state, service handoff, and
 history recording. `playback::intent` defines the command shape used by
-playback entry points, and `playback::router::PlaybackRouter` owns sink
-selection for local-player, Sonos, and remote-agent paths. AirPlay playback is
-represented as a local-player output path selected by the zone/device layer.
+playback entry points. `playback::dispatcher::PlaybackDispatcher` owns traced
+command entry and common state changes, `playback::queue_advance` owns fallback
+policy, and `playback::sinks::SinkResolver` selects the concrete local-player,
+Sonos, UPnP, or remote-agent executor. AirPlay playback is represented as a
+local-player output path selected by the zone/device layer.
 
 Low-level audio commands stay behind the `Player` API in `src/audio/engine/`.
 Local, Qobuz, Sonos, AirPlay, and agent playback requests converge through the
-router instead of branching independently in API routes.
+dispatcher instead of branching independently in API routes.
 
 ### Audio
 
@@ -233,7 +238,9 @@ External integrations include:
 - `src/services/hegel/`: Hegel amplifier status/control helpers.
 - `src/services/discovery/`: Bonjour/mDNS discovery and advertisement for LAN
   core and agent pairing.
-- `src/agent.rs`: Remote playback endpoint for paired LAN agents.
+- `src/agent/`: Remote playback endpoint for paired LAN agents, split into
+  runtime state, control-loop, stream-source, range-fetch, prefetch,
+  capability, and identity modules.
 
 External clients stay separate from route-specific request and response types.
 

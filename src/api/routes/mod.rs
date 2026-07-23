@@ -1275,7 +1275,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn playback_control_routes_execute_router_without_hardware() {
+    async fn playback_control_routes_execute_dispatcher_without_hardware() {
         let state = app_state("api-playback-controls-smoke");
         let app = create_router().with_state(state.clone());
         let zone_id = crate::zones::LOCAL_ZONE_ID;

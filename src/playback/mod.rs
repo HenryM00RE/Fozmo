@@ -6,6 +6,7 @@ pub mod commands;
 pub mod config;
 pub mod config_applicator;
 pub mod control;
+pub mod dispatcher;
 pub mod error;
 #[cfg_attr(not(feature = "hegel"), allow(dead_code))]
 pub mod hegel_control;
@@ -18,10 +19,12 @@ pub mod output_devices;
 #[cfg_attr(not(feature = "qobuz"), allow(dead_code))]
 pub mod qobuz;
 pub mod queue;
+pub mod queue_advance;
+pub mod request;
 pub mod resolver;
-pub mod router;
 pub mod sequencer;
 pub mod service;
+pub mod sinks;
 #[cfg_attr(not(feature = "sonos"), allow(dead_code))]
 pub mod sonos;
 pub mod source;
