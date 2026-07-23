@@ -51,8 +51,8 @@ fn standard_modulator_is_chunk_invariant_and_has_no_flush_tail() {
             0.21 * (phase * 0.031).sin() + 0.07 * (phase * 0.119).cos()
         })
         .collect();
-    let mut whole = CrfbModulator::new(&CRFB7_STANDARD_OSR64, 0xA11C_E).unwrap();
-    let mut chunked = CrfbModulator::new(&CRFB7_STANDARD_OSR64, 0xA11C_E).unwrap();
+    let mut whole = CrfbModulator::new(&CRFB7_STANDARD_OSR64, 0x000A_11CE).unwrap();
+    let mut chunked = CrfbModulator::new(&CRFB7_STANDARD_OSR64, 0x000A_11CE).unwrap();
     let mut whole_bits = Vec::new();
     let mut chunked_bits = Vec::new();
 
