@@ -40,7 +40,7 @@
       "licenseConcluded": "MIT",
       "licenseDeclared": "MIT",
       "copyrightText": "Copyright (c) 2024 blitzkriegfc",
-      "sourceInfo": "Fozmo adapts portions of QBZ's MIT-licensed web-player token extraction and request-signing work; LICENSES/QBZ-MIT.txt preserves the upstream notice."
+      "sourceInfo": "Fozmo adapts portions of QBZ's MIT-licensed web-player token extraction and request-signing work; LEGAL/QBZ-MIT.txt preserves the upstream notice."
     },
     {
       "SPDXID": "SPDXRef-Package-EQ-Presets",

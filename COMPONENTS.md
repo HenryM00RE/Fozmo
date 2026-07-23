@@ -15,7 +15,7 @@ MIT license; it does not relicense the separately identified GPL program.
 | Bundled FFmpeg executable | Release build manifest and corresponding source archive | `LGPL-2.1-or-later` | Separate executable; GPL/nonfree features disabled |
 | libopus used by bundled FFmpeg | Release build manifest and corresponding source archive | `BSD-3-Clause` | Statically linked into FFmpeg helper |
 | Anton display font | `static/fonts/anton.ttf` | `OFL-1.1` | Anton 2.116; notice at `macos/licenses/Anton-OFL-1.1.txt` |
-| QBZ-informed Qobuz client portions | `src/services/qobuz/` | `MIT` | Adapted token-extraction and request-signing work; upstream notice at `LICENSES/QBZ-MIT.txt` |
+| QBZ-informed Qobuz client portions | `src/services/qobuz/` | `MIT` | Adapted token-extraction and request-signing work; upstream notice at `LEGAL/QBZ-MIT.txt` |
 | Bundled EQ presets | `presets/*.json` | `MIT` | Project-maintained experimental tuning data; see limitations below |
 
 The server opens the AirPlay helper by opaque receiver ID and communicates over
@@ -35,9 +35,9 @@ experimental starting points and verify levels before listening.
 Qobuz and Last.fm names are used only to identify integrations. Their marks
 remain the property of their respective owners; no affiliation or endorsement
 is implied. Fozmo does not distribute their logo image files. See
-`LICENSES/THIRD-PARTY-ASSETS.md` for source and terms references.
+`LEGAL/THIRD-PARTY-ASSETS.md` for source and terms references.
 
-Canonical project license texts are in `LICENSES/`; the Anton notice used by
+Canonical project license texts are in `LEGAL/`; the Anton notice used by
 the macOS bundle is in `macos/licenses/`. Every binary release must also
 provide the corresponding source archive described in `airplay-helper/README.md`
 and the license/notice files for all other bundled third-party components.

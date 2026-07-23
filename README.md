@@ -105,7 +105,7 @@ The Qobuz integration is unofficial and requires your own account and active sub
 
 Streamed audio sits in a temporary playback cache purely for reliability — it isn't meant for exporting, archiving, sharing, or keeping a permanent copy. Use remains subject to the [Qobuz Terms of Service](https://www.qobuz.com/us-en/legal/terms).
 
-This integration owes a debt to the MIT-licensed [QBZ project](https://github.com/vicrodh/qbz), whose documentation and implementation research informed it — including adapted web-player token extraction and request signing. The rest was implemented independently; QBZ did not author it. QBZ's upstream copyright and MIT notice are preserved in [`LICENSES/QBZ-MIT.txt`](LICENSES/QBZ-MIT.txt).
+This integration owes a debt to the MIT-licensed [QBZ project](https://github.com/vicrodh/qbz), whose documentation and implementation research informed it — including adapted web-player token extraction and request signing. The rest was implemented independently; QBZ did not author it. QBZ's upstream copyright and MIT notice are preserved in [`LEGAL/QBZ-MIT.txt`](LEGAL/QBZ-MIT.txt).
 
 ## Repository layout
 

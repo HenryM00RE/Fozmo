@@ -177,7 +177,7 @@ Before a public artifact:
   both processes. The pinned helper build is ALAC-only.
 - The scoped same-DMG distribution decision for version 0.0.2 is recorded in
   [GPL Aggregation Assessment](gpl-aggregation-assessment.md). Public builds
-  validate the tracked `LICENSES/gpl-aggregation-policy.json` decision and all
+  validate the tracked `LEGAL/gpl-aggregation-policy.json` decision and all
   mechanical process-boundary/source obligations instead of relying on an
   ephemeral environment-variable assertion.
 - Reassess the distribution before changing the IPC semantics, introducing
@@ -191,7 +191,7 @@ Before a public artifact:
 - Confirm ASIO SDK terms before distributing Windows ASIO builds.
 - Include licenses for network audio stacks, crypto dependencies, and frontend
   dependencies.
-- Ship `LICENSES/MIT.txt`, `LICENSES/GPL-2.0-only.txt`, the component map,
+- Ship `LEGAL/MIT.txt`, `LEGAL/GPL-2.0-only.txt`, the component map,
   required third-party texts, and exact corresponding source for the helper and
   its patched/pinned AirPlay stack. Do not apply a restrictive umbrella EULA.
 

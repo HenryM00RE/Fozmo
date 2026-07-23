@@ -8,7 +8,7 @@
 | libopus linked into FFmpeg | BSD-3-Clause |
 | Sparkle | MIT |
 | Anton font | SIL Open Font License 1.1 |
-| QBZ-informed Qobuz client portions | MIT; upstream notice preserved in `LICENSES/QBZ-MIT.txt` |
+| QBZ-informed Qobuz client portions | MIT; upstream notice preserved in `LEGAL/QBZ-MIT.txt` |
 | Bundled EQ presets | MIT; experimental project-maintained tuning data |
 
 The application bundle is an aggregate containing independently executable

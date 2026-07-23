@@ -15,7 +15,7 @@
   research informed Fozmo's understanding of the unofficial Qobuz web API;
   Fozmo's web-player token extraction and request-signature handling adapt
   portions of that MIT-licensed work. The upstream copyright and MIT notice are
-  preserved in `LICENSES/QBZ-MIT.txt`. QBZ did not author Fozmo's independent
+  preserved in `LEGAL/QBZ-MIT.txt`. QBZ did not author Fozmo's independent
   integration, and neither project is affiliated with or endorsed by Qobuz.
 - Bundled EQ presets are project-maintained experimental configuration data.
   Their original measurement source and method were not recorded; device names
