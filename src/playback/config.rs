@@ -120,7 +120,7 @@ pub(crate) fn effective_dsd_rules_from_zone_settings(
 
 // Validation intentionally mirrors the complete persisted DSD selection surface.
 #[allow(clippy::too_many_arguments)]
-fn validate_ecbeam2_playback_config(
+fn validate_seventh_order_search_playback_config(
     modulator: DsdModulator,
     _filter_type: FilterType,
     upsampling_enabled: bool,
@@ -141,21 +141,21 @@ fn validate_ecbeam2_playback_config(
         }
         return Ok(());
     }
-    if modulator != DsdModulator::EcBeam2 {
+    if modulator != DsdModulator::SeventhOrderSearch {
         return Ok(());
     }
     if isi_penalty != 0.0 {
         return Err(PlaybackError::bad_request(
-            "EcBeam2 requires a zero DSD ISI penalty",
+            "7th Order Search requires a zero DSD ISI penalty",
         ));
     }
     if (headroom_db + 2.0).abs() > 1.0e-6 {
         return Err(PlaybackError::bad_request(
-            "EcBeam2 requires -2 dB headroom",
+            "7th Order Search requires -2 dB headroom",
         ));
     }
 
-    // Validate EcBeam2 against the requested mode before generic feature
+    // Validate 7th Order Search against the requested mode before generic feature
     // fallback can normalize an unavailable DSD256 selection to DSD128.
     let effective_output_mode = if upsampling_enabled {
         output_mode
@@ -169,7 +169,7 @@ fn validate_ecbeam2_playback_config(
         )
     {
         return Err(PlaybackError::bad_request(
-            "EcBeam2 supports only DSD64, DSD128, and DSD256 output",
+            "7th Order Search supports only DSD64, DSD128, and DSD256 output",
         ));
     }
     if effective_output_mode.is_dsd()
@@ -182,7 +182,7 @@ fn validate_ecbeam2_playback_config(
         })
     {
         return Err(PlaybackError::bad_request(
-            "EcBeam2 requires every enabled DSD rule to use DSD64, DSD128, or DSD256",
+            "7th Order Search requires every enabled DSD rule to use DSD64, DSD128, or DSD256",
         ));
     }
     Ok(())
@@ -243,9 +243,6 @@ pub(crate) fn playback_config_for_zone(
         .as_deref()
         .unwrap_or(&fallback.dsd_modulator);
     let dsd_modulator = DsdModulator::from_name(configured_dsd_modulator).unwrap_or_default();
-    let configured_headroom_db = settings
-        .headroom_db
-        .unwrap_or(fallback.headroom_db.min(DEFAULT_HEADROOM_DB));
     PlaybackConfig {
         filter_type: settings
             .filter_type
@@ -273,8 +270,7 @@ pub(crate) fn playback_config_for_zone(
         } else {
             match dsd_modulator {
                 DsdModulator::Standard => DEFAULT_HEADROOM_DB,
-                DsdModulator::EcBeam2 => -2.0,
-                _ => configured_headroom_db,
+                DsdModulator::SeventhOrderSearch => -2.0,
             }
         },
         dsp_buffer_ms: if dsp_unavailable {
@@ -350,10 +346,6 @@ pub(crate) fn update_playback_config_for_zone(
         update.dsd_rules_enabled,
         &update.dsd_rules,
     )?;
-    let legacy_ecbeam = update
-        .dsd_modulator
-        .as_deref()
-        .is_some_and(DsdModulator::is_legacy_ecbeam_name);
     let dsd_modulator = match update.dsd_modulator.as_deref() {
         Some(name) => DsdModulator::from_name(name)
             .ok_or_else(|| PlaybackError::bad_request("Invalid DSD modulator"))?,
@@ -365,17 +357,16 @@ pub(crate) fn update_playback_config_for_zone(
     }
     let headroom_db = if dsp_unavailable || !update.upsampling_enabled {
         0.0
-    } else if dsd_modulator == DsdModulator::Standard || legacy_ecbeam {
-        DEFAULT_HEADROOM_DB
-    } else if dsd_modulator == DsdModulator::EcBeam2 {
-        -2.0
     } else {
-        update.headroom_db.clamp(-24.0, 0.0)
+        match dsd_modulator {
+            DsdModulator::Standard => DEFAULT_HEADROOM_DB,
+            DsdModulator::SeventhOrderSearch => -2.0,
+        }
     };
     if !update.dsd_isi_penalty.is_finite() {
         return Err(PlaybackError::bad_request("Invalid DSD ISI penalty"));
     }
-    validate_ecbeam2_playback_config(
+    validate_seventh_order_search_playback_config(
         dsd_modulator,
         filter_type,
         update.upsampling_enabled,
@@ -672,35 +663,8 @@ mod tests {
     }
 
     #[test]
-    fn playback_config_persists_selectable_ecbeam2_at_dsd64() {
-        let state = crate::playback::test_support::app_state("selectable-ecbeam2");
-        let update = PlaybackConfigUpdate {
-            filter_type: "Split128k".to_string(),
-            target_rate: 0,
-            target_bit_depth: 24,
-            upsampling_enabled: true,
-            exclusive: true,
-            output_mode: Some("Dsd64".to_string()),
-            dsd_modulator: Some("7th Order ECB2".to_string()),
-            dsd_isi_penalty: 0.0,
-            dsd_rules_enabled: false,
-            dsd_rules: Vec::new(),
-            headroom_db: -2.0,
-            dsp_buffer_ms: 0,
-        };
-
-        update_active_playback_config(&state, update).expect("ECB2 config should update");
-
-        let zone_id = state.zones().active_zone_id();
-        let settings = state.settings().playback_for_zone(&zone_id);
-        assert_eq!(settings.dsd_modulator.as_deref(), Some("EcBeam2"));
-        assert_eq!(settings.dsd_isi_penalty, Some(0.0));
-        assert_eq!(settings.headroom_db, Some(-2.0));
-    }
-
-    #[test]
-    fn enabling_ecbeam2_restores_its_tuned_headroom_from_zero() {
-        let state = crate::playback::test_support::app_state("reenable-ecbeam2-headroom");
+    fn playback_config_migrates_legacy_search_name_at_dsd64() {
+        let state = crate::playback::test_support::app_state("selectable-seventh-order-search");
         let update = PlaybackConfigUpdate {
             filter_type: "Split128k".to_string(),
             target_rate: 0,
@@ -712,11 +676,40 @@ mod tests {
             dsd_isi_penalty: 0.0,
             dsd_rules_enabled: false,
             dsd_rules: Vec::new(),
+            headroom_db: -2.0,
+            dsp_buffer_ms: 0,
+        };
+
+        update_active_playback_config(&state, update)
+            .expect("legacy search alias config should update");
+
+        let zone_id = state.zones().active_zone_id();
+        let settings = state.settings().playback_for_zone(&zone_id);
+        assert_eq!(settings.dsd_modulator.as_deref(), Some("7th-order-search"));
+        assert_eq!(settings.dsd_isi_penalty, Some(0.0));
+        assert_eq!(settings.headroom_db, Some(-2.0));
+    }
+
+    #[test]
+    fn enabling_seventh_order_search_restores_its_tuned_headroom_from_zero() {
+        let state =
+            crate::playback::test_support::app_state("reenable-seventh-order-search-headroom");
+        let update = PlaybackConfigUpdate {
+            filter_type: "Split128k".to_string(),
+            target_rate: 0,
+            target_bit_depth: 24,
+            upsampling_enabled: true,
+            exclusive: true,
+            output_mode: Some("Dsd64".to_string()),
+            dsd_modulator: Some("7th-order-search".to_string()),
+            dsd_isi_penalty: 0.0,
+            dsd_rules_enabled: false,
+            dsd_rules: Vec::new(),
             headroom_db: 0.0,
             dsp_buffer_ms: 0,
         };
 
-        update_active_playback_config(&state, update).expect("ECB2 config should update");
+        update_active_playback_config(&state, update).expect("search config should update");
 
         let zone_id = state.zones().active_zone_id();
         let settings = state.settings().playback_for_zone(&zone_id);
@@ -728,8 +721,9 @@ mod tests {
     }
 
     #[test]
-    fn playback_config_persists_production_ecbeam2_at_dsd128() {
-        let state = crate::playback::test_support::app_state("selectable-ecbeam2-dsd128");
+    fn playback_config_persists_production_seventh_order_search_at_dsd128() {
+        let state =
+            crate::playback::test_support::app_state("selectable-seventh-order-search-dsd128");
         let update = PlaybackConfigUpdate {
             filter_type: "MinimumPhaseCompact128k".to_string(),
             target_rate: 0,
@@ -737,7 +731,7 @@ mod tests {
             upsampling_enabled: true,
             exclusive: true,
             output_mode: Some("Dsd128".to_string()),
-            dsd_modulator: Some("EcBeam2".to_string()),
+            dsd_modulator: Some("7th-order-search".to_string()),
             dsd_isi_penalty: 0.0,
             dsd_rules_enabled: false,
             dsd_rules: Vec::new(),
@@ -746,7 +740,7 @@ mod tests {
         };
 
         update_active_playback_config(&state, update)
-            .expect("production EcBeam2 DSD128 config should update");
+            .expect("production 7th Order Search DSD128 config should update");
 
         let zone_id = state.zones().active_zone_id();
         let settings = state.settings().playback_for_zone(&zone_id);
@@ -755,14 +749,15 @@ mod tests {
             Some("MinimumPhaseCompact128k")
         );
         assert_eq!(settings.output_mode.as_deref(), Some("Dsd128"));
-        assert_eq!(settings.dsd_modulator.as_deref(), Some("EcBeam2"));
+        assert_eq!(settings.dsd_modulator.as_deref(), Some("7th-order-search"));
         assert_eq!(settings.dsd_isi_penalty, Some(0.0));
         assert_eq!(settings.headroom_db, Some(-2.0));
     }
 
     #[test]
-    fn playback_config_persists_split_phase_ecbeam2_at_dsd128() {
-        let state = crate::playback::test_support::app_state("ecbeam2-split-phase-dsd128");
+    fn playback_config_persists_split_phase_seventh_order_search_at_dsd128() {
+        let state =
+            crate::playback::test_support::app_state("seventh-order-search-split-phase-dsd128");
         let update = PlaybackConfigUpdate {
             filter_type: "SplitPhase128kE3".to_string(),
             target_rate: 0,
@@ -770,7 +765,7 @@ mod tests {
             upsampling_enabled: true,
             exclusive: true,
             output_mode: Some("Dsd128".to_string()),
-            dsd_modulator: Some("EcBeam2".to_string()),
+            dsd_modulator: Some("7th-order-search".to_string()),
             dsd_isi_penalty: 0.0,
             dsd_rules_enabled: false,
             dsd_rules: Vec::new(),
@@ -779,20 +774,20 @@ mod tests {
         };
 
         update_active_playback_config(&state, update)
-            .expect("Split Phase EcBeam2 DSD128 config should update");
+            .expect("Split Phase 7th Order Search DSD128 config should update");
 
         let zone_id = state.zones().active_zone_id();
         let settings = state.settings().playback_for_zone(&zone_id);
         assert_eq!(settings.filter_type.as_deref(), Some("SplitPhase128kE3"));
         assert_eq!(settings.output_mode.as_deref(), Some("Dsd128"));
-        assert_eq!(settings.dsd_modulator.as_deref(), Some("EcBeam2"));
+        assert_eq!(settings.dsd_modulator.as_deref(), Some("7th-order-search"));
         assert_eq!(settings.dsd_isi_penalty, Some(0.0));
         assert_eq!(settings.headroom_db, Some(-2.0));
     }
 
     #[test]
-    fn playback_config_persists_linear_phase_ecbeam2() {
-        let state = crate::playback::test_support::app_state("ecbeam2-linear-phase");
+    fn playback_config_persists_linear_phase_seventh_order_search() {
+        let state = crate::playback::test_support::app_state("seventh-order-search-linear-phase");
         let update = PlaybackConfigUpdate {
             filter_type: "LinearPhase128k".to_string(),
             target_rate: 0,
@@ -800,7 +795,7 @@ mod tests {
             upsampling_enabled: true,
             exclusive: true,
             output_mode: Some("Dsd64".to_string()),
-            dsd_modulator: Some("EcBeam2".to_string()),
+            dsd_modulator: Some("7th-order-search".to_string()),
             dsd_isi_penalty: 0.0,
             dsd_rules_enabled: false,
             dsd_rules: Vec::new(),
@@ -809,14 +804,14 @@ mod tests {
         };
 
         update_active_playback_config(&state, update)
-            .expect("Linear Phase EcBeam2 config should update");
+            .expect("Linear Phase 7th Order Search config should update");
         let zone_id = state.zones().active_zone_id();
         let settings = state.settings().playback_for_zone(&zone_id);
         assert_eq!(settings.filter_type.as_deref(), Some("LinearPhase128k"));
     }
 
     #[test]
-    fn ecbeam2_validation_accepts_dsd64_dsd128_and_dsd256() {
+    fn seventh_order_search_validation_accepts_dsd64_dsd128_and_dsd256() {
         for filter in [
             FilterType::LinearPhase128k,
             FilterType::Minimum16k,
@@ -825,8 +820,8 @@ mod tests {
         ] {
             for output_mode in [OutputMode::Dsd64, OutputMode::Dsd128, OutputMode::Dsd256] {
                 assert!(
-                    validate_ecbeam2_playback_config(
-                        DsdModulator::EcBeam2,
+                    validate_seventh_order_search_playback_config(
+                        DsdModulator::SeventhOrderSearch,
                         filter,
                         true,
                         output_mode,
@@ -840,8 +835,8 @@ mod tests {
             }
         }
         assert_eq!(
-            validate_ecbeam2_playback_config(
-                DsdModulator::EcBeam2,
+            validate_seventh_order_search_playback_config(
+                DsdModulator::SeventhOrderSearch,
                 FilterType::SplitPhase128kE3,
                 true,
                 OutputMode::Dsd64,
@@ -852,11 +847,11 @@ mod tests {
             )
             .expect_err("nonzero ISI must be rejected")
             .message(),
-            "EcBeam2 requires a zero DSD ISI penalty"
+            "7th Order Search requires a zero DSD ISI penalty"
         );
         assert_eq!(
-            validate_ecbeam2_playback_config(
-                DsdModulator::EcBeam2,
+            validate_seventh_order_search_playback_config(
+                DsdModulator::SeventhOrderSearch,
                 FilterType::SplitPhase128kE3,
                 true,
                 OutputMode::Dsd64,
@@ -867,14 +862,14 @@ mod tests {
             )
             .expect_err("wrong headroom must be rejected")
             .message(),
-            "EcBeam2 requires -2 dB headroom"
+            "7th Order Search requires -2 dB headroom"
         );
     }
 
     #[test]
     fn standard_validation_locks_headroom_to_minus_four_when_enabled() {
         assert!(
-            validate_ecbeam2_playback_config(
+            validate_seventh_order_search_playback_config(
                 DsdModulator::Standard,
                 FilterType::LinearPhase128k,
                 true,
@@ -887,7 +882,7 @@ mod tests {
             .is_ok()
         );
         assert_eq!(
-            validate_ecbeam2_playback_config(
+            validate_seventh_order_search_playback_config(
                 DsdModulator::Standard,
                 FilterType::LinearPhase128k,
                 true,
@@ -902,7 +897,7 @@ mod tests {
             "Standard requires -4 dB headroom"
         );
         assert!(
-            validate_ecbeam2_playback_config(
+            validate_seventh_order_search_playback_config(
                 DsdModulator::Standard,
                 FilterType::LinearPhase128k,
                 false,
@@ -918,7 +913,7 @@ mod tests {
     }
 
     #[test]
-    fn ecbeam2_validation_checks_only_enabled_effective_rules() {
+    fn seventh_order_search_validation_checks_only_enabled_effective_rules() {
         let dsd128_rule = DsdSourceRule {
             source_rate: 44_100,
             filter_type: "SplitPhase128kE3".to_string(),
@@ -941,8 +936,8 @@ mod tests {
         };
 
         assert!(
-            validate_ecbeam2_playback_config(
-                DsdModulator::EcBeam2,
+            validate_seventh_order_search_playback_config(
+                DsdModulator::SeventhOrderSearch,
                 FilterType::SplitPhase128kE3,
                 true,
                 OutputMode::Dsd64,
@@ -954,8 +949,8 @@ mod tests {
             .is_ok()
         );
         assert!(
-            validate_ecbeam2_playback_config(
-                DsdModulator::EcBeam2,
+            validate_seventh_order_search_playback_config(
+                DsdModulator::SeventhOrderSearch,
                 FilterType::SplitPhase128kE3,
                 true,
                 OutputMode::Dsd64,
@@ -968,8 +963,8 @@ mod tests {
             "mixed DSD64/DSD128 rules are qualified"
         );
         assert!(
-            validate_ecbeam2_playback_config(
-                DsdModulator::EcBeam2,
+            validate_seventh_order_search_playback_config(
+                DsdModulator::SeventhOrderSearch,
                 FilterType::SplitPhase128kE3,
                 true,
                 OutputMode::Dsd128,
@@ -982,8 +977,8 @@ mod tests {
             "Minimum Phase rules are qualified"
         );
         assert!(
-            validate_ecbeam2_playback_config(
-                DsdModulator::EcBeam2,
+            validate_seventh_order_search_playback_config(
+                DsdModulator::SeventhOrderSearch,
                 FilterType::SplitPhase128kE3,
                 true,
                 OutputMode::Dsd64,
@@ -996,8 +991,8 @@ mod tests {
             "DSD256 rules are qualified"
         );
         assert!(
-            validate_ecbeam2_playback_config(
-                DsdModulator::EcBeam2,
+            validate_seventh_order_search_playback_config(
+                DsdModulator::SeventhOrderSearch,
                 FilterType::SplitPhase128kE3,
                 true,
                 OutputMode::Dsd64,
@@ -1010,8 +1005,8 @@ mod tests {
             "Linear Phase rules are qualified"
         );
         assert!(
-            validate_ecbeam2_playback_config(
-                DsdModulator::EcBeam2,
+            validate_seventh_order_search_playback_config(
+                DsdModulator::SeventhOrderSearch,
                 FilterType::SplitPhase128kE3,
                 false,
                 OutputMode::Dsd128,
@@ -1088,7 +1083,7 @@ mod tests {
                 upsampling_enabled: true,
                 exclusive: false,
                 output_mode: Some("Dsd128".to_string()),
-                dsd_modulator: Some("EcDepth2".to_string()),
+                dsd_modulator: Some("Standard".to_string()),
                 dsd_isi_penalty: 0.0,
                 dsd_rules_enabled: false,
                 dsd_rules: Vec::new(),
@@ -1128,7 +1123,7 @@ mod tests {
                 upsampling_enabled: true,
                 exclusive: false,
                 output_mode: Some("Dsd128".to_string()),
-                dsd_modulator: Some("EcDepth2".to_string()),
+                dsd_modulator: Some("Standard".to_string()),
                 dsd_isi_penalty: 0.0,
                 dsd_rules_enabled: false,
                 dsd_rules: Vec::new(),
@@ -1161,7 +1156,7 @@ mod tests {
                 upsampling_enabled: true,
                 exclusive: false,
                 output_mode: Some("Dsd64".to_string()),
-                dsd_modulator: Some("EcDepth2".to_string()),
+                dsd_modulator: Some("Standard".to_string()),
                 dsd_isi_penalty: 0.0,
                 dsd_rules_enabled: false,
                 dsd_rules: Vec::new(),

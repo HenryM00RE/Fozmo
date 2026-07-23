@@ -1,32 +1,19 @@
 # Split Phase DSD Measurements
 
-These are reproducible digital measurements of Fozmo's current **Split Phase**
-filter (`SplitPhase128kE3`, the promoted P17 bundle) with the two modulators
-exposed in the UI:
+These software tests cover Split Phase with **7th Order** at −4 dB headroom
+and **7th Order Search** at −2 dB. They measure the generated digital stream,
+not the analog output of a DAC. Every supported combination completed without
+processing errors.
 
-- **7th Order** (`Standard`), measured at its tuned −4 dB headroom;
-- **7th Order Search** (`EcBeam2`), measured at its tuned −2 dB headroom.
+Higher SINAD is better, gain error should be close to zero, and more-negative
+noise or spur values are quieter. Each row uses the less favourable result
+from the two channels.
 
-P17 is now the only filter presented as Split Phase. The earlier E2v3 Split
-Phase and Smooth Phase selections are retained only as internal and migration
-identifiers. The selectable paths summarized here cover both modulators at
-DSD64 and DSD128, plus regular 7th Order at DSD256. They include level sweeps,
-DSD64 idle behavior, DSD128 stress, and hi-res reconstruction. Every reported
-cell completed with zero structural failures, stability resets, state clamps,
-limiter events, or truncation events.
+## Level test
 
-The tables report measurements directly and do not assign a presentation
-score. The public bench's current versioned scoring contract predates the P17
-product consolidation and remains tied to E2v3, so it is not applied here.
+This checks loud, quiet and extremely quiet tones.
 
-## Coherent level sweep
-
-The values below are the conservative channel result at each level: the lower
-SINAD, largest absolute gain error, and least-negative residual or unexpected
-spur. Gain error closer to zero is better; more-negative noise and spur values
-are lower.
-
-| Rate | Modulator | Effective level dBFS | SINAD dB | Max gain error dB | Unexpected spur dBFS | Residual dBFS |
+| Rate | Mode | Level dBFS | SINAD dB | Gain error dB | Unexpected spur dBFS | Residual dBFS |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | DSD64 | 7th Order | −6 | 131.37 | 0.0000001 | −156.63 | −137.39 |
 | DSD64 | 7th Order | −20 | 118.70 | 0.0000002 | −157.80 | −138.71 |
@@ -49,17 +36,15 @@ are lower.
 | DSD256 | 7th Order | −60 | 122.13 | 0.0000000 | −212.78 | −191.27 |
 | DSD256 | 7th Order | −100 | 94.14 | 0.0000012 | −216.49 | −194.15 |
 
-Regular 7th Order is included at DSD256 because it is a normal selectable path.
-7th Order Search is selectable at DSD64 and DSD128 only, so internal DSD256
-Search measurements are intentionally omitted.
+7th Order Search is available at DSD64 and DSD128. Regular 7th Order also
+supports DSD256.
 
-## DSD64 idle and tiny-signal behavior
+## Silence and tiny signals at DSD64
 
-The idle fixture contains digital silence, opposing ±0.000001 DC, and a
-−120 dBFS 100 Hz tone. The maximum full-stream density deviation was 0.000001
-or less in every section.
+Both modes stayed quiet with digital silence, tiny DC and a −120 dBFS tone.
+The largest full-stream density shift was 0.000001 or less.
 
-| Modulator | Section | Noise dBFS | Unexpected spur dBFS | Maximum absolute DC error |
+| Mode | Signal | Noise dBFS | Unexpected spur dBFS | Maximum DC error |
 | --- | --- | ---: | ---: | ---: |
 | 7th Order | Silence | −143.74 | −162.84 | — |
 | 7th Order | Tiny DC | −137.67 | −156.00 | 1.90e−10 |
@@ -68,35 +53,30 @@ or less in every section.
 | 7th Order Search | Tiny DC | −148.28 | −167.95 | 4.68e−11 |
 | 7th Order Search | −120 dBFS tone | −147.45 | −166.62 | — |
 
-## DSD128 high-frequency stress and recovery
+## Stress and recovery at DSD128
 
-These rows use the same −4 dB effective peak for both modulators. Each range
-spans steady and recovery windows across both channels. The separate rated
-input cases also passed at each modulator's production headroom.
+Both modes handled the same demanding signal and settled again in about 16 ms.
 
-| Modulator | SINAD range dB | Worst declared product dBFS | Worst product-excluded residual dBFS | Worst unexpected spur dBFS | Recovery range ms |
+| Mode | SINAD range dB | Expected product dBFS | Other residual dBFS | Unexpected spur dBFS | Recovery ms |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | 7th Order | 174.78–175.00 | −204.32 | −181.81 | −200.02 | 15.83–16.05 |
 | 7th Order Search | 185.36–185.49 | −220.07 | −192.38 | −212.20 | 15.68 |
 
-Neither modulator produced material transition overshoot. Conservative
-clean-mute peak/RMS measured −176.27/−185.84 dBFS for 7th Order and
-−180.82/−189.71 dBFS for 7th Order Search.
+Neither mode produced meaningful overshoot. During a clean mute, peak/RMS was
+−176.27/−185.84 dBFS for 7th Order and −180.82/−189.71 dBFS for 7th Order
+Search.
 
-## Hi-res reconstruction
+## High-resolution input
 
-The generated 176.4 kHz fixture contains coherent carriers at 1, 18, 40, and
-70 kHz. DSD256 is shown for selectable regular 7th Order, while DSD128 provides
-the direct selectable-modulator comparison. Carrier values are the largest
-absolute gain error across both channels.
+This checks gain accuracy at 1, 18, 40 and 70 kHz.
 
-| Rate | Modulator | 1 kHz | 18 kHz | 40 kHz | 70 kHz |
+| Rate | Mode | 1 kHz | 18 kHz | 40 kHz | 70 kHz |
 | --- | --- | ---: | ---: | ---: | ---: |
 | DSD128 | 7th Order | 0.000000673 | 0.000002135 | 0.000160074 | 0.012043037 |
 | DSD128 | 7th Order Search | 0.000000090 | 0.000000342 | 0.000001789 | 0.000080826 |
 | DSD256 | 7th Order | 0.000000016 | 0.000000021 | 0.000000183 | 0.000021074 |
 
-| Rate | Modulator | Reconstruction band | Conservative residual dBFS | Worst unexpected spur dBFS |
+| Rate | Mode | Frequency range | Residual dBFS | Unexpected spur dBFS |
 | --- | --- | --- | ---: | ---: |
 | DSD128 | 7th Order | 0–20 kHz | −113.85 | −149.26 |
 | DSD128 | 7th Order | 20–80 kHz | −70.00 | −85.72 |
@@ -107,56 +87,15 @@ absolute gain error across both channels.
 
 ## M4 performance at DSD128
 
-Measured on an Apple M4 Mac mini with 16 GB RAM, macOS 26.5.2, Rust 1.96.0,
-an optimized native-CPU build, two warmups, and five measured passes.
+Measured on 22 July 2026 using an Apple M4 Mac mini with 16 GB RAM, macOS
+26.5.2, Rust 1.96.0 and an optimized build. The test used two warmups and five
+measured passes.
 
-| Benchmark | Result | Health |
+| Test | Result | Health |
 | --- | --- | --- |
-| P17 Split Phase + 7th Order Search stereo renderer | 52.907 ms minimum, 53.762 ms average, and 55.101 ms maximum for 8,192 source frames (185.76 ms at 44.1 kHz), or 3.46× real-time average wall throughput | 0 resets, 0 clamps |
-| 7th Order Search modulator only | 76.69 ns per DSD sample; 43.29% of one core per channel and 86.58% aggregate for stereo | 0 resets, 0 clamps |
+| Split Phase + 7th Order Search, stereo | 52.907 ms minimum, 53.762 ms average and 55.101 ms maximum for 185.76 ms of source audio, or 3.46× real-time on average | No processing errors |
+| 7th Order Search only | 76.69 ns per DSD sample; 43.29% of one core per channel and 86.58% total for stereo | No processing errors |
 
-The renderer figure includes P17 upsampling, both channel modulators, EOF flush,
-and native packing. It is a short synthetic throughput benchmark, not a claim
-about worst-case whole-library playback. The modulator percentages are CPU
-cost; the renderer's 3.46× figure is wall throughput and can benefit from the
-two channel workers, so the two figures should not be added together.
-
-Reproduce the focused performance run with:
-
-```sh
-DSD_RENDERER_BENCH_FILTER="Split Phase DSD128 Search" \
-DSD_MODULATOR_BENCH_FILTER="EcBeam2 playback DSD128" \
-tools/dsd-perf-mac.sh
-```
-
-## Scope and provenance
-
-These results describe the generated digital DSD stream, not the analog output
-of a DAC. They do not account for a DAC's reconstruction filter, analog noise,
-music-dependent behavior, or listening preference.
-
-The measurements used contract `dsd-public-quality-v5`, matrix contract
-`dsd-public-matrix-28-v6`, commit `51d9ab3`, and a native Apple M4 release build
-on 22 July 2026. Reproduce the selectable Standard and Search paths separately
-with:
-
-```sh
-RUSTFLAGS="-C target-cpu=native" cargo run --locked --release \
-  --bin dsd_public_quality -- \
-  --out audio_tests/out/p17-standard \
-  --filter SplitPhaseB \
-  --modulator Standard \
-  --rates 64,128,256 \
-  --include-rate-comparison
-
-RUSTFLAGS="-C target-cpu=native" cargo run --locked --release \
-  --bin dsd_public_quality -- \
-  --out audio_tests/out/p17-search \
-  --filter SplitPhaseB \
-  --modulator EcBeam2 \
-  --rates 64,128 \
-  --include-rate-comparison
-```
-
-The complete method and metric definitions are documented in
-[Public PCM-to-DSD measurement bench](dsd-public-quality.md).
+This short synthetic test does not represent worst-case performance across
+every library and system.
+See [PCM-to-DSD Verification](dsd-public-quality.md) to run the measurements.

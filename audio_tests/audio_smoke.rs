@@ -10,13 +10,8 @@ const FRAMES: usize = 1024;
 
 #[test]
 fn production_modulators_render_native_dsd() {
-    for modulator in [
-        DsdModulator::Standard,
-        DsdModulator::EcDepth2,
-        DsdModulator::EcBeam,
-        DsdModulator::EcBeam2,
-    ] {
-        let filter = if modulator == DsdModulator::EcBeam2 {
+    for modulator in [DsdModulator::Standard, DsdModulator::SeventhOrderSearch] {
+        let filter = if modulator == DsdModulator::SeventhOrderSearch {
             FilterType::SplitPhase128kE3
         } else {
             FilterType::LinearPhase128k
@@ -37,7 +32,7 @@ fn production_modulators_render_native_dsd() {
 }
 
 #[test]
-fn ecbeam2_renders_every_supported_filter_and_rate() {
+fn seventh_order_search_renders_every_supported_filter_and_rate() {
     for filter in [
         FilterType::LinearPhase128k,
         FilterType::Minimum16k,
@@ -45,7 +40,7 @@ fn ecbeam2_renders_every_supported_filter_and_rate() {
         FilterType::SplitPhase128kE3,
     ] {
         for rate in [DsdRate::Dsd64, DsdRate::Dsd128] {
-            let (left, right) = render_native_bits(DsdModulator::EcBeam2, filter, rate);
+            let (left, right) = render_native_bits(DsdModulator::SeventhOrderSearch, filter, rate);
             assert!(!left.is_empty(), "{filter:?} {rate:?} produced no DSD");
             assert_eq!(
                 left.len(),
@@ -58,7 +53,7 @@ fn ecbeam2_renders_every_supported_filter_and_rate() {
 
 #[test]
 fn linear128k_renders_every_selectable_modulator() {
-    for modulator in [DsdModulator::Standard, DsdModulator::EcBeam2] {
+    for modulator in [DsdModulator::Standard, DsdModulator::SeventhOrderSearch] {
         let (left, right) =
             render_native_bits(modulator, FilterType::LinearPhase128k, DsdRate::Dsd128);
         assert!(!left.is_empty());
@@ -81,6 +76,8 @@ fn stale_persisted_modulator_aliases_normalize_to_standard() {
     for name in [
         "EcDepth1",
         "ec-1",
+        "EcDepth2",
+        "ec-2",
         "EcDepth3",
         "ec-3",
         "EcDepth4",
@@ -89,6 +86,8 @@ fn stale_persisted_modulator_aliases_normalize_to_standard() {
         "ec-8",
         "EcDepth4Adaptive",
         "ec-4a",
+        "EcBeam",
+        "ec-beam",
     ] {
         assert_eq!(DsdModulator::from_name(name), Some(DsdModulator::Standard));
     }
@@ -106,7 +105,7 @@ fn render_native_bits(
     let mut out_l = Vec::new();
     let mut out_r = Vec::new();
     renderer.upsample(&input, &input);
-    let headroom_db = if matches!(modulator, DsdModulator::EcBeam | DsdModulator::EcBeam2) {
+    let headroom_db = if modulator == DsdModulator::SeventhOrderSearch {
         -2.0
     } else {
         -4.0
@@ -132,16 +131,6 @@ fn render_native_bits(
     assert_eq!(truncation.events, 0, "truncation events");
     assert_eq!(truncation.discarded_left_bits, 0, "discarded left bits");
     assert_eq!(truncation.discarded_right_bits, 0, "discarded right bits");
-    for diagnostics in renderer.beam_diagnostics().into_iter().flatten() {
-        assert_eq!(
-            diagnostics.beam_committed_clamp_total, 0,
-            "EcBeam committed clamps"
-        );
-        assert_eq!(
-            diagnostics.beam_all_children_rejected_total, 0,
-            "EcBeam all-children-rejected events"
-        );
-    }
     (out_l, out_r)
 }
 

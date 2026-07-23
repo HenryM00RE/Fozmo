@@ -218,45 +218,20 @@ ORDER = 7
 # the simulations so the measured stability limits include its (small) cost.
 DITHER_SCALE = 0.00390625
 
-# Carries the sqrt(2) variance-parity compensation of the Rust runtime (dither
-# shapes are power-matched at equal scale; the multiplier grew by sqrt(2) so the
-# shipped effective dither is unchanged). The calibration sim below divides it
-# back out (EC_DITHER_CALIBRATION_COMPENSATION) because its legacy band-pass
-# dither formula was never renormalized — keeping calibration byte-identical.
-EC_DITHER_SCALE_MULTIPLIER = 0.5303300858899107
-EC_DITHER_CALIBRATION_COMPENSATION = 0.7071067811865476
-DEFAULT_ISI_PENALTY = 0.01
-EC_QUANTIZER_ERROR_WEIGHT = 0.80
-EC_STATE_PRESSURE_WEIGHT = 2.50
-EC_STATE_LIMIT_WEIGHT = 80.0
-EC_TRANSITION_WEIGHT = 0.002
-EC_DC_BIAS_WEIGHT = 0.04
-EC_DC_BIAS_DECAY = 0.9995
-EC_LOOKAHEAD_DISCOUNT = 0.6
-EC_STATE_LIMIT_SOFT_KNEE = 0.82
-
 # Out-of-band gain family generated per OSR. The Lee criterion's 1.5 is the
 # conservative anchor; the higher entries trade stable input range for deeper
-# in-band suppression (HQPlayer-class modulators live in the 1.6-2.0 region,
-# managed by look-ahead and graceful overload recovery on the Rust side).
-STANDARD_OBG_FAMILY = [1.4, 1.5, 1.6]
+# in-band suppression.
+LOW_RATE_STANDARD_OBG_FAMILY = {
+    # OBG 1.64 plants are used by 7th Order Search production. Its DSD64 exact-oracle
+    # compatibility path additionally retains the frozen OBG 1.65 plant.
+    64: [1.5, 1.64, 1.65],
+    128: [1.5, 1.64],
+    256: [1.6, 1.64],
+}
 HIGH_RATE_STANDARD_OBG_FAMILY = {
     512: [1.2, 1.3, 1.4, 1.45, 1.5, 1.6],
     1024: [1.4, 1.5, 1.6],
 }
-EC_OBG_FAMILY = {
-    # OSR64 EC sweep variants for the hotter-NTF measurement campaign (the EC
-    # search should tolerate more OBG than the one-step calibration suggests;
-    # see docs/dev/modulator-quality-improvements.md, Workstream A). The runtime EC
-    # alias still points at the conservative standard OBG1.40 table — promoting
-    # a hotter default requires a full harness A/B first.
-    64: [1.42, 1.44, 1.46, 1.48, 1.50, 1.52],
-    128: [1.42, 1.44, 1.46, 1.48],
-    # OSR256 OBG1.42 was tried in the fine-grid run and failed scaled
-    # calibration before measurement, so leave it absent for harness validation.
-    256: [1.44, 1.46, 1.48],
-}
-
 # Standard default table per OSR (must be in STANDARD_OBG_FAMILY and must survive the stability
 # battery). DSD128 keeps the proven Lee value; DSD256 spends some OSR headroom
 # on the hottest NTF that remains usable for the plain greedy quantizer.
@@ -272,23 +247,15 @@ STANDARD_DEFAULT_OBG = {
     1024: 1.6,
 }
 
-# EC default preference per OSR. The first generated entry wins; later entries
-# are conservative fallbacks if the hotter target does not survive calibration.
-EC_DEFAULT_OBG_PREFERENCE = {
-    64: [],
-    128: [1.42, 1.44, 1.46, 1.48],
-    256: [1.44, 1.46, 1.48],
-}
-
 # OSR64 is appended after the original entries so the shared RNG stream for
 # the OSR128/OSR256 jobs is unchanged and their tables regenerate identically.
-LEGACY_TARGET_OSRS = [128, 256, 64]
+LOW_RATE_STANDARD_OSRS = [128, 256, 64]
 
 # DSD512/DSD1024 are measurement-only Standard-modulator targets. Generate
 # each candidate with its own documented seed, exactly like `--single`, so
-# adding them cannot perturb any established Standard or EC table.
+# adding them cannot perturb any established Standard table.
 HIGH_RATE_STANDARD_OSRS = [512, 1024]
-TARGET_OSRS = LEGACY_TARGET_OSRS + HIGH_RATE_STANDARD_OSRS
+TARGET_OSRS = LOW_RATE_STANDARD_OSRS + HIGH_RATE_STANDARD_OSRS
 
 # Stability sweep: amplitudes tried per stimulus, divergence threshold, length.
 SWEEP_AMPS = np.round(np.arange(0.30, 0.99, 0.02), 4)
@@ -330,98 +297,9 @@ def batch_simulate_standard(A, b_u, b_v, C, d1, wave_fn, amps, n_steps, rng,
     return peak, unstable
 
 
-def compensated_feedback(prev_v, v):
-    return np.where(v != prev_v, v * (1.0 - DEFAULT_ISI_PENALTY), v)
-
-
-def updated_dc_bias(previous, v):
-    return EC_DC_BIAS_DECAY * previous + (1.0 - EC_DC_BIAS_DECAY) * v
-
-
-def ec_candidate_score(y_quantized, v, next_x, state_limit, prev_v, dc_bias):
-    quantizer_error = y_quantized - v
-    normalized = np.abs(next_x) / state_limit[:, None]
-    pressure = np.mean(normalized * normalized, axis=0)
-    approach = np.maximum(
-        (normalized - EC_STATE_LIMIT_SOFT_KNEE) / (1.0 - EC_STATE_LIMIT_SOFT_KNEE),
-        0.0,
-    )
-    overflow = np.maximum(normalized - 1.0, 0.0)
-    limit_penalty = np.sum(approach * approach, axis=0)
-    limit_penalty += 24.0 * np.sum(overflow * overflow, axis=0)
-    transition = np.where(v != prev_v, 1.0, 0.0)
-    next_bias = updated_dc_bias(dc_bias, v)
-    score = (
-        EC_QUANTIZER_ERROR_WEIGHT * quantizer_error * quantizer_error
-        + EC_STATE_PRESSURE_WEIGHT * pressure
-        + EC_STATE_LIMIT_WEIGHT * limit_penalty
-        + EC_TRANSITION_WEIGHT * transition
-        + EC_DC_BIAS_WEIGHT * next_bias * next_bias
-    )
-    bad = ~np.isfinite(quantizer_error) | ~np.all(np.isfinite(next_x), axis=0)
-    score[bad] = np.inf
-    return score
-
-
-def batch_simulate_ec(A, b_u, b_v, C, d1, state_limit, wave_fn, amps, n_steps, rng,
-                      diverge=DIVERGE_LIMIT):
-    """Vectorized clone of the conservative Rust EC one-step calibration path.
-
-    Runtime Rust now uses depth-2 lookahead. These generated limits are still
-    conservative for phase 1 defaults, but hotter OBG defaults must be validated
-    with the Rust quality harness before trusting the table values directly.
-    """
-    k = len(amps)
-    x = np.zeros((ORDER, k))
-    peak = np.zeros((ORDER, k))
-    unstable = np.zeros(k, dtype=bool)
-    prev_v = np.ones(k)
-    prev_tpdf_1 = np.zeros(k)
-    prev_tpdf_2 = np.zeros(k)
-    dc_bias = np.zeros(k)
-    for n in range(n_steps):
-        u = amps * wave_fn(n)
-        y = C @ x + d1 * u
-        tpdf = rng.random(k) + rng.random(k) - 1.0
-        high_pass_tpdf = 0.5 * (tpdf + prev_tpdf_2) - prev_tpdf_1
-        prev_tpdf_2 = prev_tpdf_1
-        prev_tpdf_1 = tpdf
-        y_quantized = y + high_pass_tpdf * DITHER_SCALE * (
-            EC_DITHER_SCALE_MULTIPLIER * EC_DITHER_CALIBRATION_COMPENSATION
-        )
-
-        v_pos = np.ones(k)
-        v_neg = -np.ones(k)
-        fb_pos = compensated_feedback(prev_v, v_pos)
-        fb_neg = compensated_feedback(prev_v, v_neg)
-        next_pos = A @ x + np.outer(b_u, u) + np.outer(b_v, fb_pos)
-        next_neg = A @ x + np.outer(b_u, u) + np.outer(b_v, fb_neg)
-        score_pos = ec_candidate_score(y_quantized, v_pos, next_pos, state_limit, prev_v, dc_bias)
-        score_neg = ec_candidate_score(y_quantized, v_neg, next_neg, state_limit, prev_v, dc_bias)
-        choose_pos = score_pos <= score_neg
-        v = np.where(choose_pos, 1.0, -1.0)
-        x = np.where(choose_pos[None, :], next_pos, next_neg)
-        dc_bias = updated_dc_bias(dc_bias, v)
-        prev_v = v
-
-        m = np.max(np.abs(x), axis=0)
-        bad = ~np.isfinite(m) | (m > diverge)
-        if bad.any():
-            unstable |= bad
-            x[:, bad] = 0.0
-            prev_v[bad] = 1.0
-            prev_tpdf_1[bad] = 0.0
-            prev_tpdf_2[bad] = 0.0
-            dc_bias[bad] = 0.0
-        np.maximum(peak, np.abs(x), out=peak)
-    return peak, unstable
-
-
 def batch_simulate(mode, A, b_u, b_v, C, d1, state_limit, wave_fn, amps, n_steps, rng,
                    diverge=DIVERGE_LIMIT):
-    if mode == "ec":
-        return batch_simulate_ec(
-            A, b_u, b_v, C, d1, state_limit, wave_fn, amps, n_steps, rng, diverge)
+    del mode, state_limit
     return batch_simulate_standard(
         A, b_u, b_v, C, d1, wave_fn, amps, n_steps, rng, diverge)
 
@@ -533,15 +411,9 @@ def design_variant(mode, osr, obg, rng):
     C_s = C @ T
 
     scaled_limit_guess = np.full(ORDER, LIMIT_MARGIN)
-    if mode == "ec":
-        limit, detail = stable_input_limit(
-            mode, A_s, b_u_s, b_v_s, C_s, d1, osr, rng, scaled_limit_guess)
-        input_peak = SAFETY * limit
-
     # Re-measure with fresh noise seeds to set saturation limits from data,
-    # not from the assumption that scaling worked. EC scoring depends on the
-    # normalized state limits, so back off the peak after scaling instead of
-    # throwing away otherwise useful variants.
+    # not from the assumption that scaling worked. Back off the peak after
+    # scaling instead of throwing away otherwise useful variants.
     while True:
         xmax_post, blew_up = measure_state_maxima(
             mode, A_s, b_u_s, b_v_s, C_s, d1, osr, input_peak, rng,
@@ -607,9 +479,8 @@ def fmt_row(row) -> str:
 
 
 def variant_name(mode, osr, obg):
+    del mode
     suffix = f"OSR{osr}_OBG{int(round(obg * 100)):03d}"
-    if mode == "ec":
-        return f"CRFB7_EC_{suffix}"
     return f"CRFB_{suffix}"
 
 
@@ -625,9 +496,8 @@ def choose_default(generated, mode, osr, preferences):
 def emit_variant(coeffs):
     mode = coeffs["mode"]
     name = variant_name(mode, coeffs["osr"], coeffs["obg"])
-    mode_label = "CRFB7 EC" if mode == "ec" else "CRFB"
     out = [
-        f"/// 7th-order {mode_label}, OSR={coeffs['osr']}, out-of-band gain {coeffs['obg']:.2f}, "
+        f"/// 7th-order CRFB, OSR={coeffs['osr']}, out-of-band gain {coeffs['obg']:.2f}, "
         f"input peak {coeffs['input_peak']:.3f}.",
         f"pub const {name}: ModulatorCoeffs = ModulatorCoeffs {{",
         "    a: [",
@@ -656,12 +526,8 @@ def emit_rust(variants):
     out.append("// Source: python-deltasigma synthesizeNTF(opt=1, H_inf=OBG) + realizeNTF +")
     out.append("// stuffABCD (form='CRFB', order=7), dynamic-range scaled by simulation, with")
     out.append("// measured stable input peaks and per-state saturation limits baked in.")
-    out.append("// EC variants use the conservative one-step calibration path.")
-    out.append("// Runtime Rust may use deeper EC lookahead; validate hotter defaults with")
-    out.append("// the Rust quality harness before trusting Python-calibrated limits directly.")
     out.append("")
-    out.append("// Generated tables expose measurement variants beyond the runtime defaults.")
-    out.append("#![allow(dead_code)]")
+    out.append("// Generated tables include the production plants and retained measurement variants.")
     out.append("// Preserve reproducible Python coefficient text.")
     out.append("#![allow(clippy::excessive_precision)]")
     out.append("")
@@ -692,12 +558,10 @@ def emit_rust(variants):
     out.append("")
     out.append("pub const CALIBRATED: bool = true;")
     out.append("")
-    names = []
     generated = {}
     for coeffs, _ in variants:
         mode = coeffs["mode"]
         name = variant_name(mode, coeffs["osr"], coeffs["obg"])
-        names.append((name, mode, coeffs["osr"], coeffs["obg"]))
         generated[(mode, coeffs["osr"], coeffs["obg"])] = name
         out.extend(emit_variant(coeffs))
         out.append("")
@@ -707,26 +571,6 @@ def emit_rust(variants):
         out.append(f"/// Standard hard-sign CRFB baseline for OSR={osr}.")
         out.append(f"pub const CRFB7_STANDARD_OSR{osr}: ModulatorCoeffs = {standard_default};")
         out.append("")
-        if osr in LEGACY_TARGET_OSRS:
-            ec_default = choose_default(generated, "standard", osr, [1.4])
-            ec_note = (
-                f"Conservative coefficient table used by the EC quantizer for OSR={osr}; "
-                "EC-specific variants are generated for explicit measurement sweeps only."
-            )
-            out.append(f"/// {ec_note}")
-            out.append(f"pub const CRFB7_EC_OSR{osr}: ModulatorCoeffs = {ec_default};")
-            out.append("")
-            out.append(f"/// Runtime default table for OSR={osr}; currently points to CRFB7_EC_OSR{osr}.")
-            out.append(f"pub const CRFB_OSR{osr}: ModulatorCoeffs = CRFB7_EC_OSR{osr};")
-            out.append("")
-    out.append("/// Every generated variant, for measurement harnesses and A/B sweeps.")
-    out.append(
-        f"pub static ALL_VARIANTS: [(&str, &ModulatorCoeffs); {len(names)}] = [")
-    for name, _, _, _ in names:
-        short = name.removeprefix("CRFB_")
-        out.append(f"    (\"{short}\", &{name}),")
-    out.append("];")
-    out.append("")
     return "\n".join(out)
 
 
@@ -750,8 +594,8 @@ def main():
 
     if args.single:
         mode, osr_text, obg_text = args.single
-        if mode not in ("standard", "ec"):
-            parser.error("--single MODE must be standard or ec")
+        if mode != "standard":
+            parser.error("--single MODE must be standard")
         osr = int(osr_text)
         obg = float(obg_text)
         rng = np.random.default_rng(args.seed)
@@ -794,9 +638,8 @@ def main():
     print("mode      osr  obg   Hinf  inband(dB)  stableDC  stableSine  input_peak  notes",
           file=sys.stderr)
     jobs = []
-    for osr in LEGACY_TARGET_OSRS:
-        jobs.extend(("standard", osr, obg) for obg in STANDARD_OBG_FAMILY)
-        jobs.extend(("ec", osr, obg) for obg in EC_OBG_FAMILY[osr])
+    for osr in LOW_RATE_STANDARD_OSRS:
+        jobs.extend(("standard", osr, obg) for obg in LOW_RATE_STANDARD_OBG_FAMILY[osr])
     for osr in HIGH_RATE_STANDARD_OSRS:
         jobs.extend(("standard", osr, obg) for obg in HIGH_RATE_STANDARD_OBG_FAMILY[osr])
 

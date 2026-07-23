@@ -6,7 +6,7 @@ pub(crate) fn parse_settings(path: &Path, body: &str) -> Result<PersistedSetting
         .map_err(|error| format!("parse settings {:?}: {error}", path))?;
     settings.normalize_profiles();
     for playback in settings.zone_settings.values_mut() {
-        playback.normalize_filters();
+        playback.normalize_names();
     }
     Ok(settings)
 }
@@ -191,6 +191,7 @@ mod tests {
                 "exclusive": true,
                 "dither_mode": "Tpdf",
                 "output_mode": "Dsd256",
+                "dsd_modulator": "EcBeam2",
                 "dsd_rules_enabled": true,
                 "dsd_rules": [
                     {
@@ -214,6 +215,7 @@ mod tests {
         assert_eq!(playback.exclusive, Some(true));
         assert_eq!(playback.dither_mode.as_deref(), Some("Tpdf"));
         assert_eq!(playback.output_mode.as_deref(), Some("Dsd256"));
+        assert_eq!(playback.dsd_modulator.as_deref(), Some("7th-order-search"));
         assert!(playback.dsd_rules_enabled);
         assert_eq!(playback.dsd_rules.len(), 1);
         assert_eq!(playback.dsd_rules[0].source_rate, 176_400);

@@ -4016,7 +4016,7 @@ mod tests {
             exclusive: false,
             dither_mode: "Auto".to_string(),
             output_mode: "Pcm".to_string(),
-            dsd_modulator: "EcDepth2".to_string(),
+            dsd_modulator: "Standard".to_string(),
             dsd_isi_penalty: 0.0,
             dsd_rules: Vec::new(),
             headroom_db: 0.0,

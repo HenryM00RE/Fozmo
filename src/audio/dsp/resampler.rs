@@ -242,14 +242,6 @@ impl FilterType {
         true
     }
 
-    pub(crate) fn uses_long_filter_dsd_defaults(self) -> bool {
-        true
-    }
-
-    pub(crate) fn uses_split_family_dsd_defaults(self) -> bool {
-        self == Self::SplitPhase128kE3
-    }
-
     fn uses_frozen_coefficients(self) -> bool {
         self == Self::SplitPhase128kE3
     }

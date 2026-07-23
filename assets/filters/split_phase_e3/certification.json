@@ -72,7 +72,7 @@
   },
   "dsd_validation": {
     "rates": [64, 128, 256],
-    "modulators": ["Standard", "EcBeam2"],
+    "modulators": ["Standard", "7th-order-search"],
     "cell_count": 14,
     "hard_failure_count": 0,
     "diagnostic_hard_failure_count": 0,

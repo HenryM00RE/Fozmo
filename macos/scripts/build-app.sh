@@ -226,7 +226,7 @@ ditto "$ROOT_DIR/presets" "$RESOURCES/default-presets"
 find "$RESOURCES/static/react-app" -type f -name '*.map' -delete
 
 if [[ -f "$ROOT_DIR/LICENSE" ]]; then cp "$ROOT_DIR/LICENSE" "$RESOURCES/licenses/Fozmo-MIT.txt"; fi
-if [[ -d "$ROOT_DIR/LICENSES" ]]; then ditto "$ROOT_DIR/LICENSES" "$RESOURCES/licenses/project"; fi
+if [[ -d "$ROOT_DIR/LEGAL" ]]; then ditto "$ROOT_DIR/LEGAL" "$RESOURCES/licenses/project"; fi
 if [[ -f "$ROOT_DIR/airplay-helper/LICENSE" ]]; then cp "$ROOT_DIR/airplay-helper/LICENSE" "$RESOURCES/licenses/AirPlay-helper-GPL-2.0.txt"; fi
 cp "$ROOT_DIR/docs/gpl-aggregation-assessment.md" "$RESOURCES/licenses/GPL-AGGREGATION-ASSESSMENT.md"
 cp "$LAUNCHER_DIR/.build/artifacts/sparkle/Sparkle/LICENSE" "$RESOURCES/licenses/Sparkle-MIT.txt"
@@ -298,7 +298,7 @@ manifest = {
     "bundled_tools": ["fozmoctl"],
     "distribution_policy": {
         "aggregation_assessment_sha256": sha256(root / "docs/gpl-aggregation-assessment.md"),
-        "aggregation_policy_sha256": sha256(root / "LICENSES/gpl-aggregation-policy.json"),
+        "aggregation_policy_sha256": sha256(root / "LEGAL/gpl-aggregation-policy.json"),
     },
     "excluded_features": ["apple_music_capture", "asio", "in_process_airplay"],
     "ffmpeg": ffmpeg_provenance,

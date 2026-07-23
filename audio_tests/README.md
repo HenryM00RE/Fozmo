@@ -1,14 +1,11 @@
 # Audio development checks
 
-The retained audio checks cover the public production-quality bench, narrow
-EcBeam2 research, functional smoke coverage, and performance measurement.
-
-All EcBeam2 corpus inputs are generated from committed manifests. No commercial
-music fixtures are stored in this repository.
+The retained audio checks cover the public production-quality bench, focused
+7th Order Search oracle checks, functional smoke coverage, and performance measurement.
 
 ## Public PCM-to-DSD quality
 
-The fixed synthetic 28-cell v5 matrix runs without network access or external
+The fixed synthetic 14-cell v7 matrix runs without network access or external
 media. It scores the production-default Split Phase path and writes JSON plus
 Markdown:
 
@@ -22,7 +19,7 @@ cargo run --locked --release --bin dsd_public_quality -- \
 `SplitPhase128kE3`, exposed in the product as Split Phase, is the canonical
 filter. A narrower modulator selection
 records `matrix_complete: false` and cannot pass `--check`. Add
-`--include-linear-reference` to run the 21-cell `LinearPhase128k` diagnostic. The
+`--include-linear-reference` to run the 7-cell `LinearPhase128k` diagnostic. The
 diagnostic never affects canonical completeness, structural checking, or the
 production-path scores.
 
@@ -34,13 +31,13 @@ cargo run --locked --release --bin dsd_public_quality -- \
   --out target/dsd-public-quality-e3-dsd64-dsd128 \
   --filter SplitPhase128kE3 \
   --rates 64,128 \
-  --modulator Standard,EcBeam2
+  --modulator Standard,7th-order-search
 ```
 
 Any reduced `--rates` or `--modulator` selection is noncanonical, reports
 `matrix_complete: false`, and emits no production-path score.
 
-Version 5 reports also serialize a fixed 2 ms restart-error envelope over
+Version 7 reports also serialize a fixed 2 ms restart-error envelope over
 0-50 ms. `--transition-envelope-reference PATH` compares each stress channel
 with a frozen report using linear-power positive excess, and
 `--transition-envelope-tolerance-rms` supplies the frozen numerical tolerance.
@@ -61,39 +58,19 @@ source snapshot; setting `RUSTFLAGS` only when launching an old binary does not
 satisfy that contract. The versioned 100-point presentation is explicitly a
 Split Phase E3 production-path comparison, not a `--check` quality gate or a
 listening score. The checked-in baseline remains the historical 26-cell v4
-result from before EcBeam2 gained DSD256 qualification.
+result from before 7th Order Search gained DSD256 qualification. As an
+immutable measurement artifact, its JSON retains the legacy `EcBeam2` field
+values and metric prefixes.
 The full methodology is documented in
 [docs/dsd-public-quality.md](../docs/dsd-public-quality.md).
 
-## EcBeam2
+## 7th Order Search exact oracle
 
-Build the narrow EcBeam2 qualification CLI and exact oracle:
+Build the retained exact-oracle tool with:
 
 ```sh
 RUSTFLAGS="-C target-cpu=native" cargo build --release \
-  --bin ecbeam2_quality \
-  --bin ecbeam2_exact_oracle \
-  --features ecbeam2_observer
-```
-
-The bounded campaign driver owns calibration, stability, budget, selection, and
-held-out phases:
-
-```sh
-python3 tools/dsd64_ecbeam2_experiment.py \
-  --phase calibration \
-  --dry-run \
-  --out audio_tests/out/ecbeam2-calibration-dryrun
-```
-
-Committed manifests live in `audio_tests/ecbeam2/manifests/`. The native
-qualification implementation is isolated under `audio_tests/ecbeam2/` and is
-not a general-purpose production tuning surface.
-
-Run its orchestration tests with:
-
-```sh
-PYTHONPATH=tools python3 -m unittest tools/test_dsd64_ecbeam2_experiment.py
+  --bin seventh_order_search_exact_oracle
 ```
 
 ## Performance
@@ -124,10 +101,10 @@ controls.
 
 ## Functional smoke coverage
 
-The lightweight integration test checks that all four production modulators
+The lightweight integration test checks that both production modulators
 complete the real native-DSD EOF path with exact output length and clean health
-counters. EcBeam2 additionally covers all three supported filters at DSD64 and
-DSD128:
+counters. 7th Order Search additionally covers every supported filter at DSD64
+and DSD128:
 
 ```sh
 RUSTFLAGS="-C target-cpu=native" cargo test --release --test audio_smoke

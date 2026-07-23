@@ -12,7 +12,6 @@ import {
   dsdRateFromOutputMode,
   dsdRateOptions,
   dspBufferOptions,
-  ecBeam2FilterSupported,
   filterOptions,
   headroomAfterDsdModulatorChange,
   headroomLockedForDsdModulator,
@@ -20,7 +19,9 @@ import {
   isiPenaltyAfterDsdModulatorChange,
   outputModeForDsdRate,
   pcmBitDepthOptions,
+  SEVENTH_ORDER_SEARCH_ID,
   sampleRateOptions,
+  seventhOrderSearchFilterSupported,
   zoneSupportsDopDsd,
   zoneSupportsDsdOutputMode,
   zoneSupportsDsp,
@@ -31,7 +32,7 @@ type PlaybackConfig = ReturnType<typeof configFromStatus>;
 
 export function DspSettingsPage({
   applyState,
-  ecBeam2Selectable,
+  seventhOrderSearchSelectable,
   selectedDeviceName,
   selectedZoneId,
   settingsZones,
@@ -42,7 +43,7 @@ export function DspSettingsPage({
   updatePlaybackConfig
 }: {
   applyState: DspApplyState;
-  ecBeam2Selectable: boolean;
+  seventhOrderSearchSelectable: boolean;
   selectedDeviceName: string;
   selectedZoneId: string;
   settingsZones: ZoneProfile[];
@@ -227,7 +228,8 @@ export function DspSettingsPage({
                     value,
                     label,
                     disabled:
-                      playbackConfig.dsdModulator === 'EcBeam2' && !ecBeam2FilterSupported(value)
+                      playbackConfig.dsdModulator === SEVENTH_ORDER_SEARCH_ID &&
+                      !seventhOrderSearchFilterSupported(value)
                   }))}
                 />
               </div>
@@ -282,7 +284,7 @@ export function DspSettingsPage({
                   options={dsdModulatorOptions.map(([value, label]) => ({
                     value,
                     label,
-                    disabled: value === 'EcBeam2' && !ecBeam2Selectable
+                    disabled: value === SEVENTH_ORDER_SEARCH_ID && !seventhOrderSearchSelectable
                   }))}
                 />
               </div>
@@ -314,7 +316,8 @@ export function DspSettingsPage({
                     step="0.001"
                     value={playbackConfig.dsdIsiPenalty}
                     disabled={
-                      !playbackConfig.upsamplingEnabled || playbackConfig.dsdModulator === 'EcBeam2'
+                      !playbackConfig.upsamplingEnabled ||
+                      playbackConfig.dsdModulator === SEVENTH_ORDER_SEARCH_ID
                     }
                     onChange={(event) =>
                       updatePlaybackConfig('dsdIsiPenalty', Number(event.target.value))

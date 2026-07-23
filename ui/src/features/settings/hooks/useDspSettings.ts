@@ -11,12 +11,12 @@ import {
   defaultDsdOutputModeForZone,
   dsdDefaultRules,
   dsdSourceRates,
-  ecBeam2SelectableForDsdConfig,
   headroomAfterUpsamplingChange,
   knownFilterIds,
   numberValue,
   playbackDspConfigKey,
   playbackDspConfigMatchesStatus,
+  seventhOrderSearchSelectableForDsdConfig,
   stringValue,
   visibleFilterType,
   zoneSupportsDsdOutputMode,
@@ -66,7 +66,7 @@ export function useDspSettings(
   const playbackConfigKey = playbackDspConfigKey(playbackConfig);
   const dsdRulesKey = JSON.stringify(statusForConfig.dsd_rules || null);
   const experimentalDsd256 = capabilityEnabled(statusForConfig, 'experimental_dsd256');
-  const ecBeam2Selectable = ecBeam2SelectableForDsdConfig(
+  const seventhOrderSearchSelectable = seventhOrderSearchSelectableForDsdConfig(
     playbackConfig.outputMode,
     playbackConfig.filterType,
     statusForConfig.dsd_rules_enabled,
@@ -327,7 +327,7 @@ export function useDspSettings(
 
   return {
     applyState,
-    ecBeam2Selectable,
+    seventhOrderSearchSelectable,
     playbackConfig,
     playbackConfigError,
     updatePlaybackConfig

@@ -58,7 +58,7 @@ release_core_features() {
 
 verify_gpl_aggregation_policy() {
   local mode="$1" version="$2"
-  local policy="$ROOT_DIR/LICENSES/gpl-aggregation-policy.json"
+  local policy="$ROOT_DIR/LEGAL/gpl-aggregation-policy.json"
   require_command python3
   [[ -s "$policy" ]] || die "tracked GPL aggregation policy is missing: $policy"
   python3 - "$policy" "$ROOT_DIR" "$mode" "$version" <<'PY'

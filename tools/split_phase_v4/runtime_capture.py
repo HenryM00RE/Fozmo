@@ -12,7 +12,7 @@ from typing import Any
 def capture(root: Path, output: Path) -> dict[str, Any]:
     commands = [
         ["cargo", "test", "--lib", "split_phase_v4", "--", "--nocapture"],
-        ["cargo", "test", "--lib", "production_ecbeam2_renders_both_dsd128_wire_families", "--", "--nocapture"],
+        ["cargo", "test", "--lib", "production_seventh_order_search_renders_both_dsd128_wire_families", "--", "--nocapture"],
     ]
     history = []
     combined_output = ""
@@ -47,8 +47,8 @@ def capture(root: Path, output: Path) -> dict[str, Any]:
             "integer_decimation": "measured independently",
             "147_160_rational": "measured",
             "160_147_rational": "measured independently",
-            "ecbeam2_dsd128_44_1_family": "measured",
-            "ecbeam2_dsd128_48_family": "measured",
+            "seventh_order_search_dsd128_44_1_family": "measured",
+            "seventh_order_search_dsd128_48_family": "measured",
         },
         "state_cases": {
             "reset": "bit-stable test",
@@ -56,7 +56,7 @@ def capture(root: Path, output: Path) -> dict[str, Any]:
             "gapless_carry": "chunk-boundary invariance test",
             "stereo_equality": "complex stereo tone and independent-channel signal tests",
             "random_channel_content": "deterministic mixed-signal test",
-            "long_session": "EcBeam2 production render plus rational frame-count coverage",
+            "long_session": "7th Order Search production render plus rational frame-count coverage",
         },
         "commands": history,
         "measured_runtime_metrics": runtime_metrics,

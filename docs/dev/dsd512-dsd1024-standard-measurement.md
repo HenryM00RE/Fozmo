@@ -8,7 +8,7 @@ Rust 1.96.0.
 
 - Standard hard-sign seventh-order CRFB modulator only.
 - No output-mode, settings, transport-capability, or UI exposure.
-- No ECBeam/ECBeam2 high-rate table or policy.
+- No 7th Order Search high-rate table or policy.
 - 44.1 kHz-family wire rates are 22.5792 MHz (DSD512) and 45.1584 MHz
   (DSD1024); the 48 kHz-family rates are 24.576 MHz and 49.152 MHz.
 
@@ -38,8 +38,8 @@ audio band. It is not an end-to-end reconstructed SINAD measurement.
 OBG 1.60 was the initial measurement default at both rates because it gives the
 strongest modeled shaping while retaining a calibrated stable range. The
 end-to-end optimization below promotes OBG 1.50 for DSD512; DSD1024 remains at
-OBG 1.60 pending an equivalent sweep. All nine candidates remain in
-`ALL_VARIANTS` for later A/B work.
+OBG 1.60 pending an equivalent sweep. All nine candidates remain available as
+named coefficient tables for later A/B work.
 
 ## Runtime cost and stability
 
@@ -78,17 +78,17 @@ render took 219.06 seconds and completed with zero structural failures, state
 clamps, or resets. These figures remain useful as the initial OBG 1.60
 baseline, but they are not the final E2v3 result.
 The table uses the more conservative channel at each level. `Delta` is DSD512
-Standard minus the published DSD128 EcBeam2 E2v3 result, so a positive SINAD
+Standard minus the published DSD128 7th Order Search E2v3 result, so a positive SINAD
 delta would favor DSD512.
 
-| Effective level | DSD512 Standard SINAD | DSD128 EcBeam2 SINAD | SINAD delta | DSD512 residual | DSD128 EcBeam2 residual |
+| Effective level | DSD512 Standard SINAD | DSD128 7th Order Search SINAD | SINAD delta | DSD512 residual | DSD128 7th Order Search residual |
 | ---: | ---: | ---: | ---: | ---: | ---: |
 | -6 dBFS | 183.01 dB | 186.54 dB | -3.53 dB | -189.06 dBFS | -192.57 dBFS |
 | -20 dBFS | 169.21 dB | 172.66 dB | -3.45 dB | -189.31 dBFS | -192.67 dBFS |
 | -60 dBFS | 116.76 dB | 132.67 dB | -15.91 dB | -190.74 dBFS | -192.76 dBFS |
 | -100 dBFS | 92.61 dB | 94.07 dB | -1.46 dB | -192.61 dBFS | -194.07 dBFS |
 
-DSD128 EcBeam2 is better at every tested level. At -6, -20, and -100 dBFS the
+DSD128 7th Order Search is better at every tested level. At -6, -20, and -100 dBFS the
 difference mostly follows its roughly 1.5-3.5 dB lower reconstructed residual.
 The much larger -60 dBFS gap is distortion-limited in DSD512 Standard: THD was
 -116.94 dB relative to the carrier even though its residual noise was -190.74
@@ -106,9 +106,10 @@ DSD512 cell used
 failures, limiter events, state clamps, or stability resets.
 
 The carrier table reports the largest absolute gain error across the two
-channels. The published baseline calls `EcBeam2` **7th Order Search**.
+channels. The published baseline's legacy identifier is displayed in the
+product as **7th Order Search**.
 
-| Carrier | DSD512 Standard | DSD128 EcBeam2 | Comparison |
+| Carrier | DSD512 Standard | DSD128 7th Order Search | Comparison |
 | --- | ---: | ---: | ---: |
 | 1 kHz | 0.000000009 dB | 0.000000007 dB | 0.000000002 dB worse |
 | 18 kHz | 0.000000002 dB | 0.000000016 dB | about 8.5x lower error |
@@ -118,14 +119,14 @@ channels. The published baseline calls `EcBeam2` **7th Order Search**.
 For each reconstruction band, the DSD512 row gives the two-channel residual
 range and the less-negative unexpected spur. `Residual advantage` and `spur
 advantage` are how much lower the conservative DSD512 result is than the
-published DSD128 EcBeam2 result.
+published DSD128 7th Order Search result.
 
-| Band | DSD512 residual range | DSD128 EcBeam2 residual | Residual advantage | DSD512 worst spur | DSD128 EcBeam2 worst spur | Spur advantage |
+| Band | DSD512 residual range | DSD128 7th Order Search residual | Residual advantage | DSD512 worst spur | DSD128 7th Order Search worst spur | Spur advantage |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | 0-20 kHz | -188.74 to -188.71 dBFS | -157.31 dBFS | 31.40 dB | -207.40 dBFS | -189.13 dBFS | 18.27 dB |
 | 20-80 kHz | -163.97 to -163.81 dBFS | -80.87 dBFS | 82.94 dB | -178.72 dBFS | -96.02 dBFS | 82.70 dB |
 
-At hi-res frequencies, DSD512 Standard decisively improves on DSD128 EcBeam2:
+At hi-res frequencies, DSD512 Standard decisively improves on DSD128 7th Order Search:
 its conservative reconstructed residual is 31.40 dB lower in-band and 82.94 dB
 lower from 20-80 kHz. The only nominal loss is a two-billionths-of-a-decibel
 larger 1 kHz gain error, which is immaterial at this measurement precision.
@@ -158,7 +159,7 @@ The optimized OBG 1.50 result uses the conservative channel at each level.
 | -60 dBFS | 119.62 dB | 119.02 dB | 0.60 dB | -188.96 dBFS | -190.63 dBFS |
 | -100 dBFS | 94.97 dB | 90.90 dB | 4.06 dB | -194.97 dBFS | -217.53 dBFS |
 
-Against the published DSD128 EcBeam2 result, optimized DSD512 is within 0.07 dB
+Against the published DSD128 7th Order Search result, optimized DSD512 is within 0.07 dB
 at -6 dBFS, trails by 1.92 dB at -20 dBFS and 13.05 dB at the distortion-limited
 -60 dBFS point, and leads by 0.90 dB at -100 dBFS.
 
@@ -168,7 +169,7 @@ at 70 kHz. Relative to the initial OBG 1.60 table, OBG 1.50 lowers the 0-20 kHz
 residual by 3.40 dB and its worst spur by 3.99 dB, while giving back 3.50 dB of
 20-80 kHz residual and 4.33 dB of ultrasonic spur margin.
 
-| Band | Optimized residual range | DSD128 EcBeam2 residual | Residual advantage | Optimized worst spur | DSD128 EcBeam2 worst spur | Spur advantage |
+| Band | Optimized residual range | DSD128 7th Order Search residual | Residual advantage | Optimized worst spur | DSD128 7th Order Search worst spur | Spur advantage |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | 0-20 kHz | -192.23 to -192.11 dBFS | -157.31 dBFS | 34.80 dB | -211.39 dBFS | -189.13 dBFS | 22.26 dB |
 | 20-80 kHz | -160.40 to -160.31 dBFS | -80.87 dBFS | 79.44 dB | -174.39 dBFS | -96.02 dBFS | 78.37 dB |
@@ -187,7 +188,7 @@ than a nearby regenerated table.
 
 Keep both rates measurement-only. DSD512 now has coherent level-sweep and
 hi-res reconstruction results through the actual 512x E2v3 cascade. It is now
-competitive with DSD128 EcBeam2 at three of the four coherent levels and is
+competitive with DSD128 7th Order Search at three of the four coherent levels and is
 substantially better on the hi-res reconstruction fixture, but the -60 dBFS
 distortion gap remains. Idle, stress, complete renderer profiling, and
 transport qualification still remain. DSD1024 needs a substantial throughput

@@ -103,7 +103,7 @@ export function SettingsView({
   } = useMediaSettings(onRefresh, libraryManagementAvailable);
   const {
     applyState,
-    ecBeam2Selectable,
+    seventhOrderSearchSelectable,
     playbackConfig,
     playbackConfigError,
     updatePlaybackConfig
@@ -276,7 +276,7 @@ export function SettingsView({
       {activeTab === 'dsp' ? (
         <DspSettingsPage
           applyState={applyState}
-          ecBeam2Selectable={ecBeam2Selectable}
+          seventhOrderSearchSelectable={seventhOrderSearchSelectable}
           playbackConfig={playbackConfig}
           playbackConfigError={playbackConfigError}
           selectedDeviceName={settingsTargetZoneName}

@@ -63,7 +63,7 @@ describe('SignalPopover', () => {
           output_transport: 'dop_coreaudio',
           active_filter_type: 'SplitPhase128kE3',
           headroom_db: -2,
-          dsd_modulator: 'Search7',
+          dsd_modulator: '7th-order-search',
           dsd_limiter_peak_ratio: 0.189,
           dsd_limiter_peak_ratio_max: 0.576,
           cpu_percent: 12,
@@ -75,6 +75,7 @@ describe('SignalPopover', () => {
 
     expect(screen.getByText('24/96.0 kHz → DSD128 (6.1440 MHz)')).toBeInTheDocument();
     expect(screen.getByText('Split Phase → DSD128')).toBeInTheDocument();
+    expect(screen.getByText('7th Order Search · DoP via CoreAudio')).toBeInTheDocument();
     expect(screen.getByText('-2.0dB Headroom')).toBeInTheDocument();
     expect(screen.getByText('2.5x Realtime')).toBeInTheDocument();
     expect(screen.queryByText(/Input 18\.9%/)).not.toBeInTheDocument();

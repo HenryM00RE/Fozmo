@@ -319,7 +319,7 @@ impl SettingsStore {
         self.commit_mutation(|next| {
             let mut playback = next.playback_for_zone(zone_id);
             mutator(&mut playback);
-            playback.normalize_filters();
+            playback.normalize_names();
             next.zone_settings
                 .insert(zone_id.to_string(), playback.clone());
             next.mirror_legacy_playback_fields(&playback);
@@ -338,7 +338,7 @@ impl SettingsStore {
         self.commit_mutation_with_debounce(true, |next| {
             let mut playback = next.playback_for_zone(zone_id);
             mutator(&mut playback);
-            playback.normalize_filters();
+            playback.normalize_names();
             next.zone_settings
                 .insert(zone_id.to_string(), playback.clone());
             next.mirror_legacy_playback_fields(&playback);

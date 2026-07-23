@@ -27,12 +27,10 @@ fn active_filters_round_trip_through_ids_names_and_serde() {
 
 #[test]
 fn retired_filter_names_migrate_to_supported_filters() {
-    for name in ["SincExtreme32k"] {
-        assert_eq!(
-            FilterType::from_name(name),
-            Some(FilterType::LinearPhase128k)
-        );
-    }
+    assert_eq!(
+        FilterType::from_name("SincExtreme32k"),
+        Some(FilterType::LinearPhase128k)
+    );
     for name in [
         "MinimumPhase128k",
         "MinimumPhase128kV2",

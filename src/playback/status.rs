@@ -1617,9 +1617,6 @@ fn build_status_response_for_player(
     let dsd_isi_penalty = zone_playback_settings
         .dsd_isi_penalty
         .unwrap_or(config.dsd_isi_penalty);
-    let configured_headroom_db = zone_playback_settings
-        .headroom_db
-        .unwrap_or(config.headroom_db);
     let upsampling_enabled = zone_playback_settings
         .upsampling_enabled
         .unwrap_or(config.upsampling_enabled);
@@ -1628,8 +1625,7 @@ fn build_status_response_for_player(
     } else {
         match selected_dsd_modulator {
             DsdModulator::Standard => -4.0,
-            DsdModulator::EcBeam2 => -2.0,
-            _ => configured_headroom_db,
+            DsdModulator::SeventhOrderSearch => -2.0,
         }
     };
     let exclusive = zone_playback_settings.exclusive.unwrap_or(config.exclusive);

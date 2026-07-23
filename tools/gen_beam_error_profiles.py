@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate, fit, and verify the fixed DSD64 EcBeam2 error profiles.
+"""Generate, fit, and verify the fixed DSD64 7th Order Search error profiles.
 
 The runtime profiles are sixth-order (three-biquad) stable elliptic spectral
 factors.  Reconstruction and ultrasonic factors are fitted independently in

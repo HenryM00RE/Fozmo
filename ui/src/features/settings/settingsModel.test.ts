@@ -7,8 +7,6 @@ import {
   defaultDsdOutputModeForZone,
   dsdModulatorOptions,
   dsdModulatorSupportsOutputMode,
-  ecBeam2FilterSupported,
-  ecBeam2SelectableForDsdConfig,
   filterOptions,
   formatOutputDsdRate,
   formatOutputPcmRate,
@@ -20,7 +18,10 @@ import {
   isiPenaltyAfterDsdModulatorChange,
   playbackDspConfigKey,
   playbackDspConfigMatchesStatus,
+  SEVENTH_ORDER_SEARCH_ID,
   settingsTabFromValue,
+  seventhOrderSearchFilterSupported,
+  seventhOrderSearchSelectableForDsdConfig,
   upnpDsdCapabilityWarning,
   upnpPcmCapabilityWarning,
   visibleDsdModulator,
@@ -91,39 +92,44 @@ describe('DSD modulator choices', () => {
   it('exposes 7th Order and 7th Order Search while normalizing retired values', () => {
     expect(dsdModulatorOptions).toEqual([
       ['Standard', '7th Order'],
-      ['EcBeam2', '7th Order Search']
+      [SEVENTH_ORDER_SEARCH_ID, '7th Order Search']
     ]);
     expect(visibleDsdModulator('Standard')).toBe('Standard');
     expect(visibleDsdModulator('EcBeam')).toBe('Standard');
     expect(visibleDsdModulator('7th Order ECB')).toBe('Standard');
     expect(visibleDsdModulator('EcDepth2')).toBe('Standard');
     expect(visibleDsdModulator('EC depth 4')).toBe('Standard');
-    expect(visibleDsdModulator('EcBeam2')).toBe('EcBeam2');
-    expect(visibleDsdModulator('7th Order Search')).toBe('EcBeam2');
-    expect(visibleDsdModulator('7th Order Beam')).toBe('EcBeam2');
-    expect(visibleDsdModulator('7th Order ECB2')).toBe('EcBeam2');
-    expect(visibleDsdModulator('7th Order ECB2 (Experimental)')).toBe('EcBeam2');
+    expect(visibleDsdModulator(SEVENTH_ORDER_SEARCH_ID)).toBe(SEVENTH_ORDER_SEARCH_ID);
+    expect(visibleDsdModulator('EcBeam2')).toBe(SEVENTH_ORDER_SEARCH_ID);
+    expect(visibleDsdModulator('7th Order Search')).toBe(SEVENTH_ORDER_SEARCH_ID);
+    expect(visibleDsdModulator('7th Order Beam')).toBe(SEVENTH_ORDER_SEARCH_ID);
+    expect(visibleDsdModulator('7th Order ECB2')).toBe(SEVENTH_ORDER_SEARCH_ID);
+    expect(visibleDsdModulator('7th Order ECB2 (Experimental)')).toBe(SEVENTH_ORDER_SEARCH_ID);
     expect(headroomAfterDsdModulatorChange(-2, 'Standard')).toBe(-4);
-    expect(headroomAfterDsdModulatorChange(-4, 'EcBeam2')).toBe(-2);
+    expect(headroomAfterDsdModulatorChange(-4, SEVENTH_ORDER_SEARCH_ID)).toBe(-2);
     expect(headroomAfterDsdModulatorChange(-6, 'Standard')).toBe(-4);
-    expect(headroomAfterUpsamplingChange(-2, false, 'EcBeam2')).toBe(0);
-    expect(headroomAfterUpsamplingChange(0, true, 'EcBeam2')).toBe(-2);
+    expect(headroomAfterUpsamplingChange(-2, false, SEVENTH_ORDER_SEARCH_ID)).toBe(0);
+    expect(headroomAfterUpsamplingChange(0, true, SEVENTH_ORDER_SEARCH_ID)).toBe(-2);
     expect(headroomAfterUpsamplingChange(0, true, 'Standard')).toBe(-4);
-    expect(headroomLockedForDsdModulator('EcBeam2')).toBe(true);
+    expect(headroomLockedForDsdModulator(SEVENTH_ORDER_SEARCH_ID)).toBe(true);
     expect(headroomLockedForDsdModulator('Standard')).toBe(true);
-    expect(isiPenaltyAfterDsdModulatorChange(0.01, 'EcBeam2')).toBe(0);
+    expect(isiPenaltyAfterDsdModulatorChange(0.01, SEVENTH_ORDER_SEARCH_ID)).toBe(0);
     expect(isiPenaltyAfterDsdModulatorChange(0.01, 'Standard')).toBe(0.01);
   });
 
   it('makes 7th Order Search selectable only for qualified DSD64/128 rates and filters', () => {
-    expect(ecBeam2SelectableForDsdConfig('Dsd64', 'MinimumPhaseCompact128kV2', false, [])).toBe(
+    expect(
+      seventhOrderSearchSelectableForDsdConfig('Dsd64', 'MinimumPhaseCompact128kV2', false, [])
+    ).toBe(true);
+    expect(seventhOrderSearchSelectableForDsdConfig('Dsd64', 'Split128k', false, [])).toBe(true);
+    expect(seventhOrderSearchSelectableForDsdConfig('Dsd64', 'LinearPhase128k', false, [])).toBe(
       true
     );
-    expect(ecBeam2SelectableForDsdConfig('Dsd64', 'Split128k', false, [])).toBe(true);
-    expect(ecBeam2SelectableForDsdConfig('Dsd64', 'LinearPhase128k', false, [])).toBe(true);
-    expect(ecBeam2SelectableForDsdConfig('Dsd64', 'SincExtreme32k', false, [])).toBe(true);
+    expect(seventhOrderSearchSelectableForDsdConfig('Dsd64', 'SincExtreme32k', false, [])).toBe(
+      true
+    );
     expect(
-      ecBeam2SelectableForDsdConfig('Dsd64', 'Split128k', true, [
+      seventhOrderSearchSelectableForDsdConfig('Dsd64', 'Split128k', true, [
         {
           source_rate: 44100,
           filter_type: 'MinimumPhaseCompact128kV2',
@@ -132,41 +138,43 @@ describe('DSD modulator choices', () => {
       ])
     ).toBe(true);
     expect(
-      ecBeam2SelectableForDsdConfig('Dsd64', 'Split128k', true, [
+      seventhOrderSearchSelectableForDsdConfig('Dsd64', 'Split128k', true, [
         { source_rate: 44100, filter_type: 'Split128k', output_mode: 'Dsd128' }
       ])
     ).toBe(true);
     expect(
-      ecBeam2SelectableForDsdConfig('Dsd64', 'Split128k', true, [
+      seventhOrderSearchSelectableForDsdConfig('Dsd64', 'Split128k', true, [
         { source_rate: 44100, filter_type: 'SincExtreme32k', output_mode: 'Dsd64' }
       ])
     ).toBe(true);
-    expect(ecBeam2SelectableForDsdConfig('Dsd128', 'Split128k', false, [])).toBe(true);
-    expect(ecBeam2SelectableForDsdConfig('Dsd128', 'MinimumPhaseCompact128kV2', false, [])).toBe(
+    expect(seventhOrderSearchSelectableForDsdConfig('Dsd128', 'Split128k', false, [])).toBe(true);
+    expect(
+      seventhOrderSearchSelectableForDsdConfig('Dsd128', 'MinimumPhaseCompact128kV2', false, [])
+    ).toBe(true);
+    expect(seventhOrderSearchSelectableForDsdConfig('Dsd128', 'SmoothPhase128k', false, [])).toBe(
       true
     );
-    expect(ecBeam2SelectableForDsdConfig('Dsd128', 'SmoothPhase128k', false, [])).toBe(true);
-    expect(ecBeam2SelectableForDsdConfig('Dsd256', 'Split128k', false, [])).toBe(false);
+    expect(seventhOrderSearchSelectableForDsdConfig('Dsd256', 'Split128k', false, [])).toBe(false);
     expect(
-      ecBeam2SelectableForDsdConfig('Dsd64', 'Split128k', true, [
+      seventhOrderSearchSelectableForDsdConfig('Dsd64', 'Split128k', true, [
         { source_rate: 176400, filter_type: 'Split128k', output_mode: 'Dsd256' }
       ])
     ).toBe(false);
-    expect(ecBeam2SelectableForDsdConfig('Pcm', 'Split128k', false, [])).toBe(false);
-    expect(ecBeam2FilterSupported('Minimum16k')).toBe(true);
-    expect(ecBeam2FilterSupported('MinimumPhaseCompact128k')).toBe(true);
-    expect(ecBeam2FilterSupported('MinimumPhaseCompact128kV2')).toBe(true);
-    expect(ecBeam2FilterSupported('Split128k')).toBe(true);
-    expect(ecBeam2FilterSupported('Split128kV2')).toBe(true);
-    expect(ecBeam2FilterSupported('SplitPhase128kV3')).toBe(true);
-    expect(ecBeam2FilterSupported('SplitPhase128kV4')).toBe(true);
-    expect(ecBeam2FilterSupported('SplitPhase128kE2v3')).toBe(true);
-    expect(ecBeam2FilterSupported('SplitPhase128kE3')).toBe(true);
-    expect(ecBeam2FilterSupported('SmoothPhase128k')).toBe(true);
-    expect(ecBeam2FilterSupported('LinearPhase128k')).toBe(true);
-    expect(ecBeam2FilterSupported('SincExtreme32k')).toBe(true);
-    expect(dsdModulatorSupportsOutputMode('EcBeam2', 'Dsd128')).toBe(true);
-    expect(dsdModulatorSupportsOutputMode('EcBeam2', 'Dsd256')).toBe(false);
+    expect(seventhOrderSearchSelectableForDsdConfig('Pcm', 'Split128k', false, [])).toBe(false);
+    expect(seventhOrderSearchFilterSupported('Minimum16k')).toBe(true);
+    expect(seventhOrderSearchFilterSupported('MinimumPhaseCompact128k')).toBe(true);
+    expect(seventhOrderSearchFilterSupported('MinimumPhaseCompact128kV2')).toBe(true);
+    expect(seventhOrderSearchFilterSupported('Split128k')).toBe(true);
+    expect(seventhOrderSearchFilterSupported('Split128kV2')).toBe(true);
+    expect(seventhOrderSearchFilterSupported('SplitPhase128kV3')).toBe(true);
+    expect(seventhOrderSearchFilterSupported('SplitPhase128kV4')).toBe(true);
+    expect(seventhOrderSearchFilterSupported('SplitPhase128kE2v3')).toBe(true);
+    expect(seventhOrderSearchFilterSupported('SplitPhase128kE3')).toBe(true);
+    expect(seventhOrderSearchFilterSupported('SmoothPhase128k')).toBe(true);
+    expect(seventhOrderSearchFilterSupported('LinearPhase128k')).toBe(true);
+    expect(seventhOrderSearchFilterSupported('SincExtreme32k')).toBe(true);
+    expect(dsdModulatorSupportsOutputMode(SEVENTH_ORDER_SEARCH_ID, 'Dsd128')).toBe(true);
+    expect(dsdModulatorSupportsOutputMode(SEVENTH_ORDER_SEARCH_ID, 'Dsd256')).toBe(false);
     expect(dsdModulatorSupportsOutputMode('Standard', 'Dsd256')).toBe(true);
   });
 });

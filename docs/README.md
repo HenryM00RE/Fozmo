@@ -6,10 +6,11 @@ Current product documentation, architecture notes, operating guides, and release
 
 - [Architecture](architecture.md): Current application shape and target ownership boundaries.
 - [Code Quality](code-quality.md): Clippy allow policy, frontend API facade policy, and verification expectations.
-- [DSP](dsp.md): Parametric EQ, upsampling filters, DSD modulators, tuned headroom, and M4 performance.
-- [Split Phase DSD Measurements](Measurements.md): P17 results for both modulators at DSD64/128, regular 7th Order at DSD256, and M4 DSD128 Search performance.
-- [Public PCM-to-DSD Measurements](dsd-public-quality.md): Versioned measurement contract, reconstruction profiles, metrics, provenance, completeness, and structural gates; its current presentation score predates the P17 consolidation.
-- [Audio Pipeline](audio-pipeline.md): Decode, DSP, DSD, output, and sink routing notes.
+- [DSP](dsp.md): EQ, upsampling filters, DSD modes, and suggested settings.
+- [Audio Measurements](Measurements.md): Digital results for the Split Phase DSD path.
+- [PCM-to-DSD Verification](dsd-public-quality.md): Automated checks and run instructions.
+- [Audio Pipeline](audio-pipeline.md): Playback flow from source to output.
+- [Upsampling Filter Verification](filter-timing-bench.md): Timing checks for the current filters.
 - [Local Data](local-data.md): Runtime settings, library data, cleanup, and release checks.
 - [Generated Assets](generated-assets.md): Frontend build artifact policy and release checks.
 - [LAN Mode And Optional Pairing](lan-pairing.md): trusted-LAN startup, browser pairing, native-agent stream sessions, and release checks.
