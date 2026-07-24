@@ -271,6 +271,7 @@ pub struct DsdRenderer {
     worker_r: ModulatorWorker,
     /// A block has been handed to the workers and not yet collected.
     in_flight: bool,
+    in_flight_duration_secs: f64,
     dop_packer: DopPacker,
     native_packer: NativeDsdPacker,
     /// Interleaved f64 PCM at the DSD rate, produced by the resampler each call.
@@ -714,9 +715,17 @@ impl DsdUpsampler {
             Self::CrossFamily(chain) => chain.reset(),
         }
     }
+
+    fn pending_source_duration_secs(&self) -> f64 {
+        match self {
+            Self::Direct(resampler) => resampler.pending_source_duration_secs(),
+            Self::CrossFamily(chain) => chain.pending_source_duration_secs(),
+        }
+    }
 }
 
 struct CrossFamilyDsdChain {
+    source_rate: u32,
     stage1: Option<SincResampler>,
     stage2: SincResampler,
     stage3: SincResampler,
@@ -724,6 +733,8 @@ struct CrossFamilyDsdChain {
     stage2_out: Vec<f64>,
     plane_l: Vec<f64>,
     plane_r: Vec<f64>,
+    input_frames: usize,
+    output_frames: usize,
 }
 
 impl CrossFamilyDsdChain {
@@ -734,6 +745,7 @@ impl CrossFamilyDsdChain {
         let stage1 = (source_rate != Self::HOP_RATE_48K)
             .then(|| SincResampler::new(filter_type, source_rate, Self::HOP_RATE_48K));
         Self {
+            source_rate,
             stage1,
             stage2: SincResampler::new_exact_160_147_without_capped_polyphase_warning(
                 filter_type,
@@ -745,6 +757,8 @@ impl CrossFamilyDsdChain {
             stage2_out: Vec::new(),
             plane_l: Vec::new(),
             plane_r: Vec::new(),
+            input_frames: 0,
+            output_frames: 0,
         }
     }
 
@@ -753,6 +767,9 @@ impl CrossFamilyDsdChain {
     }
 
     fn input(&mut self, samples_l: &[f64], samples_r: &[f64]) {
+        self.input_frames = self
+            .input_frames
+            .saturating_add(samples_l.len().min(samples_r.len()));
         self.stage1_out.clear();
         if let Some(stage1) = &mut self.stage1 {
             stage1.input(samples_l, samples_r);
@@ -783,7 +800,9 @@ impl CrossFamilyDsdChain {
                 &mut self.plane_r,
             );
         }
-        self.stage3.process(output)
+        let frames = self.stage3.process(output);
+        self.output_frames = self.output_frames.saturating_add(frames);
+        frames
     }
 
     fn drain_eof(&mut self, output: &mut Vec<f64>) -> usize {
@@ -811,7 +830,9 @@ impl CrossFamilyDsdChain {
             );
         }
 
-        self.stage3.drain_eof(output)
+        let frames = self.stage3.drain_eof(output);
+        self.output_frames = self.output_frames.saturating_add(frames);
+        frames
     }
 
     fn reset(&mut self) {
@@ -824,6 +845,14 @@ impl CrossFamilyDsdChain {
         self.stage2_out.clear();
         self.plane_l.clear();
         self.plane_r.clear();
+        self.input_frames = 0;
+        self.output_frames = 0;
+    }
+
+    fn pending_source_duration_secs(&self) -> f64 {
+        let accepted = self.input_frames as f64 / f64::from(self.source_rate.max(1));
+        let emitted = self.output_frames as f64 / f64::from(self.stage3.target_rate().max(1));
+        (accepted - emitted).max(0.0)
     }
 }
 
@@ -1074,6 +1103,7 @@ impl DsdRenderer {
             worker_l,
             worker_r,
             in_flight: false,
+            in_flight_duration_secs: 0.0,
             dop_packer: DopPacker::new(),
             native_packer: NativeDsdPacker::new(NativeDsdOrder::MsbFirst),
             pcm_scratch: Vec::new(),
@@ -1151,6 +1181,10 @@ impl DsdRenderer {
 
     pub fn last_collected_modulation_time(&self) -> Duration {
         self.last_collected_modulation_time
+    }
+
+    pub(crate) fn pending_source_duration_secs(&self) -> f64 {
+        self.upsampler.pending_source_duration_secs() + self.in_flight_duration_secs
     }
 
     pub fn reset(&mut self) {
@@ -1362,6 +1396,8 @@ impl DsdRenderer {
             submitted_at: Instant::now(),
         });
         self.in_flight = true;
+        self.in_flight_duration_secs =
+            frames as f64 / f64::from(self.upsampler.target_rate().max(1));
 
         has_packable_bits
     }
@@ -1470,6 +1506,7 @@ impl DsdRenderer {
         if !self.in_flight {
             self.bits_l.clear();
             self.bits_r.clear();
+            self.in_flight_duration_secs = 0.0;
             return;
         }
         let out_l = self.worker_l.collect();
@@ -1500,6 +1537,7 @@ impl DsdRenderer {
             false,
         );
         self.in_flight = false;
+        self.in_flight_duration_secs = 0.0;
     }
 
     fn flush_modulators(&mut self) -> bool {

@@ -18,7 +18,7 @@ use crate::audio::dsp::resampler::{FilterType, ResamplerRuntimeInfo, SincResampl
 use crate::audio::engine::signal_path::resolve_pcm_dsp_target;
 
 use super::buffers::DsdWorkerState;
-use super::commands::StreamQueueItem;
+use super::commands::{PreparedStream, StreamQueueItem};
 use super::metadata::{TrackCover, TrackTags, apply_fallback_tags, collect_reader_metadata};
 use super::queue_state::PendingStart;
 use super::signal_path::OutputMode;
@@ -51,6 +51,7 @@ pub(super) struct PendingSessionInit {
     pub(super) display_name: String,
     pub(super) current_file_path: Option<String>,
     pub(super) current_fallback_tags: Option<TrackTags>,
+    pub(super) start_position_secs: Option<f64>,
 }
 
 pub(super) struct StartedSessionRates {
@@ -292,6 +293,13 @@ impl DspPath {
         }
     }
 
+    pub(super) fn pending_source_duration_secs(&self) -> f64 {
+        match self {
+            DspPath::Bypass { .. } => 0.0,
+            DspPath::Resample(resampler) => resampler.pending_source_duration_secs(),
+        }
+    }
+
     pub(super) fn render(
         &mut self,
         samples_l: &[f64],
@@ -398,6 +406,7 @@ pub(super) fn init_pending_start_session(
                 display_name,
                 current_file_path,
                 current_fallback_tags,
+                start_position_secs: None,
             }
         }
         PendingStart::Stream { item, .. } => {
@@ -426,6 +435,31 @@ pub(super) fn init_pending_start_session(
                 display_name,
                 current_file_path: None,
                 current_fallback_tags,
+                start_position_secs: None,
+            }
+        }
+        PendingStart::PreparedStream {
+            prepared,
+            display_name,
+            fallback_cover,
+            fallback_tags,
+            ..
+        } => {
+            let PreparedStream {
+                session,
+                tags,
+                cover,
+                start_position_secs,
+            } = *prepared;
+            let current_fallback_tags = fallback_tags.clone();
+            PendingSessionInit {
+                result: Ok((session, tags, cover)),
+                fallback_cover,
+                fallback_tags,
+                display_name,
+                current_file_path: None,
+                current_fallback_tags,
+                start_position_secs,
             }
         }
     }
@@ -697,6 +731,65 @@ pub(super) fn init_session_from_source(
     Ok((session, tags, cover))
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(super) fn prepare_stream_from_source(
+    source: Box<dyn MediaSource>,
+    ext_hint: Option<&str>,
+    filter_type: FilterType,
+    target_rate: u32,
+    upsampling_enabled: bool,
+    device_name: Option<&str>,
+    start_position_secs: Option<f64>,
+) -> Result<PreparedStream, String> {
+    let (session, tags, cover) = init_session_from_source(
+        source,
+        ext_hint,
+        None,
+        filter_type,
+        target_rate,
+        upsampling_enabled,
+        device_name,
+    )
+    .map_err(|error| format!("prepare stream decoder: {error}"))?;
+    retarget_prepared_stream(
+        PreparedStream {
+            session,
+            tags,
+            cover,
+            start_position_secs: None,
+        },
+        start_position_secs,
+    )
+}
+
+pub(super) fn retarget_prepared_stream(
+    mut prepared: PreparedStream,
+    start_position_secs: Option<f64>,
+) -> Result<PreparedStream, String> {
+    let position = start_position_secs
+        .filter(|position| position.is_finite())
+        .map(|position| position.max(0.0));
+    if let Some(seconds) = position {
+        let target_time = Time::new(seconds.floor() as u64, seconds.fract());
+        prepared
+            .session
+            .format
+            .seek(
+                SeekMode::Accurate,
+                SeekTo::Time {
+                    time: target_time,
+                    track_id: Some(prepared.session.track_id),
+                },
+            )
+            .map_err(|error| format!("prepare stream seek to {seconds:.3}s: {error}"))?;
+        prepared.session.decoder.reset();
+        prepared.session.dsp_path.reset();
+        prepared.session.output_buffer.clear();
+    }
+    prepared.start_position_secs = position;
+    Ok(prepared)
+}
+
 pub(super) fn apply_seek_to_session(
     sess: &mut PlaybackSession,
     seconds: f64,
@@ -775,8 +868,8 @@ pub(super) fn apply_seek_to_session(
 #[cfg(test)]
 mod tests {
     use super::{
-        DspPath, OffsetMediaSource, TrackTags, find_flac_marker_offset,
-        restart_current_file_session,
+        DspPath, OffsetMediaSource, TrackTags, find_flac_marker_offset, prepare_stream_from_source,
+        restart_current_file_session, retarget_prepared_stream,
     };
     use crate::audio::dsp::eq::{EqConfig, EqProcessor};
     use crate::audio::dsp::resampler::FilterType;
@@ -925,6 +1018,39 @@ mod tests {
         assert_eq!(
             state.position_samples.load(Ordering::Relaxed),
             wire_rate as u64
+        );
+
+        remove_file(wav_path).unwrap();
+    }
+
+    #[test]
+    fn prepared_stream_can_be_retargeted_back_to_zero() {
+        let sample_rate = 44_100;
+        let wav_path = unique_test_wav_path("prepared-retarget-zero");
+        write_silence_wav(&wav_path, sample_rate, sample_rate * 3);
+        let prepared = prepare_stream_from_source(
+            Box::new(File::open(&wav_path).unwrap()),
+            Some("wav"),
+            FilterType::Minimum16k,
+            sample_rate,
+            false,
+            None,
+            Some(1.0),
+        )
+        .unwrap();
+        let mut prepared = retarget_prepared_stream(prepared, Some(0.0)).unwrap();
+        let first_packet = loop {
+            let packet = prepared.session.format.next_packet().unwrap();
+            if packet.track_id() == prepared.session.track_id {
+                break packet;
+            }
+        };
+
+        assert_eq!(prepared.start_position_secs, Some(0.0));
+        assert!(
+            first_packet.ts() < sample_rate as u64 / 2,
+            "retargeting to zero should rewind the prepared decoder, got timestamp {}",
+            first_packet.ts()
         );
 
         remove_file(wav_path).unwrap();

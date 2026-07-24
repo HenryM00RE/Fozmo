@@ -114,6 +114,16 @@ impl ActiveOutput {
         }
     }
 
+    pub(super) fn supports_continuous_dsd_renderer_swap(&self) -> bool {
+        match self {
+            #[cfg(target_os = "macos")]
+            Self::CoreAudioDop(_) => true,
+            #[cfg(target_os = "windows")]
+            Self::WasapiExclusiveDop(_) => true,
+            _ => false,
+        }
+    }
+
     pub(super) fn needs_startup_warmup(&self, target_rate: u32) -> bool {
         match self {
             #[cfg(target_os = "macos")]

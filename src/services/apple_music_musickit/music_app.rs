@@ -31,6 +31,32 @@ const MUSIC_STATUS_SCRIPT: &[&str] = &[
     "end tell",
 ];
 
+const MUSIC_PAUSE_AND_STATUS_SCRIPT: &[&str] = &[
+    "tell application \"Music\"",
+    "pause",
+    "set playbackState to player state as string",
+    "set trackKey to \"\"",
+    "set trackName to \"\"",
+    "set artistName to \"\"",
+    "set albumName to \"\"",
+    "set trackDuration to \"\"",
+    "set trackPosition to \"\"",
+    "if player state is not stopped then",
+    "try",
+    "set trackKey to (database ID of current track) as string",
+    "end try",
+    "try",
+    "set trackName to name of current track",
+    "set artistName to artist of current track",
+    "set albumName to album of current track",
+    "set trackDuration to duration of current track as string",
+    "set trackPosition to player position as string",
+    "end try",
+    "end if",
+    "return playbackState & linefeed & trackKey & linefeed & trackName & linefeed & artistName & linefeed & albumName & linefeed & trackDuration & linefeed & trackPosition",
+    "end tell",
+];
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct MusicAppSnapshot {
     pub running: bool,
@@ -60,12 +86,34 @@ pub(crate) fn pause() -> Result<(), String> {
     run_music_command("pause")
 }
 
+pub(crate) fn pause_and_status() -> Result<MusicAppSnapshot, String> {
+    if !music_app_running() {
+        return Ok(MusicAppSnapshot::default());
+    }
+    let output = run_osascript(MUSIC_PAUSE_AND_STATUS_SCRIPT.iter().copied())?;
+    Ok(parse_status(&output))
+}
+
 pub(crate) fn set_position(seconds: f64) -> Result<(), String> {
     if !seconds.is_finite() || seconds < 0.0 {
         return Err("Apple Music position must be a finite non-negative value.".to_string());
     }
     let position = format!("set player position to {seconds:.3}");
     run_osascript(["tell application \"Music\"", position.as_str(), "end tell"]).map(|_| ())
+}
+
+pub(crate) fn set_position_and_play(seconds: f64) -> Result<(), String> {
+    if !seconds.is_finite() || seconds < 0.0 {
+        return Err("Apple Music position must be a finite non-negative value.".to_string());
+    }
+    let position = format!("set player position to {seconds:.3}");
+    run_osascript([
+        "tell application \"Music\"",
+        position.as_str(),
+        "play",
+        "end tell",
+    ])
+    .map(|_| ())
 }
 
 fn run_music_command(command: &str) -> Result<(), String> {

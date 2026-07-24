@@ -1,6 +1,6 @@
 use crate::audio::dsd::delta_sigma::DsdModulator;
 use crate::audio::dsp::eq::EqConfig;
-use crate::audio::dsp::resampler::{FilterType, ResamplerPathKind};
+use crate::audio::dsp::resampler::{DEFAULT_FILTER_TYPE, FilterType, ResamplerPathKind};
 use crate::audio::sinks::airplay;
 use crate::protocol::DsdBufferHealth;
 use crate::settings::DsdSourceRule;
@@ -9,9 +9,13 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering}
 use symphonia::core::io::MediaSource;
 
 pub(crate) use super::buffers::{AudioConsumer, MAX_DSP_BUFFER_MS};
-pub use super::commands::{LivePlaybackConfig, PlayerCommand, QueueItem, StreamQueueItem};
+pub use super::commands::{
+    LivePlaybackConfig, PlayerCommand, PreparedStream, QueueItem, SeamlessHandoffBoundary,
+    StreamQueueItem,
+};
 pub use super::metadata::{TrackCover, TrackTags, read_track_metadata};
 use super::render::clamp_headroom_db;
+use super::session::{prepare_stream_from_source, retarget_prepared_stream};
 pub use super::state::AtomicPlayerState;
 use super::state::{
     PLAYBACK_PAUSED, PLAYBACK_PLAYING, PLAYBACK_STARTING, PLAYBACK_STOPPED,
@@ -1065,6 +1069,101 @@ impl Player {
             queue,
         });
         true
+    }
+
+    pub fn prepare_stream(
+        &self,
+        source: Box<dyn MediaSource>,
+        ext_hint: Option<String>,
+        start_position_secs: Option<f64>,
+    ) -> Result<PreparedStream, String> {
+        let filter_type = FilterType::from_id(self.state.filter_type.load(Ordering::Relaxed))
+            .unwrap_or(DEFAULT_FILTER_TYPE);
+        let target_rate = self.state.configured_target_rate.load(Ordering::Relaxed);
+        let upsampling_enabled = self.state.upsampling_enabled.load(Ordering::Relaxed);
+        let device_name = self.selected_device_name();
+        prepare_stream_from_source(
+            source,
+            ext_hint.as_deref(),
+            filter_type,
+            target_rate,
+            upsampling_enabled,
+            device_name.as_deref(),
+            start_position_secs,
+        )
+    }
+
+    pub fn retarget_prepared_stream(
+        &self,
+        prepared: PreparedStream,
+        start_position_secs: Option<f64>,
+    ) -> Result<PreparedStream, String> {
+        retarget_prepared_stream(prepared, start_position_secs)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn play_prepared_stream_if_epoch(
+        &self,
+        expected_epoch: u64,
+        prepared: PreparedStream,
+        display_name: String,
+        fallback_cover: Option<TrackCover>,
+        fallback_tags: Option<TrackTags>,
+        queue: Vec<StreamQueueItem>,
+        preserve_output: bool,
+    ) -> bool {
+        if self
+            .playback_epoch
+            .compare_exchange(
+                expected_epoch,
+                expected_epoch + 1,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            )
+            .is_err()
+        {
+            return false;
+        }
+        self.send_command(PlayerCommand::PlayPreparedStream {
+            epoch: expected_epoch + 1,
+            prepared: Box::new(prepared),
+            display_name,
+            fallback_cover,
+            fallback_tags,
+            queue,
+            preserve_output,
+        });
+        true
+    }
+
+    pub async fn begin_seamless_handoff(
+        &self,
+        destination_source_rate: Option<u32>,
+    ) -> Result<SeamlessHandoffBoundary, String> {
+        let expected_epoch = self.playback_epoch();
+        let (response, receiver) = tokio::sync::oneshot::channel();
+        let Some(command_tx) = self.command_tx.as_ref() else {
+            return Err("Audio worker is not available.".to_string());
+        };
+        command_tx
+            .send(PlayerCommand::BeginSeamlessHandoff {
+                expected_epoch,
+                destination_source_rate,
+                response,
+            })
+            .map_err(|_| "Audio worker is not available.".to_string())?;
+        match tokio::time::timeout(std::time::Duration::from_millis(750), receiver).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => Err("Audio worker closed the seamless handoff request.".to_string()),
+            Err(_) => {
+                self.cancel_seamless_handoff(expected_epoch);
+                Err("Audio worker did not reach the seamless handoff boundary in time.".to_string())
+            }
+        }
+    }
+
+    pub fn cancel_seamless_handoff(&self, expected_epoch: u64) {
+        self.send_command(PlayerCommand::CancelSeamlessHandoff { expected_epoch });
     }
 
     pub fn set_stream_queue_if_epoch(

@@ -5,7 +5,7 @@ use crate::audio::dsd::dsd_render::DsdLimiterTelemetry;
 use crate::audio::dsp::eq::EqProcessor;
 
 use super::buffers::DsdWorkerState;
-use super::session::PlaybackSession;
+use super::session::{DspPath, PlaybackSession};
 use super::signal_path::OutputMode;
 use super::state::AtomicPlayerState;
 
@@ -376,7 +376,7 @@ pub(super) fn render_pcm_block(
         .render(samples_l, samples_r, &mut sess.output_buffer);
     let elapsed = start.elapsed().as_nanos() as u64;
     finish_pcm_render(
-        sess,
+        &mut sess.output_buffer,
         frames,
         elapsed,
         headroom_gain,
@@ -399,7 +399,32 @@ pub(super) fn render_pcm_eof_tail(
     let frames = sess.dsp_path.drain_eof(&mut sess.output_buffer);
     let elapsed = start.elapsed().as_nanos() as u64;
     finish_pcm_render(
-        sess,
+        &mut sess.output_buffer,
+        frames,
+        elapsed,
+        headroom_gain,
+        output_volume,
+        target_rate,
+        state,
+        eq_processor,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn render_pcm_dsp_path_eof_tail(
+    dsp_path: &mut DspPath,
+    output_buffer: &mut Vec<f64>,
+    headroom_gain: f64,
+    output_volume: f64,
+    target_rate: u32,
+    state: &AtomicPlayerState,
+    eq_processor: &mut EqProcessor,
+) -> bool {
+    let start = Instant::now();
+    let frames = dsp_path.drain_eof(output_buffer);
+    let elapsed = start.elapsed().as_nanos() as u64;
+    finish_pcm_render(
+        output_buffer,
         frames,
         elapsed,
         headroom_gain,
@@ -413,7 +438,7 @@ pub(super) fn render_pcm_eof_tail(
 // Shared render finalization receives the same boundary data from normal and EOF-tail rendering.
 #[allow(clippy::too_many_arguments)]
 fn finish_pcm_render(
-    sess: &mut PlaybackSession,
+    output_buffer: &mut [f64],
     frames: usize,
     elapsed: u64,
     headroom_gain: f64,
@@ -426,13 +451,13 @@ fn finish_pcm_render(
     let block_dur = (frames as f64 / target_rate as f64 * 1e9) as u64;
     state.record_startup_render_block_ns(elapsed, block_dur > 0 && elapsed > block_dur);
 
-    eq_processor.process_interleaved_stereo(&mut sess.output_buffer);
+    eq_processor.process_interleaved_stereo(output_buffer);
     if headroom_gain < 1.0 {
-        for sample in &mut sess.output_buffer {
+        for sample in output_buffer.iter_mut() {
             *sample *= headroom_gain;
         }
     }
-    publish_signal_level_metrics(&sess.output_buffer, output_volume, state);
+    publish_signal_level_metrics(output_buffer, output_volume, state);
 
     if frames == 0 {
         return false;

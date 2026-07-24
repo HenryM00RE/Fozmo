@@ -116,6 +116,41 @@ impl AppleMusicService {
         Ok(self.status())
     }
 
+    pub(crate) fn prepare_process_tap(
+        &self,
+        player: Arc<Player>,
+        confirm_system_audio_capture: bool,
+        mute_original_audio: bool,
+    ) -> Result<AppleMusicMvpStatus, AppleMusicMvpError> {
+        self.process_tap.lock().unwrap().prepare(
+            player,
+            confirm_system_audio_capture,
+            mute_original_audio,
+        )?;
+        Ok(self.status())
+    }
+
+    pub(crate) fn discard_process_tap_buffer(&self) -> Result<u64, AppleMusicMvpError> {
+        self.process_tap.lock().unwrap().discard_buffered_audio()
+    }
+
+    pub(crate) fn process_tap_buffered_audio_secs(&self) -> Result<f64, AppleMusicMvpError> {
+        self.process_tap.lock().unwrap().buffered_audio_secs()
+    }
+
+    pub(crate) fn prepare_process_tap_stream(&self) -> Result<(), AppleMusicMvpError> {
+        self.process_tap.lock().unwrap().prepare_player_stream()
+    }
+
+    pub(crate) fn commit_process_tap(
+        &self,
+        preserve_output: bool,
+    ) -> Result<AppleMusicMvpStatus, AppleMusicMvpError> {
+        self.process_tap.lock().unwrap().commit(preserve_output)?;
+        self.comparison.lock().unwrap().status.active_side = "apple_music".to_string();
+        Ok(self.status())
+    }
+
     pub(crate) fn stop_process_tap(&self) -> AppleMusicMvpStatus {
         self.process_tap.lock().unwrap().stop();
         let mut comparison = self.comparison.lock().unwrap();

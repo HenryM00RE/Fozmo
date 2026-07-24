@@ -4,6 +4,7 @@ use std::time::Instant;
 use crate::audio::sinks::airplay;
 
 use super::commands::{PlayerCommand, QueueItem, StreamQueueItem};
+use super::dsd_path::force_44k_family_for_existing_carrier;
 use super::output_stream::{
     ActiveOutput, drop_active_stream_for_reopen, reset_output_pipeline_for_reopen,
 };
@@ -11,7 +12,7 @@ use super::render::eq_processing_rate;
 use super::session::{
     apply_seek_to_session, reconfigure_current_session, restart_current_file_session,
 };
-use super::signal_path::{OutputMode, dsd_policy_for_source};
+use super::signal_path::{OutputMode, dsd_policy_for_source, resolve_pcm_dsp_target};
 use super::state::{
     PLAYBACK_PAUSED, PLAYBACK_PLAYING, PLAYBACK_STARTING, PLAYBACK_STOPPED, REOPEN_REASON_DSD_ISI,
     REOPEN_REASON_DSD_MODULATOR, REOPEN_REASON_DSD_RULES, REOPEN_REASON_EXTERNAL_DEVICE_READY,
@@ -23,6 +24,119 @@ use super::worker_status::{
     full_stop_and_clear_now_playing, publish_config_status, publish_output_notice,
     stop_and_clear_now_playing,
 };
+
+fn seamless_handoff_pending_secs(
+    session: &super::session::PlaybackSession,
+    dsd_state: Option<&super::buffers::DsdWorkerState>,
+    audio_prod: &super::buffers::AudioProducer,
+    target_rate: u32,
+) -> (f64, f64) {
+    if let Some(dsd_state) = dsd_state {
+        dsd_state.seamless_handoff_pending_secs()
+    } else {
+        let output_secs = (audio_prod.len() / 2) as f64 / f64::from(target_rate.max(1));
+        (output_secs, session.dsp_path.pending_source_duration_secs())
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn seamless_destination_preserves_output(
+    destination_source_rate: u32,
+    output_mode: OutputMode,
+    filter_type: crate::audio::dsp::resampler::FilterType,
+    configured_target_rate: u32,
+    upsampling_enabled: bool,
+    active_device_name: Option<&str>,
+    dsd_rules: &[crate::settings::DsdSourceRule],
+    active_target_rate: u32,
+    dsd_state: Option<&super::buffers::DsdWorkerState>,
+    active_stream: Option<&ActiveOutput>,
+) -> bool {
+    if !output_mode.is_dsd() {
+        return resolve_pcm_dsp_target(
+            destination_source_rate,
+            configured_target_rate,
+            upsampling_enabled,
+            active_device_name,
+        )
+        .0 == active_target_rate;
+    }
+
+    let Some(dsd_state) = dsd_state else {
+        return false;
+    };
+    let policy =
+        dsd_policy_for_source(output_mode, filter_type, destination_source_rate, dsd_rules);
+    if policy.mode != dsd_state.mode {
+        return false;
+    }
+    if dsd_state.source_rate == destination_source_rate {
+        return true;
+    }
+    active_stream.is_some_and(ActiveOutput::supports_continuous_dsd_renderer_swap)
+        && force_44k_family_for_existing_carrier(
+            policy.mode,
+            destination_source_rate,
+            dsd_state.wire_rate,
+        )
+        .is_some()
+}
+
+fn seamless_handoff_boundary(
+    state: &super::state::AtomicPlayerState,
+    session: &super::session::PlaybackSession,
+    dsd_state: Option<&super::buffers::DsdWorkerState>,
+    audio_prod: &super::buffers::AudioProducer,
+    target_rate: u32,
+    epoch: u64,
+) -> super::commands::SeamlessHandoffBoundary {
+    // The callback advances position while removing exactly the same duration
+    // from the ring. Retry until both reads straddle no callback, keeping their
+    // sum (the old-source endpoint) internally consistent.
+    for _ in 0..4 {
+        let before = state.position_samples.load(Ordering::Relaxed);
+        let (output_cushion_secs, pipeline_secs) =
+            seamless_handoff_pending_secs(session, dsd_state, audio_prod, target_rate);
+        let after = state.position_samples.load(Ordering::Relaxed);
+        if before == after {
+            return super::commands::SeamlessHandoffBoundary {
+                epoch,
+                position_secs: handoff_endpoint_position_secs(
+                    after,
+                    target_rate,
+                    output_cushion_secs,
+                    pipeline_secs,
+                ),
+                output_cushion_secs,
+            };
+        }
+    }
+
+    let (output_cushion_secs, pipeline_secs) =
+        seamless_handoff_pending_secs(session, dsd_state, audio_prod, target_rate);
+    let played = state.position_samples.load(Ordering::Relaxed);
+    super::commands::SeamlessHandoffBoundary {
+        epoch,
+        position_secs: handoff_endpoint_position_secs(
+            played,
+            target_rate,
+            output_cushion_secs,
+            pipeline_secs,
+        ),
+        output_cushion_secs,
+    }
+}
+
+fn handoff_endpoint_position_secs(
+    played_samples: u64,
+    target_rate: u32,
+    output_cushion_secs: f64,
+    pipeline_secs: f64,
+) -> f64 {
+    played_samples as f64 / f64::from(target_rate.max(1))
+        + output_cushion_secs.max(0.0)
+        + pipeline_secs.max(0.0)
+}
 
 pub(super) fn handle_worker_command(cmd: PlayerCommand, runtime: &mut WorkerRuntime) {
     let shared = &runtime.shared;
@@ -37,12 +151,14 @@ pub(super) fn handle_worker_command(cmd: PlayerCommand, runtime: &mut WorkerRunt
     let use_transition_preroll = &mut playback.use_transition_preroll;
     let pending_start_gapless = &mut playback.pending_start_gapless;
     let gapless_dsp_path = &mut playback.gapless_dsp_path;
+    let seamless_handoff_hold = &mut playback.seamless_handoff_hold;
     let session = &mut playback.session;
     let current_file_path = &mut playback.current_file_path;
     let current_fallback_tags = &mut playback.current_fallback_tags;
     let active_device_name = &mut output.active_device_name;
     let active_stream = &mut output.active_stream;
     let active_stream_opened_at = &mut output.active_stream_opened_at;
+    let audio_prod = &buffers.prod;
     let dsd_state = &mut buffers.dsd_state;
     let dsd_fallback_key = &mut output.dsd_fallback_key;
     let next_stream_retry = &mut output.next_stream_retry;
@@ -72,6 +188,7 @@ pub(super) fn handle_worker_command(cmd: PlayerCommand, runtime: &mut WorkerRunt
             if epoch != shared.playback_epoch.load(Ordering::Relaxed) {
                 return;
             }
+            *seamless_handoff_hold = false;
             *pending_start = Some(queues.replace_for_file_start(
                 QueueItem {
                     file_path,
@@ -98,6 +215,7 @@ pub(super) fn handle_worker_command(cmd: PlayerCommand, runtime: &mut WorkerRunt
             if epoch != shared.playback_epoch.load(Ordering::Relaxed) {
                 return;
             }
+            *seamless_handoff_hold = false;
             *pending_start = Some(queues.replace_for_stream_start(
                 StreamQueueItem {
                     source,
@@ -113,10 +231,97 @@ pub(super) fn handle_worker_command(cmd: PlayerCommand, runtime: &mut WorkerRunt
             *pending_start_gapless = false;
             *gapless_dsp_path = None;
         }
+        PlayerCommand::PlayPreparedStream {
+            epoch,
+            prepared,
+            display_name,
+            fallback_cover,
+            fallback_tags,
+            queue: new_queue,
+            preserve_output,
+        } => {
+            if epoch != shared.playback_epoch.load(Ordering::Relaxed) {
+                return;
+            }
+            let preserve_output = preserve_output
+                && session.is_some()
+                && active_stream
+                    .as_ref()
+                    .is_some_and(|stream| stream.reset_notice().is_none());
+            *pending_start = Some(queues.replace_for_prepared_stream_start(
+                prepared,
+                display_name,
+                fallback_cover,
+                fallback_tags,
+                new_queue,
+                epoch,
+            ));
+            *reopen_output_for_pending_start = true;
+            *pending_start_gapless = preserve_output;
+            *gapless_dsp_path = if preserve_output {
+                session
+                    .take()
+                    .map(|previous_session| previous_session.dsp_path)
+            } else {
+                None
+            };
+            *seamless_handoff_hold = false;
+        }
+        PlayerCommand::BeginSeamlessHandoff {
+            expected_epoch,
+            destination_source_rate,
+            response,
+        } => {
+            let current_epoch = shared.playback_epoch.load(Ordering::Relaxed);
+            let result = if expected_epoch != current_epoch {
+                Err("Playback changed before the seamless handoff boundary.".to_string())
+            } else if *seamless_handoff_hold {
+                Err("A seamless handoff is already in progress.".to_string())
+            } else if session.is_none()
+                || active_stream
+                    .as_ref()
+                    .is_none_or(|stream| stream.reset_notice().is_some())
+                || shared.state.state.load(Ordering::Relaxed) != PLAYBACK_PLAYING
+            {
+                Err("The active output is not ready for a seamless handoff.".to_string())
+            } else if destination_source_rate.is_some_and(|source_rate| {
+                !seamless_destination_preserves_output(
+                    source_rate,
+                    *output_mode,
+                    *filter_type,
+                    *configured_target_rate,
+                    *upsampling_enabled,
+                    active_device_name.as_deref(),
+                    dsd_rules,
+                    *target_rate,
+                    dsd_state.as_ref(),
+                    active_stream.as_ref(),
+                )
+            }) {
+                Err("The destination requires an output carrier change.".to_string())
+            } else {
+                *seamless_handoff_hold = true;
+                Ok(seamless_handoff_boundary(
+                    &shared.state,
+                    session.as_ref().expect("validated active session"),
+                    dsd_state.as_ref(),
+                    audio_prod,
+                    *target_rate,
+                    current_epoch,
+                ))
+            };
+            let _ = response.send(result);
+        }
+        PlayerCommand::CancelSeamlessHandoff { expected_epoch } => {
+            if expected_epoch == shared.playback_epoch.load(Ordering::Relaxed) {
+                *seamless_handoff_hold = false;
+            }
+        }
         PlayerCommand::Next { epoch } => {
             if epoch != shared.playback_epoch.load(Ordering::Relaxed) {
                 return;
             }
+            *seamless_handoff_hold = false;
             if let Some(start) = queues.pop_next_start(epoch) {
                 *pending_start = Some(start);
                 *reopen_output_for_pending_start = true;
@@ -176,6 +381,7 @@ pub(super) fn handle_worker_command(cmd: PlayerCommand, runtime: &mut WorkerRunt
             *repeat_one = new_repeat_one;
         }
         PlayerCommand::Pause => {
+            *seamless_handoff_hold = false;
             if matches!(
                 shared.state.state.load(Ordering::Relaxed),
                 PLAYBACK_PLAYING | PLAYBACK_STARTING
@@ -214,6 +420,7 @@ pub(super) fn handle_worker_command(cmd: PlayerCommand, runtime: &mut WorkerRunt
             }
         }
         PlayerCommand::Resume => {
+            *seamless_handoff_hold = false;
             if shared.state.state.load(Ordering::Relaxed) == PLAYBACK_PAUSED {
                 let next_state = if session.is_some() {
                     PLAYBACK_STARTING
@@ -227,6 +434,7 @@ pub(super) fn handle_worker_command(cmd: PlayerCommand, runtime: &mut WorkerRunt
             if epoch != shared.playback_epoch.load(Ordering::Relaxed) {
                 return;
             }
+            *seamless_handoff_hold = false;
             queues.clear_all();
             *pending_start = None;
             *pending_start_gapless = false;
@@ -246,6 +454,7 @@ pub(super) fn handle_worker_command(cmd: PlayerCommand, runtime: &mut WorkerRunt
             );
         }
         PlayerCommand::Seek { seconds } => {
+            *seamless_handoff_hold = false;
             if let Some(sess) = session {
                 let reopen_dsd_boundary = dsd_state.is_some()
                     && active_stream
@@ -875,7 +1084,8 @@ mod tests {
 
     use super::{
         active_reopen_state, current_playback_seconds, effective_position_rate_for_session,
-        output_mode_change_requires_reopen, restore_position_seconds, restore_transition_state,
+        handoff_endpoint_position_secs, output_mode_change_requires_reopen,
+        restore_position_seconds, restore_transition_state, seamless_destination_preserves_output,
         should_use_live_config_transition_preroll,
     };
     use crate::audio::dsp::resampler::FilterType;
@@ -912,6 +1122,40 @@ mod tests {
 
         assert_eq!(current_playback_seconds(&state, 11_289_600), 0.125);
         assert_eq!(current_playback_seconds(&state, 0), 1_411_200.0);
+    }
+
+    #[test]
+    fn seamless_handoff_targets_the_end_of_queued_and_pipelined_audio() {
+        let endpoint = handoff_endpoint_position_secs(4_800_000, 48_000, 0.375, 0.025);
+        assert!((endpoint - 100.4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn seamless_pcm_handoff_requires_the_existing_output_rate() {
+        assert!(seamless_destination_preserves_output(
+            44_100,
+            OutputMode::Pcm,
+            FilterType::Minimum16k,
+            192_000,
+            true,
+            None,
+            &[],
+            192_000,
+            None,
+            None,
+        ));
+        assert!(!seamless_destination_preserves_output(
+            48_000,
+            OutputMode::Pcm,
+            FilterType::Minimum16k,
+            192_000,
+            false,
+            None,
+            &[],
+            44_100,
+            None,
+            None,
+        ));
     }
 
     #[test]

@@ -56,6 +56,7 @@ pub(super) struct WorkerPlaybackState {
     pub(super) use_transition_preroll: bool,
     pub(super) pending_start_gapless: bool,
     pub(super) gapless_dsp_path: Option<DspPath>,
+    pub(super) seamless_handoff_hold: bool,
 }
 
 impl WorkerPlaybackState {
@@ -75,6 +76,7 @@ impl WorkerPlaybackState {
             use_transition_preroll: false,
             pending_start_gapless: false,
             gapless_dsp_path: None,
+            seamless_handoff_hold: false,
         }
     }
 }

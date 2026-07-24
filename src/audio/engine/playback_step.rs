@@ -52,6 +52,13 @@ pub(super) fn run_playback_step(runtime: &mut WorkerRuntime) {
         thread::sleep(Duration::from_millis(20));
         return;
     }
+    if playback.seamless_handoff_hold {
+        // Keep the transport logically playing so the output callback drains
+        // the exact old-source tail, but do not render beyond the boundary
+        // acknowledged to the comparison handoff.
+        thread::sleep(Duration::from_millis(1));
+        return;
+    }
     let can_prime_before_stream_open = can_prime_without_output_consumer(
         config.output_mode,
         playback_state,

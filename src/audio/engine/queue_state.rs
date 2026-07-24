@@ -2,20 +2,35 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use super::commands::{QueueItem, StreamQueueItem};
+use super::commands::{PreparedStream, QueueItem, StreamQueueItem};
 use super::metadata::{TrackCover, TrackTags};
 
 /// What the worker should load next. Both file-backed and already-open stream
 /// tracks can auto-advance through their respective queues.
 pub(super) enum PendingStart {
-    File { item: QueueItem, epoch: u64 },
-    Stream { item: StreamQueueItem, epoch: u64 },
+    File {
+        item: QueueItem,
+        epoch: u64,
+    },
+    Stream {
+        item: StreamQueueItem,
+        epoch: u64,
+    },
+    PreparedStream {
+        prepared: Box<PreparedStream>,
+        display_name: String,
+        fallback_cover: Option<TrackCover>,
+        fallback_tags: Option<TrackTags>,
+        epoch: u64,
+    },
 }
 
 impl PendingStart {
     pub(super) fn epoch(&self) -> u64 {
         match self {
-            Self::File { epoch, .. } | Self::Stream { epoch, .. } => *epoch,
+            Self::File { epoch, .. }
+            | Self::Stream { epoch, .. }
+            | Self::PreparedStream { epoch, .. } => *epoch,
         }
     }
 }
@@ -63,6 +78,28 @@ impl WorkerQueues {
         self.publish_stream_queue_len();
         self.clear_stream_auto_advance_pending();
         PendingStart::Stream { item, epoch }
+    }
+
+    pub(super) fn replace_for_prepared_stream_start(
+        &mut self,
+        prepared: Box<PreparedStream>,
+        display_name: String,
+        fallback_cover: Option<TrackCover>,
+        fallback_tags: Option<TrackTags>,
+        new_queue: Vec<StreamQueueItem>,
+        epoch: u64,
+    ) -> PendingStart {
+        self.file_queue.clear();
+        self.stream_queue = new_queue.into();
+        self.publish_stream_queue_len();
+        self.clear_stream_auto_advance_pending();
+        PendingStart::PreparedStream {
+            prepared,
+            display_name,
+            fallback_cover,
+            fallback_tags,
+            epoch,
+        }
     }
 
     pub(super) fn replace_file_queue(&mut self, new_queue: Vec<QueueItem>) {

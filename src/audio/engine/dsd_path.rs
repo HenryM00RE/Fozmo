@@ -130,6 +130,17 @@ pub(super) fn dsd_rate_for_mode(mode: OutputMode) -> DsdRate {
     }
 }
 
+pub(super) fn force_44k_family_for_existing_carrier(
+    mode: OutputMode,
+    source_rate: u32,
+    carrier_rate: u32,
+) -> Option<bool> {
+    if mode.dsd_wire_rate(source_rate) == Some(carrier_rate) {
+        return Some(false);
+    }
+    (dsd_rate_for_mode(mode).wire_rate_44k_family() == carrier_rate).then_some(true)
+}
+
 pub(super) fn build_renderer(
     filter_type: FilterType,
     source_rate: u32,
@@ -294,6 +305,22 @@ mod tests {
         assert_eq!(
             dop_wire_rate_for_mode(OutputMode::Dsd256, 48_000, false),
             Some(12_288_000)
+        );
+    }
+
+    #[test]
+    fn existing_dsd_carrier_can_be_reused_directly_or_via_44k_bridge() {
+        assert_eq!(
+            force_44k_family_for_existing_carrier(OutputMode::Dsd64, 48_000, 3_072_000),
+            Some(false)
+        );
+        assert_eq!(
+            force_44k_family_for_existing_carrier(OutputMode::Dsd64, 48_000, 2_822_400),
+            Some(true)
+        );
+        assert_eq!(
+            force_44k_family_for_existing_carrier(OutputMode::Dsd64, 44_100, 3_072_000),
+            None
         );
     }
 

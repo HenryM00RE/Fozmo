@@ -3,11 +3,13 @@ use std::time::Instant;
 
 use crate::audio::sinks::airplay::sender::AirPlayMetadata;
 
-use super::dsd_path::DsdFallbackKey;
+use super::buffers::{flush_dsd_tail_at_eof, write_audio_blocking};
+use super::decode::{flush_dsd_staged_pcm_at_eof, flush_dsd_upsampler_tail_at_eof};
+use super::dsd_path::{DsdFallbackKey, build_renderer, force_44k_family_for_existing_carrier};
 #[cfg(any(target_os = "macos", target_os = "windows", test))]
 use super::dsd_path::{dop_wire_rate_for_mode, should_force_44k_family_dsd256};
 use super::output_stream::{ActiveOutput, drop_active_stream_for_reopen};
-use super::render::eq_processing_rate;
+use super::render::{eq_processing_rate, output_headroom_gain, render_pcm_dsp_path_eof_tail};
 use super::session::{init_pending_start_session, publish_started_session_metadata};
 use super::signal_path::{OutputMode, dsd_policy_for_source, effective_dsd_target_rate};
 use super::state::{FLUSH_REASON_PENDING_START, PLAYBACK_STARTING, REOPEN_REASON_PENDING_START};
@@ -33,6 +35,7 @@ pub(super) fn install_pending_start(runtime: &mut WorkerRuntime) -> PendingStart
     let pending_start_gapless = &mut playback.pending_start_gapless;
     let gapless_dsp_path = &mut playback.gapless_dsp_path;
     let active_stream = &mut output.active_stream;
+    let audio_prod = &mut buffers.prod;
     let dsd_state = &mut buffers.dsd_state;
     let dsd_fallback_key = &mut output.dsd_fallback_key;
     let next_stream_retry = &mut output.next_stream_retry;
@@ -101,25 +104,21 @@ pub(super) fn install_pending_start(runtime: &mut WorkerRuntime) -> PendingStart
     *current_file_path = pending_init.current_file_path;
     *current_fallback_tags = pending_init.current_fallback_tags;
     *shared.file_name.lock().unwrap() = Some(pending_init.display_name.clone());
+    let start_position_secs = pending_init.start_position_secs;
 
     match pending_init.result {
         Ok((mut new_session, tags, cover)) => {
-            let mut gapless_start = false;
+            let mut continuous_start = requested_gapless_start;
+            let mut dsp_path_reused = false;
+            let mut previous_pcm_dsp_tail = None;
             if requested_gapless_start {
-                if let Some(previous_dsp_path) = gapless_dsp_path.take()
-                    && previous_dsp_path.is_gapless_compatible_with(&new_session.dsp_path)
-                {
-                    new_session.dsp_path = previous_dsp_path;
-                    gapless_start = true;
-                }
-                if !gapless_start {
-                    prepare_pending_start_boundary(
-                        reopen_output,
-                        active_stream,
-                        dsd_state,
-                        next_stream_retry,
-                        &shared.state,
-                    );
+                if let Some(previous_dsp_path) = gapless_dsp_path.take() {
+                    if previous_dsp_path.is_gapless_compatible_with(&new_session.dsp_path) {
+                        new_session.dsp_path = previous_dsp_path;
+                        dsp_path_reused = true;
+                    } else {
+                        previous_pcm_dsp_tail = Some(previous_dsp_path);
+                    }
                 }
             } else {
                 *gapless_dsp_path = None;
@@ -159,14 +158,80 @@ pub(super) fn install_pending_start(runtime: &mut WorkerRuntime) -> PendingStart
             if output_mode.is_dsd() {
                 let dsd_policy =
                     dsd_policy_for_source(output_mode, filter_type, new_source, dsd_rules);
-                let dsd_state_match = dsd_state
+                let mut dsd_state_match = dsd_state
                     .as_ref()
                     .map(|state| {
                         dsd_state_matches_pending_start(state, dsd_policy.mode, new_source)
                     })
                     .unwrap_or(false);
+                if !dsd_state_match
+                    && continuous_start
+                    && let Some((wire_rate, force_44k_family)) = dsd_state
+                        .as_ref()
+                        .filter(|state| {
+                            state.mode == dsd_policy.mode
+                                && active_stream.as_ref().is_some_and(|stream| {
+                                    stream.supports_continuous_dsd_renderer_swap()
+                                        && stream.reset_notice().is_none()
+                                })
+                        })
+                        .and_then(|state| {
+                            force_44k_family_for_existing_carrier(
+                                dsd_policy.mode,
+                                new_source,
+                                state.wire_rate,
+                            )
+                            .map(|force| (state.wire_rate, force))
+                        })
+                    && let Ok(renderer) = build_renderer(
+                        dsd_policy.filter_type,
+                        new_source,
+                        dsd_policy.mode,
+                        force_44k_family,
+                        dsd_modulator,
+                        dsd_isi_penalty,
+                    )
+                    && let Some(state) = dsd_state.as_mut()
+                {
+                    let mut output_can_continue = || {
+                        !shared.shutdown_requested()
+                            && shared.state.state.load(Ordering::Relaxed)
+                                == super::state::PLAYBACK_PLAYING
+                            && active_stream
+                                .as_ref()
+                                .is_some_and(|stream| stream.reset_notice().is_none())
+                    };
+                    flush_dsd_staged_pcm_at_eof(
+                        state,
+                        &shared.state,
+                        eq_processor,
+                        &mut output_can_continue,
+                    );
+                    flush_dsd_upsampler_tail_at_eof(state, &shared.state, &mut output_can_continue);
+                    flush_dsd_tail_at_eof(state, &mut output_can_continue);
+                    if output_can_continue() {
+                        state.reconfigure_renderer_for_continuous_carrier(
+                            renderer,
+                            new_source,
+                            wire_rate,
+                            dsd_policy.mode,
+                        );
+                        shared
+                            .state
+                            .modulator_reset_count
+                            .fetch_add(1, Ordering::Relaxed);
+                        eq_processor.reset();
+                        dsd_state_match = true;
+                        if crate::audio::debug::audio_debug_enabled() {
+                            eprintln!(
+                                "AudioWorker DEBUG: retained {} Hz DSD carrier across {} Hz source-rate handoff",
+                                wire_rate, new_source,
+                            );
+                        }
+                    }
+                }
                 if !dsd_state_match {
-                    if gapless_start {
+                    if continuous_start {
                         prepare_pending_start_boundary(
                             reopen_output,
                             active_stream,
@@ -174,7 +239,7 @@ pub(super) fn install_pending_start(runtime: &mut WorkerRuntime) -> PendingStart
                             next_stream_retry,
                             &shared.state,
                         );
-                        gapless_start = false;
+                        continuous_start = false;
                     }
                     shared
                         .state
@@ -185,7 +250,7 @@ pub(super) fn install_pending_start(runtime: &mut WorkerRuntime) -> PendingStart
                     shared.state.request_flush(FLUSH_REASON_PENDING_START);
                 }
                 let active_dsd = dsd_state.as_ref().filter(|state| {
-                    dsd_state_matches_pending_start(state, dsd_policy.mode, new_source)
+                    state.source_rate == new_source && state.mode == dsd_policy.mode
                 });
                 *target_rate = effective_dsd_target_rate(
                     dsd_policy.mode,
@@ -195,8 +260,37 @@ pub(super) fn install_pending_start(runtime: &mut WorkerRuntime) -> PendingStart
                     new_target,
                 );
             } else {
+                if continuous_start
+                    && new_target == *target_rate
+                    && let Some(mut previous_dsp_path) = previous_pcm_dsp_tail.take()
+                {
+                    let mut tail = Vec::new();
+                    let volume = f32::from_bits(shared.state.volume.load(Ordering::Relaxed)) as f64;
+                    let headroom = output_headroom_gain(f32::from_bits(
+                        shared.state.headroom_db.load(Ordering::Relaxed),
+                    ));
+                    if render_pcm_dsp_path_eof_tail(
+                        &mut previous_dsp_path,
+                        &mut tail,
+                        headroom,
+                        volume,
+                        *target_rate,
+                        &shared.state,
+                        eq_processor,
+                    ) {
+                        write_audio_blocking(audio_prod, &tail, || {
+                            !shared.shutdown_requested()
+                                && shared.state.state.load(Ordering::Relaxed)
+                                    == super::state::PLAYBACK_PLAYING
+                                && active_stream
+                                    .as_ref()
+                                    .is_some_and(|stream| stream.reset_notice().is_none())
+                                && !shared.state.flush_buffer.load(Ordering::Relaxed)
+                        });
+                    }
+                }
                 if new_target != *target_rate {
-                    if gapless_start {
+                    if continuous_start {
                         prepare_pending_start_boundary(
                             reopen_output,
                             active_stream,
@@ -204,7 +298,7 @@ pub(super) fn install_pending_start(runtime: &mut WorkerRuntime) -> PendingStart
                             next_stream_retry,
                             &shared.state,
                         );
-                        gapless_start = false;
+                        continuous_start = false;
                     }
                     shared
                         .state
@@ -222,20 +316,26 @@ pub(super) fn install_pending_start(runtime: &mut WorkerRuntime) -> PendingStart
                 eq_processing_rate(output_mode, new_source, *target_rate),
                 current_eq_config,
             );
-            if !gapless_start {
+            if !continuous_start {
                 eq_processor.reset();
             }
-            record_pending_start_dsp_graph_install(&shared.state, gapless_start);
+            record_pending_start_dsp_graph_install(&shared.state, dsp_path_reused);
             shared
                 .state
                 .target_rate
                 .store(*target_rate, Ordering::Relaxed);
+            if let Some(position_secs) = start_position_secs {
+                shared.state.position_samples.store(
+                    (position_secs.max(0.0) * f64::from(*target_rate)) as u64,
+                    Ordering::Relaxed,
+                );
+            }
 
             *use_transition_preroll =
-                should_use_transition_preroll(gapless_start, active_stream.is_some());
+                should_use_transition_preroll(continuous_start, active_stream.is_some());
             *session = Some(new_session);
             *session_epoch = start_epoch;
-            if gapless_start {
+            if continuous_start {
                 shared
                     .state
                     .state
@@ -243,7 +343,7 @@ pub(super) fn install_pending_start(runtime: &mut WorkerRuntime) -> PendingStart
                 *use_transition_preroll = false;
                 if crate::audio::debug::audio_debug_enabled() {
                     eprintln!(
-                        "AudioWorker DEBUG: installed gapless session without draining output"
+                        "AudioWorker DEBUG: installed continuous session without draining output"
                     );
                 }
             } else {
@@ -410,9 +510,9 @@ fn prepare_pending_start_boundary(
 
 fn record_pending_start_dsp_graph_install(
     state: &super::state::AtomicPlayerState,
-    gapless_start: bool,
+    dsp_path_reused: bool,
 ) {
-    if !gapless_start {
+    if !dsp_path_reused {
         state
             .dsp_graph_rebuild_count
             .fetch_add(1, Ordering::Relaxed);
@@ -536,14 +636,14 @@ mod tests {
     }
 
     #[test]
-    fn diagnostics_count_non_gapless_dsp_graph_installs_only() {
+    fn diagnostics_count_new_dsp_graph_installs_only() {
         let state = super::super::state::AtomicPlayerState::new();
 
         record_pending_start_dsp_graph_install(&state, true);
         assert_eq!(
             state.dsp_graph_rebuild_count.load(Ordering::Relaxed),
             0,
-            "gapless reuse should not count as a graph rebuild"
+            "DSP-path reuse should not count as a graph rebuild"
         );
 
         record_pending_start_dsp_graph_install(&state, false);

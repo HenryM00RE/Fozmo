@@ -9,7 +9,7 @@ use ringbuf::{Consumer, HeapRb, Producer, SharedRb};
 use std::io::{Read, Seek, SeekFrom};
 use std::mem::MaybeUninit;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use symphonia::core::io::MediaSource;
 
@@ -23,6 +23,32 @@ pub(super) const LIVE_SAMPLE_PRECISION_BITS: u32 = f32::MANTISSA_DIGITS;
 const STAGE_SAMPLES: usize = 4096;
 const EMPTY_RING_POLL: Duration = Duration::from_millis(2);
 
+#[derive(Default)]
+pub(super) struct CaptureFlow {
+    enqueued_frames: AtomicU64,
+    consumed_frames: AtomicU64,
+}
+
+impl CaptureFlow {
+    pub(super) fn record_enqueued(&self, frames: usize) {
+        self.enqueued_frames
+            .fetch_add(frames as u64, Ordering::Relaxed);
+    }
+
+    fn record_consumed_samples(&self, samples: usize) {
+        self.consumed_frames.fetch_add(
+            (samples / usize::from(LIVE_CHANNELS)) as u64,
+            Ordering::Relaxed,
+        );
+    }
+
+    pub(super) fn buffered_frames(&self) -> u64 {
+        self.enqueued_frames
+            .load(Ordering::Relaxed)
+            .saturating_sub(self.consumed_frames.load(Ordering::Relaxed))
+    }
+}
+
 /// Ring capacity in samples for a given rate and buffer size, with a floor so
 /// tiny settings cannot starve the capture callback.
 pub(super) fn ring_capacity_samples(rate_hz: u32, buffer_ms: u32) -> usize {
@@ -32,6 +58,15 @@ pub(super) fn ring_capacity_samples(rate_hz: u32, buffer_ms: u32) -> usize {
 
 pub(super) fn live_capture_ring(capacity_samples: usize) -> (CaptureProducer, CaptureConsumer) {
     HeapRb::<f32>::new(capacity_samples).split()
+}
+
+pub(super) fn discard_capture_buffer(consumer: &mut CaptureConsumer, flow: &CaptureFlow) -> u64 {
+    let mut discarded_samples = 0_usize;
+    while consumer.pop().is_some() {
+        discarded_samples += 1;
+    }
+    flow.record_consumed_samples(discarded_samples);
+    (discarded_samples / usize::from(LIVE_CHANNELS)) as u64
 }
 
 /// WAV header for a stereo IEEE-float stream with an effectively unbounded
@@ -71,10 +106,28 @@ pub(super) struct LiveCaptureSource {
     /// (Read calls are not always multiples of the sample size).
     pending: Vec<u8>,
     pending_pos: usize,
+    flow: Arc<CaptureFlow>,
 }
 
 impl LiveCaptureSource {
+    // The legacy capture backend uses this constructor; the process-tap build
+    // supplies shared flow accounting through `new_with_flow`.
+    #[allow(dead_code)]
     pub(super) fn new(rate_hz: u32, consumer: CaptureConsumer, shutdown: Arc<AtomicBool>) -> Self {
+        Self::new_with_flow(
+            rate_hz,
+            consumer,
+            shutdown,
+            Arc::new(CaptureFlow::default()),
+        )
+    }
+
+    pub(super) fn new_with_flow(
+        rate_hz: u32,
+        consumer: CaptureConsumer,
+        shutdown: Arc<AtomicBool>,
+        flow: Arc<CaptureFlow>,
+    ) -> Self {
         Self {
             header: wav_header_ieee_f32(rate_hz),
             header_pos: 0,
@@ -83,6 +136,7 @@ impl LiveCaptureSource {
             stage: vec![0.0; STAGE_SAMPLES],
             pending: Vec::new(),
             pending_pos: 0,
+            flow,
         }
     }
 
@@ -104,6 +158,7 @@ impl LiveCaptureSource {
     fn stage_from_ring(&mut self) -> usize {
         let popped = self.consumer.pop_slice(&mut self.stage);
         if popped > 0 {
+            self.flow.record_consumed_samples(popped);
             self.pending.reserve(popped * BYTES_PER_SAMPLE);
             for sample in &self.stage[..popped] {
                 self.pending.extend_from_slice(&sample.to_le_bytes());
@@ -264,6 +319,20 @@ mod tests {
         assert_eq!(ring_capacity_samples(192_000, 250), 96_000);
         // Floor keeps tiny buffers usable.
         assert_eq!(ring_capacity_samples(44_100, 1), STAGE_SAMPLES * 2);
+    }
+
+    #[test]
+    fn capture_flow_tracks_and_discards_only_complete_stereo_frames() {
+        let (mut producer, mut consumer) = live_capture_ring(64);
+        let flow = CaptureFlow::default();
+        let samples = ramp(12);
+        let pushed = producer.push_slice(&samples);
+        flow.record_enqueued(pushed / usize::from(LIVE_CHANNELS));
+
+        assert_eq!(flow.buffered_frames(), 12);
+        assert_eq!(discard_capture_buffer(&mut consumer, &flow), 12);
+        assert_eq!(flow.buffered_frames(), 0);
+        assert_eq!(consumer.len(), 0);
     }
 
     #[test]

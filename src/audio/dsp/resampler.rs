@@ -637,6 +637,17 @@ impl SincResampler {
         }
     }
 
+    /// Source-domain duration accepted by the resampler but not yet emitted.
+    ///
+    /// This is normally just the active FIR lookahead. Explicit mid-track
+    /// handoffs add it to the output-ring tail so the replacement source starts
+    /// at the true input frontier rather than repeating the lookahead window.
+    pub(crate) fn pending_source_duration_secs(&self) -> f64 {
+        let accepted = self.input_frames as f64 / f64::from(self.source_rate.max(1));
+        let emitted = self.output_frames as f64 / f64::from(self.target_rate.max(1));
+        (accepted - emitted).max(0.0)
+    }
+
     pub fn estimated_memory_bytes(&self) -> usize {
         match &self.path {
             ResamplerPath::Integer(cascade) => cascade.plan.estimated_memory_bytes,
@@ -1047,7 +1058,10 @@ fn estimate_plan_memory_bytes(stages: &[StageSpec]) -> usize {
     engine_bytes + frozen_asset_bytes
 }
 
-trait FirEngine {
+// Engines own their working buffers and are never accessed concurrently.
+// `Send` allows a fully prepared playback session to move once from a
+// background preparation task onto the audio worker.
+trait FirEngine: Send {
     fn reset(&mut self);
     fn process_stereo(
         &mut self,

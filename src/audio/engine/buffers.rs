@@ -88,6 +88,27 @@ impl DsdWorkerState {
         self.staged_pcm_l.len().min(self.staged_pcm_r.len())
     }
 
+    /// Durations still queued after the callback's published media position.
+    ///
+    /// The first value is immediately playable output-ring cushion. The second
+    /// is source audio already accepted by the DSD pipeline but still staged,
+    /// resampling, or being modulated.
+    pub(super) fn seamless_handoff_pending_secs(&self) -> (f64, f64) {
+        #[cfg(all(target_os = "windows", feature = "asio"))]
+        let output_secs = if let Some(native) = &self.native {
+            native.prod_l.len().max(native.prod_r.len()) as f64 * 8.0
+                / f64::from(self.wire_rate.max(1))
+        } else {
+            (self.prod.len() / 2) as f64 / f64::from(self.dop_frame_rate.max(1))
+        };
+        #[cfg(not(all(target_os = "windows", feature = "asio")))]
+        let output_secs = (self.prod.len() / 2) as f64 / f64::from(self.dop_frame_rate.max(1));
+
+        let staged_secs = self.staged_pcm_frames() as f64 / f64::from(self.source_rate.max(1));
+        let pipeline_secs = staged_secs + self.renderer.pending_source_duration_secs();
+        (output_secs, pipeline_secs)
+    }
+
     pub(super) fn take_render_quantum_from_pcm(
         &mut self,
         samples_l: &[f64],
@@ -183,6 +204,35 @@ impl DsdWorkerState {
     ) {
         state.modulator_reset_count.fetch_add(1, Ordering::Relaxed);
         self.reset_for_playback_boundary();
+    }
+
+    /// Replace only the source-rate-dependent DSD pipeline while preserving
+    /// the live carrier ring and its callback-owned consumer.
+    pub(super) fn reconfigure_renderer_for_continuous_carrier(
+        &mut self,
+        renderer: crate::audio::dsd::dsd_render::DsdRenderer,
+        source_rate: u32,
+        wire_rate: u32,
+        mode: OutputMode,
+    ) {
+        debug_assert_eq!(self.wire_rate, wire_rate);
+        debug_assert_eq!(self.mode, mode);
+        let quantum = dsd_render_quantum_frames(source_rate, mode);
+        self.renderer = renderer;
+        self.output_buf.clear();
+        self.staged_pcm_l = Vec::with_capacity(quantum);
+        self.staged_pcm_r = Vec::with_capacity(quantum);
+        self.render_quantum_l = Vec::with_capacity(quantum);
+        self.render_quantum_r = Vec::with_capacity(quantum);
+        self.eq_scratch_l = Vec::with_capacity(quantum);
+        self.eq_scratch_r = Vec::with_capacity(quantum);
+        self.render_quantum_frames = quantum;
+        self.recent_render_loads.clear();
+        self.recent_render_load_cursor = 0;
+        self.source_rate = source_rate;
+        self.wire_rate = wire_rate;
+        self.mode = mode;
+        self.reset_boundary_fade_in();
     }
 
     pub(super) fn reset_boundary_fade_in(&mut self) {
@@ -1067,6 +1117,41 @@ mod tests {
         assert_eq!(ds.staged_pcm_frames(), 0);
         assert_eq!(ds.staged_output_len(), 0);
         assert!(ds.recent_render_loads.is_empty());
+    }
+
+    #[test]
+    fn dsd_renderer_reconfigure_preserves_the_live_carrier_ring() {
+        use crate::audio::dsd::dsd_render::{DsdRate, DsdRenderer};
+        use crate::audio::dsp::resampler::FilterType;
+
+        let wire_rate = DsdRate::Dsd128.wire_rate_for_source(44_100).unwrap();
+        let renderer = DsdRenderer::new(FilterType::Minimum16k, 44_100, DsdRate::Dsd128)
+            .expect("initial renderer");
+        let mut ds = super::super::dsd_path::new_dop_worker_state(
+            renderer,
+            44_100,
+            wire_rate,
+            OutputMode::Dsd128,
+            0,
+        );
+        assert_eq!(ds.prod.push_slice(&[1, 2, 3, 4]), 4);
+        let next_renderer = DsdRenderer::new(FilterType::Minimum16k, 88_200, DsdRate::Dsd128)
+            .expect("replacement renderer");
+
+        ds.reconfigure_renderer_for_continuous_carrier(
+            next_renderer,
+            88_200,
+            wire_rate,
+            OutputMode::Dsd128,
+        );
+
+        assert_eq!(ds.prod.len(), 4);
+        assert!(ds.cons_opt.is_some());
+        assert_eq!(ds.source_rate, 88_200);
+        assert_eq!(
+            ds.render_quantum_frames,
+            dsd_render_quantum_frames(88_200, OutputMode::Dsd128)
+        );
     }
 
     #[test]

@@ -1,5 +1,7 @@
 use crate::app::state::AppState;
 use crate::audio::device_volume;
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+use crate::audio::player::{Player, PreparedStream};
 use crate::audio::player::{TrackCover, TrackTags};
 use crate::diagnostics::logging::{next_operation_id, sanitize_error};
 use crate::playback::artist_radio::local_artist_radio_next_source_from_source_for_zone;
@@ -55,6 +57,21 @@ struct SelectedQobuzStream {
     display_name: String,
 }
 
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+pub(crate) struct PreparedLocalPlaybackHandoff {
+    player: std::sync::Arc<Player>,
+    expected_epoch: u64,
+    zone_id: String,
+    profile_id: String,
+    source: SourceRef,
+    queue: Vec<SourceRef>,
+    radio_auto: bool,
+    prepared: Option<PreparedStream>,
+    display_name: String,
+    fallback_cover: Option<TrackCover>,
+    fallback_tags: Option<TrackTags>,
+}
+
 const HEGEL_DOP_SEEK_MEDIA_EVIDENCE_TIMEOUT: Duration = Duration::from_secs(4);
 
 impl ZoneSink {
@@ -71,6 +88,171 @@ impl ZoneSink {
 impl<'a> PlaybackRouter<'a> {
     pub(crate) fn new(state: &'a AppState) -> Self {
         Self { state }
+    }
+
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn prepare_local_playback_handoff(
+        &self,
+        zone_id: &str,
+        profile_id: String,
+        source: SourceRef,
+        queue: Vec<SourceRef>,
+        radio_auto: bool,
+        start_position_secs: f64,
+    ) -> Result<PreparedLocalPlaybackHandoff, PlaybackError> {
+        if !matches!(self.sink_for_zone(zone_id)?, ZoneSink::Local) {
+            return Err(PlaybackError::bad_request(
+                "Prepared playback handoff requires a local output.",
+            ));
+        }
+        let req = qobuz_play_request_from_source_ref(&source, &queue, radio_auto)
+            .ok_or_else(|| PlaybackError::bad_request("Expected a Qobuz comparison source"))?;
+        let Some(player) = self.state.zones().player_for_zone(zone_id) else {
+            return Err(PlaybackError::ZoneNotAvailable);
+        };
+        apply_playback_settings_for_zone(self.state, zone_id);
+        prepare_airplay_volume_for_zone(self.state, zone_id, &player);
+        prepare_hegel_for_zone(self.state, zone_id).await?;
+        let expected_epoch = player.playback_epoch();
+
+        let cover_fut = async {
+            let url = req.image_url.as_deref()?;
+            let (mime, data) = self.state.qobuz().fetch_cover_public(url).await.ok()?;
+            match (mime, data) {
+                (Some(mime), Some(data)) => Some(TrackCover { mime, data }),
+                _ => None,
+            }
+        };
+        let stream_fut = self.state.qobuz().open_stream(&req);
+        let (stream_result, fallback_cover) = tokio::join!(stream_fut, cover_fut);
+        let handle = stream_result.map_err(PlaybackError::retryable_network)?;
+        if player.playback_epoch() != expected_epoch {
+            return Err(PlaybackError::conflict("Playback changed"));
+        }
+
+        let display_name = handle.display_name;
+        let ext_hint = Some(handle.ext);
+        let prepare_player = std::sync::Arc::clone(&player);
+        let prepared = tokio::task::spawn_blocking(move || {
+            prepare_player.prepare_stream(
+                Box::new(handle.source),
+                ext_hint,
+                Some(start_position_secs),
+            )
+        })
+        .await
+        .map_err(|error| {
+            PlaybackError::internal_invariant(format!(
+                "Preparing the Qobuz decoder failed: {error}"
+            ))
+        })?
+        .map_err(PlaybackError::retryable_network)?;
+        if player.playback_epoch() != expected_epoch {
+            return Err(PlaybackError::conflict("Playback changed"));
+        }
+
+        let fallback_tags = TrackTags {
+            title: req.title,
+            artist: req.artist.clone(),
+            album: req.album,
+            album_artist: req.artist,
+            duration_secs: req.duration_secs,
+            ..TrackTags::default()
+        };
+        Ok(PreparedLocalPlaybackHandoff {
+            player,
+            expected_epoch,
+            zone_id: zone_id.to_string(),
+            profile_id,
+            source,
+            queue,
+            radio_auto,
+            prepared: Some(prepared),
+            display_name,
+            fallback_cover,
+            fallback_tags: Some(fallback_tags),
+        })
+    }
+
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    pub(crate) async fn retarget_local_playback_handoff(
+        &self,
+        mut handoff: PreparedLocalPlaybackHandoff,
+        start_position_secs: f64,
+    ) -> Result<PreparedLocalPlaybackHandoff, PlaybackError> {
+        if handoff.player.playback_epoch() != handoff.expected_epoch {
+            return Err(PlaybackError::conflict("Playback changed"));
+        }
+        let prepared = handoff.prepared.take().ok_or_else(|| {
+            PlaybackError::internal_invariant("Prepared Qobuz stream was already consumed")
+        })?;
+        let player = std::sync::Arc::clone(&handoff.player);
+        handoff.prepared = Some(
+            tokio::task::spawn_blocking(move || {
+                player.retarget_prepared_stream(prepared, Some(start_position_secs))
+            })
+            .await
+            .map_err(|error| {
+                PlaybackError::internal_invariant(format!(
+                    "Retargeting the Qobuz decoder failed: {error}"
+                ))
+            })?
+            .map_err(PlaybackError::retryable_network)?,
+        );
+        if handoff.player.playback_epoch() != handoff.expected_epoch {
+            return Err(PlaybackError::conflict("Playback changed"));
+        }
+        Ok(handoff)
+    }
+
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    pub(crate) fn commit_local_playback_handoff(
+        &self,
+        mut handoff: PreparedLocalPlaybackHandoff,
+    ) -> Result<PlaybackOutcome, PlaybackError> {
+        if handoff.player.playback_epoch() != handoff.expected_epoch {
+            return Err(PlaybackError::conflict("Playback changed"));
+        }
+        let prepared = handoff.prepared.take().ok_or_else(|| {
+            PlaybackError::internal_invariant("Prepared Qobuz stream was already consumed")
+        })?;
+        let play_epoch = handoff.player.reserve_playback_change();
+        if !handoff.player.play_prepared_stream_if_epoch(
+            play_epoch,
+            prepared,
+            handoff.display_name,
+            handoff.fallback_cover,
+            handoff.fallback_tags,
+            Vec::new(),
+            true,
+        ) {
+            return Err(PlaybackError::conflict("Playback changed"));
+        }
+
+        if let Err(error) = self
+            .state
+            .library()
+            .set_zone_queue(&handoff.zone_id, &handoff.queue)
+        {
+            warn!(
+                event = "playback_queue_persist_failed",
+                zone_id = handoff.zone_id,
+                error_kind = "library",
+                error = %sanitize_error(&error),
+                "Failed to persist zone queue"
+            );
+        }
+        self.state.listening().start_with_radio(
+            self.state.library(),
+            handoff.zone_id.clone(),
+            self.state.zones().zone_name(&handoff.zone_id),
+            handoff.profile_id,
+            handoff.source,
+            handoff.queue,
+            handoff.radio_auto,
+        );
+        Ok(PlaybackOutcome::Completed)
     }
 
     pub(crate) async fn execute(

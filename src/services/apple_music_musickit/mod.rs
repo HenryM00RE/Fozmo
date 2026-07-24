@@ -19,7 +19,8 @@ pub(crate) use model::{
     AppleMusicTransportRequest,
 };
 pub(crate) use music_app::{
-    MusicAppSnapshot, pause as pause_music_app, play as play_music_app,
-    set_position as set_music_app_position, status as music_app_status,
+    MusicAppSnapshot, pause as pause_music_app, pause_and_status as pause_music_app_and_status,
+    play as play_music_app, set_position as set_music_app_position,
+    set_position_and_play as set_music_app_position_and_play, status as music_app_status,
 };
 pub(crate) use service::{AppleMusicComparisonReferenceState, AppleMusicService};

@@ -6,6 +6,7 @@ use crate::settings::DsdSourceRule;
 use symphonia::core::io::MediaSource;
 
 use super::metadata::{TrackCover, TrackTags};
+use super::session::PlaybackSession;
 
 #[derive(Clone)]
 pub struct QueueItem {
@@ -23,6 +24,26 @@ pub struct StreamQueueItem {
     pub display_name: String,
     pub fallback_cover: Option<TrackCover>,
     pub fallback_tags: Option<TrackTags>,
+}
+
+/// A fully probed, optionally pre-seeked stream session. Preparing this away
+/// from the audio worker lets an explicit source handoff keep the current
+/// output ring playing while network and decoder setup complete.
+pub struct PreparedStream {
+    pub(super) session: PlaybackSession,
+    pub(super) tags: TrackTags,
+    pub(super) cover: Option<TrackCover>,
+    pub(super) start_position_secs: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SeamlessHandoffBoundary {
+    pub epoch: u64,
+    /// Source position immediately after every old-source sample already
+    /// accepted by the output and DSP pipelines.
+    pub position_secs: f64,
+    /// Program-audio duration currently available to cover destination setup.
+    pub output_cushion_secs: f64,
 }
 
 #[derive(Clone)]
@@ -58,6 +79,30 @@ pub enum PlayerCommand {
         fallback_cover: Option<TrackCover>,
         fallback_tags: Option<TrackTags>,
         queue: Vec<StreamQueueItem>,
+    },
+    /// Install an already-probed stream. `preserve_output` requests a
+    /// continuous handoff through the current output ring; incompatible output
+    /// rates still fall back to the ordinary protected transition.
+    PlayPreparedStream {
+        epoch: u64,
+        prepared: Box<PreparedStream>,
+        display_name: String,
+        fallback_cover: Option<TrackCover>,
+        fallback_tags: Option<TrackTags>,
+        queue: Vec<StreamQueueItem>,
+        preserve_output: bool,
+    },
+    /// Freeze source rendering at an exact media position while allowing the
+    /// output callback to drain the already-rendered ring. Used to line up an
+    /// external live source before a prepared, output-preserving handoff.
+    BeginSeamlessHandoff {
+        expected_epoch: u64,
+        destination_source_rate: Option<u32>,
+        response: tokio::sync::oneshot::Sender<Result<SeamlessHandoffBoundary, String>>,
+    },
+    /// Resume source rendering after a prepared handoff was abandoned.
+    CancelSeamlessHandoff {
+        expected_epoch: u64,
     },
     Pause,
     Resume,
