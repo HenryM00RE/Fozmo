@@ -292,6 +292,10 @@ pub struct DsdRenderer {
     stability_resets_lr: [u64; 2],
     state_clamps_lr: [u64; 2],
     seventh_order_search_diagnostics_lr: [Option<SeventhOrderSearchDiagnostics>; 2],
+    /// Wall time spent by the slower channel worker for the most recently
+    /// collected process block. This is measured inside the workers so paced
+    /// live sources cannot hide modulation work between render calls.
+    last_collected_modulation_time: Duration,
     limiter_telemetry: DsdLimiterTelemetry,
     truncation_telemetry: DsdTruncationTelemetry,
     source_rate: u32,
@@ -419,9 +423,16 @@ fn select_modulator_coeffs(
 
 enum ModJob {
     /// Modulate one block of gained, limited per-channel PCM into bits.
-    Process { input: Vec<f64>, bits: Vec<u8> },
+    Process {
+        input: Vec<f64>,
+        bits: Vec<u8>,
+        submitted_at: Instant,
+    },
     /// Emit 7th Order Search's delayed tail (no-op for Standard).
-    Flush { bits: Vec<u8> },
+    Flush {
+        bits: Vec<u8>,
+        submitted_at: Instant,
+    },
     /// Reset integrator state (keeps the dither RNG running). No response.
     Reset,
 }
@@ -479,6 +490,7 @@ struct ModOutput {
     bits: Vec<u8>,
     /// The input buffer of a `Process` job, returned for recycling.
     input: Option<Vec<f64>>,
+    turnaround_time: Duration,
     stability_resets: u64,
     state_clamps: u64,
     seventh_order_search_diagnostics: Option<SeventhOrderSearchDiagnostics>,
@@ -555,24 +567,33 @@ impl ModulatorWorker {
                 }
                 while let Ok(job) = job_rx.recv() {
                     let output = match job {
-                        ModJob::Process { input, mut bits } => {
+                        ModJob::Process {
+                            input,
+                            mut bits,
+                            submitted_at,
+                        } => {
                             bits.clear();
                             modulator.process_into_bits(&input, &mut bits);
                             ModOutput {
                                 bits,
                                 input: Some(input),
+                                turnaround_time: submitted_at.elapsed(),
                                 stability_resets: modulator.stability_resets(),
                                 state_clamps: modulator.state_clamps(),
                                 seventh_order_search_diagnostics: modulator
                                     .seventh_order_search_diagnostics(),
                             }
                         }
-                        ModJob::Flush { mut bits } => {
+                        ModJob::Flush {
+                            mut bits,
+                            submitted_at,
+                        } => {
                             bits.clear();
                             modulator.flush_into_bits(&mut bits);
                             ModOutput {
                                 bits,
                                 input: None,
+                                turnaround_time: submitted_at.elapsed(),
                                 stability_resets: modulator.stability_resets(),
                                 state_clamps: modulator.state_clamps(),
                                 seventh_order_search_diagnostics: modulator
@@ -1067,6 +1088,7 @@ impl DsdRenderer {
             stability_resets_lr: [0; 2],
             state_clamps_lr: [0; 2],
             seventh_order_search_diagnostics_lr: [None, None],
+            last_collected_modulation_time: Duration::ZERO,
             limiter_telemetry: DsdLimiterTelemetry::default(),
             truncation_telemetry: DsdTruncationTelemetry::default(),
             source_rate,
@@ -1127,6 +1149,10 @@ impl DsdRenderer {
         self.upsampler.target_rate() / 16
     }
 
+    pub fn last_collected_modulation_time(&self) -> Duration {
+        self.last_collected_modulation_time
+    }
+
     pub fn reset(&mut self) {
         // Discard any block still in flight before resetting the modulators.
         self.collect_in_flight_into_bits();
@@ -1147,6 +1173,7 @@ impl DsdRenderer {
         self.limiter_telemetry.current_block_gain = 1.0;
         self.limiter_telemetry.current_block_limited_samples = 0;
         self.seventh_order_search_diagnostics_lr = [None, None];
+        self.last_collected_modulation_time = Duration::ZERO;
         self.truncation_telemetry = DsdTruncationTelemetry::default();
     }
 
@@ -1327,10 +1354,12 @@ impl DsdRenderer {
         self.worker_l.submit(ModJob::Process {
             input: std::mem::take(&mut self.pcm_l),
             bits: std::mem::take(&mut self.spare_bits_l),
+            submitted_at: Instant::now(),
         });
         self.worker_r.submit(ModJob::Process {
             input: std::mem::take(&mut self.pcm_r),
             bits: std::mem::take(&mut self.spare_bits_r),
+            submitted_at: Instant::now(),
         });
         self.in_flight = true;
 
@@ -1445,12 +1474,14 @@ impl DsdRenderer {
         }
         let out_l = self.worker_l.collect();
         let out_r = self.worker_r.collect();
+        self.last_collected_modulation_time = out_l.turnaround_time.max(out_r.turnaround_time);
         let prev_bits_l = std::mem::replace(&mut self.bits_l, out_l.bits);
         let prev_bits_r = std::mem::replace(&mut self.bits_r, out_r.bits);
         self.recycle_collected(
             ModOutput {
                 bits: prev_bits_l,
                 input: out_l.input,
+                turnaround_time: out_l.turnaround_time,
                 stability_resets: out_l.stability_resets,
                 state_clamps: out_l.state_clamps,
                 seventh_order_search_diagnostics: out_l.seventh_order_search_diagnostics,
@@ -1461,6 +1492,7 @@ impl DsdRenderer {
             ModOutput {
                 bits: prev_bits_r,
                 input: out_r.input,
+                turnaround_time: out_r.turnaround_time,
                 stability_resets: out_r.stability_resets,
                 state_clamps: out_r.state_clamps,
                 seventh_order_search_diagnostics: out_r.seventh_order_search_diagnostics,
@@ -1477,9 +1509,11 @@ impl DsdRenderer {
         // …then append 7th Order Search's delayed tail (empty in Standard mode).
         self.worker_l.submit(ModJob::Flush {
             bits: std::mem::take(&mut self.spare_bits_l),
+            submitted_at: Instant::now(),
         });
         self.worker_r.submit(ModJob::Flush {
             bits: std::mem::take(&mut self.spare_bits_r),
+            submitted_at: Instant::now(),
         });
         let tail_l = self.worker_l.collect();
         let tail_r = self.worker_r.collect();
@@ -1898,6 +1932,10 @@ mod tests {
             renderer.drain_resampler_eof();
             renderer.modulate_and_pack_native(1.0, &mut out_l, &mut out_r);
             renderer.flush_modulators_and_pack_native(&mut out_l, &mut out_r);
+            assert!(
+                renderer.last_collected_modulation_time() > Duration::ZERO,
+                "{modulator:?} worker processing time was not retained"
+            );
 
             assert_eq!(out_l.len(), out_r.len());
             assert!(!out_l.is_empty());

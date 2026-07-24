@@ -8964,6 +8964,152 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
   gap: 30px;
 }
 
+.react-app .apple-music-ab-panel {
+  display: grid;
+  gap: 16px;
+  padding: 22px 28px;
+}
+
+.react-app .apple-music-ab-route {
+  color: var(--ink-muted, #a8a297);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-app .apple-music-ab-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.react-app .apple-music-ab-choice {
+  min-width: 0;
+  min-height: 82px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  border-radius: 10px;
+  padding: 14px;
+  background: var(--canvas-tint, rgba(255, 255, 255, 0.025));
+  color: var(--ink, #f5f0e8);
+  box-shadow: inset 0 0 0 1px var(--line-08, rgba(255, 255, 255, 0.08));
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease;
+}
+
+.react-app .apple-music-ab-choice:not(:disabled):hover {
+  background: color-mix(in srgb, var(--accent, #59b6ff) 8%, var(--canvas-tint));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, #59b6ff) 42%, transparent);
+  transform: translateY(-1px);
+}
+
+.react-app .apple-music-ab-choice:focus-visible {
+  outline: 2px solid var(--accent, #59b6ff);
+  outline-offset: 2px;
+}
+
+.react-app .apple-music-ab-choice.is-active {
+  background: color-mix(in srgb, var(--accent, #59b6ff) 13%, var(--canvas-tint));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent, #59b6ff) 66%, transparent),
+    0 8px 24px rgba(0, 0, 0, 0.13);
+}
+
+.react-app .apple-music-ab-choice:disabled:not(.is-active) {
+  cursor: default;
+  opacity: 0.52;
+}
+
+.react-app .apple-music-ab-letter {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--line-08, rgba(255, 255, 255, 0.08));
+  color: var(--ink-strong, #fff);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.react-app .apple-music-ab-choice.is-active .apple-music-ab-letter {
+  background: var(--accent, #59b6ff);
+  color: #07121c;
+}
+
+.react-app .apple-music-ab-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.react-app .apple-music-ab-copy strong,
+.react-app .apple-music-ab-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-app .apple-music-ab-copy strong {
+  font-size: 14px;
+}
+
+.react-app .apple-music-ab-copy small {
+  color: var(--ink-muted, #a8a297);
+  font-size: 11px;
+}
+
+.react-app .apple-music-ab-state {
+  color: var(--ink-muted, #a8a297);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.react-app .apple-music-ab-choice.is-active .apple-music-ab-state {
+  color: var(--accent, #59b6ff);
+}
+
+.react-app .apple-music-ab-guide {
+  display: grid;
+  gap: 4px;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--ochre-ink, #d6b66f) 9%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ochre-ink, #d6b66f) 24%, transparent);
+}
+
+.react-app .apple-music-ab-guide strong {
+  font-size: 12px;
+}
+
+.react-app .apple-music-ab-guide span,
+.react-app .apple-music-ab-details {
+  color: var(--ink-muted, #a8a297);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.react-app .apple-music-ab-details {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 18px;
+}
+
+.react-app .apple-music-ab-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 24px;
+}
+
 .react-app .apple-music-form-panel,
 .react-app .apple-music-search-panel,
 .react-app .apple-music-warning-panel,
@@ -9032,6 +9178,13 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
 .react-app .apple-music-capture-confirmation:has(input:disabled) {
   cursor: default;
   opacity: 0.72;
+}
+
+@media (max-width: 760px) {
+  .react-app .apple-music-ab-switch,
+  .react-app .apple-music-ab-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .react-app .apple-music-app-panel {

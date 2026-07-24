@@ -710,6 +710,16 @@ export const endpoints = {
       mute_original_audio: muteOriginalAudio
     }),
   stopAppleMusicProcessTap: () => api.post<JsonRecord>('/api/apple-music/process-tap/stop'),
+  switchAppleMusicComparison: (
+    target: 'apple_music' | 'fozmo',
+    confirmSystemAudioCapture: boolean,
+    matchPosition: boolean
+  ) =>
+    api.post<JsonRecord>('/api/apple-music/comparison/switch', {
+      target,
+      confirm_system_audio_capture: confirmSystemAudioCapture,
+      match_position: matchPosition
+    }),
 
   nowPlayingQueue: (zoneId: string, signal?: AbortSignal) =>
     api.get<{

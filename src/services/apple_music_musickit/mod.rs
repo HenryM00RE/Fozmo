@@ -9,11 +9,17 @@ mod ipc;
 #[path = "../apple_music/live_source.rs"]
 mod live_source;
 mod model;
+mod music_app;
 mod process_tap;
 mod service;
 
 pub(crate) use model::{
-    AppleMusicAuthorizeRequest, AppleMusicDevPlaySongRequest, AppleMusicMvpError,
-    AppleMusicMvpStatus, AppleMusicProcessTapStartRequest, AppleMusicTransportRequest,
+    AppleMusicAuthorizeRequest, AppleMusicComparisonSwitchRequest, AppleMusicDevPlaySongRequest,
+    AppleMusicMvpError, AppleMusicMvpStatus, AppleMusicProcessTapStartRequest,
+    AppleMusicTransportRequest,
 };
-pub(crate) use service::AppleMusicService;
+pub(crate) use music_app::{
+    MusicAppSnapshot, pause as pause_music_app, play as play_music_app,
+    set_position as set_music_app_position, status as music_app_status,
+};
+pub(crate) use service::{AppleMusicComparisonReferenceState, AppleMusicService};

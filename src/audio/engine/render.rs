@@ -122,6 +122,20 @@ fn update_dsd_limiter_peak_ratio_max(state: &AtomicPlayerState, peak: f32) {
     }
 }
 
+fn effective_dsd_render_elapsed_ns(
+    caller_elapsed_ns: u64,
+    collected_worker_elapsed_ns: u64,
+) -> u64 {
+    // DSD modulation is pipelined on two channel workers. File sources usually
+    // reach the next render call before those workers finish, so their time is
+    // naturally visible while collecting the previous block. A paced live
+    // source can leave enough time between calls for the workers to finish,
+    // hiding that same work from the caller timer. Pipeline throughput is
+    // bounded by the slower stage, so use the larger duration rather than
+    // adding two stages that execute concurrently.
+    caller_elapsed_ns.max(collected_worker_elapsed_ns)
+}
+
 pub(super) fn render_dsd_block(
     ds: &mut DsdWorkerState,
     samples_l: &[f64],
@@ -172,9 +186,12 @@ pub(super) fn render_dsd_block(
         ds.renderer
             .modulate_and_pack(input_gain, &mut ds.output_buf);
     }
-    let modulate_elapsed = modulate_start.elapsed().as_nanos() as u64;
+    let modulate_caller_elapsed = modulate_start.elapsed().as_nanos() as u64;
+    let worker_modulation_elapsed = ds.renderer.last_collected_modulation_time().as_nanos() as u64;
+    let modulate_elapsed = modulate_caller_elapsed.max(worker_modulation_elapsed);
 
-    let elapsed = start.elapsed().as_nanos() as u64;
+    let caller_elapsed = start.elapsed().as_nanos() as u64;
+    let elapsed = effective_dsd_render_elapsed_ns(caller_elapsed, worker_modulation_elapsed);
     state.record_render_block_ns(elapsed);
     state.resample_time_ns.store(elapsed, Ordering::Relaxed);
     state
@@ -441,8 +458,8 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use super::{
-        apply_dsd_boundary_fade_in, clamp_headroom_db, output_headroom_gain,
-        publish_signal_level_metrics,
+        apply_dsd_boundary_fade_in, clamp_headroom_db, effective_dsd_render_elapsed_ns,
+        output_headroom_gain, publish_signal_level_metrics,
     };
     use crate::audio::engine::state::AtomicPlayerState;
 
@@ -453,6 +470,18 @@ mod tests {
         assert_eq!(clamp_headroom_db(f32::NAN), 0.0);
         assert!((output_headroom_gain(0.0) - 1.0).abs() < 1e-12);
         assert!((output_headroom_gain(-6.0) - 0.501_187).abs() < 1e-6);
+    }
+
+    #[test]
+    fn paced_dsd_render_accounts_for_work_completed_between_calls() {
+        assert_eq!(
+            effective_dsd_render_elapsed_ns(15_000_000, 40_000_000),
+            40_000_000
+        );
+        assert_eq!(
+            effective_dsd_render_elapsed_ns(45_000_000, 40_000_000),
+            45_000_000
+        );
     }
 
     #[test]

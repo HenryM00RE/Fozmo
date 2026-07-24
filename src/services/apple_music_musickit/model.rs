@@ -131,6 +131,7 @@ pub(crate) struct AppleMusicMvpStatus {
     pub last_error: Option<AppleMusicMvpError>,
     pub integration_stage: String,
     pub process_tap: AppleMusicProcessTapStatus,
+    pub comparison: AppleMusicComparisonStatus,
 }
 
 impl AppleMusicMvpStatus {
@@ -160,6 +161,51 @@ impl AppleMusicMvpStatus {
             last_error: None,
             integration_stage: "music_app_process_tap".to_string(),
             process_tap: AppleMusicProcessTapStatus::default(),
+            comparison: AppleMusicComparisonStatus::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub(crate) struct AppleMusicComparisonTrack {
+    pub track_key: Option<String>,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub duration_secs: Option<f64>,
+    pub position_secs: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub(crate) struct AppleMusicComparisonReference {
+    pub zone_id: String,
+    pub zone_name: String,
+    pub provider: String,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub position_secs: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub(crate) struct AppleMusicComparisonStatus {
+    pub active_side: String,
+    pub can_switch_to_fozmo: bool,
+    pub match_position: bool,
+    pub reference: Option<AppleMusicComparisonReference>,
+    pub apple_music_track: Option<AppleMusicComparisonTrack>,
+    pub last_switch_message: Option<String>,
+}
+
+impl Default for AppleMusicComparisonStatus {
+    fn default() -> Self {
+        Self {
+            active_side: "fozmo".to_string(),
+            can_switch_to_fozmo: false,
+            match_position: true,
+            reference: None,
+            apple_music_track: None,
+            last_switch_message: None,
         }
     }
 }
@@ -187,6 +233,15 @@ pub(crate) struct AppleMusicProcessTapStartRequest {
     pub confirm_system_audio_capture: bool,
     #[serde(default = "default_true")]
     pub mute_original_audio: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct AppleMusicComparisonSwitchRequest {
+    pub target: String,
+    #[serde(default)]
+    pub confirm_system_audio_capture: bool,
+    #[serde(default = "default_true")]
+    pub match_position: bool,
 }
 
 fn default_true() -> bool {

@@ -1,10 +1,12 @@
 use super::ipc::{read_json_frame, write_json_frame};
 use super::model::{
+    AppleMusicComparisonReference, AppleMusicComparisonStatus, AppleMusicComparisonTrack,
     AppleMusicMvpError, AppleMusicMvpState, AppleMusicMvpStatus, EXPECTED_HELPER_BUNDLE_ID,
     HelperMessage, HelperQueueItem, PROTOCOL_VERSION, SetQueueCommand,
 };
 use super::process_tap::ProcessTapController;
 use crate::audio::player::Player;
+use crate::protocol::SourceRef;
 use rand::{RngCore, rngs::OsRng};
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -28,9 +30,27 @@ pub(crate) struct AppleMusicService {
     runtime_root: PathBuf,
     status: Arc<Mutex<AppleMusicMvpStatus>>,
     process_tap: Mutex<ProcessTapController>,
+    comparison: Mutex<ComparisonSession>,
+    comparison_switch: AsyncMutex<()>,
     connection: AsyncMutex<Option<HelperConnection>>,
     next_command_id: AtomicU64,
     next_queue_revision: AtomicU64,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AppleMusicComparisonReferenceState {
+    pub(crate) zone_id: String,
+    pub(crate) zone_name: String,
+    pub(crate) profile_id: String,
+    pub(crate) source: SourceRef,
+    pub(crate) queue: Vec<SourceRef>,
+    pub(crate) position_secs: f64,
+}
+
+#[derive(Default)]
+struct ComparisonSession {
+    reference: Option<AppleMusicComparisonReferenceState>,
+    status: AppleMusicComparisonStatus,
 }
 
 struct HelperConnection {
@@ -50,6 +70,8 @@ impl AppleMusicService {
             runtime_root: cache_dir.join("apple-music"),
             status: Arc::new(Mutex::new(AppleMusicMvpStatus::new(helper_present))),
             process_tap: Mutex::new(ProcessTapController::default()),
+            comparison: Mutex::new(ComparisonSession::default()),
+            comparison_switch: AsyncMutex::new(()),
             connection: AsyncMutex::new(None),
             next_command_id: AtomicU64::new(1),
             next_queue_revision: AtomicU64::new(1),
@@ -59,9 +81,16 @@ impl AppleMusicService {
     pub(crate) fn status(&self) -> AppleMusicMvpStatus {
         let helper_present = self.helper_path.is_file();
         let process_tap = self.process_tap.lock().unwrap().status();
+        let mut comparison = self.comparison.lock().unwrap().status.clone();
+        if process_tap.state == "running" {
+            comparison.active_side = "apple_music".to_string();
+        } else if comparison.active_side == "apple_music" {
+            comparison.active_side = "idle".to_string();
+        }
         let mut status = self.status.lock().unwrap();
         status.helper_present = helper_present;
         status.process_tap = process_tap;
+        status.comparison = comparison;
         if status.helper_pid.is_none() {
             if helper_present && status.state == AppleMusicMvpState::HelperMissing {
                 status.state = AppleMusicMvpState::Stopped;
@@ -83,12 +112,67 @@ impl AppleMusicService {
             confirm_system_audio_capture,
             mute_original_audio,
         )?;
+        self.comparison.lock().unwrap().status.active_side = "apple_music".to_string();
         Ok(self.status())
     }
 
     pub(crate) fn stop_process_tap(&self) -> AppleMusicMvpStatus {
         self.process_tap.lock().unwrap().stop();
+        let mut comparison = self.comparison.lock().unwrap();
+        if comparison.status.active_side == "apple_music" {
+            comparison.status.active_side = "idle".to_string();
+        }
+        drop(comparison);
         self.status()
+    }
+
+    pub(crate) async fn lock_comparison_switch(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.comparison_switch.lock().await
+    }
+
+    pub(crate) fn comparison_reference(&self) -> Option<AppleMusicComparisonReferenceState> {
+        self.comparison.lock().unwrap().reference.clone()
+    }
+
+    pub(crate) fn comparison_switched_to_apple(
+        &self,
+        reference: AppleMusicComparisonReferenceState,
+        apple_music_track: AppleMusicComparisonTrack,
+        match_position: bool,
+    ) {
+        let mut comparison = self.comparison.lock().unwrap();
+        comparison.status.active_side = "apple_music".to_string();
+        comparison.status.can_switch_to_fozmo = true;
+        comparison.status.match_position = match_position;
+        comparison.status.reference = Some(reference_status(&reference, reference.position_secs));
+        comparison.status.apple_music_track = Some(apple_music_track);
+        comparison.status.last_switch_message =
+            Some("Apple Music is feeding the same Fozmo DSP/output path.".to_string());
+        comparison.reference = Some(reference);
+    }
+
+    pub(crate) fn comparison_switched_to_fozmo(
+        &self,
+        apple_music_track: Option<AppleMusicComparisonTrack>,
+        match_position: bool,
+        position_secs: f64,
+    ) {
+        let mut comparison = self.comparison.lock().unwrap();
+        comparison.status.active_side = "fozmo".to_string();
+        comparison.status.can_switch_to_fozmo = comparison.reference.is_some();
+        comparison.status.match_position = match_position;
+        if let Some(reference) = comparison.reference.as_mut() {
+            reference.position_secs = position_secs;
+        }
+        comparison.status.reference = comparison
+            .reference
+            .as_ref()
+            .map(|reference| reference_status(reference, position_secs));
+        if apple_music_track.is_some() {
+            comparison.status.apple_music_track = apple_music_track;
+        }
+        comparison.status.last_switch_message =
+            Some("The remembered Fozmo source is feeding the same DSP/output path.".to_string());
     }
 
     pub(crate) async fn launch(&self) -> Result<AppleMusicMvpStatus, AppleMusicMvpError> {
@@ -752,6 +836,45 @@ fn helper_executable_path(resource_dir: &Path) -> PathBuf {
         .join("Contents")
         .join("MacOS")
         .join(HELPER_EXECUTABLE)
+}
+
+fn reference_status(
+    reference: &AppleMusicComparisonReferenceState,
+    position_secs: f64,
+) -> AppleMusicComparisonReference {
+    let (provider, title, artist, album) = match &reference.source {
+        SourceRef::LocalTrack {
+            title,
+            artist,
+            album,
+            ..
+        } => (
+            "local".to_string(),
+            title.clone(),
+            artist.clone(),
+            album.clone(),
+        ),
+        SourceRef::QobuzTrack {
+            title,
+            artist,
+            album,
+            ..
+        } => (
+            "qobuz".to_string(),
+            title.clone(),
+            artist.clone(),
+            album.clone(),
+        ),
+    };
+    AppleMusicComparisonReference {
+        zone_id: reference.zone_id.clone(),
+        zone_name: reference.zone_name.clone(),
+        provider,
+        title,
+        artist,
+        album,
+        position_secs,
+    }
 }
 
 fn cleanup_socket(socket_path: &Path) {

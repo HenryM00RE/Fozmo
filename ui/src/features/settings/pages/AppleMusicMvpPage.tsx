@@ -10,6 +10,7 @@ export function AppleMusicMvpPage() {
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
   const [captureConfirmed, setCaptureConfirmed] = useState(false);
+  const [matchPosition, setMatchPosition] = useState(true);
 
   const processTap = recordValue(status?.process_tap);
   const tapMetrics = recordValue(processTap?.metrics);
@@ -17,6 +18,13 @@ export function AppleMusicMvpPage() {
   const tapRunning = tapState === 'running';
   const tapSupported = processTap?.supported !== false;
   const musicAppRunning = processTap?.music_app_running === true;
+  const comparison = recordValue(status?.comparison);
+  const comparisonReference = recordValue(comparison?.reference);
+  const comparisonAppleTrack = recordValue(comparison?.apple_music_track);
+  const comparisonSide = String(comparison?.active_side || (tapRunning ? 'apple_music' : 'fozmo'));
+  const appleSideActive = comparisonSide === 'apple_music';
+  const canSwitchToFozmo = comparison?.can_switch_to_fozmo === true;
+  const fozmoSideActive = comparisonSide === 'fozmo' && canSwitchToFozmo;
 
   const loadStatus = useCallback(async () => {
     const next = await endpoints.appleMusicStatus();
@@ -84,6 +92,145 @@ export function AppleMusicMvpPage() {
       </div>
 
       <div className="settings-grid apple-music-grid">
+        <section className="settings-section-block">
+          <div className="settings-section-heading">
+            <div className="section-label">Quick A/B comparison</div>
+            <span className="apple-music-ab-route">
+              Same {String(comparisonReference?.zone_name || 'Fozmo output')} + DSP
+            </span>
+          </div>
+          <div className="panel raised apple-music-ab-panel">
+            <div
+              className="apple-music-ab-switch"
+              role="group"
+              aria-label="Choose the active comparison source"
+            >
+              <button
+                className={`apple-music-ab-choice ${appleSideActive ? 'is-active' : ''}`}
+                type="button"
+                aria-pressed={appleSideActive}
+                disabled={
+                  Boolean(busy) ||
+                  appleSideActive ||
+                  !tapSupported ||
+                  !musicAppRunning ||
+                  !captureConfirmed
+                }
+                onClick={() =>
+                  run(
+                    'comparison-apple',
+                    () =>
+                      endpoints.switchAppleMusicComparison(
+                        'apple_music',
+                        captureConfirmed,
+                        matchPosition
+                      ),
+                    matchPosition
+                      ? 'Switched to Apple Music at the matching position.'
+                      : 'Switched to Apple Music.'
+                  )
+                }
+              >
+                <span className="apple-music-ab-letter">A</span>
+                <span className="apple-music-ab-copy">
+                  <strong>Apple Music</strong>
+                  <small>
+                    {comparisonTrackLabel(
+                      comparisonAppleTrack,
+                      musicAppRunning ? 'Current track in Music' : 'Open Music first'
+                    )}
+                  </small>
+                </span>
+                <span className="apple-music-ab-state">
+                  {appleSideActive ? 'Playing' : 'Switch'}
+                </span>
+              </button>
+
+              <button
+                className={`apple-music-ab-choice ${fozmoSideActive ? 'is-active' : ''}`}
+                type="button"
+                aria-pressed={fozmoSideActive}
+                disabled={Boolean(busy) || fozmoSideActive || !canSwitchToFozmo}
+                onClick={() =>
+                  run(
+                    'comparison-fozmo',
+                    () => endpoints.switchAppleMusicComparison('fozmo', false, matchPosition),
+                    matchPosition
+                      ? 'Switched to the Fozmo reference at the matching position.'
+                      : 'Switched to the Fozmo reference.'
+                  )
+                }
+              >
+                <span className="apple-music-ab-letter">B</span>
+                <span className="apple-music-ab-copy">
+                  <strong>{comparisonProviderLabel(comparisonReference)}</strong>
+                  <small>
+                    {comparisonTrackLabel(
+                      comparisonReference,
+                      canSwitchToFozmo ? 'Remembered Fozmo source' : 'Play it in Fozmo first'
+                    )}
+                  </small>
+                </span>
+                <span className="apple-music-ab-state">
+                  {fozmoSideActive && canSwitchToFozmo
+                    ? 'Playing'
+                    : canSwitchToFozmo
+                      ? 'Switch'
+                      : 'Not set'}
+                </span>
+              </button>
+            </div>
+
+            {!canSwitchToFozmo ? (
+              <div className="apple-music-ab-guide">
+                <strong>Set up the reference once</strong>
+                <span>
+                  Play the matching Qobuz or local track in Fozmo. The first switch to Apple Music
+                  remembers that source for this server run and makes both buttons one-click.
+                </span>
+              </div>
+            ) : (
+              <div className="apple-music-ab-details">
+                <span>
+                  Fozmo handoff: {comparisonProviderLabel(comparisonReference)} ·{' '}
+                  {formatDuration(numberValue(comparisonReference?.position_secs))}
+                </span>
+                <span>
+                  Apple handoff · {formatDuration(numberValue(comparisonAppleTrack?.position_secs))}
+                </span>
+              </div>
+            )}
+
+            <div className="apple-music-ab-options">
+              <label className="apple-music-capture-confirmation">
+                <input
+                  type="checkbox"
+                  checked={captureConfirmed}
+                  disabled={tapRunning || Boolean(busy)}
+                  onChange={(event) => setCaptureConfirmed(event.target.checked)}
+                />
+                <span>
+                  Allow the comparison to capture only Music app audio and feed it through the
+                  selected Fozmo path.
+                </span>
+              </label>
+              <label className="apple-music-capture-confirmation">
+                <input
+                  type="checkbox"
+                  checked={matchPosition}
+                  disabled={Boolean(busy)}
+                  onChange={(event) => setMatchPosition(event.target.checked)}
+                />
+                <span>Match elapsed time when switching (recommended for A/B listening).</span>
+              </label>
+            </div>
+            <p className="apple-music-tap-rate-note">
+              The handoff keeps the selected output, DSP, upsampling, and −2 dB seventh-order
+              headroom unchanged. Qobuz/local playback may take a moment to reopen and seek.
+            </p>
+          </div>
+        </section>
+
         <section className="settings-section-block">
           <div className="settings-section-heading">
             <div className="section-label">Music app → Fozmo DSP</div>
@@ -193,19 +340,6 @@ export function AppleMusicMvpPage() {
                 </span>
               </div>
             )}
-
-            <label className="apple-music-capture-confirmation">
-              <input
-                type="checkbox"
-                checked={captureConfirmed}
-                disabled={tapRunning || Boolean(busy)}
-                onChange={(event) => setCaptureConfirmed(event.target.checked)}
-              />
-              <span>
-                I understand this temporarily captures only Music app audio and sends it through the
-                currently selected Fozmo DSP/output path.
-              </span>
-            </label>
 
             <div className="service-settings-actions">
               {!tapRunning ? (
@@ -541,6 +675,20 @@ function recordValue(value: unknown): JsonRecord | null {
 
 function safeStrings(value: unknown) {
   return Array.isArray(value) ? value.map(String) : [];
+}
+
+function comparisonProviderLabel(reference: JsonRecord | null) {
+  const provider = String(reference?.provider || '').toLowerCase();
+  if (provider === 'qobuz') return 'Qobuz via Fozmo';
+  if (provider === 'local') return 'Local via Fozmo';
+  return 'Fozmo reference';
+}
+
+function comparisonTrackLabel(track: JsonRecord | null, fallback: string) {
+  if (!track) return fallback;
+  const title = String(track.title || '').trim();
+  const artist = String(track.artist || '').trim();
+  return [title, artist].filter(Boolean).join(' · ') || fallback;
 }
 
 function numberValue(value: unknown) {
