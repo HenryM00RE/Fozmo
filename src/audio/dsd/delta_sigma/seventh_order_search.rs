@@ -19,6 +19,11 @@ const SEVENTH_ORDER_SEARCH_HORIZON: usize = 8;
 const SEVENTH_ORDER_SEARCH_MAX_WIDTH: usize = 8;
 const SEVENTH_ORDER_SEARCH_MAX_CHILDREN: usize = 2 * SEVENTH_ORDER_SEARCH_MAX_WIDTH;
 const SEVENTH_ORDER_SEARCH_EXACT_MAX_HORIZON: usize = 16;
+/// A short overload can temporarily leave the beam without a feasible child and
+/// recover on its own. A longer run is an absorbing clamp state: every subsequent
+/// sample is repaired at the state limit and the emitted DSD becomes low-transition
+/// noise. Bound that state to a few microseconds at production DSD rates.
+const SEVENTH_ORDER_SEARCH_STATE_REPAIR_RECOVERY_THRESHOLD: u64 = 32;
 const ERROR_EMA_SECONDS: f64 = 0.010;
 
 #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
@@ -2492,6 +2497,49 @@ impl SeventhOrderSearchModulator {
         self.reseed_from_core();
     }
 
+    /// Recover from the absorbing finite-state failure detected by a sustained
+    /// run of repair fallbacks. Preserve committed output/profile history and
+    /// exact output length, but restart the CRFB/search frontier before clamping
+    /// can become the steady-state output.
+    fn recover_state_repair_frontier(&mut self, u: f64, out_bits: &mut Vec<u8>) {
+        debug_assert!(u.is_finite());
+        #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
+        self.sync_simd_paths();
+        self.emit_buffered_best(out_bits);
+        self.core.hard_reset();
+        self.core.stability_resets = self.core.stability_resets.wrapping_add(1);
+        // Match the established finite-frontier recovery convention. One fixed
+        // recovery bit is several orders of magnitude shorter than the 5 ms
+        // playback boundary fade and keeps the delayed-output accounting exact.
+        self.commit_bit(1, u, out_bits);
+        self.consecutive_constraint_escapes = 0;
+        self.consecutive_state_repairs = 0;
+        self.reseed_from_core();
+    }
+
+    fn record_state_repair(&mut self, frontier_sequence: u64, normalized_state: [f64; 7]) -> bool {
+        self.diagnostics.state_repair_fallback =
+            self.diagnostics.state_repair_fallback.wrapping_add(1);
+        self.diagnostics.first_state_repair_sequence = self
+            .diagnostics
+            .first_state_repair_sequence
+            .or(Some(frontier_sequence));
+        self.diagnostics.last_state_repair_sequence = Some(frontier_sequence);
+        self.consecutive_state_repairs = self.consecutive_state_repairs.wrapping_add(1);
+        self.consecutive_constraint_escapes = 0;
+        self.diagnostics.maximum_consecutive_state_repairs = self
+            .diagnostics
+            .maximum_consecutive_state_repairs
+            .max(self.consecutive_state_repairs);
+        for (stage, normalized) in normalized_state.into_iter().enumerate() {
+            if normalized.abs() > 1.0 {
+                self.diagnostics.state_repair_stage_counts[stage] =
+                    self.diagnostics.state_repair_stage_counts[stage].wrapping_add(1);
+            }
+        }
+        self.consecutive_state_repairs >= SEVENTH_ORDER_SEARCH_STATE_REPAIR_RECOVERY_THRESHOLD
+    }
+
     fn process_sample(&mut self, u: f64, out_bits: &mut Vec<u8>) {
         self.process_frontier_sample::<false>(u, out_bits);
     }
@@ -3231,28 +3279,14 @@ impl SeventhOrderSearchModulator {
                 .wrapping_add(self.buffered as u64);
             order_len = 1;
             let selected = order[0] as usize;
-            self.diagnostics.state_repair_fallback =
-                self.diagnostics.state_repair_fallback.wrapping_add(1);
-            self.diagnostics.first_state_repair_sequence = self
-                .diagnostics
-                .first_state_repair_sequence
-                .or(Some(frontier_sequence));
-            self.diagnostics.last_state_repair_sequence = Some(frontier_sequence);
-            self.consecutive_state_repairs = self.consecutive_state_repairs.wrapping_add(1);
-            self.consecutive_constraint_escapes = 0;
-            self.diagnostics.maximum_consecutive_state_repairs = self
-                .diagnostics
-                .maximum_consecutive_state_repairs
-                .max(self.consecutive_state_repairs);
             let parent = child_parent[selected] as usize;
             let v = child_v[selected];
-            for stage in 0..7 {
-                let normalized =
-                    v.mul_add(self.core.bv_norm[stage], self.simd_base_norm[stage][parent]);
-                if normalized.abs() > 1.0 {
-                    self.diagnostics.state_repair_stage_counts[stage] =
-                        self.diagnostics.state_repair_stage_counts[stage].wrapping_add(1);
-                }
+            let normalized_state = core::array::from_fn(|stage| {
+                v.mul_add(self.core.bv_norm[stage], self.simd_base_norm[stage][parent])
+            });
+            if self.record_state_repair(frontier_sequence, normalized_state) {
+                self.recover_state_repair_frontier(u, out_bits);
+                return;
             }
         }
 
@@ -3687,27 +3721,14 @@ impl SeventhOrderSearchModulator {
                     (false, false) => {}
                 }
             } else {
-                self.diagnostics.state_repair_fallback =
-                    self.diagnostics.state_repair_fallback.wrapping_add(1);
-                self.diagnostics.first_state_repair_sequence = self
-                    .diagnostics
-                    .first_state_repair_sequence
-                    .or(Some(frontier_sequence));
-                self.diagnostics.last_state_repair_sequence = Some(frontier_sequence);
-                self.consecutive_state_repairs = self.consecutive_state_repairs.wrapping_add(1);
-                self.consecutive_constraint_escapes = 0;
-                self.diagnostics.maximum_consecutive_state_repairs = self
-                    .diagnostics
-                    .maximum_consecutive_state_repairs
-                    .max(self.consecutive_state_repairs);
-                for stage in 0..7 {
-                    let normalized = selected
+                let normalized_state = core::array::from_fn(|stage| {
+                    selected
                         .v
-                        .mul_add(self.core.bv_norm[stage], selected.base_norm[stage]);
-                    if normalized.abs() > 1.0 {
-                        self.diagnostics.state_repair_stage_counts[stage] =
-                            self.diagnostics.state_repair_stage_counts[stage].wrapping_add(1);
-                    }
+                        .mul_add(self.core.bv_norm[stage], selected.base_norm[stage])
+                });
+                if self.record_state_repair(frontier_sequence, normalized_state) {
+                    self.recover_state_repair_frontier(u, out_bits);
+                    return;
                 }
             }
         } else {
@@ -4588,17 +4609,22 @@ mod tests {
             while emitted < bits.len() {
                 let v = if bits[emitted] == 1 { 1.0 } else { -1.0 };
                 expected_state = profile.next_state(&expected_state, v - input[emitted]);
-                for (stage, expected) in expected_state.iter().enumerate() {
-                    assert_eq!(
-                        modulator.committed_reconstruction_state[stage].to_bits(),
-                        expected.to_bits(),
-                        "emitted sample {emitted}, stage {stage}"
-                    );
-                }
                 emitted += 1;
+            }
+            for (stage, expected) in expected_state.iter().enumerate() {
+                assert_eq!(
+                    modulator.committed_reconstruction_state[stage].to_bits(),
+                    expected.to_bits(),
+                    "after {emitted} emitted samples, stage {stage}"
+                );
             }
         }
         assert!(emitted > SEVENTH_ORDER_SEARCH_HORIZON);
+        assert_eq!(
+            modulator.diagnostics().maximum_consecutive_state_repairs,
+            SEVENTH_ORDER_SEARCH_STATE_REPAIR_RECOVERY_THRESHOLD
+        );
+        assert!(modulator.stability_resets() > 0);
     }
 
     #[test]
@@ -5017,7 +5043,7 @@ mod tests {
             (
                 seventh_order_search_dsd256_production_coefficients(),
                 11_289_600,
-                Some((0xdac0_d90d_ab3a_53e8, 1638)),
+                Some((0x73aa_ae11_a6c2_ad1d, 1634)),
             ),
             (
                 seventh_order_search_dsd256_production_coefficients(),
@@ -5650,6 +5676,39 @@ mod tests {
         assert_eq!(nonfinite.0.len(), nonfinite_input.len());
         assert_eq!(nonfinite.1.all_nonfinite_resets, 2);
         assert_eq!(nonfinite.1.output_length_events, 0);
+    }
+
+    #[test]
+    fn seventh_order_search_recovers_from_a_sustained_state_repair_storm() {
+        let input = vec![8.0; 256];
+        let mut modulator = SeventhOrderSearchModulator::new(
+            SeventhOrderSearchPlantId::default().coefficients(),
+            29,
+            3_072_000,
+            SeventhOrderSearchExperimentConfig::default(),
+        )
+        .unwrap();
+        let mut bits = Vec::new();
+        modulator.process_into_bits(&input, &mut bits);
+        modulator.flush_into_bits(&mut bits);
+
+        let diagnostics = modulator.diagnostics();
+        assert_eq!(bits.len(), input.len());
+        assert!(
+            diagnostics.state_repair_fallback
+                >= SEVENTH_ORDER_SEARCH_STATE_REPAIR_RECOVERY_THRESHOLD
+        );
+        assert_eq!(
+            diagnostics.maximum_consecutive_state_repairs,
+            SEVENTH_ORDER_SEARCH_STATE_REPAIR_RECOVERY_THRESHOLD
+        );
+        assert!(modulator.stability_resets() > 0);
+        assert!(
+            modulator.consecutive_state_repairs
+                < SEVENTH_ORDER_SEARCH_STATE_REPAIR_RECOVERY_THRESHOLD
+        );
+        assert_eq!(diagnostics.all_nonfinite_resets, 0);
+        assert_eq!(diagnostics.output_length_events, 0);
     }
 
     #[test]
