@@ -19,6 +19,8 @@ use super::scanner::{
 use super::*;
 use crate::audio::player::TrackCover;
 use crate::protocol::SourceRef;
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+use crate::services::apple_music_musickit::{AppleCatalogAlbum, AppleCatalogSong};
 use crate::services::qobuz::{QobuzAlbum, QobuzAlbumDetail, QobuzTrack};
 use rusqlite::params;
 
@@ -1779,7 +1781,9 @@ fn local_playback_metadata_uses_edited_album_fields() {
             assert_eq!(artist.as_deref(), Some("Edited Artist"));
             assert_eq!(album.as_deref(), Some("Edited Album"));
         }
-        SourceRef::QobuzTrack { .. } => panic!("expected local track source"),
+        SourceRef::QobuzTrack { .. } | SourceRef::AppleMusicTrack { .. } => {
+            panic!("expected local track source")
+        }
     }
 
     let recent = library.recent_playback_history(10, false).unwrap();
@@ -2697,7 +2701,9 @@ fn album_playback_from_middle_does_not_wrap_to_earlier_tracks() {
         .into_iter()
         .map(|source| match source {
             ResolvedPlaySource::Local { file_name, .. } => file_name,
-            ResolvedPlaySource::Qobuz { .. } => panic!("expected local source"),
+            ResolvedPlaySource::Qobuz { .. } | ResolvedPlaySource::AppleMusic { .. } => {
+                panic!("expected local source")
+            }
         })
         .collect();
 
@@ -2875,7 +2881,9 @@ fn local_album_versions_split_by_quality_without_duplicate_display_tracks() {
         .into_iter()
         .map(|source| match source {
             ResolvedPlaySource::Local { file_name, .. } => file_name,
-            ResolvedPlaySource::Qobuz { .. } => panic!("expected local source"),
+            ResolvedPlaySource::Qobuz { .. } | ResolvedPlaySource::AppleMusic { .. } => {
+                panic!("expected local source")
+            }
         })
         .collect();
 
@@ -4131,6 +4139,63 @@ fn recent_albums_are_persisted_from_playback_source() {
 }
 
 #[test]
+fn apple_music_history_and_recent_album_preserve_provider_identity() {
+    let library = test_library("apple-music-history-recent");
+    let source = SourceRef::AppleMusicTrack {
+        song_id: "apple-song-42".to_string(),
+        storefront: Some("nz".to_string()),
+        title: Some("Song".to_string()),
+        artist: Some("Track Artist".to_string()),
+        album: Some("Apple Album".to_string()),
+        album_artist: Some("Album Artist".to_string()),
+        album_id: Some("apple-album-42".to_string()),
+        artwork_url: Some("https://example.test/apple-cover.jpg".to_string()),
+        duration_secs: Some(180.0),
+        track_number: Some(1),
+        disc_number: Some(1),
+        isrc: Some("NZABC2600042".to_string()),
+        radio: false,
+        radio_context: None,
+        playlist_context: None,
+    };
+
+    library
+        .record_playback_history(PlaybackHistoryInput {
+            profile_id: None,
+            source: source.clone(),
+            zone_id: "local-core".to_string(),
+            zone_name: "Core".to_string(),
+            played_secs: Some(45.0),
+            duration_secs: Some(180.0),
+            completed: false,
+            counted: true,
+            radio: false,
+        })
+        .unwrap();
+    library
+        .record_recent_album_for_source(None, &source)
+        .unwrap();
+
+    let history = library.recent_playback_history(10, true).unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].source, source);
+    assert_eq!(history[0].title.as_deref(), Some("Song"));
+    assert_eq!(history[0].artist.as_deref(), Some("Track Artist"));
+    assert_eq!(history[0].album.as_deref(), Some("Apple Album"));
+
+    let recent = library.recent_albums(10).unwrap();
+    assert_eq!(recent.len(), 1);
+    assert_eq!(recent[0].provider, "apple_music");
+    assert!(recent[0].is_apple_music);
+    assert!(!recent[0].is_qobuz);
+    assert_eq!(
+        recent[0].apple_music_album_id.as_deref(),
+        Some("apple-album-42")
+    );
+    assert_eq!(recent[0].source_track_id.as_deref(), Some("apple-song-42"));
+}
+
+#[test]
 fn recent_albums_collapse_linked_qobuz_versions_to_local_album() {
     let library = test_library("recent-albums-linked-qobuz");
     let now = now_secs();
@@ -5007,6 +5072,237 @@ fn artwork_path_normalization_keeps_same_named_images_distinct() {
     );
     drop(library);
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+#[test]
+fn apple_music_album_version_links_recordings_and_resolves_playback() {
+    let library = test_library("apple-music-album-version");
+    let now = now_secs();
+    let (album_id, local_track_ids) = {
+        let conn = library.conn.lock().unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO albums (
+                title, album_artist, sort_key, year, confidence, match_status,
+                track_count, mb_barcode, created_at, updated_at
+            )
+            VALUES ('Dummy', 'Portishead', 'portishead|dummy', 1994, 100,
+                    'matched', 2, '731452103327', ?1, ?1)
+            "#,
+            [now],
+        )
+        .unwrap();
+        let album_id = conn.last_insert_rowid();
+        let mut track_ids = Vec::new();
+        for (index, (title, duration)) in [("Mysterons", 305.0), ("Sour Times", 251.0)]
+            .into_iter()
+            .enumerate()
+        {
+            conn.execute(
+                r#"
+                INSERT INTO tracks (
+                    path, file_name, size_bytes, modified_secs, title, artist,
+                    album, album_artist, track_number, disc_number, duration_secs,
+                    sample_rate, bit_depth, format, album_id, embedded_art,
+                    created_at, updated_at
+                )
+                VALUES (?1, ?2, 1, 1, ?3, 'Portishead', 'Dummy', 'Portishead',
+                        ?4, 1, ?5, 44100, 16, 'FLAC', ?6, 0, ?7, ?7)
+                "#,
+                params![
+                    format!("/tmp/apple-music-album-version/{}.flac", index + 1),
+                    format!("{:02} {title}.flac", index + 1),
+                    title,
+                    index as i64 + 1,
+                    duration,
+                    album_id,
+                    now,
+                ],
+            )
+            .unwrap();
+            track_ids.push(conn.last_insert_rowid());
+        }
+        (album_id, track_ids)
+    };
+    let song =
+        |song_id: &str, title: &str, track_number: u32, duration_secs: f64| AppleCatalogSong {
+            song_id: song_id.to_string(),
+            storefront: "nz".to_string(),
+            album_id: Some("apple-album-1".to_string()),
+            title: title.to_string(),
+            artist: "Portishead".to_string(),
+            album_title: Some("Dummy".to_string()),
+            album_artist: Some("Portishead".to_string()),
+            duration_secs: Some(duration_secs),
+            track_number: Some(track_number),
+            disc_number: Some(1),
+            isrc: Some(format!("GBAQT940000{track_number}")),
+            artwork_url: None,
+        };
+    let apple_album = AppleCatalogAlbum {
+        album_id: "apple-album-1".to_string(),
+        storefront: "nz".to_string(),
+        title: "Dummy".to_string(),
+        artist: "Portishead".to_string(),
+        upc: Some("731452103327".to_string()),
+        release_date: Some("1994-08-22".to_string()),
+        artwork_url: Some("https://example.invalid/art/{w}x{h}.jpg".to_string()),
+        audio_variants: vec!["lossless".to_string()],
+        tracks: vec![
+            song("apple-song-1", "Mysterons", 1, 305.0),
+            song("apple-song-2", "Sour Times", 2, 251.0),
+        ],
+    };
+
+    let preview = library
+        .preview_apple_music_album_version(album_id, apple_album.clone())
+        .unwrap()
+        .unwrap();
+    assert!(preview.safe_to_link);
+    assert_eq!(preview.confidence, 100);
+    assert_eq!(preview.pairings.len(), 2);
+
+    let version = library
+        .link_apple_music_album(album_id, &apple_album)
+        .unwrap()
+        .unwrap();
+    assert_eq!(version.provider, "apple_music");
+    assert_eq!(version.format.as_deref(), Some("Apple Music"));
+    assert_eq!(version.sample_rate, None);
+    assert_eq!(version.bit_depth, None);
+
+    let plan = library
+        .resolve_album_playback(album_id, 0, false, Some(version.id))
+        .unwrap()
+        .unwrap();
+    assert_eq!(plan.sources.len(), 2);
+    assert!(matches!(
+        &plan.sources[0],
+        ResolvedPlaySource::AppleMusic { song_id, .. } if song_id == "apple-song-1"
+    ));
+
+    let apple_source = SourceRef::AppleMusicTrack {
+        song_id: "apple-song-1".to_string(),
+        storefront: Some("nz".to_string()),
+        title: Some("Mysterons".to_string()),
+        artist: Some("Portishead".to_string()),
+        album: Some("Dummy".to_string()),
+        album_artist: Some("Portishead".to_string()),
+        album_id: Some("apple-album-1".to_string()),
+        artwork_url: None,
+        duration_secs: Some(305.0),
+        track_number: Some(1),
+        disc_number: Some(1),
+        isrc: Some("GBAQT9400001".to_string()),
+        radio: false,
+        radio_context: None,
+        playlist_context: None,
+    };
+    let local_source = SourceRef::LocalTrack {
+        track_id: local_track_ids[0],
+        file_name: None,
+        title: None,
+        artist: None,
+        album: None,
+        album_artist: None,
+        album_id: Some(album_id),
+        art_id: None,
+        duration_secs: None,
+        ext_hint: None,
+        radio: false,
+        radio_context: None,
+        playlist_context: None,
+    };
+    let (apple_recording, local_recording) = {
+        let conn = library.conn.lock().unwrap();
+        (
+            Library::recording_id_for_source_with_conn(&conn, &apple_source)
+                .unwrap()
+                .unwrap(),
+            Library::recording_id_for_source_with_conn(&conn, &local_source)
+                .unwrap()
+                .unwrap(),
+        )
+    };
+    assert_eq!(apple_recording, local_recording);
+
+    let remaining = library.unlink_apple_music_album(album_id).unwrap().unwrap();
+    assert!(
+        remaining
+            .iter()
+            .all(|version| version.provider != "apple_music")
+    );
+}
+
+#[test]
+fn mixed_local_apple_qobuz_queue_survives_database_reopen() {
+    let root = temp_test_dir("mixed-provider-queue-reopen");
+    let database = root.join("library.db");
+    let music = root.join("music");
+    let art = root.join("art");
+    let local = SourceRef::LocalTrack {
+        track_id: 7,
+        file_name: Some("Seven.flac".to_string()),
+        title: Some("Seven".to_string()),
+        artist: Some("Local Artist".to_string()),
+        album: None,
+        album_artist: None,
+        album_id: None,
+        art_id: None,
+        duration_secs: Some(70.0),
+        ext_hint: Some("flac".to_string()),
+        radio: false,
+        radio_context: None,
+        playlist_context: None,
+    };
+    let apple = SourceRef::AppleMusicTrack {
+        song_id: "apple-seven".to_string(),
+        storefront: Some("nz".to_string()),
+        title: Some("Apple Seven".to_string()),
+        artist: Some("Apple Artist".to_string()),
+        album: None,
+        album_artist: None,
+        album_id: None,
+        artwork_url: None,
+        duration_secs: Some(71.0),
+        track_number: None,
+        disc_number: None,
+        isrc: None,
+        radio: false,
+        radio_context: None,
+        playlist_context: None,
+    };
+    let qobuz = SourceRef::QobuzTrack {
+        track_id: 77,
+        title: Some("Qobuz Seven".to_string()),
+        artist: Some("Qobuz Artist".to_string()),
+        album: None,
+        album_id: None,
+        image_url: None,
+        duration_secs: Some(72.0),
+        radio: false,
+        radio_context: None,
+        playlist_context: None,
+    };
+    let expected = vec![local, apple, qobuz];
+    {
+        let library = Library::new(database.clone(), vec![music.clone()], art.clone()).unwrap();
+        library
+            .upsert_zone_definition("local-core", "Core", "local_coreaudio", None, true)
+            .unwrap();
+        library.set_zone_queue("local-core", &expected).unwrap();
+    }
+
+    let reopened = Library::new(database, vec![music], art).unwrap();
+    let actual = reopened
+        .zone_queue("local-core")
+        .unwrap()
+        .into_iter()
+        .map(|entry| entry.source)
+        .collect::<Vec<_>>();
+
+    assert_eq!(actual, expected);
 }
 
 fn test_library(name: &str) -> Library {

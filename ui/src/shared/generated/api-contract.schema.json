@@ -2520,6 +2520,12 @@
             "null"
           ]
         },
+        "apple_music_album_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "art_id": {
           "format": "int64",
           "type": [
@@ -2539,6 +2545,9 @@
             "null"
           ]
         },
+        "is_apple_music": {
+          "type": "boolean"
+        },
         "is_qobuz": {
           "type": "boolean"
         },
@@ -2551,6 +2560,9 @@
         "played_at": {
           "format": "int64",
           "type": "integer"
+        },
+        "provider": {
+          "type": "string"
         },
         "qobuz_album_id": {
           "type": [
@@ -2582,8 +2594,10 @@
         "album_artist",
         "hires",
         "id",
+        "is_apple_music",
         "is_qobuz",
         "played_at",
+        "provider",
         "recent_type",
         "title"
       ],
@@ -3125,6 +3139,91 @@
             "track_id"
           ],
           "type": "object"
+        },
+        {
+          "properties": {
+            "album": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "album_artist": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "album_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "artist": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "disc_number": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "duration_secs": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "image_url": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "isrc": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "enum": [
+                "apple_music"
+              ],
+              "type": "string"
+            },
+            "song_id": {
+              "type": "string"
+            },
+            "storefront": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "track_number": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "song_id",
+            "storefront",
+            "title"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -3330,6 +3429,130 @@
           "required": [
             "kind",
             "track_id"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "album": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "album_artist": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "album_id": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "artist": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "artwork_url": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "disc_number": {
+              "default": null,
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "duration_secs": {
+              "default": null,
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "isrc": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "enum": [
+                "apple_music_track"
+              ],
+              "type": "string"
+            },
+            "playlist_context": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/PlaylistContext"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "radio": {
+              "default": false,
+              "type": "boolean"
+            },
+            "radio_context": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/RadioContext"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "song_id": {
+              "type": "string"
+            },
+            "storefront": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "track_number": {
+              "default": null,
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "song_id"
           ],
           "type": "object"
         }

@@ -14,6 +14,8 @@ pub(crate) use matching::normalize_for_match as normalize_library_match_key;
 pub(super) use qobuz_sync::normalize_qobuz_album_id;
 
 mod albums;
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+mod apple_music_versions;
 mod artists;
 mod artwork;
 mod autometa;
@@ -33,6 +35,7 @@ mod model;
 mod musicbrainz;
 mod persistence;
 mod playlists;
+mod provider_versions;
 mod qobuz_sync;
 mod queue_store;
 mod recent_albums;

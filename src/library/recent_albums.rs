@@ -164,6 +164,40 @@ impl Library {
                     played_at,
                 )
             }
+            SourceRef::AppleMusicTrack {
+                song_id,
+                title,
+                artist,
+                album,
+                album_artist,
+                album_id,
+                artwork_url,
+                ..
+            } => {
+                let title = clean_recent_text(album.as_deref())
+                    .or_else(|| clean_recent_text(title.as_deref()))
+                    .unwrap_or_else(|| "Unknown album".to_string());
+                let album_artist = clean_recent_text(album_artist.as_deref())
+                    .or_else(|| clean_recent_text(artist.as_deref()))
+                    .unwrap_or_else(|| "Unknown artist".to_string());
+                let item_key = album_id
+                    .as_ref()
+                    .filter(|id| !id.trim().is_empty())
+                    .map(|id| format!("apple_music:album:{id}"))
+                    .unwrap_or_else(|| format!("apple_music:track:{song_id}"));
+                self.upsert_recent_album(
+                    &profile_id,
+                    &item_key,
+                    "apple_music",
+                    album_id.as_deref(),
+                    &title,
+                    &album_artist,
+                    None,
+                    artwork_url.as_deref(),
+                    Some(song_id),
+                    played_at,
+                )
+            }
         }
     }
 
@@ -272,6 +306,7 @@ impl Library {
                 let album_id: Option<String> = row.get(1)?;
                 let source_track_id: Option<String> = row.get(6)?;
                 let is_qobuz = provider == "qobuz";
+                let is_apple_music = provider == "apple_music";
                 let id = if is_qobuz {
                     album_id
                         .clone()
@@ -281,6 +316,15 @@ impl Library {
                                 .map(|id| format!("qobuz:track:{id}"))
                         })
                         .unwrap_or_else(|| "qobuz:album:unknown".to_string())
+                } else if is_apple_music {
+                    album_id
+                        .clone()
+                        .or_else(|| {
+                            source_track_id
+                                .as_ref()
+                                .map(|id| format!("apple_music:track:{id}"))
+                        })
+                        .unwrap_or_else(|| "apple_music:album:unknown".to_string())
                 } else {
                     album_id
                         .clone()
@@ -294,6 +338,7 @@ impl Library {
                 Ok(RecentAlbumSummary {
                     recent_type: "album".to_string(),
                     id,
+                    provider: provider.clone(),
                     title: row.get(2)?,
                     album_artist: row
                         .get::<_, Option<String>>(3)?
@@ -302,9 +347,11 @@ impl Library {
                     image_url: row.get(5)?,
                     year: None,
                     is_qobuz,
+                    is_apple_music,
                     qobuz_album_id: is_qobuz.then(|| album_id.clone()).flatten(),
+                    apple_music_album_id: is_apple_music.then(|| album_id.clone()).flatten(),
                     source_track_id,
-                    album_id: (!is_qobuz).then(|| album_id.clone()).flatten(),
+                    album_id: (provider == "local").then(|| album_id.clone()).flatten(),
                     hires: false,
                     match_status: None,
                     played_at: row.get(7)?,
@@ -371,8 +418,11 @@ impl Library {
                 .unwrap_or_else(|| album.album_artist.clone()),
             art_id: linked.art_id.or(album.art_id),
             image_url: album.image_url.clone(),
+            provider: "local".to_string(),
             is_qobuz: false,
+            is_apple_music: false,
             qobuz_album_id: album.qobuz_album_id.clone(),
+            apple_music_album_id: album.apple_music_album_id.clone(),
             album_id: Some(linked.id.to_string()),
             ..album
         })
@@ -462,6 +512,19 @@ fn recent_album_summary_key(album: &RecentAlbumSummary) -> String {
                 )
             });
     }
+    if album.is_apple_music {
+        return album
+            .apple_music_album_id
+            .as_ref()
+            .map(|id| format!("apple_music:{id}"))
+            .unwrap_or_else(|| {
+                format!(
+                    "apple_music:{}:{}",
+                    normalize_key(&album.title),
+                    normalize_key(&album.album_artist)
+                )
+            });
+    }
     album
         .album_id
         .as_ref()
@@ -490,13 +553,16 @@ fn recent_album_from_history_entry(entry: PlaybackHistoryEntry) -> Option<Recent
             Some(RecentAlbumSummary {
                 recent_type: "album".to_string(),
                 id,
+                provider: "qobuz".to_string(),
                 title,
                 album_artist,
                 art_id: entry.art_id,
                 image_url: entry.image_url,
                 year: None,
                 is_qobuz: true,
+                is_apple_music: false,
                 qobuz_album_id: album_id,
+                apple_music_album_id: None,
                 source_track_id: Some(track_id.to_string()),
                 album_id: None,
                 hires: false,
@@ -512,15 +578,44 @@ fn recent_album_from_history_entry(entry: PlaybackHistoryEntry) -> Option<Recent
             Some(RecentAlbumSummary {
                 recent_type: "album".to_string(),
                 id,
+                provider: "local".to_string(),
                 title,
                 album_artist,
                 art_id: entry.art_id,
                 image_url: entry.image_url,
                 year: None,
                 is_qobuz: false,
+                is_apple_music: false,
                 qobuz_album_id: None,
+                apple_music_album_id: None,
                 source_track_id: Some(track_id.to_string()),
                 album_id,
+                hires: false,
+                match_status: None,
+                played_at: entry.played_at,
+            })
+        }
+        SourceRef::AppleMusicTrack {
+            song_id, album_id, ..
+        } => {
+            let id = album_id
+                .clone()
+                .unwrap_or_else(|| format!("apple_music:track:{song_id}"));
+            Some(RecentAlbumSummary {
+                recent_type: "album".to_string(),
+                id,
+                provider: "apple_music".to_string(),
+                title,
+                album_artist,
+                art_id: entry.art_id,
+                image_url: entry.image_url,
+                year: None,
+                is_qobuz: false,
+                is_apple_music: true,
+                qobuz_album_id: None,
+                apple_music_album_id: album_id,
+                source_track_id: Some(song_id),
+                album_id: None,
                 hires: false,
                 match_status: None,
                 played_at: entry.played_at,

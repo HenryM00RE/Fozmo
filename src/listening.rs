@@ -789,6 +789,35 @@ fn source_matches_observation(
                 &observation.track_album,
             )
         }
+        SourceRef::AppleMusicTrack {
+            song_id,
+            title,
+            artist,
+            album,
+            ..
+        } => {
+            if let Some(file_name) = observation.file_name.as_deref() {
+                if file_name == format!("apple_music:{song_id}") {
+                    return true;
+                }
+                if let (Some(artist), Some(title)) = (artist.as_deref(), title.as_deref())
+                    && text_eq(Some(file_name), Some(&format!("{artist} - {title}")))
+                {
+                    return true;
+                }
+                if text_eq(Some(file_name), title.as_deref()) {
+                    return true;
+                }
+            }
+            loose_metadata_match(
+                title.as_deref(),
+                artist.as_deref(),
+                album.as_deref(),
+                &observation.track_title,
+                &observation.track_artist,
+                &observation.track_album,
+            )
+        }
     }
 }
 
@@ -819,6 +848,22 @@ fn source_file_name_matches(library: &Library, source: &SourceRef, file_name: &s
             ..
         } => {
             if file_name == format!("qobuz:{track_id}") {
+                return true;
+            }
+            if let (Some(artist), Some(title)) = (artist.as_deref(), title.as_deref())
+                && text_eq(Some(file_name), Some(&format!("{artist} - {title}")))
+            {
+                return true;
+            }
+            text_eq(Some(file_name), title.as_deref())
+        }
+        SourceRef::AppleMusicTrack {
+            song_id,
+            title,
+            artist,
+            ..
+        } => {
+            if file_name == format!("apple_music:{song_id}") {
                 return true;
             }
             if let (Some(artist), Some(title)) = (artist.as_deref(), title.as_deref())
@@ -1536,6 +1581,23 @@ mod tests {
                 track_album: album.clone(),
                 position_secs,
                 duration_secs,
+                ..PlaybackObservation::default()
+            },
+            SourceRef::AppleMusicTrack {
+                song_id,
+                title,
+                artist,
+                album,
+                ..
+            } => PlaybackObservation {
+                state: state.to_string(),
+                file_name: Some(format!("apple_music:{song_id}")),
+                track_title: title.clone(),
+                track_artist: artist.clone(),
+                track_album: album.clone(),
+                position_secs,
+                duration_secs,
+                current_source: Some(source.clone()),
                 ..PlaybackObservation::default()
             },
         }

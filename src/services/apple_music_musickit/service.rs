@@ -1,17 +1,19 @@
 use super::ipc::{read_json_frame, write_json_frame};
 use super::model::{
-    AppleMusicComparisonReference, AppleMusicComparisonStatus, AppleMusicComparisonTrack,
-    AppleMusicMvpError, AppleMusicMvpState, AppleMusicMvpStatus, EXPECTED_HELPER_BUNDLE_ID,
-    HelperMessage, HelperQueueItem, PROTOCOL_VERSION, SetQueueCommand,
+    AppleCatalogAlbum, AppleCatalogSong, AppleMusicComparisonReference, AppleMusicComparisonStatus,
+    AppleMusicComparisonTrack, AppleMusicMvpError, AppleMusicMvpState, AppleMusicMvpStatus,
+    ApplePlaybackSnapshot, EXPECTED_HELPER_BUNDLE_ID, HelperMessage, HelperQueueItem,
+    PROTOCOL_VERSION, SetQueueCommand,
 };
-use super::process_tap::ProcessTapController;
+use super::process_tap::{ProcessTapController, ProcessTapProcessKind, ProcessTapTarget};
 use crate::audio::player::Player;
 use crate::protocol::SourceRef;
+use async_trait::async_trait;
 use rand::{RngCore, rngs::OsRng};
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use std::time::Duration;
 use tokio::net::UnixListener;
@@ -31,10 +33,39 @@ pub(crate) struct AppleMusicService {
     status: Arc<Mutex<AppleMusicMvpStatus>>,
     process_tap: Mutex<ProcessTapController>,
     comparison: Mutex<ComparisonSession>,
+    playback: Arc<Mutex<Option<ApplePlaybackSnapshot>>>,
     comparison_switch: AsyncMutex<()>,
     connection: AsyncMutex<Option<HelperConnection>>,
     next_command_id: AtomicU64,
     next_queue_revision: AtomicU64,
+    system_audio_capture_confirmed: AtomicBool,
+}
+
+#[allow(dead_code)]
+#[async_trait]
+pub(crate) trait AppleMusicHelperClient: Send + Sync {
+    async fn lookup_song(
+        &self,
+        song_id: String,
+        storefront: Option<String>,
+    ) -> Result<AppleCatalogSong, AppleMusicMvpError>;
+    async fn lookup_album(
+        &self,
+        album_id: String,
+        storefront: Option<String>,
+    ) -> Result<AppleCatalogAlbum, AppleMusicMvpError>;
+    async fn set_queue(
+        &self,
+        sources: Vec<SourceRef>,
+        start_index: usize,
+    ) -> Result<u64, AppleMusicMvpError>;
+    async fn play(&self) -> Result<(), AppleMusicMvpError>;
+    async fn pause(&self) -> Result<(), AppleMusicMvpError>;
+    async fn resume(&self) -> Result<(), AppleMusicMvpError>;
+    async fn seek(&self, seconds: f64) -> Result<(), AppleMusicMvpError>;
+    async fn skip_next(&self) -> Result<(), AppleMusicMvpError>;
+    async fn stop(&self) -> Result<(), AppleMusicMvpError>;
+    fn snapshot(&self) -> AppleMusicMvpStatus;
 }
 
 #[derive(Debug, Clone)]
@@ -51,6 +82,23 @@ pub(crate) struct AppleMusicComparisonReferenceState {
 struct ComparisonSession {
     reference: Option<AppleMusicComparisonReferenceState>,
     status: AppleMusicComparisonStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ApplePlaybackEventEffect {
+    pub(crate) stale: bool,
+    pub(crate) advance_by: usize,
+    pub(crate) finished_reason: Option<String>,
+}
+
+impl ApplePlaybackEventEffect {
+    fn stale() -> Self {
+        Self {
+            stale: true,
+            advance_by: 0,
+            finished_reason: None,
+        }
+    }
 }
 
 struct HelperConnection {
@@ -71,10 +119,12 @@ impl AppleMusicService {
             status: Arc::new(Mutex::new(AppleMusicMvpStatus::new(helper_present))),
             process_tap: Mutex::new(ProcessTapController::default()),
             comparison: Mutex::new(ComparisonSession::default()),
+            playback: Arc::new(Mutex::new(None)),
             comparison_switch: AsyncMutex::new(()),
             connection: AsyncMutex::new(None),
             next_command_id: AtomicU64::new(1),
             next_queue_revision: AtomicU64::new(1),
+            system_audio_capture_confirmed: AtomicBool::new(false),
         }
     }
 
@@ -90,6 +140,7 @@ impl AppleMusicService {
         let mut status = self.status.lock().unwrap();
         status.helper_present = helper_present;
         status.process_tap = process_tap;
+        status.playback_session = self.playback.lock().unwrap().clone();
         status.comparison = comparison;
         if status.helper_pid.is_none() {
             if helper_present && status.state == AppleMusicMvpState::HelperMissing {
@@ -130,6 +181,47 @@ impl AppleMusicService {
         Ok(self.status())
     }
 
+    pub(crate) fn confirm_system_audio_capture(&self, confirmed: bool) {
+        if confirmed {
+            self.system_audio_capture_confirmed
+                .store(true, Ordering::Release);
+        }
+    }
+
+    pub(crate) fn prepare_helper_process_tap(
+        &self,
+        player: Arc<Player>,
+    ) -> Result<AppleMusicMvpStatus, AppleMusicMvpError> {
+        if !self.system_audio_capture_confirmed.load(Ordering::Acquire) {
+            return Err(error(
+                "process_tap_confirmation_required",
+                "Confirm macOS system-audio capture in Apple Music settings before playback.",
+                false,
+                "permission",
+                true,
+            ));
+        }
+        let pid = self.status().helper_pid.ok_or_else(|| {
+            error(
+                "helper_exited",
+                "The Apple Music helper is not connected.",
+                true,
+                "helper_connection",
+                true,
+            )
+        })?;
+        self.process_tap.lock().unwrap().prepare_for_target(
+            player,
+            ProcessTapTarget {
+                pid,
+                process_kind: ProcessTapProcessKind::MusicKitHelper,
+                display_name: "Fozmo Apple Music helper".to_string(),
+            },
+            true,
+        )?;
+        Ok(self.status())
+    }
+
     pub(crate) fn discard_process_tap_buffer(&self) -> Result<u64, AppleMusicMvpError> {
         self.process_tap.lock().unwrap().discard_buffered_audio()
     }
@@ -159,6 +251,160 @@ impl AppleMusicService {
         }
         drop(comparison);
         self.status()
+    }
+
+    pub(crate) fn process_tap_playback_epoch(&self) -> Option<u64> {
+        self.process_tap.lock().unwrap().playback_epoch()
+    }
+
+    pub(crate) fn activate_playback(
+        &self,
+        zone_id: String,
+        player_epoch: u64,
+        helper_session_id: String,
+        queue_revision: u64,
+        segment: Vec<SourceRef>,
+    ) {
+        *self.playback.lock().unwrap() = Some(ApplePlaybackSnapshot {
+            zone_id,
+            player_epoch,
+            helper_session_id,
+            queue_revision,
+            segment,
+            current_segment_index: 0,
+            playback_state: "playing".to_string(),
+            position_secs: 0.0,
+            last_error: None,
+        });
+    }
+
+    pub(crate) fn playback_snapshot_for_zone(
+        &self,
+        zone_id: &str,
+    ) -> Option<ApplePlaybackSnapshot> {
+        self.playback
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|snapshot| snapshot.zone_id == zone_id)
+            .cloned()
+    }
+
+    pub(crate) fn clear_playback(&self, zone_id: &str, player_epoch: Option<u64>) -> bool {
+        let mut playback = self.playback.lock().unwrap();
+        let owns = playback.as_ref().is_some_and(|snapshot| {
+            snapshot.zone_id == zone_id
+                && player_epoch.is_none_or(|epoch| snapshot.player_epoch == epoch)
+        });
+        if owns {
+            playback.take();
+        }
+        owns
+    }
+
+    pub(crate) fn update_playback_state(&self, zone_id: &str, state: &str) {
+        if let Some(snapshot) = self
+            .playback
+            .lock()
+            .unwrap()
+            .as_mut()
+            .filter(|snapshot| snapshot.zone_id == zone_id)
+        {
+            snapshot.playback_state = state.to_string();
+        }
+    }
+
+    pub(crate) fn mark_playback_failed(
+        &self,
+        zone_id: &str,
+        player_epoch: u64,
+        failure: AppleMusicMvpError,
+    ) {
+        if let Some(snapshot) =
+            self.playback.lock().unwrap().as_mut().filter(|snapshot| {
+                snapshot.zone_id == zone_id && snapshot.player_epoch == player_epoch
+            })
+        {
+            snapshot.playback_state = "failed".to_string();
+            snapshot.last_error = Some(failure.clone());
+        }
+        self.record_error(failure);
+    }
+
+    pub(crate) fn apply_playback_event(&self, event: &HelperMessage) -> ApplePlaybackEventEffect {
+        let mut playback = self.playback.lock().unwrap();
+        let Some(snapshot) = playback.as_mut() else {
+            return ApplePlaybackEventEffect::stale();
+        };
+        if event.session_id.as_deref() != Some(snapshot.helper_session_id.as_str())
+            || event
+                .queue_revision
+                .is_some_and(|revision| revision != snapshot.queue_revision)
+        {
+            return ApplePlaybackEventEffect::stale();
+        }
+        if let Some(state) = event.playback_state.as_deref() {
+            snapshot.playback_state = state.to_string();
+        }
+        if let Some(position) = event
+            .playback_position
+            .or(event.playback_time_secs)
+            .filter(|position| position.is_finite() && *position >= 0.0)
+        {
+            snapshot.position_secs = position;
+        }
+        if event.message_type == "helper_error" || event.message_type == "interrupted" {
+            let failure = error(
+                event.code.as_deref().unwrap_or("apple_music_interrupted"),
+                event
+                    .message
+                    .as_deref()
+                    .unwrap_or("Apple Music playback was interrupted."),
+                event.retryable.unwrap_or(true),
+                "helper_event",
+                false,
+            );
+            snapshot.last_error = Some(failure);
+            snapshot.playback_state = "failed".to_string();
+            return ApplePlaybackEventEffect {
+                stale: false,
+                advance_by: 0,
+                finished_reason: Some("failed".to_string()),
+            };
+        }
+        if event.message_type == "queue_finished" {
+            snapshot.playback_state = "stopped".to_string();
+            return ApplePlaybackEventEffect {
+                stale: false,
+                advance_by: 0,
+                finished_reason: Some(
+                    event
+                        .finish_reason
+                        .clone()
+                        .unwrap_or_else(|| "completed".to_string()),
+                ),
+            };
+        }
+        if event.message_type != "entry_changed" && event.message_type != "queue_prepared" {
+            return ApplePlaybackEventEffect {
+                stale: false,
+                advance_by: 0,
+                finished_reason: None,
+            };
+        }
+        let Some(index) = event.segment_index else {
+            return ApplePlaybackEventEffect::stale();
+        };
+        if index >= snapshot.segment.len() || index < snapshot.current_segment_index {
+            return ApplePlaybackEventEffect::stale();
+        }
+        let advance_by = index.saturating_sub(snapshot.current_segment_index);
+        snapshot.current_segment_index = index;
+        ApplePlaybackEventEffect {
+            stale: false,
+            advance_by,
+            finished_reason: None,
+        }
     }
 
     pub(crate) async fn lock_comparison_switch(&self) -> tokio::sync::MutexGuard<'_, ()> {
@@ -251,51 +497,183 @@ impl AppleMusicService {
                 true,
             ));
         }
-        self.ensure_launched().await?;
-        let authorization = self.status().authorization;
-        if authorization != "authorized" {
-            return Err(error(
-                "music_authorization_not_determined",
-                "Authorize Apple Music before preparing a song.",
-                false,
-                "checking_authorization",
-                true,
-            ));
-        }
-
-        self.set_state(AppleMusicMvpState::PreparingQueue);
-        let command_id = self.command_id();
-        let session_id = self.session_id().await?;
-        let queue_revision = self.next_queue_revision.fetch_add(1, Ordering::Relaxed);
         let storefront = normalize_optional(storefront);
-        if storefront.as_deref().is_some_and(|value| {
-            value.len() > 8 || !value.bytes().all(|byte| byte.is_ascii_alphabetic())
-        }) {
+        self.prepare_queue(
+            &[SourceRef::AppleMusicTrack {
+                song_id,
+                storefront,
+                title: None,
+                artist: None,
+                album: None,
+                album_artist: None,
+                album_id: None,
+                artwork_url: None,
+                duration_secs: None,
+                track_number: None,
+                disc_number: None,
+                isrc: None,
+                radio: false,
+                radio_context: None,
+                playlist_context: None,
+            }],
+            0,
+        )
+        .await?;
+        self.play_prepared().await?;
+        Ok(self.status())
+    }
+
+    pub(crate) async fn lookup_song(
+        &self,
+        song_id: String,
+        storefront: Option<String>,
+    ) -> Result<AppleCatalogSong, AppleMusicMvpError> {
+        let song_id = validate_catalog_id(song_id, "song_not_found")?;
+        let storefront = validate_storefront(storefront)?;
+        self.ensure_ready().await?;
+        let mut command = self.next_command("lookup_song").await?;
+        command.song_id = Some(song_id);
+        command.storefront = storefront;
+        let event = self.send_and_wait(command, &["catalog_song"]).await?;
+        event.catalog_song.ok_or_else(|| {
+            error(
+                "helper_protocol_mismatch",
+                "The Apple Music helper returned an empty song response.",
+                false,
+                "catalog_lookup",
+                true,
+            )
+        })
+    }
+
+    pub(crate) async fn lookup_album(
+        &self,
+        album_id: String,
+        storefront: Option<String>,
+    ) -> Result<AppleCatalogAlbum, AppleMusicMvpError> {
+        let album_id = validate_catalog_id(album_id, "album_not_found")?;
+        let storefront = validate_storefront(storefront)?;
+        self.ensure_ready().await?;
+        let mut command = self.next_command("lookup_album").await?;
+        command.album_id = Some(album_id);
+        command.storefront = storefront;
+        let event = self.send_and_wait(command, &["catalog_album"]).await?;
+        event.catalog_album.ok_or_else(|| {
+            error(
+                "helper_protocol_mismatch",
+                "The Apple Music helper returned an empty album response.",
+                false,
+                "catalog_lookup",
+                true,
+            )
+        })
+    }
+
+    pub(crate) async fn prepare_queue(
+        &self,
+        sources: &[SourceRef],
+        start_index: usize,
+    ) -> Result<u64, AppleMusicMvpError> {
+        if sources.is_empty() || sources.len() > 100 || start_index >= sources.len() {
             return Err(error(
-                "apple_music_unavailable",
-                "Enter a valid Apple Music storefront code.",
+                "queue_prepare_failed",
+                "The Apple Music queue request is empty or invalid.",
                 false,
                 "validating_request",
                 true,
             ));
         }
+        let mut items = Vec::with_capacity(sources.len());
+        for (segment_index, source) in sources.iter().enumerate() {
+            let SourceRef::AppleMusicTrack {
+                song_id,
+                storefront,
+                ..
+            } = source
+            else {
+                return Err(error(
+                    "queue_prepare_failed",
+                    "A MusicKit queue segment can contain only Apple Music tracks.",
+                    false,
+                    "validating_request",
+                    true,
+                ));
+            };
+            items.push(HelperQueueItem {
+                song_id: validate_catalog_id(song_id.clone(), "song_not_found")?,
+                storefront: validate_storefront(storefront.clone())?,
+                segment_index,
+            });
+        }
+        self.ensure_ready().await?;
+        self.set_state(AppleMusicMvpState::PreparingQueue);
+        let command_id = self.command_id();
+        let session_id = self.session_id().await?;
+        let queue_revision = self.next_queue_revision.fetch_add(1, Ordering::Relaxed);
         let command = SetQueueCommand {
             v: PROTOCOL_VERSION,
             id: command_id.clone(),
             message_type: "set_queue",
             session_id,
             queue_revision,
-            items: vec![HelperQueueItem {
-                song_id,
-                storefront,
-            }],
-            start_index: 0,
+            items,
+            start_index,
         };
         self.send_serialized_and_wait(command_id, &command, &["queue_prepared"])
             .await?;
+        Ok(queue_revision)
+    }
+
+    pub(crate) async fn play_prepared(&self) -> Result<(), AppleMusicMvpError> {
         self.send_simple_command("play", &["playback_state_changed"])
             .await?;
-        Ok(self.status())
+        Ok(())
+    }
+
+    pub(crate) async fn seek_helper(&self, seconds: f64) -> Result<(), AppleMusicMvpError> {
+        if !seconds.is_finite() || seconds < 0.0 {
+            return Err(error(
+                "apple_music_seek_invalid",
+                "Apple Music seek position must be a non-negative number.",
+                false,
+                "validating_request",
+                true,
+            ));
+        }
+        let mut command = self.next_command("seek").await?;
+        command.position_secs = Some(seconds);
+        self.send_and_wait(command, &["playback_time", "playback_state_changed"])
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn skip_next_helper(&self) -> Result<(), AppleMusicMvpError> {
+        self.send_simple_command("skip_next", &["entry_changed", "queue_finished"])
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn subscribe_events(
+        &self,
+    ) -> Result<broadcast::Receiver<HelperMessage>, AppleMusicMvpError> {
+        self.connection
+            .lock()
+            .await
+            .as_ref()
+            .map(|connection| connection.events.subscribe())
+            .ok_or_else(|| {
+                error(
+                    "helper_exited",
+                    "The Apple Music helper is not connected.",
+                    true,
+                    "helper_connection",
+                    true,
+                )
+            })
+    }
+
+    pub(crate) async fn helper_session_id(&self) -> Result<String, AppleMusicMvpError> {
+        self.session_id().await
     }
 
     pub(crate) async fn transport(
@@ -306,6 +684,10 @@ impl AppleMusicService {
             "pause" | "resume" | "stop" => {
                 self.send_simple_command(command, &["playback_state_changed"])
                     .await?;
+                Ok(self.status())
+            }
+            "skip_next" => {
+                self.skip_next_helper().await?;
                 Ok(self.status())
             }
             "shutdown" => self.shutdown().await,
@@ -486,6 +868,8 @@ impl AppleMusicService {
         }
         let event_sender = events.clone();
         let shared_status = Arc::clone(&self.status);
+        let shared_playback = Arc::clone(&self.playback);
+        let reader_session_id = session_id.clone();
         tokio::spawn(async move {
             loop {
                 match read_json_frame::<_, HelperMessage>(&mut reader).await {
@@ -494,6 +878,13 @@ impl AppleMusicService {
                         let _ = event_sender.send(message);
                     }
                     Ok(_) => {
+                        let failure = helper_connection_failure_event(
+                            &reader_session_id,
+                            &shared_playback,
+                            "helper_protocol_mismatch",
+                            "The Apple Music helper changed protocol versions.",
+                            false,
+                        );
                         record_shared_error(
                             &shared_status,
                             error(
@@ -504,6 +895,7 @@ impl AppleMusicService {
                                 false,
                             ),
                         );
+                        let _ = event_sender.send(failure);
                         break;
                     }
                     Err(_) => {
@@ -512,6 +904,13 @@ impl AppleMusicService {
                             AppleMusicMvpState::Stopping | AppleMusicMvpState::Stopped
                         );
                         if !stopping {
+                            let failure = helper_connection_failure_event(
+                                &reader_session_id,
+                                &shared_playback,
+                                "helper_exited",
+                                "The Apple Music helper connection closed.",
+                                true,
+                            );
                             record_shared_error(
                                 &shared_status,
                                 error(
@@ -522,6 +921,7 @@ impl AppleMusicService {
                                     true,
                                 ),
                             );
+                            let _ = event_sender.send(failure);
                         }
                         break;
                     }
@@ -541,6 +941,39 @@ impl AppleMusicService {
         // accept. Waiting for an explicit status response keeps launch
         // deterministic even if that event raced with connection storage.
         self.send_simple_command("get_status", &["ready"]).await?;
+        Ok(())
+    }
+
+    async fn ensure_ready(&self) -> Result<(), AppleMusicMvpError> {
+        self.ensure_launched().await?;
+        let status = self.status();
+        if !status.helper_musickit_entitled {
+            return Err(error(
+                "musickit_capability_unavailable",
+                "This helper build is not signed with the MusicKit capability.",
+                false,
+                "checking_capability",
+                true,
+            ));
+        }
+        if status.authorization != "authorized" {
+            return Err(error(
+                "music_authorization_not_determined",
+                "Authorize Apple Music before using the catalog.",
+                false,
+                "checking_authorization",
+                true,
+            ));
+        }
+        if status.can_play_catalog_content == Some(false) {
+            return Err(error(
+                "subscription_required",
+                "This Apple Music account cannot play catalog content.",
+                false,
+                "checking_subscription",
+                true,
+            ));
+        }
         Ok(())
     }
 
@@ -785,8 +1218,81 @@ impl AppleMusicService {
     }
 }
 
+#[async_trait]
+impl AppleMusicHelperClient for AppleMusicService {
+    async fn lookup_song(
+        &self,
+        song_id: String,
+        storefront: Option<String>,
+    ) -> Result<AppleCatalogSong, AppleMusicMvpError> {
+        AppleMusicService::lookup_song(self, song_id, storefront).await
+    }
+
+    async fn lookup_album(
+        &self,
+        album_id: String,
+        storefront: Option<String>,
+    ) -> Result<AppleCatalogAlbum, AppleMusicMvpError> {
+        AppleMusicService::lookup_album(self, album_id, storefront).await
+    }
+
+    async fn set_queue(
+        &self,
+        sources: Vec<SourceRef>,
+        start_index: usize,
+    ) -> Result<u64, AppleMusicMvpError> {
+        self.prepare_queue(&sources, start_index).await
+    }
+
+    async fn play(&self) -> Result<(), AppleMusicMvpError> {
+        self.play_prepared().await
+    }
+
+    async fn pause(&self) -> Result<(), AppleMusicMvpError> {
+        self.transport("pause").await.map(|_| ())
+    }
+
+    async fn resume(&self) -> Result<(), AppleMusicMvpError> {
+        self.transport("resume").await.map(|_| ())
+    }
+
+    async fn seek(&self, seconds: f64) -> Result<(), AppleMusicMvpError> {
+        self.seek_helper(seconds).await
+    }
+
+    async fn skip_next(&self) -> Result<(), AppleMusicMvpError> {
+        self.skip_next_helper().await
+    }
+
+    async fn stop(&self) -> Result<(), AppleMusicMvpError> {
+        self.transport("stop").await.map(|_| ())
+    }
+
+    fn snapshot(&self) -> AppleMusicMvpStatus {
+        self.status()
+    }
+}
+
 fn apply_helper_event(status: &Arc<Mutex<AppleMusicMvpStatus>>, event: &HelperMessage) {
     let mut status = status.lock().unwrap();
+    status
+        .recent_events
+        .push(super::model::AppleMusicHelperEventSummary {
+            event_type: event.message_type.clone(),
+            queue_revision: event.queue_revision,
+            segment_index: event.segment_index,
+            song_id: event
+                .song_id
+                .clone()
+                .or_else(|| event.now_playing.as_ref().map(|now| now.song_id.clone())),
+            playback_position: event.playback_position.or(event.playback_time_secs),
+            finish_reason: event.finish_reason.clone(),
+            code: event.code.clone(),
+        });
+    if status.recent_events.len() > 50 {
+        let drain = status.recent_events.len() - 50;
+        status.recent_events.drain(..drain);
+    }
     if let Some(authorization) = &event.authorization {
         status.authorization = authorization.clone();
     }
@@ -802,7 +1308,10 @@ fn apply_helper_event(status: &Arc<Mutex<AppleMusicMvpStatus>>, event: &HelperMe
     if let Some(queue_revision) = event.queue_revision {
         status.queue_revision = queue_revision;
     }
-    if event.message_type == "now_playing_changed" || event.message_type == "queue_prepared" {
+    if matches!(
+        event.message_type.as_str(),
+        "now_playing_changed" | "entry_changed" | "queue_prepared"
+    ) {
         status.now_playing = event.now_playing.clone();
     }
     match event.message_type.as_str() {
@@ -813,7 +1322,9 @@ fn apply_helper_event(status: &Arc<Mutex<AppleMusicMvpStatus>>, event: &HelperMe
                 AppleMusicMvpState::AwaitingAuthorization
             };
         }
-        "queue_prepared" => status.state = AppleMusicMvpState::Ready,
+        "queue_prepared" | "catalog_song" | "catalog_album" => {
+            status.state = AppleMusicMvpState::Ready
+        }
         "playback_state_changed" => {
             status.state = match status.playback_state.as_str() {
                 "playing" => AppleMusicMvpState::Playing,
@@ -900,6 +1411,17 @@ fn reference_status(
             artist.clone(),
             album.clone(),
         ),
+        SourceRef::AppleMusicTrack {
+            title,
+            artist,
+            album,
+            ..
+        } => (
+            "apple_music".to_string(),
+            title.clone(),
+            artist.clone(),
+            album.clone(),
+        ),
     };
     AppleMusicComparisonReference {
         zone_id: reference.zone_id.clone(),
@@ -914,6 +1436,36 @@ fn reference_status(
 
 fn cleanup_socket(socket_path: &Path) {
     let _ = std::fs::remove_file(socket_path);
+}
+
+fn helper_connection_failure_event(
+    session_id: &str,
+    playback: &Mutex<Option<ApplePlaybackSnapshot>>,
+    code: &str,
+    message: &str,
+    retryable: bool,
+) -> HelperMessage {
+    let mut event =
+        HelperMessage::command("event".to_string(), "helper_error", session_id.to_string());
+    event.id = None;
+    event.command_id = None;
+    event.code = Some(code.to_string());
+    event.message = Some(message.to_string());
+    event.retryable = Some(retryable);
+    if let Some(snapshot) = playback
+        .lock()
+        .unwrap()
+        .as_ref()
+        .filter(|snapshot| snapshot.helper_session_id == session_id)
+    {
+        event.queue_revision = Some(snapshot.queue_revision);
+        event.segment_index = Some(snapshot.current_segment_index);
+        event.song_id = snapshot
+            .current_source()
+            .and_then(SourceRef::apple_music_song_id)
+            .map(str::to_string);
+    }
+    event
 }
 
 fn random_hex(bytes: usize) -> String {
@@ -932,6 +1484,44 @@ fn normalize_optional(value: Option<String>) -> Option<String> {
         let value = value.trim().to_string();
         (!value.is_empty()).then_some(value)
     })
+}
+
+fn validate_catalog_id(
+    value: String,
+    error_code: &'static str,
+) -> Result<String, AppleMusicMvpError> {
+    let value = value.trim().to_string();
+    if value.is_empty()
+        || value.len() > 256
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+    {
+        return Err(error(
+            error_code,
+            "Enter a valid Apple Music catalog ID.",
+            false,
+            "validating_request",
+            true,
+        ));
+    }
+    Ok(value)
+}
+
+fn validate_storefront(value: Option<String>) -> Result<Option<String>, AppleMusicMvpError> {
+    let value = normalize_optional(value).map(|value| value.to_ascii_lowercase());
+    if value.as_deref().is_some_and(|value| {
+        value.len() > 8 || !value.bytes().all(|byte| byte.is_ascii_alphabetic())
+    }) {
+        return Err(error(
+            "apple_music_storefront_invalid",
+            "Enter a valid Apple Music storefront code.",
+            false,
+            "validating_request",
+            true,
+        ));
+    }
+    Ok(value)
 }
 
 fn error(
@@ -953,6 +1543,7 @@ fn error(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::SourceRef;
 
     #[test]
     fn source_checkout_helper_path_targets_a_real_app_bundle() {
@@ -995,5 +1586,177 @@ mod tests {
         assert!(value.now_playing.is_none());
         assert!(value.playback_time_secs.is_none());
         assert_eq!(value.state, AppleMusicMvpState::Ready);
+    }
+
+    fn apple_source(song_id: &str) -> SourceRef {
+        SourceRef::AppleMusicTrack {
+            song_id: song_id.to_string(),
+            storefront: Some("nz".to_string()),
+            title: Some(format!("Song {song_id}")),
+            artist: Some("Artist".to_string()),
+            album: Some("Album".to_string()),
+            album_artist: Some("Artist".to_string()),
+            album_id: Some("album-1".to_string()),
+            artwork_url: None,
+            duration_secs: Some(180.0),
+            track_number: None,
+            disc_number: None,
+            isrc: None,
+            radio: false,
+            radio_context: None,
+            playlist_context: None,
+        }
+    }
+
+    fn event(message_type: &str, revision: u64, index: usize) -> HelperMessage {
+        let mut event = HelperMessage::command(
+            "event".to_string(),
+            message_type,
+            "helper-session".to_string(),
+        );
+        event.id = None;
+        event.command_id = None;
+        event.queue_revision = Some(revision);
+        event.segment_index = Some(index);
+        event.song_id = Some("same".to_string());
+        event
+    }
+
+    #[test]
+    fn stale_and_duplicate_events_cannot_advance_a_replaced_queue() {
+        let service = AppleMusicService::new(Path::new("/missing"), Path::new("/tmp"));
+        service.activate_playback(
+            "local-core".to_string(),
+            7,
+            "helper-session".to_string(),
+            11,
+            vec![
+                apple_source("same"),
+                apple_source("same"),
+                apple_source("tail"),
+            ],
+        );
+
+        let stale = service.apply_playback_event(&event("entry_changed", 10, 1));
+        assert!(stale.stale);
+
+        let advanced = service.apply_playback_event(&event("entry_changed", 11, 1));
+        assert!(!advanced.stale);
+        assert_eq!(advanced.advance_by, 1);
+
+        let duplicate = service.apply_playback_event(&event("entry_changed", 11, 1));
+        assert!(!duplicate.stale);
+        assert_eq!(duplicate.advance_by, 0);
+
+        let jumped = service.apply_playback_event(&event("entry_changed", 11, 2));
+        assert_eq!(jumped.advance_by, 1);
+        assert_eq!(
+            service
+                .playback_snapshot_for_zone("local-core")
+                .unwrap()
+                .current_segment_index,
+            2
+        );
+    }
+
+    #[derive(Default)]
+    struct FakeHelper {
+        revision: AtomicU64,
+        status: Mutex<Option<AppleMusicMvpStatus>>,
+        queue: Mutex<Vec<SourceRef>>,
+    }
+
+    #[async_trait]
+    impl AppleMusicHelperClient for FakeHelper {
+        async fn lookup_song(
+            &self,
+            song_id: String,
+            storefront: Option<String>,
+        ) -> Result<AppleCatalogSong, AppleMusicMvpError> {
+            Ok(AppleCatalogSong {
+                song_id,
+                storefront: storefront.unwrap_or_else(|| "nz".to_string()),
+                title: "Fake song".to_string(),
+                artist: "Fake artist".to_string(),
+                ..AppleCatalogSong::default()
+            })
+        }
+
+        async fn lookup_album(
+            &self,
+            album_id: String,
+            storefront: Option<String>,
+        ) -> Result<AppleCatalogAlbum, AppleMusicMvpError> {
+            Ok(AppleCatalogAlbum {
+                album_id,
+                storefront: storefront.unwrap_or_else(|| "nz".to_string()),
+                title: "Fake album".to_string(),
+                artist: "Fake artist".to_string(),
+                ..AppleCatalogAlbum::default()
+            })
+        }
+
+        async fn set_queue(
+            &self,
+            sources: Vec<SourceRef>,
+            _start_index: usize,
+        ) -> Result<u64, AppleMusicMvpError> {
+            *self.queue.lock().unwrap() = sources;
+            Ok(self.revision.fetch_add(1, Ordering::Relaxed) + 1)
+        }
+
+        async fn play(&self) -> Result<(), AppleMusicMvpError> {
+            Ok(())
+        }
+
+        async fn pause(&self) -> Result<(), AppleMusicMvpError> {
+            Ok(())
+        }
+
+        async fn resume(&self) -> Result<(), AppleMusicMvpError> {
+            Ok(())
+        }
+
+        async fn seek(&self, _seconds: f64) -> Result<(), AppleMusicMvpError> {
+            Ok(())
+        }
+
+        async fn skip_next(&self) -> Result<(), AppleMusicMvpError> {
+            Ok(())
+        }
+
+        async fn stop(&self) -> Result<(), AppleMusicMvpError> {
+            Ok(())
+        }
+
+        fn snapshot(&self) -> AppleMusicMvpStatus {
+            self.status
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or_else(|| AppleMusicMvpStatus::new(false))
+        }
+    }
+
+    #[tokio::test]
+    async fn fake_helper_exercises_catalog_and_queue_without_entitlement() {
+        let fake = FakeHelper::default();
+        let song = fake
+            .lookup_song("2037093408".to_string(), Some("nz".to_string()))
+            .await
+            .unwrap();
+        let revision = fake
+            .set_queue(vec![song.source_ref(), song.source_ref()], 0)
+            .await
+            .unwrap();
+
+        assert_eq!(revision, 1);
+        assert_eq!(fake.queue.lock().unwrap().len(), 2);
+        fake.play().await.unwrap();
+        fake.pause().await.unwrap();
+        fake.seek(30.0).await.unwrap();
+        fake.resume().await.unwrap();
+        fake.skip_next().await.unwrap();
+        fake.stop().await.unwrap();
     }
 }

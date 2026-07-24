@@ -1206,6 +1206,10 @@ impl Player {
         self.send_command(PlayerCommand::Resume);
     }
 
+    pub fn flush_live_output(&self) {
+        self.state.request_flush(super::state::FLUSH_REASON_SEEK);
+    }
+
     pub fn stop(&self) {
         let epoch = self.mark_playback_change();
         self.state.state.store(PLAYBACK_STOPPED, Ordering::Relaxed);

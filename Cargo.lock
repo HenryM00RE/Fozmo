@@ -1120,6 +1120,7 @@ dependencies = [
 name = "fozmo"
 version = "0.0.2"
 dependencies = [
+ "async-trait",
  "axum",
  "axum-server",
  "base64 0.22.1",

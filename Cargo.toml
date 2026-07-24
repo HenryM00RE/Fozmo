@@ -57,6 +57,7 @@ opt-level = 2
 [dependencies]
 tokio = { version = "1.38", features = ["full"] }
 axum = { version = "0.7", features = ["ws", "multipart"] }
+async-trait = "0.1"
 bytes = "1"
 clap = { version = "4", features = ["derive"] }
 tower-http = { version = "0.5", features = ["fs", "cors"] }
@@ -124,6 +125,11 @@ path = "audio_tests/dsd_public_quality.rs"
 [[test]]
 name = "audio_smoke"
 path = "audio_tests/audio_smoke.rs"
+
+[[test]]
+name = "apple_music_real_macos"
+path = "apple_music_tests/real_macos.rs"
+required-features = ["apple_music_musickit"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.9"

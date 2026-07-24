@@ -1,5 +1,5 @@
-//! Provisional Music.app process tap used to evaluate the Fozmo DSP path
-//! without requiring a MusicKit provisioning profile.
+//! Process-targeted Core Audio tap used by both the MusicKit helper and the
+//! explicitly labelled Music.app diagnostic.
 //!
 //! Core Audio owns the real-time callback thread. The callback performs no
 //! allocation, locking, logging, or IPC: it only updates atomics and writes
@@ -19,9 +19,37 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 const PROCESS_TAP_BUFFER_MS: u32 = 500;
-const LIVE_DISPLAY_NAME: &str = "Apple Music (Music app tap)";
 const LAYOUT_INTERLEAVED: u32 = 0;
 const LAYOUT_PLANAR: u32 = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProcessTapProcessKind {
+    MusicKitHelper,
+    MusicAppExperiment,
+}
+
+impl ProcessTapProcessKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::MusicKitHelper => "musickit_helper",
+            Self::MusicAppExperiment => "music_app_experiment",
+        }
+    }
+
+    fn live_display_name(self) -> &'static str {
+        match self {
+            Self::MusicKitHelper => "Apple Music (MusicKit helper)",
+            Self::MusicAppExperiment => "Apple Music (Music.app diagnostic)",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProcessTapTarget {
+    pub(crate) pid: u32,
+    pub(crate) process_kind: ProcessTapProcessKind,
+    pub(crate) display_name: String,
+}
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
@@ -169,23 +197,35 @@ struct ProcessTapSession {
     consumer: Option<CaptureConsumer>,
     prepared_stream: Option<PreparedStream>,
     playback_epoch: Option<u64>,
+    expected_epoch: u64,
     mute_original: bool,
+    target: ProcessTapTarget,
 }
 
 impl ProcessTapSession {
     fn prepare(
         player: Arc<Player>,
-        pid: i32,
+        target: ProcessTapTarget,
         mute_original: bool,
     ) -> Result<Self, AppleMusicMvpError> {
-        let (native, info) = NativeTap::create(pid, mute_original).map_err(process_tap_error)?;
+        let pid = i32::try_from(target.pid).map_err(|_| {
+            mvp_error(
+                "process_tap_target_invalid",
+                "The selected audio process has an invalid process identifier.",
+                false,
+                "audio_process",
+                true,
+            )
+        })?;
+        let (native, info) = NativeTap::create(pid, mute_original)
+            .map_err(|failure| process_tap_error(failure, &target))?;
         let rate_hz = validated_rate(info.sample_rate_hz)?;
         if info.channels != u32::from(LIVE_CHANNELS) {
             return Err(mvp_error(
                 "process_tap_format_unsupported",
                 format!(
-                    "The Music app tap exposed {} channels; this experiment requires stereo.",
-                    info.channels
+                    "{} exposed {} channels; Fozmo currently requires stereo capture.",
+                    target.display_name, info.channels
                 ),
                 false,
                 "tap_format",
@@ -204,9 +244,10 @@ impl ProcessTapSession {
         });
         native
             .start(callback_context.as_mut())
-            .map_err(process_tap_error)?;
+            .map_err(|failure| process_tap_error(failure, &target))?;
 
         let shutdown = Arc::new(AtomicBool::new(false));
+        let expected_epoch = player.playback_epoch();
         Ok(Self {
             native: Some(native),
             _callback_context: callback_context,
@@ -218,7 +259,9 @@ impl ProcessTapSession {
             consumer: Some(consumer),
             prepared_stream: None,
             playback_epoch: None,
+            expected_epoch,
             mute_original,
+            target,
         })
     }
 
@@ -229,7 +272,7 @@ impl ProcessTapSession {
         let consumer = self.consumer.take().ok_or_else(|| {
             mvp_error(
                 "process_tap_prepare_invalid",
-                "The Music app tap no longer has an audio source to prepare.",
+                "The Apple Music process tap no longer has an audio source to prepare.",
                 true,
                 "preparing_dsp_handoff",
                 false,
@@ -259,16 +302,10 @@ impl ProcessTapSession {
     }
 
     fn discard_buffered_audio(&mut self) -> Result<u64, AppleMusicMvpError> {
-        let consumer = self.consumer.as_mut().ok_or_else(|| {
-            mvp_error(
-                "process_tap_buffer_committed",
-                "The Music app capture buffer has already been committed to playback.",
-                false,
-                "preparing_dsp_handoff",
-                true,
-            )
-        })?;
-        Ok(discard_capture_buffer(consumer, &self.flow))
+        if let Some(consumer) = self.consumer.as_mut() {
+            return Ok(discard_capture_buffer(consumer, &self.flow));
+        }
+        Ok(self.flow.request_discard())
     }
 
     fn buffered_frames(&self) -> u64 {
@@ -279,19 +316,30 @@ impl ProcessTapSession {
     }
 
     fn commit_player_stream(&mut self, preserve_output: bool) -> Result<(), AppleMusicMvpError> {
+        if self.player.playback_epoch() != self.expected_epoch {
+            self.shutdown.store(true, Ordering::Release);
+            return Err(mvp_error(
+                "process_tap_playback_changed",
+                "Fozmo playback changed while the Apple Music tap was preparing.",
+                true,
+                "dsp_handoff",
+                true,
+            ));
+        }
         self.prepare_player_stream()?;
         let prepared = self.prepared_stream.take().ok_or_else(|| {
             mvp_error(
                 "process_tap_prepare_invalid",
-                "The Music app tap did not produce a prepared audio stream.",
+                "The Apple Music process tap did not produce a prepared audio stream.",
                 true,
                 "dsp_handoff",
                 false,
             )
         })?;
+        let live_display_name = self.target.process_kind.live_display_name();
         let rate_hz = validated_rate(self.info.sample_rate_hz)?;
         let tags = TrackTags {
-            title: Some(LIVE_DISPLAY_NAME.to_string()),
+            title: Some(live_display_name.to_string()),
             artist: Some("Apple Music".to_string()),
             sample_rate: Some(rate_hz),
             channels: Some(LIVE_CHANNELS),
@@ -304,7 +352,7 @@ impl ProcessTapSession {
         let started = self.player.play_prepared_stream_if_epoch(
             epoch,
             prepared,
-            LIVE_DISPLAY_NAME.to_string(),
+            live_display_name.to_string(),
             None,
             Some(tags),
             Vec::new(),
@@ -314,7 +362,7 @@ impl ProcessTapSession {
             self.shutdown.store(true, Ordering::Release);
             return Err(mvp_error(
                 "process_tap_playback_changed",
-                "Fozmo playback changed while the Music app tap was starting.",
+                "Fozmo playback changed while the Apple Music process tap was starting.",
                 true,
                 "dsp_handoff",
                 true,
@@ -333,7 +381,8 @@ impl ProcessTapSession {
         self.playback_epoch.is_some()
     }
 
-    fn status(&self, music_app_pid: Option<u32>) -> AppleMusicProcessTapStatus {
+    fn status(&self) -> AppleMusicProcessTapStatus {
+        let music_app_pid = music_app_pid();
         AppleMusicProcessTapStatus {
             supported: process_tap_supported(),
             minimum_macos_version: "14.2".to_string(),
@@ -344,6 +393,9 @@ impl ProcessTapSession {
             },
             music_app_running: music_app_pid.is_some(),
             music_app_pid,
+            target_pid: Some(self.target.pid),
+            target_process_kind: Some(self.target.process_kind.as_str().to_string()),
+            target_display_name: Some(self.target.display_name.clone()),
             audio_process_object_id: nonzero(self.info.process_object_id),
             tap_object_id: nonzero(self.info.tap_object_id),
             aggregate_device_id: nonzero(self.info.aggregate_device_id),
@@ -388,14 +440,14 @@ impl ProcessTapController {
             .as_ref()
             .is_some_and(|session| session.is_committed() && !session.owns_player_session())
         {
-            // Another Fozmo source replaced the live stream. Stop reading the
-            // tap immediately so Music.app's direct path is restored.
+            // Another Fozmo source replaced the live stream. Stop the process
+            // tap immediately so the target's direct path is restored.
             self.session.take();
         }
 
         let music_app_pid = music_app_pid();
         if let Some(session) = self.session.as_ref() {
-            return session.status(music_app_pid);
+            return session.status();
         }
         AppleMusicProcessTapStatus {
             supported: process_tap_supported(),
@@ -459,7 +511,36 @@ impl ProcessTapController {
                 true,
             )
         })?;
-        let result = ProcessTapSession::prepare(player, pid as i32, mute_original);
+        self.prepare_for_target(
+            player,
+            ProcessTapTarget {
+                pid,
+                process_kind: ProcessTapProcessKind::MusicAppExperiment,
+                display_name: "Music.app diagnostic".to_string(),
+            },
+            mute_original,
+        )
+    }
+
+    pub(super) fn prepare_for_target(
+        &mut self,
+        player: Arc<Player>,
+        target: ProcessTapTarget,
+        mute_original: bool,
+    ) -> Result<AppleMusicProcessTapStatus, AppleMusicMvpError> {
+        if !process_tap_supported() {
+            return Err(mvp_error(
+                "process_tap_unsupported",
+                "Apple Music process capture requires macOS 14.2 or newer.",
+                false,
+                "os_support",
+                true,
+            ));
+        }
+        if self.session.is_some() {
+            return Ok(self.status());
+        }
+        let result = ProcessTapSession::prepare(player, target, mute_original);
         match result {
             Ok(session) => {
                 self.session = Some(session);
@@ -479,7 +560,7 @@ impl ProcessTapController {
             .ok_or_else(|| {
                 mvp_error(
                     "process_tap_not_running",
-                    "Prepare the Music app tap before clearing its capture buffer.",
+                    "Prepare the Apple Music process tap before clearing its capture buffer.",
                     true,
                     "preparing_dsp_handoff",
                     true,
@@ -492,7 +573,7 @@ impl ProcessTapController {
         let session = self.session.as_ref().ok_or_else(|| {
             mvp_error(
                 "process_tap_not_running",
-                "Prepare the Music app tap before measuring its capture buffer.",
+                "Prepare the Apple Music process tap before measuring its capture buffer.",
                 true,
                 "preparing_dsp_handoff",
                 true,
@@ -508,7 +589,7 @@ impl ProcessTapController {
             .ok_or_else(|| {
                 mvp_error(
                     "process_tap_not_running",
-                    "Prepare the Music app tap before preparing its DSP stream.",
+                    "Prepare the Apple Music process tap before preparing its DSP stream.",
                     true,
                     "preparing_dsp_handoff",
                     true,
@@ -527,7 +608,7 @@ impl ProcessTapController {
             .ok_or_else(|| {
                 mvp_error(
                     "process_tap_not_running",
-                    "Prepare the Music app tap before committing its DSP stream.",
+                    "Prepare the Apple Music process tap before committing its DSP stream.",
                     true,
                     "dsp_handoff",
                     true,
@@ -552,6 +633,13 @@ impl ProcessTapController {
         self.last_error = None;
         self.status()
     }
+
+    pub(super) fn playback_epoch(&self) -> Option<u64> {
+        self.session
+            .as_ref()
+            .filter(|session| session.owns_player_session())
+            .and_then(|session| session.playback_epoch)
+    }
 }
 
 fn process_tap_supported() -> bool {
@@ -572,7 +660,9 @@ fn validated_rate(rate_hz: f64) -> Result<u32, AppleMusicMvpError> {
     {
         return Err(mvp_error(
             "process_tap_format_unsupported",
-            format!("The Music app tap exposed an unsupported sample rate ({rate_hz} Hz)."),
+            format!(
+                "The Apple Music process tap exposed an unsupported sample rate ({rate_hz} Hz)."
+            ),
             false,
             "tap_format",
             true,
@@ -581,20 +671,26 @@ fn validated_rate(rate_hz: f64) -> Result<u32, AppleMusicMvpError> {
     Ok(rounded as u32)
 }
 
-fn process_tap_error(failure: TapFailure) -> AppleMusicMvpError {
+fn process_tap_error(failure: TapFailure, target: &ProcessTapTarget) -> AppleMusicMvpError {
     let stage = stage_name(failure.stage);
     let message = match failure.stage {
-        2 => "Music.app is open but is not currently visible as a Core Audio process. Start a song, then retry.".to_string(),
+        2 => format!(
+            "{} is running but is not currently visible as a Core Audio process. Start playback, then retry.",
+            target.display_name
+        ),
         3 | 6 | 7 | 8 | 9 => format!(
-            "macOS could not start the Music app audio tap at {stage} (OSStatus {}). Check System Settings → Privacy & Security → Screen & System Audio Recording, then retry.",
+            "macOS could not tap {} at {stage} (OSStatus {}). Check System Settings → Privacy & Security → Screen & System Audio Recording, then retry.",
+            target.display_name,
             display_os_status(failure.status)
         ),
         4 => format!(
-            "The Music app tap exposed a PCM format this experiment does not support (OSStatus {}).",
+            "{} exposed a PCM format Fozmo does not support (OSStatus {}).",
+            target.display_name,
             display_os_status(failure.status)
         ),
         _ => format!(
-            "The Music app audio tap failed at {stage} (OSStatus {}).",
+            "The audio tap for {} failed at {stage} (OSStatus {}).",
+            target.display_name,
             display_os_status(failure.status)
         ),
     };

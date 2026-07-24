@@ -179,8 +179,17 @@ export interface PlaylistPlaybackContext {
 }
 
 export interface SourceRef extends JsonRecord {
-  kind?: 'local_track' | 'qobuz_track' | 'local' | 'qobuz' | string;
+  kind?:
+    | 'local_track'
+    | 'qobuz_track'
+    | 'apple_music_track'
+    | 'local'
+    | 'qobuz'
+    | 'apple_music'
+    | string;
   track_id?: number;
+  song_id?: string;
+  storefront?: string | null;
   file_name?: string | null;
   title?: string | null;
   artist?: string | null;
@@ -189,6 +198,7 @@ export interface SourceRef extends JsonRecord {
   album_id?: string | number | null;
   art_id?: string | number | null;
   image_url?: string | null;
+  artwork_url?: string | null;
   duration_secs?: number | null;
   format_id?: string | number | null;
   radio?: boolean | null;
@@ -196,8 +206,10 @@ export interface SourceRef extends JsonRecord {
 }
 
 export interface ResolvedPlaySource extends JsonRecord {
-  kind?: 'local' | 'qobuz' | string;
+  kind?: 'local' | 'qobuz' | 'apple_music' | string;
   track_id?: number;
+  song_id?: string;
+  storefront?: string | null;
   title?: string | null;
   artist?: string | null;
   album?: string | null;
@@ -205,6 +217,7 @@ export interface ResolvedPlaySource extends JsonRecord {
   album_id?: string | number | null;
   art_id?: string | number | null;
   image_url?: string | null;
+  artwork_url?: string | null;
   duration_secs?: number | null;
   format_id?: string | number | null;
   file_name?: string | null;

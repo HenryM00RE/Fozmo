@@ -392,15 +392,17 @@ fn source_artist(source: &SourceRef) -> Option<String> {
             ..
         } => normalized_artist_name(artist.as_deref())
             .or_else(|| normalized_artist_name(album_artist.as_deref())),
-        SourceRef::QobuzTrack { artist, .. } => normalized_artist_name(artist.as_deref()),
+        SourceRef::QobuzTrack { artist, .. } | SourceRef::AppleMusicTrack { artist, .. } => {
+            normalized_artist_name(artist.as_deref())
+        }
     }
 }
 
 fn source_title(source: &SourceRef) -> Option<String> {
     match source {
-        SourceRef::LocalTrack { title, .. } | SourceRef::QobuzTrack { title, .. } => {
-            normalized_artist_name(title.as_deref())
-        }
+        SourceRef::LocalTrack { title, .. }
+        | SourceRef::QobuzTrack { title, .. }
+        | SourceRef::AppleMusicTrack { title, .. } => normalized_artist_name(title.as_deref()),
     }
 }
 

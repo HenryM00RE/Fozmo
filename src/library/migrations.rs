@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 1;
+pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 pub(super) fn migrate(conn: &Connection) -> Result<(), String> {
     let found = schema_version(conn)?;
@@ -22,6 +22,12 @@ pub(super) fn migrate(conn: &Connection) -> Result<(), String> {
             conn.pragma_update(None, "user_version", 1_u32)
                 .map_err(|error| format!("record library schema version 1: {error}"))?;
             version = 1;
+        }
+        if version < 2 {
+            migrate_to_v2(conn)?;
+            conn.pragma_update(None, "user_version", 2_u32)
+                .map_err(|error| format!("record library schema version 2: {error}"))?;
+            version = 2;
         }
         debug_assert_eq!(version, CURRENT_SCHEMA_VERSION);
         conn.execute_batch("COMMIT")
@@ -51,6 +57,22 @@ fn migrate_to_v1(conn: &Connection) -> Result<(), String> {
     apply_playback_history_indexes(conn)?;
     apply_album_browse_indexes(conn)?;
     Ok(())
+}
+
+fn migrate_to_v2(conn: &Connection) -> Result<(), String> {
+    if has_column(conn, "version_track_links", "provider_version_track_id")? {
+        return Ok(());
+    }
+    if !has_column(conn, "version_track_links", "qobuz_version_track_id")? {
+        return Err(
+            "version_track_links has neither the v1 nor v2 provider-track column".to_string(),
+        );
+    }
+    conn.execute_batch(
+        "ALTER TABLE version_track_links
+         RENAME COLUMN qobuz_version_track_id TO provider_version_track_id;",
+    )
+    .map_err(|error| format!("migrate provider version track links to schema v2: {error}"))
 }
 
 fn apply_initial_schema(conn: &Connection) -> Result<(), String> {
@@ -386,13 +408,13 @@ const INITIAL_SCHEMA_SQL: &str = r#"
             id INTEGER PRIMARY KEY,
             album_id INTEGER NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
             local_version_track_id INTEGER NOT NULL REFERENCES version_tracks(id) ON DELETE CASCADE,
-            qobuz_version_track_id INTEGER NOT NULL REFERENCES version_tracks(id) ON DELETE CASCADE,
+            provider_version_track_id INTEGER NOT NULL REFERENCES version_tracks(id) ON DELETE CASCADE,
             confidence INTEGER NOT NULL,
             match_kind TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'linked',
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
-            UNIQUE(album_id, local_version_track_id, qobuz_version_track_id)
+            UNIQUE(album_id, local_version_track_id, provider_version_track_id)
         );
         CREATE TABLE IF NOT EXISTS autometa_jobs (
             id INTEGER PRIMARY KEY,
@@ -748,6 +770,101 @@ mod tests {
         assert_eq!(schema_version(&conn).unwrap(), CURRENT_SCHEMA_VERSION);
         migrate(&conn).unwrap();
         assert_eq!(schema_version(&conn).unwrap(), CURRENT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn v2_migration_preserves_qobuz_links_and_accepts_apple_links() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE album_versions (
+                id INTEGER PRIMARY KEY,
+                provider TEXT NOT NULL
+            );
+            CREATE TABLE version_tracks (
+                id INTEGER PRIMARY KEY,
+                version_id INTEGER NOT NULL,
+                recording_id INTEGER
+            );
+            CREATE TABLE version_track_links (
+                id INTEGER PRIMARY KEY,
+                album_id INTEGER NOT NULL,
+                local_version_track_id INTEGER NOT NULL,
+                qobuz_version_track_id INTEGER NOT NULL,
+                confidence INTEGER NOT NULL,
+                match_kind TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'linked',
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                UNIQUE(album_id, local_version_track_id, qobuz_version_track_id)
+            );
+            INSERT INTO album_versions (id, provider)
+            VALUES (1, 'local'), (2, 'qobuz'), (3, 'apple_music');
+            INSERT INTO version_tracks (id, version_id, recording_id)
+            VALUES (10, 1, 99), (20, 2, 99), (30, 3, 99);
+            INSERT INTO version_track_links (
+                album_id, local_version_track_id, qobuz_version_track_id,
+                confidence, match_kind, status, created_at, updated_at
+            )
+            VALUES (7, 10, 20, 100, 'isrc', 'linked', 1, 1);
+            PRAGMA user_version = 1;
+            "#,
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        assert_eq!(schema_version(&conn).unwrap(), 2);
+        assert!(has_column(&conn, "version_track_links", "provider_version_track_id").unwrap());
+        assert_eq!(
+            conn.query_row(
+                r#"
+                SELECT vt.recording_id
+                FROM version_track_links link
+                JOIN version_tracks vt
+                  ON vt.id = link.provider_version_track_id
+                WHERE link.album_id = 7
+                "#,
+                [],
+                |row| row.get::<_, Option<i64>>(0),
+            )
+            .unwrap(),
+            Some(99)
+        );
+        assert!(
+            conn.execute(
+                r#"
+                INSERT INTO version_track_links (
+                    album_id, local_version_track_id, provider_version_track_id,
+                    confidence, match_kind, status, created_at, updated_at
+                )
+                VALUES (7, 10, 20, 90, 'position', 'linked', 2, 2)
+                "#,
+                [],
+            )
+            .is_err(),
+            "the renamed unique constraint must still reject duplicates"
+        );
+        conn.execute(
+            r#"
+            INSERT INTO version_track_links (
+                album_id, local_version_track_id, provider_version_track_id,
+                confidence, match_kind, status, created_at, updated_at
+            )
+            VALUES (7, 10, 30, 100, 'isrc', 'linked', 2, 2)
+            "#,
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM version_track_links WHERE album_id = 7",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            2
+        );
     }
 
     #[test]

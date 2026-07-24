@@ -384,6 +384,24 @@ pub enum ResolvedPlaySource {
         duration_secs: Option<f64>,
         format_id: Option<u32>,
     },
+    #[cfg_attr(
+        not(all(target_os = "macos", feature = "apple_music_musickit")),
+        allow(dead_code)
+    )]
+    AppleMusic {
+        song_id: String,
+        storefront: String,
+        title: String,
+        artist: Option<String>,
+        album: Option<String>,
+        album_artist: Option<String>,
+        album_id: Option<String>,
+        image_url: Option<String>,
+        duration_secs: Option<f64>,
+        track_number: Option<u32>,
+        disc_number: Option<u32>,
+        isrc: Option<String>,
+    },
 }
 
 #[derive(Debug, Serialize, Clone, JsonSchema)]
@@ -483,6 +501,31 @@ pub struct QobuzTrackLinkSummary {
 pub struct AlbumPlaybackPlan {
     pub album_id: i64,
     pub sources: Vec<ResolvedPlaySource>,
+}
+
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+#[derive(Debug, Serialize, Clone, JsonSchema)]
+pub struct AppleMusicTrackPairPreview {
+    pub local_track_id: i64,
+    pub local_title: String,
+    pub apple_song_id: String,
+    pub apple_title: String,
+    pub confidence: i64,
+    pub evidence: Vec<String>,
+}
+
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+#[derive(Debug, Serialize, Clone, JsonSchema)]
+pub struct AppleMusicAlbumMatchPreview {
+    pub local_album_id: i64,
+    pub apple_album: crate::services::apple_music_musickit::AppleCatalogAlbum,
+    pub confidence: i64,
+    pub evidence: Vec<String>,
+    pub pairings: Vec<AppleMusicTrackPairPreview>,
+    pub unmatched_local_track_ids: Vec<i64>,
+    pub unmatched_apple_song_ids: Vec<String>,
+    pub safe_to_link: bool,
+    pub resulting_version: Option<AlbumVersionSummary>,
 }
 
 #[derive(Debug, Serialize, Clone, JsonSchema)]
@@ -610,13 +653,16 @@ pub struct RecentPlaylistSummary {
 pub struct RecentAlbumSummary {
     pub recent_type: String,
     pub id: String,
+    pub provider: String,
     pub title: String,
     pub album_artist: String,
     pub art_id: Option<i64>,
     pub image_url: Option<String>,
     pub year: Option<i32>,
     pub is_qobuz: bool,
+    pub is_apple_music: bool,
     pub qobuz_album_id: Option<String>,
+    pub apple_music_album_id: Option<String>,
     pub source_track_id: Option<String>,
     pub album_id: Option<String>,
     pub hires: bool,

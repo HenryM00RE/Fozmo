@@ -287,6 +287,23 @@ mod tests {
             .status()
     }
 
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    #[tokio::test]
+    async fn apple_music_provider_routes_are_local_only() {
+        let state = app_state("apple-music-local-only-routes");
+        let local = create_router().with_state(state.clone());
+        let remote = create_remote_router().with_state(state);
+
+        assert_eq!(
+            request_status(local, Method::GET, "/api/apple-music/status", None).await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            request_status(remote, Method::GET, "/api/apple-music/status", None).await,
+            StatusCode::NOT_FOUND
+        );
+    }
+
     #[tokio::test]
     async fn pairing_middleware_rejects_query_token_by_default() {
         let state = app_state_with_pairing("pairing-query-default", true, false);

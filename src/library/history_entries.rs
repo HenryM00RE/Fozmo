@@ -52,14 +52,53 @@ impl Library {
         conn: &rusqlite::Connection,
         source: &SourceRef,
     ) -> Result<Option<i64>, String> {
-        Self::recording_id_for_source_key_with_conn(conn, &source.key())
+        match source {
+            SourceRef::LocalTrack { track_id, .. } => conn
+                .query_row(
+                    r#"
+                    SELECT recording_id
+                    FROM version_tracks
+                    WHERE local_track_id = ?1
+                      AND recording_id IS NOT NULL
+                    ORDER BY id
+                    LIMIT 1
+                    "#,
+                    [track_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|error| format!("local source recording lookup: {error}")),
+            source => {
+                let provider = source.provider().as_str();
+                let provider_track_id = source.provider_track_id();
+                conn.query_row(
+                    r#"
+                    SELECT vt.recording_id
+                    FROM version_tracks vt
+                    JOIN album_versions v ON v.id = vt.version_id
+                    WHERE v.provider = ?1
+                      AND vt.provider_track_id = ?2
+                      AND vt.recording_id IS NOT NULL
+                    ORDER BY CASE WHEN v.status = 'available' THEN 0 ELSE 1 END, vt.id
+                    LIMIT 1
+                    "#,
+                    params![provider, provider_track_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|error| format!("{provider} source recording lookup: {error}"))
+            }
+        }
     }
 
     fn recording_id_for_source_key_with_conn(
         conn: &rusqlite::Connection,
         source_key: &str,
     ) -> Result<Option<i64>, String> {
-        if source_key.starts_with("local:") {
+        let Some((provider, provider_track_id)) = source_key.split_once(':') else {
+            return Ok(None);
+        };
+        if provider == "local" {
             return conn
                 .query_row(
                     r#"
@@ -76,26 +115,22 @@ impl Library {
                 .optional()
                 .map_err(|e| format!("local source recording lookup: {e}"));
         }
-        if source_key.starts_with("qobuz:") {
-            return conn
-                .query_row(
-                    r#"
+        conn.query_row(
+            r#"
                 SELECT vt.recording_id
                 FROM version_tracks vt
                 JOIN album_versions v ON v.id = vt.version_id
-                WHERE v.provider = 'qobuz'
-                  AND vt.provider_track_id = substr(?1, 7)
+                WHERE v.provider = ?1
+                  AND vt.provider_track_id = ?2
                   AND vt.recording_id IS NOT NULL
                 ORDER BY CASE WHEN v.status = 'available' THEN 0 ELSE 1 END, vt.id
                 LIMIT 1
                 "#,
-                    [source_key],
-                    |row| row.get(0),
-                )
-                .optional()
-                .map_err(|e| format!("qobuz source recording lookup: {e}"));
-        }
-        Ok(None)
+            params![provider, provider_track_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| format!("{provider} source recording lookup: {error}"))
     }
 
     pub fn recent_playback_history(
@@ -396,6 +431,18 @@ pub(super) fn history_metadata(
             artist.clone(),
             album.clone(),
             image_url.clone(),
+        ),
+        SourceRef::AppleMusicTrack {
+            title,
+            artist,
+            album,
+            artwork_url,
+            ..
+        } => (
+            title.clone(),
+            artist.clone(),
+            album.clone(),
+            artwork_url.clone(),
         ),
     }
 }

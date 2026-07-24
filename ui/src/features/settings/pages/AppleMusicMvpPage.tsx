@@ -1,629 +1,859 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { endpoints } from '../../../shared/lib/api';
-import type { JsonRecord } from '../../../shared/types';
+import type { JsonRecord, ResolvedPlaySource, SourceRef } from '../../../shared/types';
 import { Icon } from '../../../shared/ui/Icon';
 
+type ScenarioName =
+  | 'apple_apple'
+  | 'local_apple'
+  | 'qobuz_apple'
+  | 'apple_local'
+  | 'apple_qobuz'
+  | 'mixed_run';
+
 export function AppleMusicMvpPage() {
-  const [status, setStatus] = useState<JsonRecord | null>(null);
-  const [songID, setSongID] = useState('');
-  const [storefront, setStorefront] = useState('nz');
+  const [appleStatus, setAppleStatus] = useState<JsonRecord | null>(null);
+  const [fozmoStatus, setFozmoStatus] = useState<JsonRecord | null>(null);
+  const [zoneQueue, setZoneQueue] = useState<JsonRecord | null>(null);
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
+  const [storefront, setStorefront] = useState('nz');
+  const [songID, setSongID] = useState('');
+  const [albumID, setAlbumID] = useState('');
+  const [catalogResult, setCatalogResult] = useState<JsonRecord | null>(null);
+  const [catalogKind, setCatalogKind] = useState<'song' | 'album' | ''>('');
+  const [scenarioQueue, setScenarioQueue] = useState<SourceRef[]>([]);
+  const [rawQueue, setRawQueue] = useState('[]');
+  const [selectedRow, setSelectedRow] = useState(0);
+  const [localTrackID, setLocalTrackID] = useState('');
+  const [qobuzTrackID, setQobuzTrackID] = useState('');
+  const [scenarioName, setScenarioName] = useState<ScenarioName>('apple_apple');
   const [captureConfirmed, setCaptureConfirmed] = useState(false);
-  const [matchPosition, setMatchPosition] = useState(true);
+  const [seekSeconds, setSeekSeconds] = useState('30');
+  const [localAlbumID, setLocalAlbumID] = useState('');
+  const [albumPreview, setAlbumPreview] = useState<JsonRecord | null>(null);
+  const [appleVersionID, setAppleVersionID] = useState('');
+  const [resolvedPlan, setResolvedPlan] = useState<JsonRecord | null>(null);
 
-  const processTap = recordValue(status?.process_tap);
-  const tapMetrics = recordValue(processTap?.metrics);
-  const tapState = String(processTap?.state || 'stopped');
-  const tapRunning = tapState === 'running';
-  const tapSupported = processTap?.supported !== false;
-  const musicAppRunning = processTap?.music_app_running === true;
-  const comparison = recordValue(status?.comparison);
-  const comparisonReference = recordValue(comparison?.reference);
-  const comparisonAppleTrack = recordValue(comparison?.apple_music_track);
-  const comparisonSide = String(comparison?.active_side || (tapRunning ? 'apple_music' : 'fozmo'));
-  const appleSideActive = comparisonSide === 'apple_music';
-  const canSwitchToFozmo = comparison?.can_switch_to_fozmo === true;
-  const fozmoSideActive = comparisonSide === 'fozmo' && canSwitchToFozmo;
+  const processTap = recordValue(appleStatus?.process_tap);
+  const playbackSession = recordValue(appleStatus?.playback_session);
+  const helperPresent = appleStatus?.helper_present === true;
+  const helperRunning = numberValue(appleStatus?.helper_pid) !== null;
+  const musicKitEntitled = appleStatus?.helper_musickit_entitled === true;
+  const authorized = appleStatus?.authorization === 'authorized';
+  const canPlayCatalog = appleStatus?.can_play_catalog_content === true;
+  const activeZoneID = String(fozmoStatus?.active_zone_id || '');
+  const activeZoneName = String(fozmoStatus?.active_zone_name || 'not selected');
+  const activeZoneProtocol = String(fozmoStatus?.zone_protocol || '');
+  const localZoneSupported = activeZoneProtocol
+    ? activeZoneProtocol === 'local_core_audio'
+    : activeZoneID === 'local-core';
+  const scenarioNeedsCapture = scenarioQueue.some(
+    (source) => normalizedSourceKind(source) === 'apple_music'
+  );
 
-  const loadStatus = useCallback(async () => {
-    const next = await endpoints.appleMusicStatus();
-    setStatus(next);
-    return next;
+  const loadState = useCallback(async () => {
+    const [nextApple, nextFozmo] = await Promise.all([
+      endpoints.appleMusicStatus(),
+      endpoints.status()
+    ]);
+    const fozmo = nextFozmo as unknown as JsonRecord;
+    setAppleStatus(nextApple);
+    setFozmoStatus(fozmo);
+    const zoneID = String(fozmo.active_zone_id || '');
+    if (zoneID) {
+      setZoneQueue((await endpoints.nowPlayingQueue(zoneID)) as unknown as JsonRecord);
+    } else {
+      setZoneQueue(null);
+    }
+    return nextApple;
   }, []);
 
   useEffect(() => {
-    loadStatus().catch((error) =>
-      setMessage(`Apple Music helper status failed. ${appleMusicErrorMessage(error)}`)
-    );
-  }, [loadStatus]);
+    loadState().catch((error) => setMessage(appleMusicErrorMessage(error)));
+  }, [loadState]);
 
   useEffect(() => {
+    const active = appleStatus?.playback_state === 'playing' || processTap?.state === 'running';
     const timer = window.setInterval(
-      () => {
-        loadStatus().catch(() => undefined);
-      },
-      tapRunning ? 1000 : 2500
+      () => loadState().catch(() => undefined),
+      active ? 1000 : 3000
     );
     return () => window.clearInterval(timer);
-  }, [loadStatus, tapRunning]);
+  }, [appleStatus?.playback_state, loadState, processTap?.state]);
 
-  const run = async (key: string, action: () => Promise<JsonRecord>, success: string) => {
+  const run = async (key: string, action: () => Promise<unknown>, success: string) => {
     if (busy) return;
     setBusy(key);
     setMessage('');
     try {
-      setStatus(await action());
+      await action();
+      await loadState();
       setMessage(success);
     } catch (error) {
       setMessage(appleMusicErrorMessage(error));
-      await loadStatus().catch(() => undefined);
+      await loadState().catch(() => undefined);
     } finally {
       setBusy('');
     }
   };
 
-  const nowPlaying = useMemo(() => recordValue(status?.now_playing), [status?.now_playing]);
-  const helperPresent = status?.helper_present === true;
-  const musicKitEntitled = status?.helper_musickit_entitled === true;
-  const authorized = status?.authorization === 'authorized';
-  const canPlay = status?.can_play_catalog_content === true;
-  const playbackState = String(status?.playback_state || 'stopped');
-  const isPlaying = playbackState === 'playing';
-  const isPaused = playbackState === 'paused';
-  const canPrepare = helperPresent && musicKitEntitled && authorized && canPlay && !busy;
+  const replaceScenario = (sources: SourceRef[], selected = 0) => {
+    setScenarioQueue(sources);
+    setRawQueue(JSON.stringify(sources, null, 2));
+    setSelectedRow(Math.min(Math.max(selected, 0), Math.max(sources.length - 1, 0)));
+  };
+
+  const appendScenario = (source: SourceRef) => {
+    replaceScenario([...scenarioQueue, source], selectedRow);
+  };
+
+  const lookupSong = () =>
+    run(
+      'lookup-song',
+      async () => {
+        const result = await endpoints.appleMusicCatalogSong(songID.trim(), storefront.trim());
+        setCatalogResult(result);
+        setCatalogKind('song');
+      },
+      'Normalized Apple Music song loaded.'
+    );
+
+  const lookupAlbum = () =>
+    run(
+      'lookup-album',
+      async () => {
+        const result = await endpoints.appleMusicCatalogAlbum(albumID.trim(), storefront.trim());
+        setCatalogResult(result);
+        setCatalogKind('album');
+      },
+      'Normalized Apple Music album and tracks loaded.'
+    );
+
+  const addCatalogResult = () => {
+    if (!catalogResult) return;
+    if (catalogKind === 'song') {
+      appendScenario(catalogSongSource(catalogResult));
+      return;
+    }
+    const tracks = recordArray(catalogResult.tracks).map(catalogSongSource);
+    replaceScenario([...scenarioQueue, ...tracks], selectedRow);
+  };
+
+  const validateRawQueue = () => {
+    try {
+      const parsed = JSON.parse(rawQueue);
+      if (!Array.isArray(parsed) || !parsed.every(isSourceRef)) {
+        throw new Error('The editor must contain a SourceRef array.');
+      }
+      replaceScenario(parsed as SourceRef[], selectedRow);
+      setMessage(`Validated ${parsed.length} scenario row${parsed.length === 1 ? '' : 's'}.`);
+    } catch (error) {
+      setMessage(appleMusicErrorMessage(error));
+    }
+  };
+
+  const loadCannedScenario = () => {
+    const local = localSource(validPositiveNumber(localTrackID) || 1);
+    const qobuz = qobuzSource(validPositiveNumber(qobuzTrackID) || 1);
+    const apple = appleSource(songID.trim() || '2037093408', storefront);
+    const scenarios: Record<ScenarioName, SourceRef[]> = {
+      apple_apple: [apple, { ...apple }],
+      local_apple: [local, apple],
+      qobuz_apple: [qobuz, apple],
+      apple_local: [apple, local],
+      apple_qobuz: [apple, qobuz],
+      mixed_run: [local, apple, { ...apple }, qobuz]
+    };
+    replaceScenario(scenarios[scenarioName]);
+  };
+
+  const playScenario = () => {
+    const source = scenarioQueue[selectedRow];
+    if (!source) return;
+    return run(
+      'play-scenario',
+      () =>
+        endpoints.playAppleMusicScenario(
+          source,
+          scenarioQueue.slice(selectedRow + 1),
+          captureConfirmed
+        ),
+      `Scenario started from row ${selectedRow + 1} through the normal playback router.`
+    );
+  };
+
+  const previewAlbumVersion = () =>
+    run(
+      'album-preview',
+      async () => {
+        const preview = await endpoints.appleMusicAlbumPreview(
+          localAlbumID.trim(),
+          albumID.trim(),
+          storefront.trim()
+        );
+        setAlbumPreview(preview);
+        const version = recordValue(preview.resulting_version);
+        if (version?.id !== undefined) setAppleVersionID(String(version.id));
+      },
+      'Apple Music album-version match preview loaded.'
+    );
+
+  const linkAlbumVersion = () =>
+    run(
+      'album-link',
+      async () => {
+        const version = await endpoints.appleMusicAlbumLink(
+          localAlbumID.trim(),
+          albumID.trim(),
+          storefront.trim()
+        );
+        setAppleVersionID(String(version.id || ''));
+      },
+      'Apple Music version linked to the local album.'
+    );
+
+  const resolveAlbumVersion = () =>
+    run(
+      'album-resolve',
+      async () => {
+        const plan = await endpoints.albumPlaySources(
+          localAlbumID.trim(),
+          0,
+          false,
+          validPositiveNumber(appleVersionID)
+        );
+        setResolvedPlan(plan as unknown as JsonRecord);
+      },
+      'Album playback plan resolved.'
+    );
+
+  const playResolvedVersion = () => {
+    const sources = recordArray(resolvedPlan?.sources)
+      .map((source) => resolvedToSourceRef(source as ResolvedPlaySource))
+      .filter((source): source is SourceRef => source !== null);
+    if (!sources.length) {
+      setMessage('Resolve an Apple Music playback plan first.');
+      return;
+    }
+    replaceScenario(sources);
+    return run(
+      'album-play',
+      () => endpoints.playAppleMusicScenario(sources[0], sources.slice(1), captureConfirmed),
+      'Resolved Apple Music album version started through the normal router.'
+    );
+  };
+
+  const currentSource = recordValue(fozmoStatus?.current_source);
+  const helperNowPlaying = recordValue(appleStatus?.now_playing);
+  const recentEvents = Array.isArray(appleStatus?.recent_events) ? appleStatus.recent_events : [];
 
   return (
     <section className="settings-panel apple-music-capture-page apple-music-mvp-page">
       {message ? (
-        <div className="metadata-assigner-message apple-music-message">{message}</div>
+        <div className="metadata-assigner-message apple-music-message" role="status">
+          {message}
+        </div>
       ) : null}
 
       <div className="apple-music-mvp-banner">
         <div>
-          <span className="section-label">Isolated native experiment</span>
-          <h2>Apple Music MVP</h2>
+          <span className="section-label">Backend integration console</span>
+          <h2>Apple Music</h2>
           <p>
-            Route the normal Music app into Fozmo&apos;s live PCM and DSP path without a MusicKit
-            provisioning profile. The Music app remains the transport and catalog UI.
+            Inspect MusicKit catalog data, build mixed-provider queues, and exercise the same
+            router, transport, history, DSP, and album-version paths used by the product.
           </p>
         </div>
-        <span className={`stamp ${statusStampClass(status)}`}>{statusLabel(status)}</span>
+        <span className={`stamp ${statusStampClass(appleStatus)}`}>{statusLabel(appleStatus)}</span>
       </div>
 
       <div className="settings-grid apple-music-grid">
-        <section className="settings-section-block">
-          <div className="settings-section-heading">
-            <div className="section-label">Quick A/B comparison</div>
-            <span className="apple-music-ab-route">
-              Same {String(comparisonReference?.zone_name || 'Fozmo output')} + DSP
-            </span>
+        <ConsoleSection title="1 · Capability and authorization">
+          <div className="settings-list compact-list">
+            <StatusRow
+              label="Helper"
+              value={
+                helperPresent
+                  ? `${String(appleStatus?.helper_version || 'available')} · ${
+                      helperRunning ? `PID ${String(appleStatus?.helper_pid)}` : 'not running'
+                    }`
+                  : 'missing'
+              }
+            />
+            <StatusRow
+              label="MusicKit entitlement"
+              value={musicKitEntitled ? 'signed and available' : 'awaiting developer signing'}
+            />
+            <StatusRow
+              label="Authorization"
+              value={formatProtocolLabel(appleStatus?.authorization)}
+            />
+            <StatusRow
+              label="Catalog playback"
+              value={
+                canPlayCatalog
+                  ? 'available'
+                  : appleStatus?.can_play_catalog_content === false
+                    ? 'subscription unavailable'
+                    : 'not checked'
+              }
+            />
+            <StatusRow
+              label="Tap target"
+              value={
+                processTap?.target_pid
+                  ? `${String(processTap.target_display_name || 'MusicKit helper')} · PID ${String(
+                      processTap.target_pid
+                    )}`
+                  : 'not attached'
+              }
+            />
+            <StatusRow
+              label="Current zone"
+              value={`${activeZoneName}${localZoneSupported ? ' · supported' : ' · local output required'}`}
+            />
           </div>
-          <div className="panel raised apple-music-ab-panel">
-            <div
-              className="apple-music-ab-switch"
-              role="group"
-              aria-label="Choose the active comparison source"
+          {!musicKitEntitled ? (
+            <div className="apple-music-routing-callout">
+              <strong>Ready for tomorrow&apos;s developer-account connection</strong>
+              <span>
+                Helper launch, IPC, protocol, fake catalog/queue tests, schema migration, and UI are
+                available now. Signed MusicKit authorization remains intentionally gated.
+              </span>
+            </div>
+          ) : null}
+          <div className="service-settings-actions">
+            <button
+              className="pill"
+              type="button"
+              disabled={Boolean(busy) || !helperPresent}
+              onClick={() =>
+                run('launch', endpoints.launchAppleMusicHelper, 'MusicKit helper launched.')
+              }
             >
-              <button
-                className={`apple-music-ab-choice ${appleSideActive ? 'is-active' : ''}`}
-                type="button"
-                aria-pressed={appleSideActive}
-                disabled={
-                  Boolean(busy) ||
-                  appleSideActive ||
-                  !tapSupported ||
-                  !musicAppRunning ||
-                  !captureConfirmed
-                }
-                onClick={() =>
-                  run(
-                    'comparison-apple',
-                    () =>
-                      endpoints.switchAppleMusicComparison(
-                        'apple_music',
-                        captureConfirmed,
-                        matchPosition
-                      ),
-                    matchPosition
-                      ? 'Switched to Apple Music at the matching position.'
-                      : 'Switched to Apple Music.'
-                  )
-                }
-              >
-                <span className="apple-music-ab-letter">A</span>
-                <span className="apple-music-ab-copy">
-                  <strong>Apple Music</strong>
-                  <small>
-                    {comparisonTrackLabel(
-                      comparisonAppleTrack,
-                      musicAppRunning ? 'Current track in Music' : 'Open Music first'
-                    )}
-                  </small>
-                </span>
-                <span className="apple-music-ab-state">
-                  {appleSideActive ? 'Playing' : 'Switch'}
-                </span>
-              </button>
-
-              <button
-                className={`apple-music-ab-choice ${fozmoSideActive ? 'is-active' : ''}`}
-                type="button"
-                aria-pressed={fozmoSideActive}
-                disabled={Boolean(busy) || fozmoSideActive || !canSwitchToFozmo}
-                onClick={() =>
-                  run(
-                    'comparison-fozmo',
-                    () => endpoints.switchAppleMusicComparison('fozmo', false, matchPosition),
-                    matchPosition
-                      ? 'Switched to the Fozmo reference at the matching position.'
-                      : 'Switched to the Fozmo reference.'
-                  )
-                }
-              >
-                <span className="apple-music-ab-letter">B</span>
-                <span className="apple-music-ab-copy">
-                  <strong>{comparisonProviderLabel(comparisonReference)}</strong>
-                  <small>
-                    {comparisonTrackLabel(
-                      comparisonReference,
-                      canSwitchToFozmo ? 'Remembered Fozmo source' : 'Play it in Fozmo first'
-                    )}
-                  </small>
-                </span>
-                <span className="apple-music-ab-state">
-                  {fozmoSideActive && canSwitchToFozmo
-                    ? 'Playing'
-                    : canSwitchToFozmo
-                      ? 'Switch'
-                      : 'Not set'}
-                </span>
-              </button>
-            </div>
-
-            {!canSwitchToFozmo ? (
-              <div className="apple-music-ab-guide">
-                <strong>Set up the reference once</strong>
-                <span>
-                  Play the matching Qobuz or local track in Fozmo. The first switch to Apple Music
-                  remembers that source for this server run and makes both buttons one-click.
-                </span>
-              </div>
-            ) : (
-              <div className="apple-music-ab-details">
-                <span>
-                  Fozmo handoff: {comparisonProviderLabel(comparisonReference)} ·{' '}
-                  {formatDuration(numberValue(comparisonReference?.position_secs))}
-                </span>
-                <span>
-                  Apple handoff · {formatDuration(numberValue(comparisonAppleTrack?.position_secs))}
-                </span>
-              </div>
-            )}
-
-            <div className="apple-music-ab-options">
-              <label className="apple-music-capture-confirmation">
-                <input
-                  type="checkbox"
-                  checked={captureConfirmed}
-                  disabled={tapRunning || Boolean(busy)}
-                  onChange={(event) => setCaptureConfirmed(event.target.checked)}
-                />
-                <span>
-                  Allow the comparison to capture only Music app audio and feed it through the
-                  selected Fozmo path.
-                </span>
-              </label>
-              <label className="apple-music-capture-confirmation">
-                <input
-                  type="checkbox"
-                  checked={matchPosition}
-                  disabled={Boolean(busy)}
-                  onChange={(event) => setMatchPosition(event.target.checked)}
-                />
-                <span>Match elapsed time when switching (recommended for A/B listening).</span>
-              </label>
-            </div>
-            <p className="apple-music-tap-rate-note">
-              The handoff keeps the selected output, DSP, upsampling, and −2 dB seventh-order
-              headroom unchanged. Qobuz/local playback may take a moment to reopen and seek.
-            </p>
-          </div>
-        </section>
-
-        <section className="settings-section-block">
-          <div className="settings-section-heading">
-            <div className="section-label">Music app → Fozmo DSP</div>
+              Launch helper
+            </button>
+            <button
+              className="pill"
+              type="button"
+              disabled={Boolean(busy) || !musicKitEntitled}
+              onClick={() =>
+                run(
+                  'authorize',
+                  endpoints.authorizeAppleMusic,
+                  'Apple Music authorization refreshed.'
+                )
+              }
+            >
+              {authorized ? 'Refresh authorization' : 'Authorize Apple Music'}
+            </button>
             <button
               className="settings-heading-refresh"
               type="button"
-              aria-label="Refresh Music app process tap status"
+              aria-label="Refresh Apple Music integration state"
               onClick={() =>
-                loadStatus().catch((error) => setMessage(appleMusicErrorMessage(error)))
+                loadState().catch((error) => setMessage(appleMusicErrorMessage(error)))
               }
             >
               <Icon path="M21 12a9 9 0 0 1-15.3 6.36M3 12A9 9 0 0 1 18.3 5.64M18 2v4h-4M6 22v-4h4" />
             </button>
           </div>
-          <div className="panel raised apple-music-tap-panel">
-            <div className="settings-list compact-list">
-              <StatusRow
-                label="Music app"
-                value={
-                  musicAppRunning
-                    ? `open · PID ${String(processTap?.music_app_pid || '—')}`
-                    : 'not detected'
-                }
-              />
-              <StatusRow label="Process tap" value={formatProtocolLabel(tapState)} />
-              <StatusRow
-                label="Core Audio source"
-                value={
-                  processTap?.audio_process_object_id
-                    ? `process ${String(processTap.audio_process_object_id)} · tap ${String(
-                        processTap.tap_object_id || '—'
-                      )}`
-                    : musicAppRunning
-                      ? 'ready when audio is playing'
-                      : 'waiting for Music'
-                }
-              />
-              <StatusRow label="Captured PCM" value={tapFormatLabel(processTap)} />
-              <StatusRow label="PCM precision" value={tapPrecisionLabel(processTap)} />
-              <StatusRow label="Fozmo ingress" value={tapIngressLabel(processTap)} />
-              <StatusRow
-                label="DSP handoff"
-                value={processTap?.dsp_handoff_active === true ? 'active' : 'inactive'}
-              />
-              <StatusRow
-                label="Fozmo output"
-                value={String(processTap?.output_device || 'current selected output')}
-              />
-              <StatusRow
-                label="Direct Music path"
-                value={
-                  tapRunning && processTap?.original_audio_muted_while_tapped === true
-                    ? 'muted while Fozmo reads'
-                    : 'unchanged'
-                }
-              />
-            </div>
+        </ConsoleSection>
 
-            <div className="apple-music-tap-metrics" aria-label="Process tap telemetry">
-              <div>
-                <span>Callbacks</span>
-                <strong>{formatInteger(tapMetrics?.callbacks_received)}</strong>
-              </div>
-              <div>
-                <span>Frames</span>
-                <strong>{formatInteger(tapMetrics?.frames_received)}</strong>
-              </div>
-              <div>
-                <span>Input RMS</span>
-                <strong>
-                  {formatRms(tapMetrics?.rms_l)} / {formatRms(tapMetrics?.rms_r)}
-                </strong>
-              </div>
-              <div>
-                <span>Last audio</span>
-                <strong>{formatAge(tapMetrics?.last_callback_age_ms)}</strong>
-              </div>
-              <div>
-                <span>Ring overruns</span>
-                <strong>{formatInteger(tapMetrics?.ring_overruns)}</strong>
-              </div>
-            </div>
-            <p className="apple-music-tap-rate-note">
-              Core Audio supplies rendered Float32 PCM and Fozmo preserves those sample values
-              without Int16/Int24 quantization. Float32 has 24 bits of numerical precision, but the
-              album&apos;s original sample rate, bit depth, and selected lossless variant remain
-              unknown at this tap.
-            </p>
-
-            {!tapSupported ? (
-              <div className="apple-music-driver-callout">
-                <strong>macOS 14.2 or newer is required</strong>
-                <span>This Mac cannot create a Core Audio process tap.</span>
-              </div>
-            ) : !musicAppRunning ? (
-              <div className="apple-music-driver-callout">
-                <strong>Open Music and start a song</strong>
-                <span>Fozmo only includes the Music app process; other Mac audio is excluded.</span>
-              </div>
-            ) : (
-              <div className="apple-music-routing-callout">
-                <strong>System-audio permission may appear once</strong>
-                <span>
-                  Allow Fozmo under System Settings → Privacy &amp; Security → Screen &amp; System
-                  Audio Recording. Stopping this experiment destroys the tap and restores
-                  Music&apos;s direct audio.
-                </span>
-              </div>
-            )}
-
-            <div className="service-settings-actions">
-              {!tapRunning ? (
-                <button
-                  className="pill is-active"
-                  type="button"
-                  disabled={Boolean(busy) || !tapSupported || !musicAppRunning || !captureConfirmed}
-                  onClick={() =>
-                    run(
-                      'tap-start',
-                      () => endpoints.startAppleMusicProcessTap(captureConfirmed, true),
-                      'Music app audio is now feeding the selected Fozmo DSP path.'
-                    )
-                  }
-                >
-                  Start Music → DSP
-                </button>
-              ) : (
-                <button
-                  className="pill service-settings-danger"
-                  type="button"
-                  disabled={Boolean(busy)}
-                  onClick={() =>
-                    run(
-                      'tap-stop',
-                      () => endpoints.stopAppleMusicProcessTap(),
-                      'Process tap stopped; Music app direct audio was restored.'
-                    )
-                  }
-                >
-                  Stop &amp; restore Music audio
-                </button>
-              )}
-            </div>
-          </div>
-        </section>
-
-        <section className="settings-section-block">
-          <div className="settings-section-heading">
-            <div className="section-label">Helper session</div>
-            <button
-              className="settings-heading-refresh"
-              type="button"
-              aria-label="Refresh Apple Music helper status"
-              onClick={() =>
-                loadStatus().catch((error) => setMessage(appleMusicErrorMessage(error)))
-              }
-            >
-              <Icon path="M21 12a9 9 0 0 1-15.3 6.36M3 12A9 9 0 0 1 18.3 5.64M18 2v4h-4M6 22v-4h4" />
-            </button>
-          </div>
-          <div className="panel raised">
-            <div className="settings-list compact-list">
-              <StatusRow label="Stage" value="MusicKit helper proof" />
-              <StatusRow label="Helper" value={helperPresent ? 'available' : 'missing'} />
-              <StatusRow
-                label="Process"
-                value={status?.helper_pid ? `PID ${String(status.helper_pid)}` : 'not running'}
+        <ConsoleSection title="2 · Catalog inspector">
+          <div className="apple-music-console-fields">
+            <Field label="Storefront">
+              <input
+                className="input"
+                value={storefront}
+                maxLength={8}
+                onChange={(event) => setStorefront(event.target.value.toLowerCase())}
               />
-              <StatusRow label="Authorization" value={formatProtocolLabel(status?.authorization)} />
-              <StatusRow
-                label="MusicKit capability"
-                value={musicKitEntitled ? 'signed & provisioned' : 'not in this build'}
-              />
-              <StatusRow
-                label="Subscription playback"
-                value={
-                  status?.can_play_catalog_content === true
-                    ? 'available'
-                    : status?.can_play_catalog_content === false
-                      ? 'unavailable'
-                      : 'not checked'
-                }
-              />
-              <StatusRow label="Playback" value={formatProtocolLabel(playbackState)} />
-              <StatusRow
-                label="Helper version"
-                value={String(status?.helper_version || 'not connected')}
-              />
-              <StatusRow
-                label="Protocol capabilities"
-                value={safeStrings(status?.helper_capabilities).join(', ') || 'not connected'}
-              />
-            </div>
-
-            {!helperPresent ? (
-              <div className="apple-music-driver-callout">
-                <strong>Build the native helper first</strong>
-                <span>
-                  Run <code>./apple-music-helper/build-app.sh</code>, then refresh this page.
-                </span>
-              </div>
-            ) : null}
-            {helperPresent && !musicKitEntitled ? (
-              <div className="apple-music-routing-callout">
-                <strong>Handshake-only development build</strong>
-                <span>
-                  Launch and private IPC are testable. Sign with a MusicKit-enabled identity and
-                  provisioning profile to authorize or play a song.
-                </span>
-              </div>
-            ) : null}
-
-            <div className="service-settings-actions">
-              {!status?.helper_pid ? (
-                <button
-                  className="pill"
-                  type="button"
-                  disabled={Boolean(busy) || !helperPresent}
-                  onClick={() =>
-                    run(
-                      'launch',
-                      () => endpoints.launchAppleMusicHelper(),
-                      'Apple Music helper connected over private IPC.'
-                    )
-                  }
-                >
-                  Launch helper
-                </button>
-              ) : null}
-              <button
-                className="pill"
-                type="button"
-                disabled={Boolean(busy) || !musicKitEntitled}
-                onClick={() =>
-                  run(
-                    'authorize',
-                    () => endpoints.authorizeAppleMusic(),
-                    'Apple Music authorization state refreshed.'
-                  )
-                }
-              >
-                {authorized ? 'Check authorization' : 'Authorize Apple Music'}
-              </button>
-              {status?.helper_pid ? (
-                <button
-                  className="pill ghost"
-                  type="button"
-                  disabled={Boolean(busy)}
-                  onClick={() =>
-                    run(
-                      'shutdown',
-                      () => endpoints.shutdownAppleMusicHelper(),
-                      'Apple Music helper stopped cleanly.'
-                    )
-                  }
-                >
-                  Quit helper
-                </button>
-              ) : null}
-            </div>
-          </div>
-        </section>
-
-        <section className="settings-section-block">
-          <div className="settings-section-heading">
-            <div className="section-label">Development song</div>
-          </div>
-          <div className="panel raised apple-music-form-panel">
-            <label className="service-settings-field">
-              <span>Apple Music song ID</span>
+            </Field>
+            <Field label="Song ID">
               <input
                 className="input"
                 value={songID}
                 maxLength={256}
                 placeholder="2037093408"
-                spellCheck={false}
                 onChange={(event) => setSongID(event.target.value)}
               />
-            </label>
-            <label className="service-settings-field">
-              <span>Storefront</span>
+            </Field>
+            <Field label="Album ID">
               <input
                 className="input"
-                value={storefront}
-                maxLength={8}
-                placeholder="nz"
-                spellCheck={false}
-                onChange={(event) => setStorefront(event.target.value.toLowerCase())}
+                value={albumID}
+                maxLength={256}
+                placeholder="Apple Music album ID"
+                onChange={(event) => setAlbumID(event.target.value)}
               />
-              <small>
-                Recorded with the queue request for the later provider layer. The native MusicKit
-                lookup currently uses the signed-in account&apos;s storefront.
-              </small>
-            </label>
+            </Field>
+          </div>
+          <div className="service-settings-actions">
+            <button
+              className="pill"
+              type="button"
+              disabled={Boolean(busy) || !songID.trim()}
+              onClick={lookupSong}
+            >
+              Lookup song
+            </button>
+            <button
+              className="pill"
+              type="button"
+              disabled={Boolean(busy) || !albumID.trim()}
+              onClick={lookupAlbum}
+            >
+              Lookup album
+            </button>
+            <button
+              className="pill"
+              type="button"
+              disabled={!catalogResult}
+              onClick={addCatalogResult}
+            >
+              Add {catalogKind === 'album' ? 'album tracks' : 'song'} to scenario
+            </button>
+          </div>
+          <DebugJson title="Normalized catalog response" value={catalogResult} />
+        </ConsoleSection>
+
+        <ConsoleSection title="3 · Mixed queue scenario">
+          <div className="apple-music-console-fields">
+            <Field label="Local track ID">
+              <div className="apple-music-inline-action">
+                <input
+                  className="input"
+                  inputMode="numeric"
+                  value={localTrackID}
+                  onChange={(event) => setLocalTrackID(event.target.value)}
+                />
+                <button
+                  className="pill"
+                  type="button"
+                  disabled={!validPositiveNumber(localTrackID)}
+                  onClick={() => appendScenario(localSource(validPositiveNumber(localTrackID)))}
+                >
+                  Append
+                </button>
+              </div>
+            </Field>
+            <Field label="Qobuz track ID">
+              <div className="apple-music-inline-action">
+                <input
+                  className="input"
+                  inputMode="numeric"
+                  value={qobuzTrackID}
+                  onChange={(event) => setQobuzTrackID(event.target.value)}
+                />
+                <button
+                  className="pill"
+                  type="button"
+                  disabled={!validPositiveNumber(qobuzTrackID)}
+                  onClick={() => appendScenario(qobuzSource(validPositiveNumber(qobuzTrackID)))}
+                >
+                  Append
+                </button>
+              </div>
+            </Field>
+            <Field label="Apple Music song ID">
+              <div className="apple-music-inline-action">
+                <input
+                  className="input"
+                  value={songID}
+                  onChange={(event) => setSongID(event.target.value)}
+                />
+                <button
+                  className="pill"
+                  type="button"
+                  disabled={!songID.trim()}
+                  onClick={() => appendScenario(appleSource(songID.trim(), storefront))}
+                >
+                  Append
+                </button>
+              </div>
+            </Field>
+          </div>
+
+          <div className="apple-music-scenario-list" aria-label="Scenario queue">
+            {scenarioQueue.length ? (
+              scenarioQueue.map((source, index) => (
+                <div className="apple-music-scenario-row" key={`${sourceKey(source)}-${index}`}>
+                  <label>
+                    <input
+                      type="radio"
+                      name="apple-music-start-row"
+                      checked={selectedRow === index}
+                      onChange={() => setSelectedRow(index)}
+                    />
+                    <strong>{index + 1}</strong>
+                    <span>{sourceLabel(source)}</span>
+                  </label>
+                  <button
+                    className="pill ghost"
+                    type="button"
+                    aria-label={`Remove scenario row ${index + 1}`}
+                    onClick={() =>
+                      replaceScenario(
+                        scenarioQueue.filter((_, row) => row !== index),
+                        Math.min(selectedRow, scenarioQueue.length - 2)
+                      )
+                    }
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))
+            ) : (
+              <p className="apple-music-empty-state">Append a source or load a canned scenario.</p>
+            )}
+          </div>
+
+          <div className="apple-music-inline-action">
+            <select
+              className="input"
+              aria-label="Canned mixed queue scenario"
+              value={scenarioName}
+              onChange={(event) => setScenarioName(event.target.value as ScenarioName)}
+            >
+              <option value="apple_apple">Apple → Apple</option>
+              <option value="local_apple">Local → Apple</option>
+              <option value="qobuz_apple">Qobuz → Apple</option>
+              <option value="apple_local">Apple → Local</option>
+              <option value="apple_qobuz">Apple → Qobuz</option>
+              <option value="mixed_run">Local → Apple → Apple → Qobuz</option>
+            </select>
+            <button className="pill" type="button" onClick={loadCannedScenario}>
+              Load canned scenario
+            </button>
+          </div>
+
+          <details className="apple-music-diagnostics">
+            <summary>Raw SourceRef[] editor</summary>
+            <textarea
+              className="input apple-music-json-editor"
+              aria-label="Raw SourceRef queue JSON"
+              value={rawQueue}
+              spellCheck={false}
+              onChange={(event) => setRawQueue(event.target.value)}
+            />
+            <div className="service-settings-actions">
+              <button className="pill" type="button" onClick={validateRawQueue}>
+                Validate JSON
+              </button>
+              <button className="pill" type="button" onClick={() => replaceScenario([])}>
+                Clear
+              </button>
+            </div>
+          </details>
+
+          <label className="apple-music-capture-confirmation">
+            <input
+              type="checkbox"
+              checked={captureConfirmed}
+              onChange={(event) => setCaptureConfirmed(event.target.checked)}
+            />
+            <span>
+              Allow Fozmo to capture only the signed MusicKit helper process and feed its PCM
+              through the selected local DSP/output path.
+            </span>
+          </label>
+          <div className="service-settings-actions">
+            <button
+              className="pill is-active"
+              type="button"
+              disabled={
+                Boolean(busy) ||
+                !scenarioQueue.length ||
+                !localZoneSupported ||
+                (scenarioNeedsCapture && !captureConfirmed)
+              }
+              onClick={playScenario}
+            >
+              Play from selected row
+            </button>
+          </div>
+        </ConsoleSection>
+
+        <ConsoleSection title="4 · Normal transport">
+          <div className="service-settings-actions">
+            <button
+              className="pill"
+              type="button"
+              disabled={Boolean(busy)}
+              onClick={() => run('pause', endpoints.pause, 'Playback paused.')}
+            >
+              Pause
+            </button>
+            <button
+              className="pill"
+              type="button"
+              disabled={Boolean(busy)}
+              onClick={() => run('resume', endpoints.resume, 'Playback resumed.')}
+            >
+              Resume
+            </button>
+            <button
+              className="pill"
+              type="button"
+              disabled={Boolean(busy)}
+              onClick={() => run('next', endpoints.next, 'Advanced through the normal queue.')}
+            >
+              Next
+            </button>
+            <button
+              className="pill service-settings-danger"
+              type="button"
+              disabled={Boolean(busy)}
+              onClick={() => run('stop', endpoints.stop, 'Playback stopped.')}
+            >
+              Stop
+            </button>
+          </div>
+          <div className="apple-music-inline-action">
+            <input
+              className="input"
+              aria-label="Seek position in seconds"
+              inputMode="decimal"
+              value={seekSeconds}
+              onChange={(event) => setSeekSeconds(event.target.value)}
+            />
+            <button
+              className="pill"
+              type="button"
+              disabled={Boolean(busy) || numberValue(seekSeconds) === null}
+              onClick={() =>
+                run(
+                  'seek',
+                  () => endpoints.seek(numberValue(seekSeconds) || 0),
+                  `Seeked to ${seekSeconds} seconds.`
+                )
+              }
+            >
+              Seek
+            </button>
+          </div>
+          <p className="apple-music-tap-rate-note">
+            These buttons call <code>/api/pause</code>, <code>/api/resume</code>,{' '}
+            <code>/api/next</code>, <code>/api/seek</code>, and <code>/api/stop</code>.
+          </p>
+        </ConsoleSection>
+
+        <ConsoleSection title="5 · State inspection">
+          <div className="apple-music-state-grid">
+            <DebugJson title="Fozmo StatusResponse" value={fozmoStatus} />
+            <DebugJson title="Current SourceRef" value={currentSource} />
+            <DebugJson title="Persisted zone queue" value={zoneQueue} />
+            <DebugJson
+              title="Listening current + upcoming"
+              value={{
+                current_source: zoneQueue?.current_source || currentSource,
+                queued_sources: zoneQueue?.queued_sources || []
+              }}
+            />
+            <DebugJson title="Apple session revision + segment" value={playbackSession} />
+            <DebugJson title="Helper now playing" value={helperNowPlaying} />
+            <DebugJson title="Process-tap metrics" value={processTap} />
+            <DebugJson title="Recent helper events" value={recentEvents} />
+            <DebugJson title="Last transition error" value={appleStatus?.last_error || null} />
+          </div>
+        </ConsoleSection>
+
+        <ConsoleSection title="6 · Album-version harness">
+          <div className="apple-music-console-fields">
+            <Field label="Local Fozmo album ID">
+              <input
+                className="input"
+                inputMode="numeric"
+                value={localAlbumID}
+                onChange={(event) => setLocalAlbumID(event.target.value)}
+              />
+            </Field>
+            <Field label="Apple Music album ID">
+              <input
+                className="input"
+                value={albumID}
+                onChange={(event) => setAlbumID(event.target.value)}
+              />
+            </Field>
+            <Field label="Linked version ID">
+              <input
+                className="input"
+                inputMode="numeric"
+                value={appleVersionID}
+                onChange={(event) => setAppleVersionID(event.target.value)}
+              />
+            </Field>
+          </div>
+          <div className="service-settings-actions">
+            <button
+              className="pill"
+              type="button"
+              disabled={!localAlbumID.trim() || !albumID.trim() || Boolean(busy)}
+              onClick={previewAlbumVersion}
+            >
+              Preview match
+            </button>
+            <button
+              className="pill"
+              type="button"
+              disabled={!localAlbumID.trim() || !albumID.trim() || Boolean(busy)}
+              onClick={linkAlbumVersion}
+            >
+              Link as version
+            </button>
+            <button
+              className="pill"
+              type="button"
+              disabled={!localAlbumID.trim() || Boolean(busy)}
+              onClick={() =>
+                run(
+                  'album-unlink',
+                  async () => {
+                    await endpoints.appleMusicAlbumUnlink(localAlbumID.trim());
+                    setAppleVersionID('');
+                    setResolvedPlan(null);
+                  },
+                  'Apple Music version unlinked.'
+                )
+              }
+            >
+              Unlink
+            </button>
+            <button
+              className="pill"
+              type="button"
+              disabled={
+                !localAlbumID.trim() || !validPositiveNumber(appleVersionID) || Boolean(busy)
+              }
+              onClick={resolveAlbumVersion}
+            >
+              Resolve playback plan
+            </button>
+            <button
+              className="pill is-active"
+              type="button"
+              disabled={!resolvedPlan || !captureConfirmed || Boolean(busy)}
+              onClick={playResolvedVersion}
+            >
+              Play resolved Apple version
+            </button>
+          </div>
+          <div className="apple-music-state-grid">
+            <DebugJson title="Match preview" value={albumPreview} />
+            <DebugJson title="Resolved playback plan" value={resolvedPlan} />
+          </div>
+        </ConsoleSection>
+
+        <details className="settings-section-block apple-music-diagnostics">
+          <summary className="settings-section-heading">
+            <span className="section-label">Advanced diagnostics</span>
+          </summary>
+          <div className="panel raised apple-music-form-panel">
+            <p>
+              These controls bypass the normal router and remain available only for helper and
+              Music.app process-tap diagnosis.
+            </p>
             <div className="service-settings-actions">
               <button
-                className="pill is-active"
+                className="pill"
                 type="button"
-                disabled={!canPrepare || !songID.trim()}
+                disabled={!songID.trim() || Boolean(busy)}
                 onClick={() =>
                   run(
-                    'play',
+                    'raw-play',
                     () => endpoints.playAppleMusicSong(songID.trim(), storefront.trim()),
-                    'Song prepared and playback started in the native helper.'
+                    'Raw helper playback started.'
                   )
                 }
               >
-                Prepare &amp; play
+                Raw helper play
               </button>
               <button
                 className="pill"
                 type="button"
-                disabled={!isPlaying || Boolean(busy)}
                 onClick={() =>
-                  run('pause', () => endpoints.controlAppleMusic('pause'), 'Playback paused.')
+                  run('raw-pause', () => endpoints.controlAppleMusic('pause'), 'Raw helper paused.')
                 }
               >
-                Pause
+                Raw helper pause
               </button>
               <button
                 className="pill"
                 type="button"
-                disabled={!isPaused || Boolean(busy)}
                 onClick={() =>
-                  run('resume', () => endpoints.controlAppleMusic('resume'), 'Playback resumed.')
+                  run(
+                    'raw-resume',
+                    () => endpoints.controlAppleMusic('resume'),
+                    'Raw helper resumed.'
+                  )
                 }
               >
-                Resume
+                Raw helper resume
+              </button>
+              <button
+                className="pill"
+                type="button"
+                disabled={!captureConfirmed || Boolean(busy)}
+                onClick={() =>
+                  run(
+                    'music-app-tap',
+                    () => endpoints.startAppleMusicProcessTap(captureConfirmed, true),
+                    'Music.app diagnostic process tap started.'
+                  )
+                }
+              >
+                Tap Music.app
+              </button>
+              <button
+                className="pill"
+                type="button"
+                onClick={() =>
+                  run(
+                    'tap-stop',
+                    endpoints.stopAppleMusicProcessTap,
+                    'Diagnostic process tap stopped.'
+                  )
+                }
+              >
+                Stop diagnostic tap
               </button>
               <button
                 className="pill service-settings-danger"
                 type="button"
-                disabled={(!isPlaying && !isPaused) || Boolean(busy)}
-                onClick={() => run('stop', () => endpoints.stopAppleMusic(), 'Playback stopped.')}
+                disabled={!helperRunning || Boolean(busy)}
+                onClick={() =>
+                  run('shutdown', endpoints.shutdownAppleMusicHelper, 'MusicKit helper shut down.')
+                }
               >
-                Stop
+                Quit helper
               </button>
             </div>
           </div>
-        </section>
-
-        <section className="settings-section-block">
-          <div className="settings-section-heading">
-            <div className="section-label">Now playing</div>
-          </div>
-          <div className="panel raised apple-music-app-panel">
-            <div className="apple-music-now-playing">
-              <div className="apple-music-note-tile" aria-hidden="true">
-                <Icon path="M9 18V5l12-2v13M9 18a3 3 0 1 1-2-2.83M21 16a3 3 0 1 1-2-2.83M9 9l12-2" />
-              </div>
-              <div className="apple-music-result-copy">
-                <strong>{String(nowPlaying?.title || 'No prepared song')}</strong>
-                <small>
-                  {[nowPlaying?.artist, nowPlaying?.album].filter(Boolean).join(' · ') ||
-                    'Enter a valid song ID to exercise MusicKit.'}
-                </small>
-              </div>
-            </div>
-            <div className="settings-list compact-list">
-              <StatusRow label="Song ID" value={String(nowPlaying?.song_id || '—')} />
-              <StatusRow
-                label="Position"
-                value={formatDuration(numberValue(status?.playback_time_secs))}
-              />
-              <StatusRow
-                label="Duration"
-                value={formatDuration(numberValue(nowPlaying?.duration_secs))}
-              />
-              <StatusRow label="Queue revision" value={String(status?.queue_revision || 0)} />
-            </div>
-          </div>
-        </section>
-
-        <section className="settings-section-block">
-          <div className="settings-section-heading">
-            <div className="section-label">Experiment boundary</div>
-          </div>
-          <div className="panel raised apple-music-warning-panel">
-            <p>
-              The Music app process-tap path is the quickest way to hear whether Fozmo&apos;s EQ,
-              resampling, volume, and selected local output improve Apple Music enough to justify
-              the full integration.
-            </p>
-            <p>
-              It does not provide catalog search, native Apple Music metadata, or Fozmo transport
-              ownership. Those still require the signed MusicKit helper and an Apple Developer
-              provisioning profile.
-            </p>
-            <p>No Apple token or PCM is returned to this page, logged, or written to disk.</p>
-          </div>
-        </section>
+        </details>
       </div>
     </section>
+  );
+}
+
+function ConsoleSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="settings-section-block">
+      <div className="settings-section-heading">
+        <div className="section-label">{title}</div>
+      </div>
+      <div className="panel raised apple-music-form-panel">{children}</div>
+    </section>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="service-settings-field">
+      <span>{label}</span>
+      {children}
+    </label>
   );
 }
 
@@ -636,18 +866,111 @@ function StatusRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function DebugJson({ title, value }: { title: string; value: unknown }) {
+  return (
+    <section className="apple-music-json-panel">
+      <strong>{title}</strong>
+      <pre>{JSON.stringify(value ?? null, null, 2)}</pre>
+    </section>
+  );
+}
+
+function localSource(trackID: number): SourceRef {
+  return { kind: 'local_track', track_id: trackID };
+}
+
+function qobuzSource(trackID: number): SourceRef {
+  return { kind: 'qobuz_track', track_id: trackID };
+}
+
+function appleSource(songID: string, storefront: string): SourceRef {
+  return {
+    kind: 'apple_music_track',
+    song_id: songID,
+    storefront: storefront.trim() || null
+  };
+}
+
+function catalogSongSource(song: JsonRecord): SourceRef {
+  return {
+    kind: 'apple_music_track',
+    song_id: String(song.song_id || ''),
+    storefront: String(song.storefront || '') || null,
+    title: stringOrNull(song.title),
+    artist: stringOrNull(song.artist),
+    album: stringOrNull(song.album_title),
+    album_artist: stringOrNull(song.album_artist),
+    album_id: stringOrNull(song.album_id),
+    artwork_url: stringOrNull(song.artwork_url),
+    duration_secs: numberValue(song.duration_secs),
+    track_number: numberValue(song.track_number),
+    disc_number: numberValue(song.disc_number),
+    isrc: stringOrNull(song.isrc)
+  };
+}
+
+function resolvedToSourceRef(source: ResolvedPlaySource): SourceRef | null {
+  const kind = normalizedSourceKind(source);
+  if (kind === 'local') {
+    const trackID = numberValue(source.track_id);
+    return trackID && trackID > 0 ? { ...source, kind: 'local_track', track_id: trackID } : null;
+  }
+  if (kind === 'qobuz') {
+    const trackID = numberValue(source.track_id);
+    return trackID && trackID > 0 ? { ...source, kind: 'qobuz_track', track_id: trackID } : null;
+  }
+  if (kind === 'apple_music' && source.song_id) {
+    return {
+      ...source,
+      kind: 'apple_music_track',
+      song_id: String(source.song_id),
+      artwork_url: source.artwork_url || source.image_url || null
+    };
+  }
+  return null;
+}
+
+function isSourceRef(value: unknown): value is SourceRef {
+  const source = recordValue(value);
+  if (!source) return false;
+  const kind = normalizedSourceKind(source);
+  if (kind === 'local' || kind === 'qobuz') {
+    const trackID = numberValue(source.track_id);
+    return trackID !== null && trackID > 0;
+  }
+  return kind === 'apple_music' && Boolean(String(source.song_id || '').trim());
+}
+
+function normalizedSourceKind(source: JsonRecord) {
+  const kind = String(source.kind || '');
+  if (kind === 'local' || kind === 'local_track') return 'local';
+  if (kind === 'qobuz' || kind === 'qobuz_track') return 'qobuz';
+  if (kind === 'apple_music' || kind === 'apple_music_track') return 'apple_music';
+  return kind;
+}
+
+function sourceKey(source: SourceRef) {
+  const kind = normalizedSourceKind(source);
+  return kind === 'apple_music'
+    ? `apple_music:${String(source.song_id || '')}`
+    : `${kind}:${String(source.track_id || '')}`;
+}
+
+function sourceLabel(source: SourceRef) {
+  const kind = normalizedSourceKind(source);
+  const identity = kind === 'apple_music' ? source.song_id : source.track_id;
+  const metadata = [source.artist, source.title].filter(Boolean).join(' · ');
+  return `${formatProtocolLabel(kind)} · ${metadata || String(identity || 'invalid')}`;
+}
+
 function statusLabel(status: JsonRecord | null) {
   if (!status) return 'Checking';
-  const processTap = recordValue(status.process_tap);
-  if (processTap?.state === 'running') return 'DSP tap active';
-  if (processTap?.music_app_running === true) return 'Music ready';
-  if (!status.helper_present) return 'Helper missing';
+  if (status.playback_state === 'playing') return 'Playing through Fozmo';
+  if (status.helper_musickit_entitled !== true) return 'Awaiting signing';
   return formatProtocolLabel(status.state);
 }
 
 function statusStampClass(status: JsonRecord | null) {
-  const processTap = recordValue(status?.process_tap);
-  if (processTap?.state === 'running') return 'sage';
   const state = String(status?.state || '');
   if (state === 'playing' || state === 'ready' || state === 'paused') return 'sage';
   if (state === 'failed' || state === 'helper_missing') return 'terra';
@@ -665,95 +988,31 @@ function appleMusicErrorMessage(error: unknown) {
 }
 
 function formatProtocolLabel(value: unknown) {
-  const raw = String(value || 'not available');
-  return raw.replaceAll('_', ' ');
+  return String(value || 'not available').replaceAll('_', ' ');
 }
 
 function recordValue(value: unknown): JsonRecord | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonRecord) : null;
 }
 
-function safeStrings(value: unknown) {
-  return Array.isArray(value) ? value.map(String) : [];
-}
-
-function comparisonProviderLabel(reference: JsonRecord | null) {
-  const provider = String(reference?.provider || '').toLowerCase();
-  if (provider === 'qobuz') return 'Qobuz via Fozmo';
-  if (provider === 'local') return 'Local via Fozmo';
-  return 'Fozmo reference';
-}
-
-function comparisonTrackLabel(track: JsonRecord | null, fallback: string) {
-  if (!track) return fallback;
-  const title = String(track.title || '').trim();
-  const artist = String(track.artist || '').trim();
-  return [title, artist].filter(Boolean).join(' · ') || fallback;
+function recordArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.map(recordValue).filter((item): item is JsonRecord => item !== null)
+    : [];
 }
 
 function numberValue(value: unknown) {
+  if (typeof value === 'string' && !value.trim()) return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
 
-function formatDuration(value: number | null) {
-  if (value === null) return '—';
-  const total = Math.max(0, Math.floor(value));
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return `${minutes}:${String(seconds).padStart(2, '0')}`;
-}
-
-function tapFormatLabel(processTap: JsonRecord | null) {
-  const rate = numberValue(processTap?.sample_rate_hz);
-  const channels = numberValue(processTap?.channels);
-  if (rate === null || channels === null) return 'available after start';
-  const containerBits = numberValue(processTap?.sample_container_bits);
-  const sampleFormat = String(processTap?.sample_format || '').toLowerCase();
-  const formatLabel =
-    sampleFormat === 'pcm_f32'
-      ? `${containerBits !== null && containerBits > 0 ? Math.round(containerBits) : 32}-bit float`
-      : sampleFormat
-        ? formatProtocolLabel(sampleFormat)
-        : 'float PCM';
-  return `${Math.round(rate).toLocaleString()} Hz · ${channels}ch · ${
-    processTap?.interleaved === true ? 'interleaved' : 'planar'
-  } ${formatLabel}`;
-}
-
-function tapPrecisionLabel(processTap: JsonRecord | null) {
-  const precisionBits = numberValue(processTap?.sample_precision_bits);
-  if (precisionBits === null || precisionBits <= 0) return 'available after start';
-  const sourceBits = numberValue(processTap?.source_bit_depth_bits);
-  return `${Math.round(precisionBits)}-bit · ${
-    sourceBits !== null && sourceBits > 0
-      ? `${Math.round(sourceBits)}-bit source`
-      : 'catalog depth unknown'
-  }`;
-}
-
-function tapIngressLabel(processTap: JsonRecord | null) {
-  if (processTap?.sample_values_preserved === true) {
-    return 'unchanged samples · no integer quantization';
-  }
-  return processTap?.state === 'running' ? 'native Float32 handoff' : 'available after start';
-}
-
-function formatInteger(value: unknown) {
+function validPositiveNumber(value: unknown) {
   const number = numberValue(value);
-  return number === null ? '—' : Math.max(0, Math.round(number)).toLocaleString();
+  return number !== null && Number.isInteger(number) && number > 0 ? number : 0;
 }
 
-function formatRms(value: unknown) {
-  const number = numberValue(value);
-  if (number === null) return '—';
-  if (number <= 0) return '−∞ dB';
-  return `${Math.max(-120, 20 * Math.log10(number)).toFixed(1)} dB`;
-}
-
-function formatAge(value: unknown) {
-  const age = numberValue(value);
-  if (age === null) return 'waiting';
-  if (age < 1000) return `${Math.round(age)} ms ago`;
-  return `${(age / 1000).toFixed(1)} s ago`;
+function stringOrNull(value: unknown) {
+  const string = String(value || '').trim();
+  return string || null;
 }

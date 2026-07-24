@@ -12,7 +12,7 @@ pub use agent::{
 pub use playback::PlaybackConfig;
 pub use signal::{BrowserStreamSignal, DsdBufferHealth, SyncSignalPath};
 pub use sink::{SinkProtocol, UpnpPcmContainer, UpnpPcmContainerCapability, system_audio_backend};
-pub use source::{PlaylistContext, RadioContext, RadioSeedContext, SourceRef};
+pub use source::{PlaylistContext, RadioContext, RadioSeedContext, SourceProvider, SourceRef};
 pub use zone::{
     CapabilityDetectionSource, CapabilityDetectionStatus, DspProfile, ZoneCapabilities,
     ZoneProfile, ZoneStatus,

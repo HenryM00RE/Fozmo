@@ -1,5 +1,10 @@
 use super::artwork::best_artwork_id_with_conn;
 use super::matching::{levenshtein, normalize_for_match, pair_tracks};
+use super::provider_versions::{
+    ExternalAlbumVersionInput, ExternalTrackPairing, ExternalVersionTrackInput,
+    assign_recording_ids_for_external_version, rebuild_external_track_links,
+    upsert_external_album_version, upsert_external_version_tracks,
+};
 use super::*;
 use crate::audio::player::TrackCover;
 use crate::services::qobuz::{QobuzAlbum, QobuzAlbumDetail, QobuzTrack};
@@ -90,7 +95,7 @@ impl Library {
                 SELECT lvt.local_track_id, qvt.provider_track_id, l.confidence, l.match_kind, l.status
                 FROM version_track_links l
                 JOIN version_tracks lvt ON lvt.id = l.local_version_track_id
-                JOIN version_tracks qvt ON qvt.id = l.qobuz_version_track_id
+                JOIN version_tracks qvt ON qvt.id = l.provider_version_track_id
                 WHERE l.album_id = ?1
                   AND lvt.local_track_id IS NOT NULL
                   AND qvt.provider_track_id IS NOT NULL
@@ -151,7 +156,7 @@ impl Library {
                  AND link.album_id = a.id
                  AND link.status = 'linked'
                 LEFT JOIN version_tracks qvt
-                  ON qvt.id = link.qobuz_version_track_id
+                  ON qvt.id = link.provider_version_track_id
                  AND qvt.version_id = primary_v.id
                 WHERE t.id = ?1
                   AND a.qobuz_match_status = 'matched'
@@ -490,90 +495,45 @@ impl Library {
             )
             .map_err(|e| format!("link qobuz album: {e}"))?;
 
-            tx.execute(
-                r#"
-                INSERT INTO album_versions (
-                    album_id, provider, provider_id, title, artist, year, track_count,
-                    art_id, format, sample_rate, bit_depth, source_label, status,
-                    payload_json, created_at, updated_at
-                )
-                VALUES (?1, 'qobuz', ?2, ?3, ?4, ?5, ?6, ?7, 'FLAC', ?8, ?9, ?10, 'available', ?11, ?12, ?12)
-                ON CONFLICT(album_id, provider, provider_id) DO UPDATE SET
-                    title = excluded.title,
-                    artist = excluded.artist,
-                    year = excluded.year,
-                    track_count = excluded.track_count,
-                    art_id = excluded.art_id,
-                    format = excluded.format,
-                    sample_rate = excluded.sample_rate,
-                    bit_depth = excluded.bit_depth,
-                    source_label = excluded.source_label,
-                    payload_json = excluded.payload_json,
-                    status = 'available',
-                    updated_at = excluded.updated_at
-                "#,
-                params![
+            let qobuz_version_id = upsert_external_album_version(
+                &tx,
+                &ExternalAlbumVersionInput {
                     album_id,
-                    q.id,
-                    q.title,
-                    q.artist,
-                    q.year,
-                    detail.tracks.len() as i64,
-                    qobuz_art_id,
-                    q.maximum_sampling_rate.map(|v| (v * 1000.0).round() as i64),
-                    q.maximum_bit_depth.map(|v| v as i64),
-                    if q.hires { "Qobuz Hi-Res" } else { "Qobuz" },
-                    payload_json,
-                    now
-                ],
-            )
-            .map_err(|e| format!("upsert qobuz version: {e}"))?;
-
-            let qobuz_version_id: i64 = tx
-                .query_row(
-                    "SELECT id FROM album_versions WHERE album_id = ?1 AND provider = 'qobuz' AND provider_id = ?2",
-                    params![album_id, q.id],
-                    |row| row.get(0),
-                )
-                .map_err(|e| format!("qobuz version id: {e}"))?;
-
-            for (idx, track) in detail.tracks.iter().enumerate() {
-                tx.execute(
-                    r#"
-                    INSERT INTO version_tracks (
-                        version_id, provider_track_id, local_track_id, title, artist,
-                        track_number, disc_number, duration_secs, sample_rate, format,
-                        bit_depth, status, created_at, updated_at
-                    )
-                    VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, ?8, 'FLAC', ?9, 'available', ?10, ?10)
-                    ON CONFLICT(version_id, provider_track_id) DO UPDATE SET
-                        title = excluded.title,
-                        artist = excluded.artist,
-                        track_number = excluded.track_number,
-                        disc_number = excluded.disc_number,
-                        duration_secs = excluded.duration_secs,
-                        sample_rate = excluded.sample_rate,
-                        bit_depth = excluded.bit_depth,
-                        status = 'available',
-                        updated_at = excluded.updated_at
-                    "#,
-                    params![
-                        qobuz_version_id,
-                        track.id.to_string(),
-                        track.title,
-                        track.artist,
-                        track.track_number.unwrap_or((idx + 1) as u32) as i64,
-                        track.disc_number.unwrap_or(1) as i64,
-                        track.duration as f64,
-                        track
-                            .maximum_sampling_rate
-                            .map(|v| (v * 1000.0).round() as i64),
-                        track.maximum_bit_depth.map(|v| v as i64),
-                        now
-                    ],
-                )
-                .map_err(|e| format!("upsert qobuz version track: {e}"))?;
-            }
+                    provider: "qobuz",
+                    provider_id: &q.id,
+                    title: &q.title,
+                    artist: Some(&q.artist),
+                    year: q.year,
+                    track_count: detail.tracks.len() as i64,
+                    art_id: qobuz_art_id,
+                    format: "FLAC",
+                    sample_rate: q
+                        .maximum_sampling_rate
+                        .map(|value| (value * 1000.0).round() as i64),
+                    bit_depth: q.maximum_bit_depth.map(|value| value as i64),
+                    source_label: if q.hires { "Qobuz Hi-Res" } else { "Qobuz" },
+                    payload_json: &payload_json,
+                },
+            )?;
+            let version_tracks = detail
+                .tracks
+                .iter()
+                .enumerate()
+                .map(|(index, track)| ExternalVersionTrackInput {
+                    provider_track_id: track.id.to_string(),
+                    title: track.title.clone(),
+                    artist: Some(track.artist.clone()),
+                    track_number: Some(track.track_number.unwrap_or((index + 1) as u32) as i64),
+                    disc_number: Some(track.disc_number.unwrap_or(1) as i64),
+                    duration_secs: Some(track.duration as f64).filter(|value| *value > 0.0),
+                    sample_rate: track
+                        .maximum_sampling_rate
+                        .map(|value| (value * 1000.0).round() as i64),
+                    format: Some("FLAC".to_string()),
+                    bit_depth: track.maximum_bit_depth.map(|value| value as i64),
+                })
+                .collect::<Vec<_>>();
+            upsert_external_version_tracks(&tx, qobuz_version_id, &version_tracks)?;
             tx.commit()
                 .map_err(|e| format!("commit qobuz link transaction: {e}"))?;
         }
@@ -771,6 +731,13 @@ impl Library {
                             .collect()
                     })
                     .unwrap_or_default(),
+                #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+                Some("apple_music") => self.apple_music_sources_for_version(
+                    album_id,
+                    effective_version_id.expect("Apple Music playback requires a version"),
+                )?,
+                #[cfg(not(all(target_os = "macos", feature = "apple_music_musickit")))]
+                Some("apple_music") => Vec::new(),
                 _ => {
                     if self.qobuz_payload_for_album(album_id)?.is_some() {
                         self.canonical_tracks(&album, &tracks)?
@@ -900,102 +867,21 @@ impl Library {
         };
         let local_tracks = self.primary_local_album_tracks(&album)?;
         let pairs = pair_qobuz_tracks(&local_tracks, &detail.tracks);
-        let now = now_secs();
         let mut conn = self.conn.lock().unwrap();
         let tx = conn
             .transaction()
             .map_err(|e| format!("begin qobuz track link transaction: {e}"))?;
-        let local_version_tracks: HashMap<i64, i64> = {
-            let mut stmt = tx
-                .prepare(
-                    r#"
-                    SELECT vt.local_track_id, vt.id
-                    FROM version_tracks vt
-                    JOIN album_versions v ON v.id = vt.version_id
-                    WHERE v.album_id = ?1 AND v.provider = 'local'
-                      AND vt.local_track_id IS NOT NULL
-                    ORDER BY v.id, vt.id
-                    "#,
-                )
-                .map_err(|e| format!("load local version tracks: {e}"))?;
-            let rows = stmt
-                .query_map([album_id], |row| {
-                    Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
-                })
-                .map_err(|e| format!("map local version tracks: {e}"))?;
-            let mut tracks = HashMap::new();
-            for row in rows {
-                let (track_id, version_track_id) =
-                    row.map_err(|e| format!("read local version track: {e}"))?;
-                tracks.entry(track_id).or_insert(version_track_id);
-            }
-            tracks
-        };
-        let qobuz_version_tracks: HashMap<String, i64> = {
-            let mut stmt = tx
-                .prepare(
-                    r#"
-                    SELECT vt.provider_track_id, vt.id
-                    FROM version_tracks vt
-                    JOIN album_versions v ON v.id = vt.version_id
-                    WHERE v.album_id = ?1 AND v.provider = 'qobuz'
-                      AND vt.provider_track_id IS NOT NULL
-                    "#,
-                )
-                .map_err(|e| format!("load qobuz version tracks: {e}"))?;
-            let rows = stmt
-                .query_map([album_id], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-                })
-                .map_err(|e| format!("map qobuz version tracks: {e}"))?;
-            let mut tracks = HashMap::new();
-            for row in rows {
-                let (provider_track_id, version_track_id) =
-                    row.map_err(|e| format!("read qobuz version track: {e}"))?;
-                tracks.insert(provider_track_id, version_track_id);
-            }
-            tracks
-        };
-        tx.execute(
-            "UPDATE version_track_links SET status = 'unlinked', updated_at = ?2 WHERE album_id = ?1",
-            params![album_id, now],
-        )
-        .map_err(|e| format!("mark stale qobuz track links: {e}"))?;
-        for pair in pairs {
-            if pair.confidence < 80 {
-                continue;
-            }
-            let local_vt = local_version_tracks.get(&pair.local_track_id).copied();
-            let qobuz_vt = qobuz_version_tracks.get(&pair.qobuz_track_id).copied();
-            let (Some(local_vt), Some(qobuz_vt)) = (local_vt, qobuz_vt) else {
-                continue;
-            };
-            tx.execute(
-                r#"
-                INSERT INTO version_track_links (
-                    album_id, local_version_track_id, qobuz_version_track_id,
-                    confidence, match_kind, status, created_at, updated_at
-                )
-                VALUES (?1, ?2, ?3, ?4, ?5, 'linked', ?6, ?6)
-                ON CONFLICT(album_id, local_version_track_id, qobuz_version_track_id)
-                DO UPDATE SET
-                    confidence = excluded.confidence,
-                    match_kind = excluded.match_kind,
-                    status = 'linked',
-                    updated_at = excluded.updated_at
-                "#,
-                params![
-                    album_id,
-                    local_vt,
-                    qobuz_vt,
-                    pair.confidence,
-                    pair.match_kind,
-                    now
-                ],
-            )
-            .map_err(|e| format!("insert qobuz track link: {e}"))?;
-        }
-        Self::sync_recording_identity_for_album_with_conn(&tx, album_id)?;
+        let pairs = pairs
+            .into_iter()
+            .map(|pair| ExternalTrackPairing {
+                local_track_id: pair.local_track_id,
+                provider_track_id: pair.qobuz_track_id,
+                confidence: pair.confidence,
+                match_kind: pair.match_kind,
+            })
+            .collect::<Vec<_>>();
+        rebuild_external_track_links(&tx, album_id, "qobuz", &pairs)?;
+        assign_recording_ids_for_external_version(&tx, album_id)?;
         tx.commit()
             .map_err(|e| format!("commit qobuz track links: {e}"))?;
         Ok(())

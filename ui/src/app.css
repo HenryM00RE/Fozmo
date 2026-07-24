@@ -9350,6 +9350,118 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
   line-height: 1.45;
 }
 
+.react-app .apple-music-console-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.react-app .apple-music-inline-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.react-app .apple-music-inline-action > .input {
+  min-width: 0;
+  flex: 1;
+}
+
+.react-app .apple-music-scenario-list {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.react-app .apple-music-scenario-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+}
+
+.react-app .apple-music-scenario-row label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.react-app .apple-music-scenario-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-app .apple-music-empty-state {
+  color: var(--muted);
+  margin: 4px 0;
+}
+
+.react-app .apple-music-diagnostics {
+  margin-top: 14px;
+}
+
+.react-app .apple-music-diagnostics > summary {
+  cursor: pointer;
+}
+
+.react-app .apple-music-json-editor {
+  width: 100%;
+  min-height: 220px;
+  margin-top: 12px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.react-app .apple-music-state-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.react-app .apple-music-json-panel {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--panel) 76%, #000 6%);
+}
+
+.react-app .apple-music-json-panel > strong {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.react-app .apple-music-json-panel pre {
+  max-height: 320px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font: 11px / 1.45 var(--font-mono);
+}
+
+@media (max-width: 620px) {
+  .react-app .apple-music-inline-action,
+  .react-app .apple-music-scenario-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .react-app .apple-music-scenario-row label {
+    width: 100%;
+  }
+}
+
 .react-app .apple-music-warning-panel p {
   margin: 0;
 }

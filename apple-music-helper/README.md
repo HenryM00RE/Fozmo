@@ -1,38 +1,59 @@
 # Fozmo Apple Music helper
 
-This is the standalone Gate A proof for the native Apple Music integration. It
-is a real agent-style macOS application that owns
-`ApplicationMusicPlayer.shared` and speaks the versioned, owner-only Fozmo IPC
-protocol. It does not capture PCM or enter Fozmo's playback router yet.
+This macOS `LSUIElement` app owns `ApplicationMusicPlayer.shared` for Fozmo. It
+speaks authenticated protocol v2 over Fozmo's private Unix socket and supports:
 
-Build the app bundle:
+- Music authorization and subscription checks;
+- normalized song and album catalog lookups;
+- revisioned multi-song queues with duplicate-song occurrence indexes;
+- play, pause, resume, seek, next, stop, and shutdown;
+- deterministic playback, entry-change, interruption, failure, and queue-end
+  events.
+
+Fozmo captures only this helper process's rendered PCM and sends it through the
+normal Player, DSP, and selected local output. Tokens and PCM never cross the
+control protocol, and PCM is not written to disk.
+
+## Build without an Apple Developer account
 
 ```sh
 ./apple-music-helper/build-app.sh
+swift test --package-path apple-music-helper
 ```
 
-The default output is:
+The app is written to
+`target/apple-music-helper/FozmoAppleMusicHelper.app`. Its ad-hoc signature
+deliberately omits the restricted MusicKit entitlement, so launch, private IPC,
+protocol, lifecycle, and Swift tests work now. Authorization, catalog calls,
+and real playback return `musickit_capability_unavailable` until the app is
+provisioned.
 
-```text
-target/apple-music-helper/FozmoAppleMusicHelper.app
-```
+## Build after provisioning MusicKit
 
-An ad-hoc build deliberately omits the restricted MusicKit entitlement so
-macOS will launch it for compile, handshake, lifecycle, and UI testing. MusicKit
-authorization requires an Apple development identity/App ID with the MusicKit
-capability. For a provisioned test build:
+The provisioning profile must belong to the explicit App ID
+`com.fozmo.apple-music-helper` and contain
+`com.apple.developer.musickit = true`.
 
 ```sh
-FOZMO_APPLE_MUSIC_SIGN_IDENTITY="Apple Development: …" \
-FOZMO_APPLE_MUSIC_PROVISIONING_PROFILE="/path/to/profile.provisionprofile" \
+FOZMO_APPLE_MUSIC_SIGN_IDENTITY="Apple Development: Your Name (TEAMID)" \
+FOZMO_APPLE_MUSIC_PROVISIONING_PROFILE="/absolute/path/Fozmo_MusicKit.provisionprofile" \
 ./apple-music-helper/build-app.sh
 ```
 
-Then start the Fozmo server with:
+The build script validates the profile's bundle ID and MusicKit entitlement,
+embeds it, signs with
+`Resources/FozmoAppleMusicHelper.entitlements`, and verifies the final
+signature.
+
+Run Fozmo with:
 
 ```sh
 cargo run --features apple_music_musickit
 ```
 
+Then use **Settings → Apple Music**. Full account setup, verification, routes,
+architecture, and the real-Mac test checklist are in
+[`docs/dev/apple-music-musickit-mvp.md`](../docs/dev/apple-music-musickit-mvp.md).
+
 The helper refuses to run as an independent command-line tool. Fozmo must
-launch it with a private socket, a random launch token, and a session ID.
+launch it with a private socket, random launch token, and session ID.

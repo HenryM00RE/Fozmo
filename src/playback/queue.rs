@@ -216,7 +216,8 @@ pub(crate) async fn set_zone_queue_by_id_for_profile(
 fn refresh_source_ref_metadata(state: &AppState, source: SourceRef) -> SourceRef {
     let radio_context = match &source {
         SourceRef::LocalTrack { radio_context, .. }
-        | SourceRef::QobuzTrack { radio_context, .. } => radio_context.clone(),
+        | SourceRef::QobuzTrack { radio_context, .. }
+        | SourceRef::AppleMusicTrack { radio_context, .. } => radio_context.clone(),
     };
     match source.clone() {
         SourceRef::LocalTrack { track_id, .. } => state
@@ -231,7 +232,7 @@ fn refresh_source_ref_metadata(state: &AppState, source: SourceRef) -> SourceRef
                 )
             })
             .unwrap_or(source),
-        SourceRef::QobuzTrack { .. } => source,
+        SourceRef::QobuzTrack { .. } | SourceRef::AppleMusicTrack { .. } => source,
     }
 }
 
@@ -392,6 +393,64 @@ fn source_ref_queue_item(source: &SourceRef) -> Value {
                 "radio": radio,
             })
         }
+        SourceRef::AppleMusicTrack {
+            song_id,
+            storefront,
+            title,
+            artist,
+            album,
+            album_artist,
+            album_id,
+            artwork_url,
+            duration_secs,
+            track_number,
+            disc_number,
+            isrc,
+            radio,
+            ..
+        } => {
+            let display_name = match (
+                artist
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty()),
+                title
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty()),
+            ) {
+                (Some(artist), Some(title)) => format!("{artist} - {title}"),
+                (_, Some(title)) => title.to_string(),
+                _ => format!("apple_music:{song_id}"),
+            };
+            json!({
+                "title": title.clone().unwrap_or_else(|| format!("Apple Music {song_id}")),
+                "artist": artist.clone().unwrap_or_default(),
+                "album": album.clone().unwrap_or_default(),
+                "albumArtist": album_artist.clone().or_else(|| artist.clone()).unwrap_or_default(),
+                "albumId": album_id,
+                "imageUrl": artwork_url,
+                "durationSecs": duration_secs.unwrap_or(0.0),
+                "filename": display_name,
+                "appleMusicTrack": {
+                    "song_id": song_id,
+                    "storefront": storefront,
+                    "title": title,
+                    "artist": artist,
+                    "album": album,
+                    "album_artist": album_artist,
+                    "album_id": album_id,
+                    "artwork_url": artwork_url,
+                    "duration_secs": duration_secs,
+                    "track_number": track_number,
+                    "disc_number": disc_number,
+                    "isrc": isrc,
+                    "radio": radio,
+                },
+                "resolvedSource": source,
+                "radio": radio,
+            })
+        }
     }
 }
 
@@ -418,30 +477,31 @@ fn queue_item_source_key(item: &Value) -> Option<String> {
 }
 
 fn queue_kind_for_items(items: &[Value]) -> Value {
-    let mut has_local = false;
-    let mut has_qobuz = false;
+    use std::collections::HashSet;
+
+    let mut providers = HashSet::new();
     for item in items {
         if let Some(source) = item
             .get("resolvedSource")
             .and_then(|source| serde_json::from_value::<SourceRef>(source.clone()).ok())
         {
-            match source {
-                SourceRef::LocalTrack { .. } => has_local = true,
-                SourceRef::QobuzTrack { .. } => has_qobuz = true,
-            }
+            providers.insert(source.provider());
             continue;
         }
-        if item.get("qobuzTrack").is_some() {
-            has_qobuz = true;
+        if item.get("appleMusicTrack").is_some() {
+            providers.insert(crate::protocol::SourceProvider::AppleMusic);
+        } else if item.get("qobuzTrack").is_some() {
+            providers.insert(crate::protocol::SourceProvider::Qobuz);
         } else if item.get("ref").is_some() {
-            has_local = true;
+            providers.insert(crate::protocol::SourceProvider::Local);
         }
     }
-    match (has_local, has_qobuz) {
-        (true, true) => json!("mixed"),
-        (true, false) => json!("local"),
-        (false, true) => json!("qobuz"),
-        (false, false) => Value::Null,
+    if providers.len() > 1 {
+        return json!("mixed");
+    }
+    match providers.into_iter().next() {
+        Some(provider) => json!(provider.as_str()),
+        None => Value::Null,
     }
 }
 
@@ -461,6 +521,23 @@ pub(crate) async fn apply_zone_queue_sources(
     expected_current: Option<String>,
 ) -> Result<(), PlaybackError> {
     let queue_sources = normalize_upcoming_queue_sources(state, zone_id, queue_sources);
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    if let Some(snapshot) = state.apple_music().playback_snapshot_for_zone(zone_id) {
+        let loaded_upcoming = snapshot
+            .segment
+            .get(snapshot.current_segment_index.saturating_add(1)..)
+            .unwrap_or_default();
+        if queue_sources.len() < loaded_upcoming.len()
+            || !queue_sources
+                .iter()
+                .zip(loaded_upcoming)
+                .all(|(requested, loaded)| requested == loaded)
+        {
+            return Err(PlaybackError::conflict(
+                "apple_music_queue_edit_requires_restart",
+            ));
+        }
+    }
     let protocol = state.zones().zone_protocol(zone_id);
     if protocol == Some(SinkProtocol::SonosUpnp) {
         if !sonos_current_matches(state, zone_id, &expected_current) {
@@ -599,6 +676,95 @@ mod tests {
     use crate::playback::test_support::{agent_capabilities, app_state, qobuz_source};
     use crate::protocol::AgentPlaybackState;
     use tokio::sync::mpsc;
+
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    fn apple_source(song_id: &str) -> SourceRef {
+        SourceRef::AppleMusicTrack {
+            song_id: song_id.to_string(),
+            storefront: Some("nz".to_string()),
+            title: Some(format!("Song {song_id}")),
+            artist: Some("Artist".to_string()),
+            album: Some("Album".to_string()),
+            album_artist: Some("Artist".to_string()),
+            album_id: Some("album-1".to_string()),
+            artwork_url: None,
+            duration_secs: Some(180.0),
+            track_number: None,
+            disc_number: None,
+            isrc: None,
+            radio: false,
+            radio_context: None,
+            playlist_context: None,
+        }
+    }
+
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    #[test]
+    fn queue_kind_reports_apple_music_and_mixed_from_source_providers() {
+        let apple = source_ref_queue_item(&apple_source("1"));
+        let qobuz = source_ref_queue_item(&qobuz_source(2, false));
+
+        assert_eq!(
+            queue_kind_for_items(std::slice::from_ref(&apple)),
+            "apple_music"
+        );
+        assert_eq!(queue_kind_for_items(&[apple, qobuz]), "mixed");
+    }
+
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    #[tokio::test]
+    async fn active_apple_run_rejects_removal_but_allows_append_after_loaded_prefix() {
+        let state = app_state("apple-live-queue-edit");
+        let zone_id = crate::zones::LOCAL_ZONE_ID;
+        state
+            .library()
+            .upsert_zone_definition(zone_id, "Core", "local_coreaudio", None, true)
+            .unwrap();
+        let player = state.zones().player_for_zone(zone_id).unwrap();
+        let epoch = player.playback_epoch();
+        let current = apple_source("1");
+        let loaded_next = apple_source("2");
+        state.apple_music().activate_playback(
+            zone_id.to_string(),
+            epoch,
+            "helper-session".to_string(),
+            9,
+            vec![current.clone(), loaded_next.clone()],
+        );
+        state.listening().start(
+            state.library(),
+            zone_id.to_string(),
+            "Local".to_string(),
+            state.settings().active_profile_id(),
+            current,
+            vec![loaded_next.clone()],
+        );
+
+        let rejected = apply_zone_queue_sources(
+            &state,
+            zone_id,
+            &state.settings().active_profile_id(),
+            vec![qobuz_source(3, false)],
+            None,
+        )
+        .await;
+        assert_eq!(
+            rejected,
+            Err(PlaybackError::conflict(
+                "apple_music_queue_edit_requires_restart"
+            ))
+        );
+
+        let accepted = apply_zone_queue_sources(
+            &state,
+            zone_id,
+            &state.settings().active_profile_id(),
+            vec![loaded_next, qobuz_source(3, false)],
+            None,
+        )
+        .await;
+        assert!(accepted.is_ok(), "append should be accepted: {accepted:?}");
+    }
 
     #[tokio::test]
     async fn shuffle_zone_queue_excludes_active_source_from_upcoming_queue() {

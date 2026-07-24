@@ -1,8 +1,8 @@
 use crate::app::state::AppState;
 use crate::listening::PlaybackObservation;
 use crate::playback::auto_advance::{
-    AutoAdvanceMonitorState, maybe_spawn_lastfm_radio_prefetch, maybe_spawn_qobuz_auto_advance,
-    maybe_spawn_qobuz_next_prefetch, maybe_spawn_upnp_next_prewarm,
+    AutoAdvanceMonitorState, maybe_spawn_lastfm_radio_prefetch, maybe_spawn_qobuz_next_prefetch,
+    maybe_spawn_queue_auto_advance, maybe_spawn_upnp_next_prewarm,
 };
 use crate::playback::now_playing::sonos_current_file_name;
 use crate::playback::service::playback_config_for_zone;
@@ -67,7 +67,7 @@ pub(crate) fn spawn_listening_monitor(state: AppState) {
                         &pending_upnp_prewarms,
                         &completed_upnp_prewarms,
                     );
-                    maybe_spawn_qobuz_auto_advance(
+                    maybe_spawn_queue_auto_advance(
                         &state,
                         &zone.id,
                         &status,

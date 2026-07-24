@@ -867,6 +867,7 @@ async fn source_request(
                 source_bits,
             })
         }
+        SourceRef::AppleMusicTrack { .. } => Err("apple_music_local_output_required".to_string()),
     }
 }
 
@@ -902,6 +903,7 @@ async fn source_render_metadata(
                 .ok()
                 .map(|stream| (stream.sample_rate_hz, stream.bit_depth))
         }
+        SourceRef::AppleMusicTrack { .. } => None,
     }
 }
 
@@ -1073,6 +1075,21 @@ fn tags_for_source_ref(source_ref: &SourceRef) -> TrackTags {
             artist: artist.clone(),
             album: album.clone(),
             album_artist: artist.clone(),
+            duration_secs: *duration_secs,
+            ..TrackTags::default()
+        },
+        SourceRef::AppleMusicTrack {
+            title,
+            artist,
+            album,
+            album_artist,
+            duration_secs,
+            ..
+        } => TrackTags {
+            title: title.clone(),
+            artist: artist.clone(),
+            album: album.clone(),
+            album_artist: album_artist.clone().or_else(|| artist.clone()),
             duration_secs: *duration_secs,
             ..TrackTags::default()
         },

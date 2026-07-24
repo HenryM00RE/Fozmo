@@ -1,15 +1,88 @@
+use crate::protocol::SourceRef;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-pub(super) const PROTOCOL_VERSION: u32 = 1;
+pub(super) const PROTOCOL_VERSION: u32 = 2;
 pub(super) const EXPECTED_HELPER_BUNDLE_ID: &str = "com.fozmo.apple-music-helper";
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub(crate) struct AppleMusicNowPlaying {
     pub song_id: String,
     pub title: String,
     pub artist: String,
     pub album: Option<String>,
     pub duration_secs: Option<f64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub(crate) struct AppleCatalogSong {
+    pub song_id: String,
+    pub storefront: String,
+    #[serde(default)]
+    pub album_id: Option<String>,
+    pub title: String,
+    pub artist: String,
+    #[serde(default)]
+    pub album_title: Option<String>,
+    #[serde(default)]
+    pub album_artist: Option<String>,
+    #[serde(default)]
+    pub duration_secs: Option<f64>,
+    #[serde(default)]
+    pub track_number: Option<u32>,
+    #[serde(default)]
+    pub disc_number: Option<u32>,
+    #[serde(default)]
+    pub isrc: Option<String>,
+    #[serde(default)]
+    pub artwork_url: Option<String>,
+}
+
+impl AppleCatalogSong {
+    pub(crate) fn source_ref(&self) -> SourceRef {
+        SourceRef::AppleMusicTrack {
+            song_id: self.song_id.clone(),
+            storefront: (!self.storefront.trim().is_empty()).then(|| self.storefront.clone()),
+            title: Some(self.title.clone()),
+            artist: Some(self.artist.clone()),
+            album: self.album_title.clone(),
+            album_artist: self.album_artist.clone(),
+            album_id: self.album_id.clone(),
+            artwork_url: self.artwork_url.clone(),
+            duration_secs: self.duration_secs,
+            track_number: self.track_number,
+            disc_number: self.disc_number,
+            isrc: self.isrc.clone(),
+            radio: false,
+            radio_context: None,
+            playlist_context: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub(crate) struct AppleCatalogAlbum {
+    pub album_id: String,
+    pub storefront: String,
+    pub title: String,
+    pub artist: String,
+    #[serde(default)]
+    pub upc: Option<String>,
+    #[serde(default)]
+    pub release_date: Option<String>,
+    #[serde(default)]
+    pub artwork_url: Option<String>,
+    #[serde(default)]
+    pub audio_variants: Vec<String>,
+    #[serde(default)]
+    pub tracks: Vec<AppleCatalogSong>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub(crate) struct AppleMusicAlbumVersionRequest {
+    pub album_id: String,
+    #[serde(default)]
+    pub storefront: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -28,13 +101,50 @@ pub(crate) enum AppleMusicMvpState {
     Failed,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub(crate) struct AppleMusicMvpError {
     pub code: String,
     pub message: String,
     pub retryable: bool,
     pub stage: String,
     pub cleanup_complete: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub(crate) struct ApplePlaybackSnapshot {
+    pub zone_id: String,
+    pub player_epoch: u64,
+    pub helper_session_id: String,
+    pub queue_revision: u64,
+    pub segment: Vec<SourceRef>,
+    pub current_segment_index: usize,
+    pub playback_state: String,
+    pub position_secs: f64,
+    #[serde(default)]
+    pub last_error: Option<AppleMusicMvpError>,
+}
+
+impl ApplePlaybackSnapshot {
+    pub(crate) fn current_source(&self) -> Option<&SourceRef> {
+        self.segment.get(self.current_segment_index)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub(crate) struct AppleMusicHelperEventSummary {
+    pub event_type: String,
+    #[serde(default)]
+    pub queue_revision: Option<u64>,
+    #[serde(default)]
+    pub segment_index: Option<usize>,
+    #[serde(default)]
+    pub song_id: Option<String>,
+    #[serde(default)]
+    pub playback_position: Option<f64>,
+    #[serde(default)]
+    pub finish_reason: Option<String>,
+    #[serde(default)]
+    pub code: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -55,6 +165,9 @@ pub(crate) struct AppleMusicProcessTapStatus {
     pub state: String,
     pub music_app_running: bool,
     pub music_app_pid: Option<u32>,
+    pub target_pid: Option<u32>,
+    pub target_process_kind: Option<String>,
+    pub target_display_name: Option<String>,
     pub audio_process_object_id: Option<u32>,
     pub tap_object_id: Option<u32>,
     pub aggregate_device_id: Option<u32>,
@@ -88,6 +201,9 @@ impl Default for AppleMusicProcessTapStatus {
             state: "stopped".to_string(),
             music_app_running: false,
             music_app_pid: None,
+            target_pid: None,
+            target_process_kind: None,
+            target_display_name: None,
             audio_process_object_id: None,
             tap_object_id: None,
             aggregate_device_id: None,
@@ -131,6 +247,8 @@ pub(crate) struct AppleMusicMvpStatus {
     pub last_error: Option<AppleMusicMvpError>,
     pub integration_stage: String,
     pub process_tap: AppleMusicProcessTapStatus,
+    pub playback_session: Option<ApplePlaybackSnapshot>,
+    pub recent_events: Vec<AppleMusicHelperEventSummary>,
     pub comparison: AppleMusicComparisonStatus,
 }
 
@@ -161,6 +279,8 @@ impl AppleMusicMvpStatus {
             last_error: None,
             integration_stage: "music_app_process_tap".to_string(),
             process_tap: AppleMusicProcessTapStatus::default(),
+            playback_session: None,
+            recent_events: Vec::new(),
             comparison: AppleMusicComparisonStatus::default(),
         }
     }
@@ -222,6 +342,26 @@ pub(crate) struct AppleMusicDevPlaySongRequest {
     pub storefront: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub(crate) struct AppleMusicPlayRequest {
+    #[serde(default)]
+    pub song_id: Option<String>,
+    #[serde(default)]
+    pub source: Option<SourceRef>,
+    #[serde(default)]
+    pub storefront: Option<String>,
+    #[serde(default)]
+    pub queue: Vec<SourceRef>,
+    #[serde(default)]
+    pub confirm_system_audio_capture: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+pub(crate) struct AppleMusicCatalogQuery {
+    #[serde(default)]
+    pub storefront: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct AppleMusicTransportRequest {
     pub command: String,
@@ -253,10 +393,11 @@ pub(super) struct HelperQueueItem {
     pub song_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub storefront: Option<String>,
+    pub segment_index: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct HelperMessage {
+pub(crate) struct HelperMessage {
     pub v: u32,
     #[serde(rename = "type")]
     pub message_type: String,
@@ -293,7 +434,25 @@ pub(super) struct HelperMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub queue_revision: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub segment_index: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub song_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storefront: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub playback_position: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position_secs: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finish_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub now_playing: Option<AppleMusicNowPlaying>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub catalog_song: Option<AppleCatalogSong>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub catalog_album: Option<AppleCatalogAlbum>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -323,7 +482,16 @@ impl HelperMessage {
             playback_state: None,
             playback_time_secs: None,
             queue_revision: None,
+            segment_index: None,
+            song_id: None,
+            album_id: None,
+            storefront: None,
+            playback_position: None,
+            position_secs: None,
+            finish_reason: None,
             now_playing: None,
+            catalog_song: None,
+            catalog_album: None,
             code: None,
             message: None,
             retryable: None,

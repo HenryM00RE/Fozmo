@@ -71,7 +71,9 @@ pub(crate) fn source_ref_from_queue_request(
                 playlist_context.clone(),
             )
         })),
-        QueueRequestItem::Source(source @ SourceRef::QobuzTrack { .. }) => Ok(Some(source.clone())),
+        QueueRequestItem::Source(
+            source @ (SourceRef::QobuzTrack { .. } | SourceRef::AppleMusicTrack { .. }),
+        ) => Ok(Some(source.clone())),
         QueueRequestItem::Local {
             track_id,
             file_name,
@@ -91,7 +93,7 @@ fn local_queue_item_from_source_ref(state: &AppState, source: &SourceRef) -> Opt
             file_name.as_deref(),
         )
         .map(|(queue_item, _)| queue_item),
-        SourceRef::QobuzTrack { .. } => None,
+        SourceRef::QobuzTrack { .. } | SourceRef::AppleMusicTrack { .. } => None,
     }
 }
 
@@ -107,7 +109,7 @@ pub(crate) fn local_player_queue_items_from_sources(
                     queue_items.push(queue_item);
                 }
             }
-            SourceRef::QobuzTrack { .. } => break,
+            _ => break,
         }
     }
     queue_items
@@ -247,7 +249,9 @@ mod tests {
                 assert_eq!(album.as_deref(), Some("Album"));
                 assert_eq!(ext_hint.as_deref(), Some("wav"));
             }
-            SourceRef::QobuzTrack { .. } => panic!("expected local source"),
+            SourceRef::QobuzTrack { .. } | SourceRef::AppleMusicTrack { .. } => {
+                panic!("expected local source")
+            }
         }
     }
 
@@ -270,6 +274,50 @@ mod tests {
         let sources = vec![
             local_source_by_track_id(alpha_id, "01 Alpha.wav"),
             qobuz_source(42, false),
+            local_source_by_track_id(beta_id, "02 Beta.wav"),
+        ];
+
+        let queue = local_player_queue_items_from_sources(&state, &sources);
+
+        assert_eq!(queue.len(), 1);
+        assert!(queue[0].file_path.ends_with("01 Alpha.wav"));
+    }
+
+    #[test]
+    fn local_player_queue_items_stop_at_first_apple_music_source() {
+        let state = app_state("resolver-local-queue-prefix-apple");
+        write_music_file(&state, "Artist/Album/01 Alpha.wav");
+        write_music_file(&state, "Artist/Album/02 Beta.wav");
+        state.library().scan().unwrap();
+        let alpha_id = state
+            .library()
+            .track_id_for_file_name("01 Alpha.wav")
+            .unwrap()
+            .unwrap();
+        let beta_id = state
+            .library()
+            .track_id_for_file_name("02 Beta.wav")
+            .unwrap()
+            .unwrap();
+        let sources = vec![
+            local_source_by_track_id(alpha_id, "01 Alpha.wav"),
+            SourceRef::AppleMusicTrack {
+                song_id: "2037093408".to_string(),
+                storefront: Some("nz".to_string()),
+                title: Some("Apple track".to_string()),
+                artist: None,
+                album: None,
+                album_artist: None,
+                album_id: None,
+                artwork_url: None,
+                duration_secs: None,
+                track_number: None,
+                disc_number: None,
+                isrc: None,
+                radio: false,
+                radio_context: None,
+                playlist_context: None,
+            },
             local_source_by_track_id(beta_id, "02 Beta.wav"),
         ];
 

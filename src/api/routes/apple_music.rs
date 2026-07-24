@@ -1,19 +1,22 @@
 use crate::app::state::AppState;
+use crate::library::{AlbumVersionSummary, AppleMusicAlbumMatchPreview};
 use crate::playback::intent::{PlaybackGuard, PlaybackIntent};
 use crate::playback::queue::now_playing_queue_for_zone;
+use crate::playback::resolver::{QueueRequestItem, source_ref_from_queue_request};
 use crate::playback::router::PlaybackRouter;
 use crate::playback::status::build_status_response_for_zone;
-use crate::protocol::SinkProtocol;
+use crate::protocol::{SinkProtocol, SourceRef};
 use crate::services::apple_music_musickit::{
-    AppleMusicAuthorizeRequest, AppleMusicComparisonReferenceState,
-    AppleMusicComparisonSwitchRequest, AppleMusicDevPlaySongRequest, AppleMusicMvpError,
-    AppleMusicMvpStatus, AppleMusicProcessTapStartRequest, AppleMusicTransportRequest,
-    MusicAppSnapshot, music_app_status, pause_music_app, pause_music_app_and_status,
-    play_music_app, set_music_app_position, set_music_app_position_and_play,
+    AppleCatalogAlbum, AppleCatalogSong, AppleMusicAlbumVersionRequest, AppleMusicAuthorizeRequest,
+    AppleMusicCatalogQuery, AppleMusicComparisonReferenceState, AppleMusicComparisonSwitchRequest,
+    AppleMusicDevPlaySongRequest, AppleMusicMvpError, AppleMusicMvpStatus, AppleMusicPlayRequest,
+    AppleMusicProcessTapStartRequest, AppleMusicTransportRequest, MusicAppSnapshot,
+    music_app_status, pause_music_app, pause_music_app_and_status, play_music_app,
+    set_music_app_position, set_music_app_position_and_play,
 };
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Path, Query, State},
     http::StatusCode,
     routing::{get, post},
 };
@@ -33,6 +36,21 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/api/apple-music/status", get(status))
         .route("/api/apple-music/launch", post(launch))
         .route("/api/apple-music/authorize", post(authorize))
+        .route("/api/apple-music/play", post(play))
+        .route("/api/apple-music/catalog/songs/:id", get(lookup_song))
+        .route("/api/apple-music/catalog/albums/:id", get(lookup_album))
+        .route(
+            "/api/library/albums/:id/apple-music/preview",
+            get(preview_album_version),
+        )
+        .route(
+            "/api/library/albums/:id/apple-music/link",
+            post(link_album_version),
+        )
+        .route(
+            "/api/library/albums/:id/apple-music/unlink",
+            post(unlink_album_version),
+        )
         .route("/api/apple-music/dev/play-song", post(play_song))
         .route("/api/apple-music/transport", post(transport))
         .route("/api/apple-music/stop", post(stop))
@@ -88,6 +106,177 @@ async fn play_song(
         .await
         .map(Json)
         .map_err(api_error)
+}
+
+async fn lookup_song(
+    State(state): State<AppState>,
+    Path(song_id): Path<String>,
+    Query(query): Query<AppleMusicCatalogQuery>,
+) -> Result<Json<AppleCatalogSong>, (StatusCode, Json<AppleMusicMvpError>)> {
+    state
+        .apple_music()
+        .lookup_song(song_id, query.storefront)
+        .await
+        .map(Json)
+        .map_err(api_error)
+}
+
+async fn lookup_album(
+    State(state): State<AppState>,
+    Path(album_id): Path<String>,
+    Query(query): Query<AppleMusicCatalogQuery>,
+) -> Result<Json<AppleCatalogAlbum>, (StatusCode, Json<AppleMusicMvpError>)> {
+    state
+        .apple_music()
+        .lookup_album(album_id, query.storefront)
+        .await
+        .map(Json)
+        .map_err(api_error)
+}
+
+async fn preview_album_version(
+    State(state): State<AppState>,
+    Path(local_album_id): Path<i64>,
+    Query(request): Query<AppleMusicAlbumVersionRequest>,
+) -> Result<Json<AppleMusicAlbumMatchPreview>, (StatusCode, Json<AppleMusicMvpError>)> {
+    let album = state
+        .apple_music()
+        .lookup_album(request.album_id, request.storefront)
+        .await
+        .map_err(api_error)?;
+    state
+        .library()
+        .run_blocking(move |library| {
+            library.preview_apple_music_album_version(local_album_id, album)
+        })
+        .await
+        .map_err(library_api_error)?
+        .map(Json)
+        .ok_or_else(album_not_found)
+}
+
+async fn link_album_version(
+    State(state): State<AppState>,
+    Path(local_album_id): Path<i64>,
+    Json(request): Json<AppleMusicAlbumVersionRequest>,
+) -> Result<Json<AlbumVersionSummary>, (StatusCode, Json<AppleMusicMvpError>)> {
+    let album = state
+        .apple_music()
+        .lookup_album(request.album_id, request.storefront)
+        .await
+        .map_err(api_error)?;
+    state
+        .library()
+        .run_blocking(move |library| library.link_apple_music_album(local_album_id, &album))
+        .await
+        .map_err(library_api_error)?
+        .map(Json)
+        .ok_or_else(album_not_found)
+}
+
+async fn unlink_album_version(
+    State(state): State<AppState>,
+    Path(local_album_id): Path<i64>,
+) -> Result<Json<Vec<AlbumVersionSummary>>, (StatusCode, Json<AppleMusicMvpError>)> {
+    state
+        .library()
+        .run_blocking(move |library| library.unlink_apple_music_album(local_album_id))
+        .await
+        .map_err(library_api_error)?
+        .map(Json)
+        .ok_or_else(album_not_found)
+}
+
+async fn play(
+    State(state): State<AppState>,
+    Json(request): Json<AppleMusicPlayRequest>,
+) -> AppleMusicApiResult {
+    state
+        .apple_music()
+        .confirm_system_audio_capture(request.confirm_system_audio_capture);
+    let source = match request.source {
+        Some(source) => resolve_scenario_source(&state, source)
+            .await
+            .map_err(api_error)?,
+        None => {
+            let song_id = request.song_id.ok_or_else(|| {
+                api_error(comparison_error(
+                    "apple_music_song_id_invalid",
+                    "Choose a source or enter an Apple Music song ID.",
+                    false,
+                    "validating_request",
+                    true,
+                ))
+            })?;
+            state
+                .apple_music()
+                .lookup_song(song_id, request.storefront)
+                .await
+                .map_err(api_error)?
+                .source_ref()
+        }
+    };
+    let mut queue = Vec::with_capacity(request.queue.len());
+    for queued in request.queue {
+        queue.push(
+            resolve_scenario_source(&state, queued)
+                .await
+                .map_err(api_error)?,
+        );
+    }
+    let zone_id = state.zones().active_zone_id();
+    let profile_id = state.settings().active_profile_id();
+    PlaybackRouter::new(&state)
+        .execute(
+            &zone_id,
+            PlaybackIntent::Play {
+                profile_id,
+                source,
+                queue,
+                radio_auto: false,
+                guard: PlaybackGuard::none(),
+                qobuz_request: None,
+            },
+        )
+        .await
+        .map_err(playback_api_error)?;
+    Ok(Json(state.apple_music().status()))
+}
+
+async fn resolve_scenario_source(
+    state: &AppState,
+    source: SourceRef,
+) -> Result<SourceRef, AppleMusicMvpError> {
+    match source {
+        SourceRef::AppleMusicTrack {
+            song_id,
+            storefront,
+            ..
+        } => state
+            .apple_music()
+            .lookup_song(song_id, storefront)
+            .await
+            .map(|song| song.source_ref()),
+        source => source_ref_from_queue_request(state, &QueueRequestItem::Source(source))
+            .map_err(|error| {
+                comparison_error(
+                    "queue_source_invalid",
+                    error.to_string(),
+                    false,
+                    "resolving_queue",
+                    true,
+                )
+            })?
+            .ok_or_else(|| {
+                comparison_error(
+                    "queue_source_invalid",
+                    "The queue item did not resolve to a playable source.",
+                    false,
+                    "resolving_queue",
+                    true,
+                )
+            }),
+    }
 }
 
 async fn transport(
@@ -739,20 +928,96 @@ fn comparison_error(
 
 fn api_error(error: AppleMusicMvpError) -> (StatusCode, Json<AppleMusicMvpError>) {
     let status = match error.code.as_str() {
-        "helper_missing" | "song_not_found" => StatusCode::NOT_FOUND,
+        "helper_missing" | "song_not_found" | "album_not_found" => StatusCode::NOT_FOUND,
         "music_authorization_not_determined"
         | "music_authorization_denied"
+        | "subscription_required"
         | "process_tap_confirmation_required" => StatusCode::FORBIDDEN,
         "session_limit_reached"
         | "process_tap_playback_changed"
+        | "apple_music_active_segment_requires_reprepare"
         | "comparison_reference_missing"
         | "music_app_track_missing" => StatusCode::CONFLICT,
         "music_app_not_running" | "comparison_output_unavailable" => StatusCode::NOT_FOUND,
-        "helper_launch_failed" | "helper_exited" => StatusCode::SERVICE_UNAVAILABLE,
-        "comparison_playback_failed" | "music_app_control_failed" => StatusCode::BAD_GATEWAY,
+        "helper_launch_failed"
+        | "helper_exited"
+        | "apple_music_helper_connect_timeout"
+        | "musickit_capability_unavailable"
+        | "process_tap_format_unsupported"
+        | "process_tap_prefill_timeout"
+        | "process_tap_prepare_failed"
+        | "process_tap_stalled"
+        | "process_tap_start_failed"
+        | "process_tap_unsupported" => StatusCode::SERVICE_UNAVAILABLE,
+        "comparison_playback_failed" | "helper_protocol_mismatch" | "music_app_control_failed" => {
+            StatusCode::BAD_GATEWAY
+        }
         _ => StatusCode::BAD_REQUEST,
     };
     (status, Json(error))
+}
+
+fn library_api_error(message: String) -> (StatusCode, Json<AppleMusicMvpError>) {
+    tracing::error!(
+        event = "apple_music_album_version_persistence_failed",
+        error = %message,
+        "Apple Music album-version persistence failed"
+    );
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(comparison_error(
+            "apple_music_version_persistence_failed",
+            "Fozmo could not update the Apple Music album version.",
+            true,
+            "persisting_album_version",
+            true,
+        )),
+    )
+}
+
+fn album_not_found() -> (StatusCode, Json<AppleMusicMvpError>) {
+    (
+        StatusCode::NOT_FOUND,
+        Json(comparison_error(
+            "local_album_not_found",
+            "The local Fozmo album was not found.",
+            false,
+            "resolving_local_album",
+            true,
+        )),
+    )
+}
+
+fn playback_api_error(
+    error: crate::playback::error::PlaybackError,
+) -> (StatusCode, Json<AppleMusicMvpError>) {
+    use crate::error::ErrorCategory;
+
+    let status = match error.category() {
+        ErrorCategory::Authentication => StatusCode::FORBIDDEN,
+        ErrorCategory::NotFound => StatusCode::NOT_FOUND,
+        ErrorCategory::Conflict => StatusCode::CONFLICT,
+        ErrorCategory::Unavailable | ErrorCategory::RetryableNetwork => {
+            StatusCode::SERVICE_UNAVAILABLE
+        }
+        ErrorCategory::Validation => StatusCode::BAD_REQUEST,
+        ErrorCategory::Persistence | ErrorCategory::InternalInvariant => {
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    };
+    (
+        status,
+        Json(comparison_error(
+            error.message(),
+            error.message(),
+            matches!(
+                error.category(),
+                ErrorCategory::Unavailable | ErrorCategory::RetryableNetwork
+            ),
+            "playback_router",
+            true,
+        )),
+    )
 }
 
 #[cfg(test)]
@@ -790,5 +1055,26 @@ mod tests {
         );
 
         assert_eq!(api_error(failure).0, StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn provider_failures_map_to_structured_http_statuses() {
+        for (code, expected) in [
+            ("album_not_found", StatusCode::NOT_FOUND),
+            ("subscription_required", StatusCode::FORBIDDEN),
+            (
+                "musickit_capability_unavailable",
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
+            ("helper_protocol_mismatch", StatusCode::BAD_GATEWAY),
+            ("apple_music_storefront_invalid", StatusCode::BAD_REQUEST),
+        ] {
+            let failure = comparison_error(code, "message", false, "test", true);
+            let (status, Json(body)) = api_error(failure);
+            assert_eq!(status, expected, "{code}");
+            assert_eq!(body.code, code);
+            assert_eq!(body.stage, "test");
+            assert!(body.cleanup_complete);
+        }
     }
 }

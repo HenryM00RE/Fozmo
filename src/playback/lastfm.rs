@@ -209,6 +209,17 @@ impl RadioExclusions {
                 }
                 self.add_album_artist_key(album.as_deref(), artist.as_deref());
             }
+            SourceRef::AppleMusicTrack {
+                album,
+                album_artist,
+                artist,
+                ..
+            } => {
+                self.add_album_artist_key(
+                    album.as_deref(),
+                    album_artist.as_deref().or(artist.as_deref()),
+                );
+            }
         }
     }
 
@@ -358,7 +369,8 @@ fn radio_session_from_source(
 fn source_radio_context(source: &SourceRef) -> Option<&RadioContext> {
     match source {
         SourceRef::LocalTrack { radio_context, .. }
-        | SourceRef::QobuzTrack { radio_context, .. } => radio_context.as_ref(),
+        | SourceRef::QobuzTrack { radio_context, .. }
+        | SourceRef::AppleMusicTrack { radio_context, .. } => radio_context.as_ref(),
     }
 }
 
@@ -706,17 +718,17 @@ fn context_from_status_and_source(
 
 fn source_title(source: &SourceRef) -> Option<String> {
     match source {
-        SourceRef::LocalTrack { title, .. } | SourceRef::QobuzTrack { title, .. } => {
-            normalize_seed_field(title.as_deref())
-        }
+        SourceRef::LocalTrack { title, .. }
+        | SourceRef::QobuzTrack { title, .. }
+        | SourceRef::AppleMusicTrack { title, .. } => normalize_seed_field(title.as_deref()),
     }
 }
 
 fn source_album(source: &SourceRef) -> Option<String> {
     match source {
-        SourceRef::LocalTrack { album, .. } | SourceRef::QobuzTrack { album, .. } => {
-            normalize_seed_field(album.as_deref())
-        }
+        SourceRef::LocalTrack { album, .. }
+        | SourceRef::QobuzTrack { album, .. }
+        | SourceRef::AppleMusicTrack { album, .. } => normalize_seed_field(album.as_deref()),
     }
 }
 
@@ -724,20 +736,26 @@ fn source_album_artist(source: &SourceRef) -> Option<String> {
     match source {
         SourceRef::LocalTrack { album_artist, .. } => normalize_seed_field(album_artist.as_deref()),
         SourceRef::QobuzTrack { artist, .. } => normalize_seed_field(artist.as_deref()),
+        SourceRef::AppleMusicTrack {
+            album_artist,
+            artist,
+            ..
+        } => normalize_seed_field(album_artist.as_deref())
+            .or_else(|| normalize_seed_field(artist.as_deref())),
     }
 }
 
 fn source_local_album_id(source: &SourceRef) -> Option<i64> {
     match source {
         SourceRef::LocalTrack { album_id, .. } => *album_id,
-        SourceRef::QobuzTrack { .. } => None,
+        SourceRef::QobuzTrack { .. } | SourceRef::AppleMusicTrack { .. } => None,
     }
 }
 
 fn source_qobuz_album_id(source: &SourceRef) -> Option<String> {
     match source {
         SourceRef::QobuzTrack { album_id, .. } => normalize_seed_field(album_id.as_deref()),
-        SourceRef::LocalTrack { .. } => None,
+        SourceRef::LocalTrack { .. } | SourceRef::AppleMusicTrack { .. } => None,
     }
 }
 
@@ -749,7 +767,9 @@ fn source_artist(source: &SourceRef) -> Option<String> {
             ..
         } => normalize_seed_field(artist.as_deref())
             .or_else(|| normalize_seed_field(album_artist.as_deref())),
-        SourceRef::QobuzTrack { artist, .. } => normalize_seed_field(artist.as_deref()),
+        SourceRef::QobuzTrack { artist, .. } | SourceRef::AppleMusicTrack { artist, .. } => {
+            normalize_seed_field(artist.as_deref())
+        }
     }
 }
 

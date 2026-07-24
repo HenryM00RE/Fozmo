@@ -582,41 +582,64 @@ pub fn build_status_response_for_zone(
     state: &AppState,
     zone_id: &str,
 ) -> Result<StatusResponse, String> {
-    if state.zones().zone_protocol(zone_id) == Some(SinkProtocol::SonosUpnp) {
+    #[allow(unused_mut)]
+    let mut response = if state.zones().zone_protocol(zone_id) == Some(SinkProtocol::SonosUpnp) {
         let player = state
             .zones()
             .player_for_zone(zone_id)
             .unwrap_or_else(|| state.zones().active_player());
-        Ok(build_status_response_for_sonos(
-            state,
-            player,
-            zone_id.to_string(),
-        ))
+        build_status_response_for_sonos(state, player, zone_id.to_string())
     } else if state.zones().zone_protocol(zone_id) == Some(SinkProtocol::UpnpAvRenderer) {
         let player = state
             .zones()
             .player_for_zone(zone_id)
             .unwrap_or_else(|| state.zones().active_player());
-        Ok(build_status_response_for_upnp(
-            state,
-            player,
-            zone_id.to_string(),
-        ))
+        build_status_response_for_upnp(state, player, zone_id.to_string())
     } else if state.zones().zone_protocol(zone_id) == Some(SinkProtocol::RemoteAgent) {
-        Ok(build_status_response_for_player(
-            state,
-            state.zones().active_player(),
-            zone_id.to_string(),
-        ))
+        build_status_response_for_player(state, state.zones().active_player(), zone_id.to_string())
     } else if let Some(player) = state.zones().player_for_zone(zone_id) {
-        Ok(build_status_response_for_player(
-            state,
-            player,
-            zone_id.to_string(),
-        ))
+        build_status_response_for_player(state, player, zone_id.to_string())
     } else {
-        Err(format!("Zone '{zone_id}' is not available"))
+        return Err(format!("Zone '{zone_id}' is not available"));
+    };
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    apply_apple_music_status_overlay(state, zone_id, &mut response);
+    Ok(response)
+}
+
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+fn apply_apple_music_status_overlay(
+    state: &AppState,
+    zone_id: &str,
+    response: &mut StatusResponse,
+) {
+    let Some(snapshot) = state.apple_music().playback_snapshot_for_zone(zone_id) else {
+        return;
+    };
+    let Some(player) = state.zones().player_for_zone(zone_id) else {
+        return;
+    };
+    if player.playback_epoch() != snapshot.player_epoch {
+        return;
     }
+    let Some(source) = snapshot.current_source().cloned() else {
+        return;
+    };
+    response.state = match snapshot.playback_state.as_str() {
+        "playing" => "Playing",
+        "paused" => "Paused",
+        "preparing" => "Starting",
+        "failed" | "stopped" => "Stopped",
+        _ => response.state.as_str(),
+    }
+    .to_string();
+    response.file_name = Some(source.key());
+    response.current_source = Some(source.clone());
+    response.track_title = source.title().map(str::to_string);
+    response.track_artist = source.artist().map(str::to_string);
+    response.track_album = source.album().map(str::to_string);
+    response.position_secs = snapshot.position_secs;
+    response.duration_secs = source.duration_secs().unwrap_or(0.0);
 }
 
 fn build_status_response_for_sonos(
@@ -802,6 +825,53 @@ mod tests {
         assert_eq!(status.source_bits, 0);
         assert_eq!(status.target_bits, 0);
         assert!(status.dsd_buffer_health.is_none());
+    }
+
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    #[test]
+    fn apple_music_snapshot_overlays_identity_without_replacing_player_signal_fields() {
+        let state = app_state("apple-music-status-overlay");
+        let zone_id = state.zones().active_zone_id();
+        let player = state.zones().player_for_zone(&zone_id).unwrap();
+        let baseline = build_status_response(&state);
+        let source = SourceRef::AppleMusicTrack {
+            song_id: "song-1".to_string(),
+            storefront: Some("nz".to_string()),
+            title: Some("Apple Song".to_string()),
+            artist: Some("Apple Artist".to_string()),
+            album: Some("Apple Album".to_string()),
+            album_artist: Some("Apple Artist".to_string()),
+            album_id: Some("album-1".to_string()),
+            artwork_url: None,
+            duration_secs: Some(123.0),
+            track_number: Some(1),
+            disc_number: Some(1),
+            isrc: None,
+            radio: false,
+            radio_context: None,
+            playlist_context: None,
+        };
+        state.apple_music().activate_playback(
+            zone_id,
+            player.playback_epoch(),
+            "helper-session".to_string(),
+            7,
+            vec![source.clone()],
+        );
+
+        let status = build_status_response(&state);
+
+        assert_eq!(status.state, "Playing");
+        assert_eq!(status.file_name.as_deref(), Some("apple_music:song-1"));
+        assert_eq!(status.current_source, Some(source));
+        assert_eq!(status.track_title.as_deref(), Some("Apple Song"));
+        assert_eq!(status.track_artist.as_deref(), Some("Apple Artist"));
+        assert_eq!(status.track_album.as_deref(), Some("Apple Album"));
+        assert_eq!(status.duration_secs, 123.0);
+        assert_eq!(status.zone_protocol, SinkProtocol::LocalCoreAudio);
+        assert_eq!(status.output_mode, baseline.output_mode);
+        assert_eq!(status.filter_type, baseline.filter_type);
+        assert_eq!(status.headroom_db, baseline.headroom_db);
     }
 
     #[cfg(feature = "hegel")]
@@ -1707,7 +1777,7 @@ fn build_status_response_for_player(
             SourceRef::LocalTrack { track_id, .. } => {
                 state.library().tags_for_track_id(*track_id).ok().flatten()
             }
-            SourceRef::QobuzTrack { .. } => None,
+            SourceRef::QobuzTrack { .. } | SourceRef::AppleMusicTrack { .. } => None,
         })
         .or_else(|| {
             file_name

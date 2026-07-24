@@ -31,6 +31,7 @@ HELPER_BIN="$BIN_DIR/FozmoAppleMusicHelper"
 }
 
 mkdir -p "$MACOS"
+rm -f "$CONTENTS/embedded.provisionprofile"
 cp "$HELPER_BIN" "$MACOS/FozmoAppleMusicHelper"
 cp "$SCRIPT_DIR/Resources/Info.plist" "$CONTENTS/Info.plist"
 
@@ -47,6 +48,33 @@ fi
 if [[ -n "${FOZMO_APPLE_MUSIC_PROVISIONING_PROFILE:-}" ]]; then
   [[ -f "$FOZMO_APPLE_MUSIC_PROVISIONING_PROFILE" ]] || {
     echo "error: FOZMO_APPLE_MUSIC_PROVISIONING_PROFILE does not name a file" >&2
+    exit 1
+  }
+  PROFILE_PLIST="$(mktemp "${TMPDIR:-/tmp}/fozmo-apple-profile.XXXXXX")"
+  trap 'rm -f "$PROFILE_PLIST"' EXIT
+  security cms -D -i "$FOZMO_APPLE_MUSIC_PROVISIONING_PROFILE" -o "$PROFILE_PLIST"
+  MUSIC_KIT_VALUE="$(
+    /usr/libexec/PlistBuddy \
+      -c "Print :Entitlements:com.apple.developer.musickit" \
+      "$PROFILE_PLIST" 2>/dev/null || true
+  )"
+  [[ "$MUSIC_KIT_VALUE" == "true" ]] || {
+    echo "error: provisioning profile does not contain com.apple.developer.musickit=true" >&2
+    exit 1
+  }
+  APP_IDENTIFIER="$(
+    /usr/libexec/PlistBuddy \
+      -c "Print :Entitlements:application-identifier" \
+      "$PROFILE_PLIST" 2>/dev/null ||
+      /usr/libexec/PlistBuddy \
+        -c "Print :Entitlements:com.apple.application-identifier" \
+        "$PROFILE_PLIST" 2>/dev/null ||
+      true
+  )"
+  [[ "$APP_IDENTIFIER" == *".$(
+    /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$CONTENTS/Info.plist"
+  )" ]] || {
+    echo "error: provisioning profile App ID does not match com.fozmo.apple-music-helper" >&2
     exit 1
   }
   cp "$FOZMO_APPLE_MUSIC_PROVISIONING_PROFILE" "$CONTENTS/embedded.provisionprofile"
@@ -73,6 +101,19 @@ else
     "$APP_PATH"
 fi
 codesign --verify --strict --verbose=2 "$APP_PATH"
+if [[ "$SIGN_IDENTITY" != "-" ]]; then
+  SIGNED_ENTITLEMENTS="$(mktemp "${TMPDIR:-/tmp}/fozmo-apple-entitlements.XXXXXX")"
+  trap 'rm -f "$PROFILE_PLIST" "$SIGNED_ENTITLEMENTS"' EXIT
+  codesign -d --entitlements :- "$APP_PATH" >"$SIGNED_ENTITLEMENTS" 2>/dev/null
+  [[ "$(
+    /usr/libexec/PlistBuddy \
+      -c "Print :com.apple.developer.musickit" \
+      "$SIGNED_ENTITLEMENTS" 2>/dev/null || true
+  )" == "true" ]] || {
+    echo "error: signed helper is missing the MusicKit entitlement" >&2
+    exit 1
+  }
+fi
 
 if [[ "$SIGN_IDENTITY" == "-" ]]; then
   echo "warning: built without the restricted MusicKit entitlement; launch/IPC can be tested, but authorization and playback require a provisioned build" >&2

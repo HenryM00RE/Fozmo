@@ -695,11 +695,65 @@ export const endpoints = {
   launchAppleMusicHelper: () => api.post<JsonRecord>('/api/apple-music/launch'),
   authorizeAppleMusic: () =>
     api.post<JsonRecord>('/api/apple-music/authorize', { present_ui: true }),
+  appleMusicCatalogSong: (songId: string, storefront?: string) =>
+    api.get<JsonRecord>(
+      `/api/apple-music/catalog/songs/${encodeURIComponent(songId)}`,
+      storefront ? { storefront } : undefined,
+      undefined,
+      'no-store'
+    ),
+  appleMusicCatalogAlbum: (albumId: string, storefront?: string) =>
+    api.get<JsonRecord>(
+      `/api/apple-music/catalog/albums/${encodeURIComponent(albumId)}`,
+      storefront ? { storefront } : undefined,
+      undefined,
+      'no-store'
+    ),
+  playAppleMusicScenario: (
+    source: SourceRef,
+    queue: SourceRef[],
+    confirmSystemAudioCapture: boolean
+  ) =>
+    api.post<JsonRecord>(
+      '/api/apple-music/play',
+      {
+        source,
+        queue,
+        confirm_system_audio_capture: confirmSystemAudioCapture
+      },
+      [409]
+    ),
   playAppleMusicSong: (songId: string, storefront?: string) =>
     api.post<JsonRecord>('/api/apple-music/dev/play-song', {
       song_id: songId,
       storefront: storefront || null
     }),
+  appleMusicAlbumPreview: (
+    localAlbumId: string | number,
+    appleAlbumId: string,
+    storefront?: string
+  ) =>
+    api.get<JsonRecord>(
+      `/api/library/albums/${encodeURIComponent(String(localAlbumId))}/apple-music/preview`,
+      {
+        album_id: appleAlbumId,
+        ...(storefront ? { storefront } : {})
+      },
+      undefined,
+      'no-store'
+    ),
+  appleMusicAlbumLink: (localAlbumId: string | number, appleAlbumId: string, storefront?: string) =>
+    api.post<JsonRecord>(
+      `/api/library/albums/${encodeURIComponent(String(localAlbumId))}/apple-music/link`,
+      {
+        album_id: appleAlbumId,
+        storefront: storefront || null
+      }
+    ),
+  appleMusicAlbumUnlink: (localAlbumId: string | number) =>
+    api.post<JsonRecord[]>(
+      `/api/library/albums/${encodeURIComponent(String(localAlbumId))}/apple-music/unlink`
+    ),
   controlAppleMusic: (command: string) =>
     api.post<JsonRecord>('/api/apple-music/transport', { command }),
   stopAppleMusic: () => api.post<JsonRecord>('/api/apple-music/stop'),

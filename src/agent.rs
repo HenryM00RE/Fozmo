@@ -1269,6 +1269,9 @@ fn source_stream_url(base_url: &str, source: &SourceRef) -> String {
     match source {
         SourceRef::LocalTrack { track_id, .. } => format!("{base}/api/stream/local/{track_id}"),
         SourceRef::QobuzTrack { track_id, .. } => format!("{base}/api/stream/qobuz/{track_id}"),
+        SourceRef::AppleMusicTrack { song_id, .. } => {
+            format!("{base}/api/stream/apple-music/{song_id}")
+        }
     }
 }
 
@@ -1298,6 +1301,7 @@ fn source_ext_hint(source: &SourceRef) -> Option<String> {
     match source {
         SourceRef::LocalTrack { ext_hint, .. } => ext_hint.clone(),
         SourceRef::QobuzTrack { .. } => Some("flac".to_string()),
+        SourceRef::AppleMusicTrack { .. } => None,
     }
 }
 
@@ -1333,6 +1337,16 @@ fn source_display_name(source: &SourceRef) -> String {
             artist.as_deref(),
             format!("qobuz-{track_id}"),
         ),
+        SourceRef::AppleMusicTrack {
+            title,
+            artist,
+            song_id,
+            ..
+        } => from_parts(
+            title.as_deref(),
+            artist.as_deref(),
+            format!("apple-music-{song_id}"),
+        ),
     }
 }
 
@@ -1346,6 +1360,12 @@ fn source_fallback_tags(source: &SourceRef) -> TrackTags {
             ..
         }
         | SourceRef::QobuzTrack {
+            title,
+            artist,
+            album,
+            ..
+        }
+        | SourceRef::AppleMusicTrack {
             title,
             artist,
             album,

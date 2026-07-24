@@ -474,7 +474,7 @@ impl Library {
                     SELECT lvt.recording_id
                     FROM version_track_links link
                     JOIN version_tracks lvt ON lvt.id = link.local_version_track_id
-                    WHERE link.qobuz_version_track_id = version_tracks.id
+                    WHERE link.provider_version_track_id = version_tracks.id
                       AND link.status = 'linked'
                       AND lvt.recording_id IS NOT NULL
                     ORDER BY link.confidence DESC, link.id
@@ -482,9 +482,9 @@ impl Library {
                 ),
                 updated_at = ?1
             WHERE id IN (
-                SELECT link.qobuz_version_track_id
+                SELECT link.provider_version_track_id
                 FROM version_track_links link
-                JOIN version_tracks qvt ON qvt.id = link.qobuz_version_track_id
+                JOIN version_tracks qvt ON qvt.id = link.provider_version_track_id
                 JOIN album_versions qv ON qv.id = qvt.version_id
                 WHERE link.status = 'linked'
                   AND (?2 IS NULL OR qv.album_id = ?2)
@@ -493,7 +493,7 @@ impl Library {
                     SELECT lvt.recording_id
                     FROM version_track_links link
                     JOIN version_tracks lvt ON lvt.id = link.local_version_track_id
-                    WHERE link.qobuz_version_track_id = version_tracks.id
+                    WHERE link.provider_version_track_id = version_tracks.id
                       AND link.status = 'linked'
                       AND lvt.recording_id IS NOT NULL
                     ORDER BY link.confidence DESC, link.id
@@ -556,6 +556,33 @@ impl Library {
                     JOIN album_versions v ON v.id = vt.version_id
                     WHERE v.provider = 'qobuz'
                       AND vt.provider_track_id = substr(playback_history.source_key, 7)
+                      AND vt.recording_id IS NOT NULL
+                    ORDER BY CASE WHEN v.status = 'available' THEN 0 ELSE 1 END, vt.id
+                    LIMIT 1
+                ), -1)
+              );
+
+            UPDATE playback_history
+            SET recording_id = (
+                SELECT vt.recording_id
+                FROM version_tracks vt
+                JOIN album_versions v ON v.id = vt.version_id
+                WHERE playback_history.source_key GLOB 'apple_music:*'
+                  AND v.provider = 'apple_music'
+                  AND vt.provider_track_id = substr(playback_history.source_key, 13)
+                  AND vt.recording_id IS NOT NULL
+                ORDER BY CASE WHEN v.status = 'available' THEN 0 ELSE 1 END, vt.id
+                LIMIT 1
+            )
+            WHERE source_key GLOB 'apple_music:*'
+              AND (
+                recording_id IS NULL
+                OR recording_id != COALESCE((
+                    SELECT vt.recording_id
+                    FROM version_tracks vt
+                    JOIN album_versions v ON v.id = vt.version_id
+                    WHERE v.provider = 'apple_music'
+                      AND vt.provider_track_id = substr(playback_history.source_key, 13)
                       AND vt.recording_id IS NOT NULL
                     ORDER BY CASE WHEN v.status = 'available' THEN 0 ELSE 1 END, vt.id
                     LIMIT 1

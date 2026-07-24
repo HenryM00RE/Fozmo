@@ -27,6 +27,7 @@ const EMPTY_RING_POLL: Duration = Duration::from_millis(2);
 pub(super) struct CaptureFlow {
     enqueued_frames: AtomicU64,
     consumed_frames: AtomicU64,
+    discard_generation: AtomicU64,
 }
 
 impl CaptureFlow {
@@ -46,6 +47,17 @@ impl CaptureFlow {
         self.enqueued_frames
             .load(Ordering::Relaxed)
             .saturating_sub(self.consumed_frames.load(Ordering::Relaxed))
+    }
+
+    pub(super) fn request_discard(&self) -> u64 {
+        let enqueued = self.enqueued_frames.load(Ordering::Acquire);
+        let consumed = self.consumed_frames.swap(enqueued, Ordering::AcqRel);
+        self.discard_generation.fetch_add(1, Ordering::Release);
+        enqueued.saturating_sub(consumed)
+    }
+
+    fn discard_generation(&self) -> u64 {
+        self.discard_generation.load(Ordering::Acquire)
     }
 }
 
@@ -107,6 +119,7 @@ pub(super) struct LiveCaptureSource {
     pending: Vec<u8>,
     pending_pos: usize,
     flow: Arc<CaptureFlow>,
+    discard_generation: u64,
 }
 
 impl LiveCaptureSource {
@@ -128,6 +141,7 @@ impl LiveCaptureSource {
         shutdown: Arc<AtomicBool>,
         flow: Arc<CaptureFlow>,
     ) -> Self {
+        let discard_generation = flow.discard_generation();
         Self {
             header: wav_header_ieee_f32(rate_hz),
             header_pos: 0,
@@ -137,7 +151,19 @@ impl LiveCaptureSource {
             pending: Vec::new(),
             pending_pos: 0,
             flow,
+            discard_generation,
         }
+    }
+
+    fn apply_requested_discard(&mut self) {
+        let generation = self.flow.discard_generation();
+        if generation == self.discard_generation {
+            return;
+        }
+        self.discard_generation = generation;
+        self.pending.clear();
+        self.pending_pos = 0;
+        while self.consumer.pop().is_some() {}
     }
 
     fn drain_pending(&mut self, buf: &mut [u8]) -> usize {
@@ -180,6 +206,7 @@ impl Read for LiveCaptureSource {
             return Ok(count);
         }
         loop {
+            self.apply_requested_discard();
             let drained = self.drain_pending(buf);
             if drained > 0 {
                 return Ok(drained);

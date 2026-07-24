@@ -262,5 +262,8 @@ async fn sonos_source_from_ref(
                 source_bits: stream.bit_depth,
             })
         }
+        SourceRef::AppleMusicTrack { .. } => Err(PlaybackError::bad_request(
+            "apple_music_local_output_required",
+        )),
     }
 }

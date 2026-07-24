@@ -313,24 +313,79 @@ fn source_ref_queue_item(source: &SourceRef) -> Value {
             "resolvedSource": source,
             "radio": radio,
         }),
+        SourceRef::AppleMusicTrack {
+            song_id,
+            storefront,
+            title,
+            artist,
+            album,
+            album_artist,
+            album_id,
+            artwork_url,
+            duration_secs,
+            track_number,
+            disc_number,
+            isrc,
+            radio,
+            ..
+        } => serde_json::json!({
+            "title": title.clone().unwrap_or_else(|| format!("Apple Music {song_id}")),
+            "artist": artist.clone().unwrap_or_default(),
+            "album": album.clone().unwrap_or_default(),
+            "albumArtist": album_artist.clone().or_else(|| artist.clone()).unwrap_or_default(),
+            "albumId": album_id,
+            "imageUrl": artwork_url,
+            "durationSecs": duration_secs.unwrap_or(0.0),
+            "filename": artist
+                .as_deref()
+                .zip(title.as_deref())
+                .map(|(artist, title)| format!("{artist} - {title}"))
+                .unwrap_or_else(|| format!("apple_music:{song_id}")),
+            "appleMusicTrack": {
+                "song_id": song_id,
+                "storefront": storefront,
+                "title": title,
+                "artist": artist,
+                "album": album,
+                "album_artist": album_artist,
+                "album_id": album_id,
+                "artwork_url": artwork_url,
+                "duration_secs": duration_secs,
+                "track_number": track_number,
+                "disc_number": disc_number,
+                "isrc": isrc,
+                "radio": radio,
+            },
+            "resolvedSource": source,
+            "radio": radio,
+        }),
     }
 }
 
 fn queue_kind_for_items(items: &[Value]) -> Value {
-    let mut has_local = false;
-    let mut has_qobuz = false;
+    use std::collections::HashSet;
+
+    let mut providers = HashSet::new();
     for item in items {
-        if item.get("qobuzTrack").is_some() {
-            has_qobuz = true;
+        if let Some(source) = item
+            .get("resolvedSource")
+            .and_then(|source| serde_json::from_value::<SourceRef>(source.clone()).ok())
+        {
+            providers.insert(source.provider());
+        } else if item.get("appleMusicTrack").is_some() {
+            providers.insert(crate::protocol::SourceProvider::AppleMusic);
+        } else if item.get("qobuzTrack").is_some() {
+            providers.insert(crate::protocol::SourceProvider::Qobuz);
         } else if item.get("ref").is_some() {
-            has_local = true;
+            providers.insert(crate::protocol::SourceProvider::Local);
         }
     }
-    match (has_local, has_qobuz) {
-        (true, true) => Value::String("mixed".to_string()),
-        (true, false) => Value::String("local".to_string()),
-        (false, true) => Value::String("qobuz".to_string()),
-        (false, false) => Value::Null,
+    if providers.len() > 1 {
+        return Value::String("mixed".to_string());
+    }
+    match providers.into_iter().next() {
+        Some(provider) => Value::String(provider.as_str().to_string()),
+        None => Value::Null,
     }
 }
 

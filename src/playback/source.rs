@@ -74,7 +74,7 @@ pub(crate) fn qobuz_queue_track_from_source_ref(source: &SourceRef) -> Option<Qo
             radio: *radio,
             playlist_context: playlist_context.clone(),
         }),
-        SourceRef::LocalTrack { .. } => None,
+        SourceRef::LocalTrack { .. } | SourceRef::AppleMusicTrack { .. } => None,
     }
 }
 
@@ -128,7 +128,7 @@ pub(crate) fn qobuz_queue_source_refs(req: &QobuzPlayRequest) -> Vec<SourceRef> 
 pub(crate) fn qobuz_track_id_from_source(source: &SourceRef) -> Option<u64> {
     match source {
         SourceRef::QobuzTrack { track_id, .. } => Some(*track_id),
-        SourceRef::LocalTrack { .. } => None,
+        SourceRef::LocalTrack { .. } | SourceRef::AppleMusicTrack { .. } => None,
     }
 }
 
@@ -139,6 +139,10 @@ pub(crate) fn source_ref_with_radio(mut source: SourceRef, radio: bool) -> Sourc
             ..
         }
         | SourceRef::QobuzTrack {
+            radio: source_radio,
+            ..
+        }
+        | SourceRef::AppleMusicTrack {
             radio: source_radio,
             ..
         } => {
@@ -163,6 +167,10 @@ pub(crate) fn source_ref_with_radio_context(
         | SourceRef::QobuzTrack {
             radio_context: source_context,
             ..
+        }
+        | SourceRef::AppleMusicTrack {
+            radio_context: source_context,
+            ..
         } => {
             *source_context = radio_context;
         }
@@ -183,6 +191,10 @@ pub(crate) fn source_ref_with_playlist_context(
             ..
         }
         | SourceRef::QobuzTrack {
+            playlist_context: source_context,
+            ..
+        }
+        | SourceRef::AppleMusicTrack {
             playlist_context: source_context,
             ..
         } => {

@@ -355,6 +355,15 @@ impl<'a> PlaybackRouter<'a> {
         let track_id = source.local_track_id();
         let qobuz_track_id = source.qobuz_track_id();
         let sink = self.sink_for_zone(zone_id)?;
+        if source.apple_music_song_id().is_some() && !matches!(&sink, ZoneSink::Local) {
+            return Err(PlaybackError::bad_request(
+                "apple_music_local_output_required",
+            ));
+        }
+        #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+        if source.apple_music_song_id().is_none() {
+            crate::playback::apple_music::stop_replaced_session(self.state, zone_id).await;
+        }
         info!(
             event = "zone_route",
             command = "play",
@@ -421,6 +430,21 @@ impl<'a> PlaybackRouter<'a> {
                     )
                     .await
                 }
+                SourceRef::AppleMusicTrack { .. } => {
+                    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+                    {
+                        return crate::playback::apple_music::play_apple_music_source(
+                            self.state, zone_id, profile_id, source, queue, radio_auto, guard,
+                        )
+                        .await;
+                    }
+                    #[cfg(not(all(target_os = "macos", feature = "apple_music_musickit")))]
+                    {
+                        Err(PlaybackError::bad_request(
+                            "apple_music_musickit_unavailable",
+                        ))
+                    }
+                }
             },
         }
     }
@@ -431,6 +455,34 @@ impl<'a> PlaybackRouter<'a> {
             .listening()
             .profile_id(zone_id)
             .unwrap_or_else(|| crate::settings::DEFAULT_PROFILE_ID.to_string());
+        #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+        if crate::playback::apple_music::active_snapshot(self.state, zone_id).is_some() {
+            if crate::playback::apple_music::skip_next_if_internal(self.state, zone_id).await? {
+                return Ok(PlaybackOutcome::Completed);
+            }
+            let mut queued_sources = self.state.listening().queued_sources(zone_id);
+            crate::playback::apple_music::stop_replaced_session(self.state, zone_id).await;
+            if queued_sources.is_empty() {
+                if let Some(player) = self.state.zones().player_for_zone(zone_id) {
+                    player.stop();
+                }
+                self.state.listening().stop(self.state.library(), zone_id);
+                return Ok(PlaybackOutcome::Completed);
+            }
+            let source = queued_sources.remove(0);
+            let radio_auto = source.is_radio();
+            return self
+                .play_source(
+                    zone_id,
+                    profile_id,
+                    source,
+                    queued_sources,
+                    radio_auto,
+                    PlaybackGuard::none(),
+                    None,
+                )
+                .await;
+        }
         let active_source = self.state.listening().active_source(zone_id);
         let active_source_key = active_source.as_ref().map(SourceRef::key);
         let queue_empty = active_source
@@ -680,7 +732,9 @@ impl<'a> PlaybackRouter<'a> {
             }
             ZoneSink::Local => {
                 let mut queued_sources = self.state.listening().queued_sources(zone_id);
-                if matches!(queued_sources.first(), Some(SourceRef::QobuzTrack { .. })) {
+                if queued_sources.first().is_some_and(|source| {
+                    source.provider() != crate::protocol::SourceProvider::Local
+                }) {
                     let source = queued_sources.remove(0);
                     return self
                         .play_source(
@@ -733,6 +787,10 @@ impl<'a> PlaybackRouter<'a> {
                 result?;
             }
             ZoneSink::Local => {
+                #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+                if crate::playback::apple_music::pause(self.state, zone_id).await? {
+                    return Ok(PlaybackOutcome::Completed);
+                }
                 let Some(player) = self.state.zones().player_for_zone(zone_id) else {
                     return Err(PlaybackError::ZoneNotAvailable);
                 };
@@ -770,6 +828,10 @@ impl<'a> PlaybackRouter<'a> {
                 result?;
             }
             ZoneSink::Local => {
+                #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+                if crate::playback::apple_music::resume(self.state, zone_id).await? {
+                    return Ok(PlaybackOutcome::Completed);
+                }
                 let Some(player) = self.state.zones().player_for_zone(zone_id) else {
                     return Err(PlaybackError::ZoneNotAvailable);
                 };
@@ -808,6 +870,11 @@ impl<'a> PlaybackRouter<'a> {
                 result?;
             }
             ZoneSink::Local => {
+                #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+                if crate::playback::apple_music::stop(self.state, zone_id).await? {
+                    self.state.listening().stop(self.state.library(), zone_id);
+                    return Ok(PlaybackOutcome::Completed);
+                }
                 let Some(player) = self.state.zones().player_for_zone(zone_id) else {
                     return Err(PlaybackError::ZoneNotAvailable);
                 };
@@ -847,6 +914,10 @@ impl<'a> PlaybackRouter<'a> {
                 result?;
             }
             ZoneSink::Local => {
+                #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+                if crate::playback::apple_music::seek(self.state, zone_id, seconds).await? {
+                    return Ok(PlaybackOutcome::Completed);
+                }
                 let Some(player) = self.state.zones().player_for_zone(zone_id) else {
                     return Err(PlaybackError::ZoneNotAvailable);
                 };
@@ -1568,12 +1639,16 @@ fn normalized_hegel_volume(settings: &crate::settings::HegelSettings, volume: f3
 mod tests {
     use super::*;
     use crate::playback::qobuz::prefetch_qobuz_queue_track_into_player;
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    use crate::playback::test_support::agent_capabilities;
     use crate::playback::test_support::{app_state, qobuz_source};
     use crate::services::qobuz::QobuzQueueTrack;
     #[cfg(feature = "hegel")]
     use crate::settings::HegelSettings;
     use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
     use std::sync::{Arc, Mutex};
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    use tokio::sync::mpsc;
 
     struct CaptureWriter(Arc<Mutex<Vec<u8>>>);
 
@@ -1653,6 +1728,60 @@ mod tests {
             radio: false,
             playlist_context: None,
         }
+    }
+
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    #[tokio::test]
+    async fn apple_music_source_is_rejected_before_helper_work_on_remote_agent() {
+        let state = app_state("apple-music-rejects-remote-agent");
+        let (tx, _rx) = mpsc::unbounded_channel();
+        state.zones().register_agent(
+            "apple-test-agent".to_string(),
+            "Remote Mac".to_string(),
+            agent_capabilities("Remote DAC"),
+            tx,
+        );
+        let zone_id = state
+            .zones()
+            .list_zones()
+            .into_iter()
+            .find(|zone| zone.agent_name.as_deref() == Some("Remote Mac"))
+            .unwrap()
+            .id;
+        let source = SourceRef::AppleMusicTrack {
+            song_id: "song-1".to_string(),
+            storefront: Some("nz".to_string()),
+            title: Some("Song".to_string()),
+            artist: Some("Artist".to_string()),
+            album: None,
+            album_artist: None,
+            album_id: None,
+            artwork_url: None,
+            duration_secs: Some(180.0),
+            track_number: None,
+            disc_number: None,
+            isrc: None,
+            radio: false,
+            radio_context: None,
+            playlist_context: None,
+        };
+
+        let error = PlaybackRouter::new(&state)
+            .execute(
+                &zone_id,
+                PlaybackIntent::Play {
+                    profile_id: state.settings().active_profile_id(),
+                    source,
+                    queue: Vec::new(),
+                    radio_auto: false,
+                    guard: PlaybackGuard::none(),
+                    qobuz_request: None,
+                },
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.message(), "apple_music_local_output_required");
     }
 
     #[tokio::test]

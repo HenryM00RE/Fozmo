@@ -59,7 +59,7 @@ struct RemoteSkipLog {
     logged_at: std::time::Instant,
 }
 
-pub(crate) fn maybe_spawn_qobuz_auto_advance(
+pub(crate) fn maybe_spawn_queue_auto_advance(
     state: &AppState,
     zone_id: &str,
     status: &StatusResponse,
@@ -1161,6 +1161,9 @@ async fn arm_lastfm_radio_source(
                 )?;
                 commit_lastfm_radio_queue(&state, zone_id, &queue, &source)?;
             }
+            SourceRef::AppleMusicTrack { .. } => {
+                commit_lastfm_radio_queue(&state, zone_id, &queue, &source)?;
+            }
         },
     }
 
@@ -1612,7 +1615,7 @@ mod tests {
         status.current_source = Some(current.clone());
         let pending = Arc::new(Mutex::new(HashSet::new()));
 
-        maybe_spawn_qobuz_auto_advance(
+        maybe_spawn_queue_auto_advance(
             &state,
             &zone_id,
             &status,

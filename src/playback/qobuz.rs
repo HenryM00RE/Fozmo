@@ -333,6 +333,20 @@ pub(crate) async fn qobuz_radio_next_request_from_source_for_zone(
                 .radio_next_for_artist_name(seed_artist_name, &exclude, 50)
                 .await?
         }
+        SourceRef::AppleMusicTrack { artist, .. } => {
+            let Some(seed_artist_name) = artist
+                .as_deref()
+                .map(str::trim)
+                .filter(|artist| !artist.is_empty())
+            else {
+                return Ok(None);
+            };
+            let exclude = radio_exclude_track_ids(&state, zone_id, None);
+            state
+                .qobuz()
+                .radio_next_for_artist_name(seed_artist_name, &exclude, 50)
+                .await?
+        }
     };
     let Some(recommendation) = recommendation else {
         return Err("Qobuz radio returned no playable recommendation".to_string());
