@@ -5,7 +5,9 @@ import { AppleMusicAlbumPage } from './AppleMusicAlbumPage';
 
 const mocks = vi.hoisted(() => ({
   addItemsToQueue: vi.fn(),
+  albumByAppleMusicId: vi.fn(),
   appleMusicCatalogAlbum: vi.fn(),
+  appleMusicAlbumVersionDetail: vi.fn(),
   onOpenArtist: vi.fn(),
   onSelectionItemsChange: vi.fn(),
   onToggleSelection: vi.fn(),
@@ -16,6 +18,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../../shared/lib/api', () => ({
   endpoints: {
     appleMusicCatalogAlbum: mocks.appleMusicCatalogAlbum,
+    albumByAppleMusicId: mocks.albumByAppleMusicId,
+    appleMusicAlbumVersionDetail: mocks.appleMusicAlbumVersionDetail,
     artUrl: () => null
   }
 }));
@@ -29,6 +33,7 @@ beforeEach(() => {
     artist: 'Radiohead',
     release_date: '2007-10-10T00:00:00Z',
     artwork_url: 'https://example.test/in-rainbows.jpg',
+    editorial_notes_standard: 'Apple Music editorial notes for In Rainbows.',
     audio_variants: ['lossless'],
     tracks: [
       {
@@ -59,6 +64,8 @@ beforeEach(() => {
       }
     ]
   });
+  mocks.albumByAppleMusicId.mockResolvedValue(null);
+  mocks.appleMusicAlbumVersionDetail.mockResolvedValue({ apple_album: null });
 });
 
 afterEach(cleanup);
@@ -89,9 +96,9 @@ describe('AppleMusicAlbumPage', () => {
     expect(mocks.appleMusicCatalogAlbum).toHaveBeenCalledWith('1109714933', 'nz');
     expect(screen.getAllByText('15 Step').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Bodysnatchers').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Apple Music').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Lossless').length).toBeGreaterThan(0);
     expect(screen.getAllByLabelText('Apple Music').length).toBeGreaterThan(0);
+    expect(screen.getByText('Apple Music editorial notes for In Rainbows.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Favorite' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Play now' }));
@@ -119,5 +126,66 @@ describe('AppleMusicAlbumPage', () => {
         0
       )
     );
+  });
+
+  it('prefers the linked Qobuz description over Apple editorial notes', async () => {
+    mocks.albumByAppleMusicId.mockResolvedValue({
+      album: {
+        id: 7,
+        title: 'In Rainbows',
+        album_artist: 'Radiohead',
+        primary_version_id: 11
+      },
+      tracks: [],
+      canonical_album: {
+        qobuz_album_id: 'qobuz-in-rainbows',
+        description: 'Qobuz editorial description.'
+      },
+      canonical_tracks: [],
+      qobuz_track_links: [],
+      versions: [
+        {
+          id: 11,
+          provider: 'local',
+          provider_id: 'local:7',
+          source_label: 'Library',
+          title: 'In Rainbows',
+          is_primary: true
+        },
+        {
+          id: 12,
+          provider: 'apple_music',
+          provider_id: '1109714933',
+          source_label: 'Apple Music',
+          title: 'In Rainbows',
+          is_primary: false
+        }
+      ]
+    });
+    mocks.appleMusicAlbumVersionDetail.mockResolvedValue({
+      apple_album: await mocks.appleMusicCatalogAlbum()
+    });
+
+    render(
+      <AppleMusicAlbumPage
+        id="1109714933"
+        storefront="nz"
+        onOpenArtist={mocks.onOpenArtist}
+        playItems={mocks.playItems}
+        addItemsToQueue={mocks.addItemsToQueue}
+        selectedTrackKeys={new Set()}
+        selectionActive={false}
+        onSelectionItemsChange={mocks.onSelectionItemsChange}
+        onToggleSelection={mocks.onToggleSelection}
+        openPlaylistPickerForItems={mocks.openPlaylistPickerForItems}
+        playbackStatus={{ state: 'Stopped' }}
+        customDisplayFont={null}
+      />
+    );
+
+    expect(await screen.findByText('Qobuz editorial description.')).toBeInTheDocument();
+    expect(
+      screen.queryByText('Apple Music editorial notes for In Rainbows.')
+    ).not.toBeInTheDocument();
   });
 });

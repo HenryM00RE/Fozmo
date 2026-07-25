@@ -35,17 +35,6 @@ function strings(value: unknown) {
   return Array.isArray(value) ? value.map((item) => text(item)).filter(Boolean) : [];
 }
 
-function offersLossless(variants: string[]) {
-  return variants.some((variant) => variant.toLowerCase().includes('lossless'));
-}
-
-function offersHighResolutionLossless(variants: string[]) {
-  return variants.some((variant) => {
-    const normalized = variant.toLowerCase().replace(/[^a-z0-9]/g, '');
-    return normalized.includes('highresolutionlossless') || normalized.includes('hireslossless');
-  });
-}
-
 export function appleMusicSourceFromCatalogSong(
   song: JsonRecord,
   album?: JsonRecord | null
@@ -94,13 +83,6 @@ export function appleMusicAlbumToLibraryDetail(catalogAlbum: JsonRecord): JsonRe
     ...albumVariants,
     ...catalogTracks.flatMap((track) => strings(track.audio_variants))
   ];
-  const highResolutionLossless = offersHighResolutionLossless(allVariants);
-  const lossless = offersLossless(allVariants);
-  const qualityLabel = highResolutionLossless
-    ? 'Hi-Res Lossless'
-    : lossless
-      ? 'Lossless'
-      : 'Apple Music';
   const tracks = catalogTracks
     .map((track, index) => {
       const source = appleMusicSourceFromCatalogSong(track, catalogAlbum);
@@ -117,7 +99,7 @@ export function appleMusicAlbumToLibraryDetail(catalogAlbum: JsonRecord): JsonRe
         duration_secs: source.duration_secs || 0,
         track_number: source.track_number || index + 1,
         disc_number: source.disc_number || 1,
-        format: lossless ? 'ALAC' : 'Apple Music',
+        format: 'Apple Music',
         play_source: source as ResolvedPlaySource
       } as LibraryTrack;
     })
@@ -133,6 +115,7 @@ export function appleMusicAlbumToLibraryDetail(catalogAlbum: JsonRecord): JsonRe
     artist,
     album_artist: artist,
     image_url: artworkUrl,
+    description: optionalText(catalogAlbum.editorial_notes_standard),
     release_date: releaseDate,
     year: yearMatch ? Number(yearMatch[1]) : null,
     upc: optionalText(catalogAlbum.upc),
@@ -143,19 +126,19 @@ export function appleMusicAlbumToLibraryDetail(catalogAlbum: JsonRecord): JsonRe
   } as LibraryAlbum;
   return {
     provider: 'apple_music',
-    quality_label: qualityLabel,
+    quality_label: 'Lossless',
     album,
     tracks,
     versions: [
       {
         id: `apple_music:${storefront || 'default'}:${albumId}`,
         provider: 'apple_music',
-        source_label: 'Apple Music',
+        source_label: 'Lossless',
         title,
         artist,
         year: album.year,
         track_count: tracks.length,
-        format: lossless ? 'ALAC' : 'Apple Music',
+        format: 'Apple Music',
         image_url: artworkUrl,
         audio_variants: allVariants,
         is_primary: true

@@ -87,6 +87,9 @@ export function LibraryRouteView({
             id={route.id}
             storefront={route.storefront}
             onOpenArtist={openArtistName}
+            onOpenLocalAlbum={(id) => navigate({ view: 'album', id })}
+            onOpenQobuzAlbum={(id, albumHint) => navigate({ view: 'qobuz-album', id, albumHint })}
+            playAlbum={playAlbum}
             playItems={playbackActions.playItems}
             addItemsToQueue={addItemsToQueue}
             playbackStatus={playbackStatus}

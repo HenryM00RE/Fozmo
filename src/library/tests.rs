@@ -5149,6 +5149,7 @@ fn apple_music_album_version_links_recordings_and_resolves_playback() {
         upc: Some("731452103327".to_string()),
         release_date: Some("1994-08-22".to_string()),
         artwork_url: Some("https://example.invalid/art/{w}x{h}.jpg".to_string()),
+        editorial_notes_standard: Some("Apple Music editorial notes.".to_string()),
         audio_variants: vec!["lossless".to_string()],
         tracks: vec![
             song("apple-song-1", "Mysterons", 1, 305.0),
@@ -5172,6 +5173,43 @@ fn apple_music_album_version_links_recordings_and_resolves_playback() {
     assert_eq!(version.format.as_deref(), Some("Apple Music"));
     assert_eq!(version.sample_rate, None);
     assert_eq!(version.bit_depth, None);
+    assert_eq!(
+        version.image_url.as_deref(),
+        Some("https://example.invalid/art/{w}x{h}.jpg")
+    );
+    assert_eq!(version.storefront.as_deref(), Some("nz"));
+    assert_eq!(
+        library
+            .apple_music_version_detail(album_id, version.id)
+            .unwrap()
+            .unwrap()
+            .apple_album
+            .editorial_notes_standard
+            .as_deref(),
+        Some("Apple Music editorial notes.")
+    );
+    assert_eq!(
+        library
+            .album_by_apple_music_id("apple-album-1")
+            .unwrap()
+            .unwrap()
+            .album
+            .id,
+        album_id
+    );
+    let normalized_detail = library
+        .album_version_detail(album_id, version.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        normalized_detail.album.description.as_deref(),
+        Some("Apple Music editorial notes.")
+    );
+    assert_eq!(normalized_detail.tracks.len(), 2);
+    assert!(matches!(
+        &normalized_detail.tracks[0].play_source,
+        ResolvedPlaySource::AppleMusic { song_id, .. } if song_id == "apple-song-1"
+    ));
 
     let plan = library
         .resolve_album_playback(album_id, 0, false, Some(version.id))
@@ -5228,11 +5266,372 @@ fn apple_music_album_version_links_recordings_and_resolves_playback() {
     };
     assert_eq!(apple_recording, local_recording);
 
+    library.set_primary_version(album_id, version.id).unwrap();
+    let mut replacement = apple_album.clone();
+    replacement.album_id = "apple-album-2".to_string();
+    for track in &mut replacement.tracks {
+        track.album_id = Some(replacement.album_id.clone());
+    }
+    let replacement_version = library
+        .link_apple_music_album(album_id, &replacement)
+        .unwrap()
+        .unwrap();
+    let grouped_apple_versions = library
+        .album_versions(album_id)
+        .unwrap()
+        .into_iter()
+        .filter(|candidate| candidate.provider == "apple_music")
+        .collect::<Vec<_>>();
+    assert_eq!(grouped_apple_versions.len(), 1);
+    assert_eq!(grouped_apple_versions[0].provider_id, "apple-album-2");
+    assert!(replacement_version.is_primary);
+    assert!(
+        library
+            .album_by_apple_music_id("apple-album-1")
+            .unwrap()
+            .is_none()
+    );
+
     let remaining = library.unlink_apple_music_album(album_id).unwrap().unwrap();
     assert!(
         remaining
             .iter()
             .all(|version| version.provider != "apple_music")
+    );
+    assert!(
+        library
+            .album_detail(album_id)
+            .unwrap()
+            .unwrap()
+            .album
+            .primary_version_id
+            .is_some()
+    );
+}
+
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+#[test]
+fn apple_music_expanded_multidisc_album_is_a_safe_complete_match() {
+    let library = test_library("apple-music-expanded-multidisc-match");
+    let now = now_secs();
+    let album_id = {
+        let conn = library.conn.lock().unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO albums (
+                title, album_artist, sort_key, year, confidence, match_status,
+                track_count, created_at, updated_at
+            )
+            VALUES ('Dots And Loops', 'Stereolab', 'stereolab|dots and loops',
+                    1997, 100, 'matched', 4, ?1, ?1)
+            "#,
+            [now],
+        )
+        .unwrap();
+        let album_id = conn.last_insert_rowid();
+        for (disc, track_number, title, duration) in [
+            (1, 1, "Brakhage", 318.0),
+            (1, 2, "Miss Modular", 269.0),
+            (2, 1, "Parsec", 334.0),
+            (2, 2, "Ticker-tape of the Unconscious", 281.0),
+        ] {
+            conn.execute(
+                r#"
+                INSERT INTO tracks (
+                    path, file_name, size_bytes, modified_secs, title, artist,
+                    album, album_artist, track_number, disc_number, duration_secs,
+                    sample_rate, bit_depth, format, album_id, embedded_art,
+                    created_at, updated_at
+                )
+                VALUES (?1, ?2, 1, 1, ?3, 'Stereolab', 'Dots And Loops', 'Stereolab',
+                        ?4, ?5, ?6, 44100, 16, 'FLAC', ?7, 0, ?8, ?8)
+                "#,
+                params![
+                    format!(
+                        "/tmp/apple-music-expanded-multidisc-match/disc-{disc}/{track_number:02}.flac"
+                    ),
+                    format!("{track_number:02} {title}.flac"),
+                    title,
+                    track_number,
+                    disc,
+                    duration,
+                    album_id,
+                    now,
+                ],
+            )
+            .unwrap();
+        }
+        album_id
+    };
+    let apple_album = AppleCatalogAlbum {
+        album_id: "1471004407".to_string(),
+        storefront: "nz".to_string(),
+        title: "Dots and Loops (Expanded Edition)".to_string(),
+        artist: "Stereolab".to_string(),
+        upc: None,
+        release_date: Some("1997-09-22".to_string()),
+        artwork_url: None,
+        editorial_notes_standard: None,
+        audio_variants: vec!["lossless".to_string()],
+        tracks: [
+            (1, 1, "Brakhage", 318.0),
+            (1, 2, "Miss Modular", 269.0),
+            (2, 1, "Parsec", 334.0),
+            (2, 2, "Ticker-tape of the Unconscious", 281.0),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(
+            |(index, (disc_number, track_number, title, duration_secs))| AppleCatalogSong {
+                song_id: format!("apple-expanded-song-{}", index + 1),
+                storefront: "nz".to_string(),
+                album_id: Some("1471004407".to_string()),
+                title: title.to_string(),
+                artist: "Stereolab".to_string(),
+                album_title: Some("Dots and Loops (Expanded Edition)".to_string()),
+                album_artist: Some("Stereolab".to_string()),
+                duration_secs: Some(duration_secs),
+                track_number: Some(track_number),
+                disc_number: Some(disc_number),
+                isrc: None,
+                artwork_url: None,
+                audio_variants: vec!["lossless".to_string()],
+            },
+        )
+        .collect(),
+    };
+
+    let preview = library
+        .preview_apple_music_album_version(album_id, apple_album)
+        .unwrap()
+        .unwrap();
+
+    assert!(preview.safe_to_link);
+    assert_eq!(preview.confidence, 100);
+    assert_eq!(preview.pairings.len(), 4);
+    assert!(preview.unmatched_local_track_ids.is_empty());
+    assert!(preview.unmatched_apple_song_ids.is_empty());
+    assert!(
+        preview
+            .evidence
+            .iter()
+            .any(|evidence| evidence == "edition_compatible_title")
+    );
+    assert!(
+        preview
+            .evidence
+            .iter()
+            .any(|evidence| evidence == "complete_track_evidence")
+    );
+}
+
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+#[test]
+fn apple_music_live_suffixes_and_format_specific_upc_still_auto_match() {
+    let library = test_library("apple-music-live-title-match");
+    let now = now_secs();
+    let album_id = {
+        let conn = library.conn.lock().unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO albums (
+                title, album_artist, sort_key, year, confidence, match_status,
+                track_count, mb_barcode, created_at, updated_at
+            )
+            VALUES ('Hail to the Thief: Live Recordings 2003–2009', 'Radiohead',
+                    'radiohead|hail to the thief live recordings', 2025, 100,
+                    'matched', 3, '191404156360', ?1, ?1)
+            "#,
+            [now],
+        )
+        .unwrap();
+        let album_id = conn.last_insert_rowid();
+        for (track_number, title, duration) in [
+            (1, "2 + 2 = 5", 216.165),
+            (2, "Sit Down. Stand Up", 251.738),
+            (3, "Sail to the Moon", 259.159),
+        ] {
+            conn.execute(
+                r#"
+                INSERT INTO tracks (
+                    path, file_name, size_bytes, modified_secs, title, artist,
+                    album, album_artist, track_number, disc_number, duration_secs,
+                    sample_rate, bit_depth, format, album_id, embedded_art,
+                    created_at, updated_at
+                )
+                VALUES (?1, ?2, 1, 1, ?3, 'Radiohead',
+                        'Hail to the Thief: Live Recordings 2003–2009', 'Radiohead',
+                        ?4, 1, ?5, 44100, 24, 'FLAC', ?6, 0, ?7, ?7)
+                "#,
+                params![
+                    format!("/tmp/apple-music-live-title-match/{track_number:02}.flac"),
+                    format!("{track_number:02} {title}.flac"),
+                    title,
+                    track_number,
+                    duration,
+                    album_id,
+                    now,
+                ],
+            )
+            .unwrap();
+        }
+        album_id
+    };
+    let apple_album = AppleCatalogAlbum {
+        album_id: "1828175826".to_string(),
+        storefront: "nz".to_string(),
+        title: "Hail to the Thief (Live Recordings 2003-2009)".to_string(),
+        artist: "Radiohead".to_string(),
+        upc: Some("191404156377".to_string()),
+        release_date: Some("2025-10-31".to_string()),
+        artwork_url: None,
+        editorial_notes_standard: None,
+        audio_variants: vec!["lossless".to_string()],
+        tracks: [
+            (1, "2 + 2 = 5 (Live)", 216.165),
+            (2, "Sit Down. Stand Up (Live)", 251.738),
+            (3, "Sail To The Moon (Live)", 259.159),
+        ]
+        .into_iter()
+        .map(|(track_number, title, duration_secs)| AppleCatalogSong {
+            song_id: format!("apple-live-song-{track_number}"),
+            storefront: "nz".to_string(),
+            album_id: Some("1828175826".to_string()),
+            title: title.to_string(),
+            artist: "Radiohead".to_string(),
+            album_title: Some("Hail to the Thief (Live Recordings 2003-2009)".to_string()),
+            album_artist: Some("Radiohead".to_string()),
+            duration_secs: Some(duration_secs),
+            track_number: Some(track_number),
+            disc_number: Some(1),
+            isrc: None,
+            artwork_url: None,
+            audio_variants: vec!["lossless".to_string()],
+        })
+        .collect(),
+    };
+
+    let preview = library
+        .preview_apple_music_album_version(album_id, apple_album)
+        .unwrap()
+        .unwrap();
+
+    assert!(preview.safe_to_link);
+    assert_eq!(preview.confidence, 100);
+    assert!(
+        preview
+            .pairings
+            .iter()
+            .all(|pairing| pairing.confidence == 100)
+    );
+    assert!(
+        preview
+            .evidence
+            .iter()
+            .any(|evidence| evidence == "upc_conflict_overridden_by_complete_track_evidence")
+    );
+}
+
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+#[test]
+fn apple_music_base_edition_can_match_local_edition_with_one_bonus_track() {
+    let library = test_library("apple-music-local-bonus-track-match");
+    let now = now_secs();
+    let base_tracks = [
+        (1, "Human Behaviour", 252.0),
+        (2, "Crying", 289.0),
+        (3, "Venus as a Boy", 282.0),
+        (4, "There's More to Life Than This", 198.0),
+        (5, "Like Someone in Love", 273.0),
+    ];
+    let album_id = {
+        let conn = library.conn.lock().unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO albums (
+                title, album_artist, sort_key, year, confidence, match_status,
+                track_count, created_at, updated_at
+            )
+            VALUES ('Debut', 'Björk', 'bjork|debut', 1993, 100,
+                    'matched', 6, ?1, ?1)
+            "#,
+            [now],
+        )
+        .unwrap();
+        let album_id = conn.last_insert_rowid();
+        for (track_number, title, duration) in
+            base_tracks.into_iter().chain([(6, "Play Dead", 235.0)])
+        {
+            conn.execute(
+                r#"
+                INSERT INTO tracks (
+                    path, file_name, size_bytes, modified_secs, title, artist,
+                    album, album_artist, track_number, disc_number, duration_secs,
+                    sample_rate, bit_depth, format, album_id, embedded_art,
+                    created_at, updated_at
+                )
+                VALUES (?1, ?2, 1, 1, ?3, 'Björk', 'Debut', 'Björk',
+                        ?4, 1, ?5, 44100, 16, 'FLAC', ?6, 0, ?7, ?7)
+                "#,
+                params![
+                    format!("/tmp/apple-music-local-bonus-track-match/{track_number:02}.flac"),
+                    format!("{track_number:02} {title}.flac"),
+                    title,
+                    track_number,
+                    duration,
+                    album_id,
+                    now,
+                ],
+            )
+            .unwrap();
+        }
+        album_id
+    };
+    let apple_album = AppleCatalogAlbum {
+        album_id: "1726662710".to_string(),
+        storefront: "nz".to_string(),
+        title: "Debut".to_string(),
+        artist: "Björk".to_string(),
+        upc: None,
+        release_date: Some("1993-07-05".to_string()),
+        artwork_url: None,
+        editorial_notes_standard: None,
+        audio_variants: vec!["lossless".to_string()],
+        tracks: base_tracks
+            .into_iter()
+            .map(|(track_number, title, duration_secs)| AppleCatalogSong {
+                song_id: format!("apple-debut-song-{track_number}"),
+                storefront: "nz".to_string(),
+                album_id: Some("1726662710".to_string()),
+                title: title.to_string(),
+                artist: "Björk".to_string(),
+                album_title: Some("Debut".to_string()),
+                album_artist: Some("Björk".to_string()),
+                duration_secs: Some(duration_secs),
+                track_number: Some(track_number),
+                disc_number: Some(1),
+                isrc: None,
+                artwork_url: None,
+                audio_variants: vec!["lossless".to_string()],
+            })
+            .collect(),
+    };
+
+    let preview = library
+        .preview_apple_music_album_version(album_id, apple_album)
+        .unwrap()
+        .unwrap();
+
+    assert!(preview.safe_to_link);
+    assert_eq!(preview.confidence, 100);
+    assert_eq!(preview.pairings.len(), 5);
+    assert_eq!(preview.unmatched_local_track_ids.len(), 1);
+    assert!(preview.unmatched_apple_song_ids.is_empty());
+    assert!(
+        preview
+            .evidence
+            .iter()
+            .any(|evidence| evidence == "complete_provider_edition_with_local_bonus_tracks")
     );
 }
 

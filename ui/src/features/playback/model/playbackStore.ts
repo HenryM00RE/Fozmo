@@ -15,6 +15,7 @@ export interface PlaybackStatus {
   duration_secs?: number | null;
   active_zone_id?: string | null;
   active_zone_name?: string | null;
+  zone_protocol?: string | null;
   selected_device?: string | null;
   exclusive?: boolean | null;
   source_rate?: number | null;

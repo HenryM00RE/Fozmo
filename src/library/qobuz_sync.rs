@@ -750,14 +750,26 @@ impl Library {
                 }
             };
         if sources.is_empty() {
-            return Ok(Some(AlbumPlaybackPlan { album_id, sources }));
+            return Ok(Some(AlbumPlaybackPlan {
+                album_id,
+                requested_version_id: version_id,
+                resolved_version_id: effective_version_id,
+                fallback_reason: None,
+                sources,
+            }));
         }
         let start = start_index.min(sources.len() - 1);
         sources = sources.split_off(start);
         if shuffle && sources.len() > 2 {
             shuffle_sources(&mut sources[1..]);
         }
-        Ok(Some(AlbumPlaybackPlan { album_id, sources }))
+        Ok(Some(AlbumPlaybackPlan {
+            album_id,
+            requested_version_id: version_id,
+            resolved_version_id: effective_version_id,
+            fallback_reason: None,
+            sources,
+        }))
     }
 
     pub fn qobuz_match_score(

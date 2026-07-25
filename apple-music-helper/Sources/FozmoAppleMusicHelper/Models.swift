@@ -409,6 +409,7 @@ struct CatalogAlbumPayload: Codable, Equatable {
     let upc: String?
     let releaseDate: String?
     let artworkURL: String?
+    let editorialNotesStandard: String?
     let audioVariants: [String]
     let tracks: [CatalogSongPayload]
 
@@ -420,6 +421,7 @@ struct CatalogAlbumPayload: Codable, Equatable {
         case upc
         case releaseDate = "release_date"
         case artworkURL = "artwork_url"
+        case editorialNotesStandard = "editorial_notes_standard"
         case audioVariants = "audio_variants"
         case tracks
     }
@@ -434,6 +436,7 @@ struct CatalogAlbumPayload: Codable, Equatable {
             ISO8601DateFormatter().string(from: $0)
         }
         artworkURL = album.artwork?.url(width: 1200, height: 1200)?.absoluteString
+        editorialNotesStandard = album.editorialNotes?.standard
         audioVariants = (album.audioVariants ?? []).map { String(describing: $0) }
         tracks = (album.tracks ?? []).compactMap { track in
             guard case .song(let song) = track else { return nil }

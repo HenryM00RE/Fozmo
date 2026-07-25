@@ -462,6 +462,7 @@ export function usePlaybackQueue({
         const items = safeArray<ResolvedPlaySource>(plan.sources)
           .map(resolvedPlaySourceToQueueItem)
           .filter(Boolean) as QueueItem[];
+        if (plan.fallback_reason) setNotice(plan.fallback_reason);
         playItems(items, 0);
       } catch (error) {
         if (albumPlaybackRequestRef.current !== requestId) return;

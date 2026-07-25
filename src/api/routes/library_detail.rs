@@ -3,10 +3,10 @@ use crate::app::auth::ProfileContext;
 use crate::app::state::AppState;
 use crate::audio::player::TrackCover;
 use crate::library::{
-    AlbumDetail, AlbumEdit, AlbumPlayResolveRequest, AlbumSummary, AlbumVersionSummary,
-    AutoMetaItemsQuery, AutoMetaRunRequest, CanonicalAlbum, CanonicalTrack, LibraryScanProgress,
-    MAX_ARTWORK_BYTES, ManualQobuzVersionRequest, ManualSearchRequest, MatchCandidate,
-    MatchRequest, MbidLookupRequest, MetaBrainzTestRequest, MetaBrainzTestResponse,
+    AlbumDetail, AlbumEdit, AlbumPlayResolveRequest, AlbumPlaybackPlan, AlbumSummary,
+    AlbumVersionSummary, AutoMetaItemsQuery, AutoMetaRunRequest, CanonicalAlbum, CanonicalTrack,
+    LibraryScanProgress, MAX_ARTWORK_BYTES, ManualQobuzVersionRequest, ManualSearchRequest,
+    MatchCandidate, MatchRequest, MbidLookupRequest, MetaBrainzTestRequest, MetaBrainzTestResponse,
     QobuzLinkRequest, QobuzMatchAssessment, QobuzMatchResponse, QobuzMatchTestCandidate,
     QobuzMatchTestResponse, QobuzTrackLinkSummary, TrackSummary,
 };
@@ -34,6 +34,10 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/api/library/albums/:id/versions/:version_id/primary",
             post(library_set_primary_version),
+        )
+        .route(
+            "/api/library/albums/:id/versions/:version_id",
+            get(library_album_version_detail),
         )
         .route(
             "/api/library/albums/:id/qobuz/match",
@@ -168,6 +172,8 @@ struct RemoteAlbumVersionSummary {
     sample_rate: Option<i64>,
     bit_depth: Option<i64>,
     source_label: Option<String>,
+    image_url: Option<String>,
+    storefront: Option<String>,
     status: String,
     is_primary: bool,
     musicbrainz_match_status: Option<String>,
@@ -176,6 +182,48 @@ struct RemoteAlbumVersionSummary {
     qobuz_match_status: Option<String>,
     qobuz_tagged_at: Option<i64>,
     autometa_message: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct AlbumPlaybackResolveError {
+    #[serde(skip)]
+    status: StatusCode,
+    code: String,
+    message: String,
+    requested_version_id: Option<i64>,
+}
+
+impl AlbumPlaybackResolveError {
+    fn new(
+        status: StatusCode,
+        code: impl Into<String>,
+        message: impl Into<String>,
+        requested_version_id: Option<i64>,
+    ) -> Self {
+        Self {
+            status,
+            code: code.into(),
+            message: message.into(),
+            requested_version_id,
+        }
+    }
+
+    fn internal(error: String, requested_version_id: Option<i64>) -> Self {
+        let (status, message) = internal_error(error);
+        Self::new(
+            status,
+            "album_playback_resolution_failed",
+            message,
+            requested_version_id,
+        )
+    }
+}
+
+impl IntoResponse for AlbumPlaybackResolveError {
+    fn into_response(self) -> axum::response::Response {
+        let status = self.status;
+        (status, Json(self)).into_response()
+    }
 }
 
 impl RemoteAlbumDetail {
@@ -213,6 +261,8 @@ impl RemoteAlbumVersionSummary {
             sample_rate: version.sample_rate,
             bit_depth: version.bit_depth,
             source_label: version.source_label,
+            image_url: version.image_url,
+            storefront: version.storefront,
             status: version.status,
             is_primary: version.is_primary,
             musicbrainz_match_status: version.musicbrainz_match_status,
@@ -534,19 +584,103 @@ async fn library_album_play_sources(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Json(req): Json<AlbumPlayResolveRequest>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<Json<AlbumPlaybackPlan>, AlbumPlaybackResolveError> {
     let start_index = req.start_index.unwrap_or(0);
     let shuffle = req.shuffle;
-    let version_id = req.version_id;
-    let plan = state
+    let requested_version_id = req.version_id;
+    let detail = state
+        .library()
+        .run_blocking(move |library| library.album_detail(id))
+        .await
+        .map_err(|error| AlbumPlaybackResolveError::internal(error, requested_version_id))?
+        .ok_or_else(|| {
+            AlbumPlaybackResolveError::new(
+                StatusCode::NOT_FOUND,
+                "album_not_found",
+                "Album not found",
+                requested_version_id,
+            )
+        })?;
+    let mut version_id = requested_version_id.or(detail.album.primary_version_id);
+    let mut fallback_reason = None;
+    let selected_is_apple = version_id.is_some_and(|selected_id| {
+        detail
+            .versions
+            .iter()
+            .any(|version| version.id == selected_id && version.provider == "apple_music")
+    });
+    if selected_is_apple {
+        #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+        let apple_available = {
+            let status = state.apple_music().status();
+            let active_zone_id = state.zones().active_zone_id();
+            status.helper_present
+                && status.authorization == "authorized"
+                && status.can_play_catalog_content == Some(true)
+                && state.zones().zone_protocol(&active_zone_id)
+                    == Some(crate::protocol::SinkProtocol::LocalCoreAudio)
+        };
+        #[cfg(not(all(target_os = "macos", feature = "apple_music_musickit")))]
+        let apple_available = false;
+
+        if !apple_available {
+            let fallback = detail
+                .versions
+                .iter()
+                .find(|version| version.provider != "apple_music" && version.status == "available");
+            let Some(fallback) = fallback else {
+                return Err(AlbumPlaybackResolveError::new(
+                    StatusCode::CONFLICT,
+                    "no_playable_album_version",
+                    "Apple Music is unavailable and this album has no other playable version."
+                        .to_string(),
+                    requested_version_id,
+                ));
+            };
+            version_id = Some(fallback.id);
+            fallback_reason = Some(format!(
+                "Apple Music is unavailable; playing {} instead.",
+                fallback.source_label.as_deref().unwrap_or_else(|| {
+                    if fallback.provider == "local" {
+                        "the local version"
+                    } else {
+                        "the next available version"
+                    }
+                })
+            ));
+        }
+    }
+    let mut plan = state
         .library()
         .run_blocking(move |library| {
             library.resolve_album_playback(id, start_index, shuffle, version_id)
         })
         .await
-        .map_err(internal_error)?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "Album not found".to_string()))?;
+        .map_err(|error| AlbumPlaybackResolveError::internal(error, requested_version_id))?
+        .ok_or_else(|| {
+            AlbumPlaybackResolveError::new(
+                StatusCode::NOT_FOUND,
+                "album_not_found",
+                "Album not found",
+                requested_version_id,
+            )
+        })?;
+    plan.requested_version_id = requested_version_id;
+    plan.fallback_reason = fallback_reason;
     Ok(Json(plan))
+}
+
+async fn library_album_version_detail(
+    State(state): State<AppState>,
+    Path((album_id, version_id)): Path<(i64, i64)>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let detail = state
+        .library()
+        .run_blocking(move |library| library.album_version_detail(album_id, version_id))
+        .await
+        .map_err(internal_error)?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Album version not found".to_string()))?;
+    Ok(Json(detail))
 }
 
 async fn fetch_qobuz_album_cover(
@@ -1645,6 +1779,22 @@ mod tests {
             album_qobuz_match_status: album_qobuz_match_status.map(str::to_string),
             album_qobuz_album_id: album_qobuz_album_id.map(str::to_string),
         }
+    }
+
+    #[test]
+    fn no_playable_album_version_error_is_structured() {
+        let error = AlbumPlaybackResolveError::new(
+            StatusCode::CONFLICT,
+            "no_playable_album_version",
+            "No linked version is playable.",
+            Some(42),
+        );
+        let payload = serde_json::to_value(&error).unwrap();
+
+        assert_eq!(payload["code"], "no_playable_album_version");
+        assert_eq!(payload["message"], "No linked version is playable.");
+        assert_eq!(payload["requested_version_id"], 42);
+        assert!(payload.get("status").is_none());
     }
 
     #[test]

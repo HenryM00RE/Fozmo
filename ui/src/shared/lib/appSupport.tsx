@@ -520,6 +520,7 @@ export function trackCreditRows(track: LibraryTrack) {
 }
 
 export function versionQualityLabel(version: JsonRecord) {
+  if (version.provider === 'apple_music') return 'Lossless';
   const parts = [];
   if (version.format) parts.push(String(version.format).toUpperCase());
   if (version.sample_rate) parts.push(`${(Number(version.sample_rate) / 1000).toFixed(1)}kHz`);

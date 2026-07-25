@@ -77,6 +77,8 @@ pub(crate) struct AppleCatalogAlbum {
     #[serde(default)]
     pub artwork_url: Option<String>,
     #[serde(default)]
+    pub editorial_notes_standard: Option<String>,
+    #[serde(default)]
     pub audio_variants: Vec<String>,
     #[serde(default)]
     pub tracks: Vec<AppleCatalogSong>,

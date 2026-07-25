@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { endpoints } from '../../../shared/lib/api';
 import { sourceRefToQueueItem } from '../../../shared/lib/queue';
 import type { CustomDisplayFontSettings } from '../../../shared/lib/theme';
-import type { JsonRecord, QueueItem, SourceRef } from '../../../shared/types';
+import type { JsonRecord, LibraryAlbum, QueueItem, SourceRef } from '../../../shared/types';
 import type { PlaybackStatus } from '../../playback/model/playbackStore';
 import type { AlbumSelectionItem } from '../model/albumModel';
 import {
@@ -11,12 +11,13 @@ import {
 } from '../model/appleMusicAlbum';
 import { AlbumDetailPage } from './AlbumDetailPage';
 
-const ignoreLocalAlbumPlay = async () => undefined;
-
 export function AppleMusicAlbumPage({
   id,
   storefront,
   onOpenArtist,
+  onOpenLocalAlbum,
+  onOpenQobuzAlbum,
+  playAlbum,
   playItems,
   addItemsToQueue,
   selectedTrackKeys,
@@ -31,6 +32,14 @@ export function AppleMusicAlbumPage({
   id?: string | number | null;
   storefront?: string | null;
   onOpenArtist: (artist: string) => void;
+  onOpenLocalAlbum?: (id: string | number) => void;
+  onOpenQobuzAlbum?: (id: string | number, albumHint?: LibraryAlbum) => void;
+  playAlbum?: (
+    id: string | number,
+    startIndex?: number,
+    shuffle?: boolean,
+    versionId?: number
+  ) => Promise<void>;
   playItems: (items: QueueItem[], startIndex?: number) => void;
   addItemsToQueue: (items: QueueItem[], placement: 'next' | 'end') => void;
   selectedTrackKeys: Set<string>;
@@ -43,6 +52,7 @@ export function AppleMusicAlbumPage({
   customDisplayFont: CustomDisplayFontSettings | null;
 }) {
   const [catalogAlbum, setCatalogAlbum] = useState<JsonRecord | null>(null);
+  const [linkedDetail, setLinkedDetail] = useState<JsonRecord | null>(null);
   const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
@@ -53,11 +63,16 @@ export function AppleMusicAlbumPage({
     }
     let cancelled = false;
     setCatalogAlbum(null);
+    setLinkedDetail(null);
     setLoadError('');
-    endpoints
-      .appleMusicCatalogAlbum(String(id), storefront || undefined)
-      .then((album) => {
-        if (!cancelled) setCatalogAlbum(album);
+    Promise.all([
+      endpoints.appleMusicCatalogAlbum(String(id), storefront || undefined),
+      endpoints.albumByAppleMusicId(String(id)).catch(() => null)
+    ])
+      .then(([album, linked]) => {
+        if (cancelled) return;
+        setCatalogAlbum(album);
+        setLinkedDetail(linked);
       })
       .catch((error) => {
         if (cancelled) return;
@@ -70,10 +85,31 @@ export function AppleMusicAlbumPage({
     };
   }, [id, storefront]);
 
-  const detail = useMemo(
-    () => (catalogAlbum ? appleMusicAlbumToLibraryDetail(catalogAlbum) : null),
-    [catalogAlbum]
-  );
+  const detail = useMemo(() => {
+    if (!catalogAlbum) return null;
+    const appleDetail = appleMusicAlbumToLibraryDetail(catalogAlbum);
+    if (!linkedDetail?.album) return appleDetail;
+    const linkedAlbum = linkedDetail.album as JsonRecord;
+    const linkedAlbumId = linkedAlbum.id;
+    const linkedVersions = Array.isArray(linkedDetail.versions)
+      ? (linkedDetail.versions as JsonRecord[])
+      : [];
+    const groupedVersions = linkedVersions.map((version) => ({
+      ...version,
+      ...(version.provider === 'local' ? { open_local_album_id: linkedAlbumId } : {}),
+      ...(version.provider === 'qobuz' ? { open_album_id: version.provider_id } : {})
+    }));
+    return {
+      ...appleDetail,
+      linked_album: linkedAlbum,
+      linked_album_id: linkedAlbumId,
+      linked_tracks: linkedDetail.tracks,
+      canonical_album: linkedDetail.canonical_album,
+      canonical_tracks: linkedDetail.canonical_tracks,
+      qobuz_track_links: linkedDetail.qobuz_track_links,
+      versions: groupedVersions.length ? groupedVersions : appleDetail.versions
+    };
+  }, [catalogAlbum, linkedDetail]);
 
   if (loadError) {
     return (
@@ -92,7 +128,7 @@ export function AppleMusicAlbumPage({
       id={id}
       providedDetail={detail}
       kind="apple_music"
-      playAlbum={ignoreLocalAlbumPlay}
+      playAlbum={playAlbum || (async () => undefined)}
       onPlayAppleMusicTracks={(tracks, startIndex = 0) => {
         const items = tracks
           .map(appleMusicSourceFromAlbumTrack)
@@ -102,6 +138,8 @@ export function AppleMusicAlbumPage({
         if (items.length) playItems(items, startIndex);
       }}
       onOpenArtist={onOpenArtist}
+      onOpenLocalAlbum={onOpenLocalAlbum}
+      onOpenQobuzAlbum={onOpenQobuzAlbum}
       addItemsToQueue={addItemsToQueue}
       playbackStatus={playbackStatus}
       selectedTrackKeys={selectedTrackKeys}

@@ -13,6 +13,9 @@ type ScenarioName =
   | 'apple_qobuz'
   | 'mixed_run';
 
+const APPLE_MUSIC_PRIVACY_SETTINGS_URL =
+  'x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Media';
+
 export function AppleMusicMvpPage({
   activeZoneStatus,
   addItemsToQueue
@@ -425,6 +428,11 @@ export function AppleMusicMvpPage({
             >
               {authorized ? 'Refresh authorization' : 'Authorize Apple Music'}
             </button>
+            {appleStatus?.authorization === 'denied' ? (
+              <a className="pill" href={APPLE_MUSIC_PRIVACY_SETTINGS_URL}>
+                Open Media &amp; Apple Music settings
+              </a>
+            ) : null}
             <button
               className="settings-heading-refresh"
               type="button"
@@ -477,11 +485,7 @@ export function AppleMusicMvpPage({
           </div>
 
           <label className="apple-music-capture-confirmation">
-            <input
-              type="checkbox"
-              checked={captureConfirmed}
-              readOnly
-            />
+            <input type="checkbox" checked={captureConfirmed} readOnly />
             <span>
               Allow Fozmo to route native Music.app playback through the Fozmo Capture virtual
               driver and feed it through the selected local DSP/output path. Always on.

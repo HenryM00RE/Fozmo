@@ -80,6 +80,17 @@ describe('loadQobuzAlbumDetail versions', () => {
           sample_rate: 44100,
           bit_depth: 16,
           format: 'FLAC'
+        },
+        {
+          id: 12,
+          provider: 'apple_music',
+          provider_id: 'apple-nmd',
+          source_label: 'Apple Music',
+          title: 'New Moon Daughter',
+          artist: 'Cassandra Wilson',
+          track_count: 12,
+          image_url: 'https://example.test/apple-nmd.jpg',
+          storefront: 'nz'
         }
       ]
     } as JsonRecord;
@@ -105,6 +116,7 @@ describe('loadQobuzAlbumDetail versions', () => {
     expect(result.kind).toBe('qobuz');
     expect((detail.linked_album as JsonRecord).id).toBe(7);
     expect(versionIds).toContain('11');
+    expect(versionIds).toContain('12');
     expect(versionIds).toContain('qobuz:cd:nmd-1995');
     expect(versionIds).toContain('qobuz:hires:nmd-2013');
     expect(versionIds).toContain('qobuz:cd:nmd-2013');

@@ -162,22 +162,25 @@ async function mergeLinkedLibraryDetail(
   if (!linked?.album) return qobuzDetail;
   const linkedAlbum = linked.album as JsonRecord;
   const linkedAlbumId = idValue(linkedAlbum.id);
-  const localVersions = safeArray<JsonRecord>(linked.versions)
-    .filter((version) => version.provider === 'local')
+  const linkedProviderVersions = safeArray<JsonRecord>(linked.versions)
+    .filter((version) => version.provider !== 'qobuz')
     .map((version) => ({
       ...version,
       is_primary: false,
-      open_local_album_id: linkedAlbumId || version.album_id || linkedAlbum.id
+      ...(version.provider === 'local'
+        ? { open_local_album_id: linkedAlbumId || version.album_id || linkedAlbum.id }
+        : {})
     }));
   const linkedQobuzVersions = await linkedCanonicalQobuzVersions(linked, qobuzSourceDetail);
-  if (!localVersions.length && !linkedQobuzVersions.length) return qobuzDetail;
+  if (!linkedProviderVersions.length && !linkedQobuzVersions.length) return qobuzDetail;
   const existingVersions = safeArray<JsonRecord>(qobuzDetail.versions);
   const versions = pruneCatalogRowsCoveredByTiers(
-    mergeAlbumVersionRows([...localVersions, ...existingVersions], linkedQobuzVersions)
+    mergeAlbumVersionRows([...linkedProviderVersions, ...existingVersions], linkedQobuzVersions)
   );
   return {
     ...qobuzDetail,
     linked_album: linkedAlbum,
+    linked_album_id: linkedAlbumId || linkedAlbum.id,
     versions,
     album:
       qobuzDetail.album && typeof qobuzDetail.album === 'object'

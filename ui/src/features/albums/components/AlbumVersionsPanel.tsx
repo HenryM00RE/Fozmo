@@ -9,6 +9,7 @@ import {
   versionQualityLabel
 } from '../../../shared/lib/appSupport';
 import type { JsonRecord, LibraryAlbum, LibraryTrack } from '../../../shared/types';
+import { AppleMusicSourceIcon } from '../../../shared/ui/AppleMusicSourceIcon';
 import { Icon } from '../../../shared/ui/Icon';
 import { Menu } from '../../../shared/ui/Menu';
 import { QobuzSourceIcon } from '../../../shared/ui/QobuzSourceIcon';
@@ -16,6 +17,20 @@ import { useActionMenuScrollLock } from '../../../shared/ui/useActionMenuScrollL
 
 const VERSION_CONTEXT_MENU_WIDTH = 230;
 const VERSION_CONTEXT_MENU_EDGE_GAP = 12;
+
+export function albumVersionHierarchyRank(version: JsonRecord) {
+  const provider = String(version.provider || '');
+  const hiRes =
+    version.tier === 'hires' ||
+    Number(version.bit_depth || 0) >= 24 ||
+    Number(version.sample_rate || 0) > 48_000;
+  if (provider === 'local' && hiRes) return 0;
+  if (provider === 'qobuz' && hiRes) return 1;
+  if (provider === 'local') return 2;
+  if (provider === 'qobuz') return 3;
+  if (provider === 'apple_music') return 4;
+  return 5;
+}
 
 function appViewportScale() {
   if (typeof document === 'undefined') return 1;
@@ -60,24 +75,20 @@ export function AlbumVersionsPanel({
   onSetPrimary: (versionId: string | number) => Promise<void>;
   onEditLocalAlbum?: () => void;
 }) {
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    provider: string;
+  } | null>(null);
   useActionMenuScrollLock(Boolean(contextMenu));
-  const ordered = versions.length
-    ? [
-        ...versions.filter((version) => version.provider === 'local'),
-        ...versions
-          .filter((version) => version.provider === 'qobuz' && version.tier !== 'catalog')
-          .sort((a, b) => {
-            const tierRank = (version: JsonRecord) =>
-              version.tier === 'hires' || Number(version.bit_depth || 0) >= 24 ? 0 : 1;
-            return tierRank(a) - tierRank(b);
-          }),
-        ...versions.filter((version) => version.provider === 'qobuz' && version.tier === 'catalog'),
-        ...versions.filter(
-          (version) => version.provider !== 'local' && version.provider !== 'qobuz'
-        )
-      ]
-    : [];
+  const ordered = [...versions].sort((left, right) => {
+    const rank = albumVersionHierarchyRank(left) - albumVersionHierarchyRank(right);
+    if (rank) return rank;
+    return (
+      Number(right.sample_rate || 0) - Number(left.sample_rate || 0) ||
+      Number(right.bit_depth || 0) - Number(left.bit_depth || 0)
+    );
+  });
   const fallbackVersion = fallbackAlbum
     ? [
         {
@@ -130,10 +141,13 @@ export function AlbumVersionsPanel({
                 viewingVersionId === null || viewingVersionId === undefined
                   ? isPrimary
                   : sameVersionId(version.id, viewingVersionId);
-              const providerLabel = String(
-                version.source_label || (version.provider === 'qobuz' ? 'Qobuz' : 'Library')
-              );
               const isQobuzVersion = version.provider === 'qobuz';
+              const isAppleMusicVersion = version.provider === 'apple_music';
+              const providerLabel = isAppleMusicVersion
+                ? 'Lossless'
+                : String(
+                    version.source_label || (version.provider === 'qobuz' ? 'Qobuz' : 'Library')
+                  );
               const canEdit = version.provider === 'local' && Boolean(onEditLocalAlbum);
               const versionLabel = albumVersionLabel(version);
               const openAlbumId = idValue(version.open_album_id);
@@ -175,7 +189,10 @@ export function AlbumVersionsPanel({
                     if (!canEdit) return;
                     event.preventDefault();
                     event.stopPropagation();
-                    setContextMenu(versionContextMenuPosition(event.clientX, event.clientY));
+                    setContextMenu({
+                      ...versionContextMenuPosition(event.clientX, event.clientY),
+                      provider: String(version.provider || '')
+                    });
                   }}
                   onKeyDown={(event) => {
                     if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -193,6 +210,7 @@ export function AlbumVersionsPanel({
                     <strong className="version-title">
                       <span>{String(version.title || titleOf(fallbackAlbum, 'Album'))}</span>
                       {isQobuzVersion ? <QobuzSourceIcon decorative /> : null}
+                      {isAppleMusicVersion ? <AppleMusicSourceIcon decorative /> : null}
                     </strong>
                     <span>{versionSubtitle}</span>
                   </div>

@@ -151,6 +151,7 @@ final class ModelsTests: XCTestCase {
               "title": "Homogenic",
               "artist": "Björk",
               "artwork_url": "https://example.test/homogenic.jpg",
+              "editorial_notes_standard": "A landmark electronic album.",
               "audio_variants": [],
               "tracks": []
             }
@@ -173,6 +174,10 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(
             (search["albums"] as? [[String: Any]])?.first?["album_id"] as? String,
             "album-1"
+        )
+        XCTAssertEqual(
+            (search["albums"] as? [[String: Any]])?.first?["editorial_notes_standard"] as? String,
+            "A landmark electronic album."
         )
     }
 

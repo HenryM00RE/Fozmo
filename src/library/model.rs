@@ -500,7 +500,37 @@ pub struct QobuzTrackLinkSummary {
 #[derive(Debug, Serialize)]
 pub struct AlbumPlaybackPlan {
     pub album_id: i64,
+    pub requested_version_id: Option<i64>,
+    pub resolved_version_id: Option<i64>,
+    pub fallback_reason: Option<String>,
     pub sources: Vec<ResolvedPlaySource>,
+}
+
+#[derive(Debug, Serialize, Clone, JsonSchema)]
+pub struct AlbumVersionDetail {
+    pub version: AlbumVersionSummary,
+    pub album: AlbumVersionMetadata,
+    pub tracks: Vec<AlbumVersionTrack>,
+}
+
+#[derive(Debug, Serialize, Clone, JsonSchema)]
+pub struct AlbumVersionMetadata {
+    pub provider: String,
+    pub provider_id: String,
+    pub title: String,
+    pub artist: Option<String>,
+    pub year: Option<i32>,
+    pub release_date: Option<String>,
+    pub track_count: i64,
+    pub image_url: Option<String>,
+    pub storefront: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone, JsonSchema)]
+pub struct AlbumVersionTrack {
+    pub position: usize,
+    pub play_source: ResolvedPlaySource,
 }
 
 #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
@@ -528,6 +558,13 @@ pub struct AppleMusicAlbumMatchPreview {
     pub resulting_version: Option<AlbumVersionSummary>,
 }
 
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+#[derive(Debug, Serialize, Clone, JsonSchema)]
+pub struct AppleMusicVersionDetail {
+    pub version: AlbumVersionSummary,
+    pub apple_album: crate::services::apple_music_musickit::AppleCatalogAlbum,
+}
+
 #[derive(Debug, Serialize, Clone, JsonSchema)]
 pub struct AlbumVersionSummary {
     pub id: i64,
@@ -543,6 +580,8 @@ pub struct AlbumVersionSummary {
     pub sample_rate: Option<i64>,
     pub bit_depth: Option<i64>,
     pub source_label: Option<String>,
+    pub image_url: Option<String>,
+    pub storefront: Option<String>,
     pub status: String,
     pub is_primary: bool,
     pub musicbrainz_match_status: Option<String>,

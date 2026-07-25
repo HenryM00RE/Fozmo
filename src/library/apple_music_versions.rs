@@ -1,4 +1,4 @@
-use super::matching::{normalize_for_match, pair_tracks};
+use super::matching::pair_tracks;
 use super::provider_versions::{
     ExternalAlbumVersionInput, ExternalTrackPairing, ExternalVersionTrackInput,
     assign_recording_ids_for_external_version, external_album_version_by_provider_id,
@@ -6,8 +6,8 @@ use super::provider_versions::{
     upsert_external_version_tracks,
 };
 use super::{
-    AlbumVersionSummary, AppleMusicAlbumMatchPreview, AppleMusicTrackPairPreview, Library, MbTrack,
-    ResolvedPlaySource,
+    AlbumDetail, AlbumVersionSummary, AppleMusicAlbumMatchPreview, AppleMusicTrackPairPreview,
+    AppleMusicVersionDetail, Library, MbTrack, ResolvedPlaySource,
 };
 use crate::services::apple_music_musickit::{AppleCatalogAlbum, AppleCatalogSong};
 use rusqlite::{OptionalExtension, params};
@@ -45,10 +45,14 @@ impl Library {
             .filter(|track| !paired_apple.contains(track.song_id.as_str()))
             .map(|track| track.song_id.clone())
             .collect::<Vec<_>>();
-        let title_match =
-            normalize_for_match(&local_album.title) == normalize_for_match(&apple_album.title);
+        let normalized_local_title = normalize_apple_match_text(&local_album.title);
+        let normalized_apple_title = normalize_apple_match_text(&apple_album.title);
+        let title_match = normalized_local_title == normalized_apple_title;
+        let edition_title_match = !title_match
+            && normalized_album_base_title(&local_album.title)
+                == normalized_album_base_title(&apple_album.title);
         let artist_match = local_album.album_artist.as_deref().is_some_and(|artist| {
-            normalize_for_match(artist) == normalize_for_match(&apple_album.artist)
+            normalize_apple_match_text(artist) == normalize_apple_match_text(&apple_album.artist)
         });
         let track_count_match =
             !local_tracks.is_empty() && local_tracks.len() == apple_album.tracks.len();
@@ -64,11 +68,34 @@ impl Library {
         let all_tracks_paired = unmatched_local_track_ids.is_empty()
             && unmatched_apple_song_ids.is_empty()
             && !pairings.is_empty();
+        let all_provider_tracks_paired = unmatched_apple_song_ids.is_empty()
+            && pairings.len() == apple_album.tracks.len()
+            && !pairings.is_empty();
+        let provider_is_complete_local_subset = !track_count_match
+            && all_provider_tracks_paired
+            && unmatched_local_track_ids.len() <= 2
+            && pairings.len() * 5 >= local_tracks.len() * 4;
+        let compatible_track_set = track_count_match || provider_is_complete_local_subset;
+        let complete_track_evidence = all_provider_tracks_paired
+            && pairings.iter().all(|pairing| pairing.confidence >= 95)
+            && pairings
+                .iter()
+                .filter(|pairing| pairing.confidence == 100)
+                .count()
+                * 10
+                >= pairings.len() * 9;
+        let complete_release_evidence = complete_track_evidence
+            && compatible_track_set
+            && (title_match || edition_title_match)
+            && artist_match;
         let mut confidence = 0;
         let mut evidence = Vec::new();
         if title_match {
             confidence += 25;
             evidence.push("exact_normalized_title".to_string());
+        } else if edition_title_match {
+            confidence += 25;
+            evidence.push("edition_compatible_title".to_string());
         }
         if artist_match {
             confidence += 20;
@@ -77,11 +104,17 @@ impl Library {
         if track_count_match {
             confidence += 20;
             evidence.push("equal_track_count".to_string());
+        } else if provider_is_complete_local_subset {
+            confidence += 20;
+            evidence.push("complete_provider_edition_with_local_bonus_tracks".to_string());
         }
         match barcode_match {
             Some(true) => {
                 confidence += 25;
                 evidence.push("upc_match".to_string());
+            }
+            Some(false) if complete_release_evidence => {
+                evidence.push("upc_conflict_overridden_by_complete_track_evidence".to_string());
             }
             Some(false) => {
                 confidence -= 40;
@@ -92,12 +125,21 @@ impl Library {
         if all_tracks_paired {
             confidence += 10;
             evidence.push("all_tracks_paired".to_string());
+        } else if provider_is_complete_local_subset {
+            confidence += 10;
+            evidence.push("all_provider_tracks_paired".to_string());
+        }
+        if complete_release_evidence {
+            confidence += 25;
+            evidence.push("complete_track_evidence".to_string());
         }
         confidence = confidence.clamp(0, 100);
-        let safe_to_link = barcode_match != Some(false)
-            && track_count_match
-            && all_tracks_paired
-            && (barcode_match == Some(true) || (title_match && artist_match));
+        let safe_to_link = (barcode_match != Some(false) || complete_release_evidence)
+            && compatible_track_set
+            && all_provider_tracks_paired
+            && complete_track_evidence
+            && (barcode_match == Some(true)
+                || ((title_match || edition_title_match) && artist_match));
         let pairings = pairings
             .into_iter()
             .filter_map(|pairing| {
@@ -171,6 +213,29 @@ impl Library {
                 .transaction()
                 .map_err(|error| format!("begin Apple Music version transaction: {error}"))?;
             Self::sync_local_versions_for_album_with_conn(&tx, album_id)?;
+            let apple_was_primary: bool = tx
+                .query_row(
+                    r#"
+                    SELECT EXISTS(
+                        SELECT 1
+                        FROM albums a
+                        JOIN album_versions v ON v.id = a.primary_version_id
+                        WHERE a.id = ?1 AND v.provider = ?2
+                    )
+                    "#,
+                    params![album_id, PROVIDER],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map(|value| value != 0)
+                .map_err(|error| format!("load grouped Apple Music version: {error}"))?;
+            tx.execute(
+                r#"
+                DELETE FROM album_versions
+                WHERE album_id = ?1 AND provider = ?2 AND provider_id <> ?3
+                "#,
+                params![album_id, PROVIDER, apple_album.album_id],
+            )
+            .map_err(|error| format!("replace grouped Apple Music version: {error}"))?;
             let version_id = upsert_external_album_version(
                 &tx,
                 &ExternalAlbumVersionInput {
@@ -192,6 +257,13 @@ impl Library {
             upsert_external_version_tracks(&tx, version_id, &tracks)?;
             rebuild_external_track_links(&tx, album_id, PROVIDER, &pairings)?;
             assign_recording_ids_for_external_version(&tx, album_id)?;
+            if apple_was_primary {
+                tx.execute(
+                    "UPDATE albums SET primary_version_id = ?2, updated_at = ?3 WHERE id = ?1",
+                    params![album_id, version_id, super::now_secs()],
+                )
+                .map_err(|error| format!("preserve Apple Music primary version: {error}"))?;
+            }
             tx.commit()
                 .map_err(|error| format!("commit Apple Music version: {error}"))?;
             version_id
@@ -213,6 +285,21 @@ impl Library {
         let tx = conn
             .transaction()
             .map_err(|error| format!("begin Apple Music unlink transaction: {error}"))?;
+        let removed_primary: bool = tx
+            .query_row(
+                r#"
+                SELECT EXISTS(
+                    SELECT 1
+                    FROM albums a
+                    JOIN album_versions v ON v.id = a.primary_version_id
+                    WHERE a.id = ?1 AND v.provider = ?2
+                )
+                "#,
+                params![album_id, PROVIDER],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|value| value != 0)
+            .map_err(|error| format!("check Apple Music primary version: {error}"))?;
         tx.execute(
             r#"
             DELETE FROM version_track_links
@@ -232,10 +319,110 @@ impl Library {
             params![album_id, PROVIDER],
         )
         .map_err(|error| format!("delete Apple Music versions: {error}"))?;
+        if removed_primary {
+            tx.execute(
+                r#"
+                UPDATE albums
+                SET primary_version_id = (
+                    SELECT id
+                    FROM album_versions
+                    WHERE album_id = ?1 AND status = 'available'
+                    ORDER BY
+                        CASE
+                          WHEN provider = 'local'
+                           AND (COALESCE(bit_depth, 0) >= 24 OR COALESCE(sample_rate, 0) > 48000)
+                          THEN 0
+                          WHEN provider = 'qobuz'
+                           AND (COALESCE(bit_depth, 0) >= 24 OR COALESCE(sample_rate, 0) > 48000)
+                          THEN 1
+                          WHEN provider = 'local' THEN 2
+                          WHEN provider = 'qobuz' THEN 3
+                          ELSE 4
+                        END,
+                        COALESCE(sample_rate, 0) DESC,
+                        id
+                    LIMIT 1
+                ),
+                updated_at = ?2
+                WHERE id = ?1
+                "#,
+                params![album_id, super::now_secs()],
+            )
+            .map_err(|error| format!("choose primary after Apple Music unlink: {error}"))?;
+        }
         tx.commit()
             .map_err(|error| format!("commit Apple Music unlink: {error}"))?;
         drop(conn);
         Ok(Some(self.album_versions(album_id)?))
+    }
+
+    pub fn album_by_apple_music_id(
+        &self,
+        apple_album_id: &str,
+    ) -> Result<Option<AlbumDetail>, String> {
+        let normalized = apple_album_id.trim();
+        if normalized.is_empty() {
+            return Ok(None);
+        }
+        let album_id: Option<i64> = {
+            let conn = self.conn.lock().unwrap();
+            conn.query_row(
+                r#"
+                SELECT album_id
+                FROM album_versions
+                WHERE provider = ?1 AND provider_id = ?2
+                ORDER BY updated_at DESC, id DESC
+                LIMIT 1
+                "#,
+                params![PROVIDER, normalized],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| format!("Apple Music album lookup: {error}"))?
+        };
+        album_id
+            .map(|album_id| self.album_detail(album_id))
+            .transpose()
+            .map(Option::flatten)
+    }
+
+    pub fn apple_music_version_detail(
+        &self,
+        album_id: i64,
+        version_id: i64,
+    ) -> Result<Option<AppleMusicVersionDetail>, String> {
+        let payload: Option<String> = {
+            let conn = self.conn.lock().unwrap();
+            conn.query_row(
+                r#"
+                SELECT payload_json
+                FROM album_versions
+                WHERE id = ?1 AND album_id = ?2 AND provider = ?3
+                  AND status = 'available'
+                "#,
+                params![version_id, album_id, PROVIDER],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| format!("Apple Music version detail lookup: {error}"))?
+            .flatten()
+        };
+        let Some(payload) = payload else {
+            return Ok(None);
+        };
+        let apple_album = serde_json::from_str(&payload)
+            .map_err(|error| format!("parse Apple Music version detail: {error}"))?;
+        let Some(version) = self
+            .album_versions(album_id)?
+            .into_iter()
+            .find(|version| version.id == version_id && version.provider == PROVIDER)
+        else {
+            return Ok(None);
+        };
+        Ok(Some(AppleMusicVersionDetail {
+            version,
+            apple_album,
+        }))
     }
 
     pub(super) fn apple_music_sources_for_version(
@@ -314,8 +501,8 @@ fn pair_apple_tracks(
         .filter_map(|pairing| {
             let local = local_tracks.get(pairing.file_index)?;
             let apple = apple_tracks.get(pairing.mb_index)?;
-            let exact_title =
-                normalize_for_match(&local.title) == normalize_for_match(&apple.title);
+            let exact_title = normalized_apple_track_title(&local.title)
+                == normalized_apple_track_title(&apple.title);
             let duration_match = match (local.duration_secs, apple.duration_secs) {
                 (Some(local), Some(apple)) => (local - apple).abs() <= 3.0,
                 _ => false,
@@ -377,4 +564,172 @@ fn normalize_barcode(value: &str) -> String {
         .chars()
         .filter(|character| character.is_ascii_digit())
         .collect()
+}
+
+fn normalized_album_base_title(value: &str) -> String {
+    let normalized = normalize_apple_match_text(value);
+    for suffix in [
+        " bonus track edition",
+        " bonus tracks edition",
+        " collector s edition",
+        " collectors edition",
+        " deluxe edition",
+        " expanded edition",
+        " special edition",
+        " remaster",
+        " remastered",
+    ] {
+        if let Some(base) = normalized.strip_suffix(suffix).map(str::trim)
+            && !base.is_empty()
+        {
+            return base.to_string();
+        }
+    }
+    let tokens = normalized.split_whitespace().collect::<Vec<_>>();
+    if tokens.ends_with(&["anniversary", "edition"])
+        && let Some(anniversary_index) = tokens.iter().rposition(|token| *token == "anniversary")
+    {
+        let mut base_end = anniversary_index;
+        if base_end > 0
+            && tokens[base_end - 1]
+                .chars()
+                .any(|character| character.is_ascii_digit())
+        {
+            base_end -= 1;
+        }
+        let base = tokens[..base_end].join(" ");
+        if !base.is_empty() {
+            return base;
+        }
+    }
+    normalized
+}
+
+fn normalized_apple_track_title(value: &str) -> String {
+    let trimmed = value.trim();
+    for (opening, closing) in [('(', ')'), ('[', ']')] {
+        if trimmed.ends_with(closing)
+            && let Some(opening_index) = trimmed.rfind(opening)
+        {
+            let qualifier = &trimmed[opening_index + opening.len_utf8()..trimmed.len() - 1];
+            let normalized_qualifier = normalize_apple_match_text(qualifier);
+            if normalized_qualifier.starts_with("live")
+                || normalized_qualifier.starts_with("recorded live")
+            {
+                let base = normalize_apple_match_text(trimmed[..opening_index].trim());
+                if !base.is_empty() {
+                    return base;
+                }
+            }
+        }
+    }
+    let normalized = normalize_apple_match_text(trimmed);
+    normalized
+        .strip_suffix(" live")
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .unwrap_or(&normalized)
+        .to_string()
+}
+
+fn normalize_apple_match_text(value: &str) -> String {
+    let chars = value.chars().collect::<Vec<_>>();
+    let mut folded = String::with_capacity(value.len());
+    for (index, character) in chars.iter().copied().enumerate() {
+        if index > 0
+            && character.is_uppercase()
+            && chars[index - 1].is_lowercase()
+            && chars.get(index + 1).is_some_and(|next| next.is_lowercase())
+        {
+            folded.push(' ');
+        }
+        for lowered in character.to_lowercase() {
+            match lowered {
+                '&' => folded.push_str(" and "),
+                '\'' | '’' | '‘' | 'ʼ' => {}
+                'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ā' | 'ă' | 'ą' => folded.push('a'),
+                'æ' => folded.push_str("ae"),
+                'ç' | 'ć' | 'č' => folded.push('c'),
+                'ď' | 'ð' => folded.push('d'),
+                'è' | 'é' | 'ê' | 'ë' | 'ē' | 'ĕ' | 'ė' | 'ę' | 'ě' => folded.push('e'),
+                'ì' | 'í' | 'î' | 'ï' | 'ĩ' | 'ī' | 'ĭ' | 'į' | 'ı' => folded.push('i'),
+                'ĺ' | 'ļ' | 'ľ' | 'ł' => folded.push('l'),
+                'ñ' | 'ń' | 'ņ' | 'ň' => folded.push('n'),
+                'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'ō' | 'ŏ' | 'ő' => folded.push('o'),
+                'œ' => folded.push_str("oe"),
+                'ŕ' | 'ŗ' | 'ř' => folded.push('r'),
+                'ś' | 'ş' | 'š' => folded.push('s'),
+                'ß' => folded.push_str("ss"),
+                'ť' => folded.push('t'),
+                'þ' => folded.push_str("th"),
+                'ù' | 'ú' | 'û' | 'ü' | 'ũ' | 'ū' | 'ŭ' | 'ů' | 'ű' | 'ų' => {
+                    folded.push('u')
+                }
+                'ý' | 'ÿ' => folded.push('y'),
+                'ź' | 'ż' | 'ž' => folded.push('z'),
+                value if value.is_alphanumeric() => folded.push(value),
+                _ => folded.push(' '),
+            }
+        }
+    }
+    folded.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        normalize_apple_match_text, normalized_album_base_title, normalized_apple_track_title,
+    };
+
+    #[test]
+    fn album_title_matching_ignores_trailing_edition_qualifiers() {
+        assert_eq!(
+            normalized_album_base_title("Dots and Loops (Expanded Edition)"),
+            "dots and loops"
+        );
+        assert_eq!(
+            normalized_album_base_title("OK Computer – 20th Anniversary Edition"),
+            "ok computer"
+        );
+    }
+
+    #[test]
+    fn album_title_matching_preserves_meaningful_title_words() {
+        assert_eq!(normalized_album_base_title("The Deluxe"), "the deluxe");
+        assert_eq!(
+            normalized_album_base_title("Expanded Universe"),
+            "expanded universe"
+        );
+    }
+
+    #[test]
+    fn apple_track_title_matching_ignores_live_qualifiers() {
+        assert_eq!(
+            normalized_apple_track_title("2 + 2 = 5 (Live)"),
+            normalized_apple_track_title("2 + 2 = 5")
+        );
+        assert_eq!(
+            normalized_apple_track_title("I Will (Live at Le Réservoir, Paris)"),
+            normalized_apple_track_title("I Will")
+        );
+        assert_eq!(normalized_apple_track_title("Live Forever"), "live forever");
+        assert_eq!(
+            normalized_apple_track_title(
+                "There’s More to Life Than This (recorded live at the Milk Bar toilets)"
+            ),
+            normalized_apple_track_title(
+                "There's More to Life Than This (Live at the Milk Bar Toilets)"
+            )
+        );
+    }
+
+    #[test]
+    fn apple_matching_folds_latin_diacritics_and_apostrophes() {
+        assert_eq!(normalize_apple_match_text("Vökuró"), "vokuro");
+        assert_eq!(normalize_apple_match_text("Miðvikudags"), "midvikudags");
+        assert_eq!(
+            normalize_apple_match_text("Mouth’s Cradle"),
+            normalize_apple_match_text("Mouths Cradle")
+        );
+    }
 }

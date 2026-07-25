@@ -1,6 +1,8 @@
 use super::playback_sequence::playback_request_sequence_from_headers;
 use crate::app::state::AppState;
-use crate::library::{AlbumVersionSummary, AppleMusicAlbumMatchPreview};
+use crate::library::{
+    AlbumDetail, AlbumVersionSummary, AppleMusicAlbumMatchPreview, AppleMusicVersionDetail,
+};
 use crate::playback::commands::accept_playback_request_sequence;
 use crate::playback::intent::{PlaybackGuard, PlaybackIntent};
 use crate::playback::queue::now_playing_queue_for_zone;
@@ -24,7 +26,8 @@ use axum::{
     http::{HeaderMap, StatusCode},
     routing::{get, post},
 };
-use std::time::Duration;
+use serde::{Deserialize, Serialize};
+use std::{cmp::Ordering, collections::HashSet, time::Duration};
 
 const APPLE_HANDOFF_PREFILL_SECS: f64 = 0.060;
 const APPLE_HANDOFF_PREFILL_TIMEOUT: Duration = Duration::from_millis(750);
@@ -53,12 +56,24 @@ pub(super) fn routes() -> Router<AppState> {
             get(preview_album_version),
         )
         .route(
+            "/api/library/albums/:id/apple-music/match",
+            post(match_album_version),
+        )
+        .route(
             "/api/library/albums/:id/apple-music/link",
             post(link_album_version),
         )
         .route(
             "/api/library/albums/:id/apple-music/unlink",
             post(unlink_album_version),
+        )
+        .route(
+            "/api/library/albums/:id/apple-music/versions/:version_id",
+            get(album_version_detail),
+        )
+        .route(
+            "/api/library/apple-music-albums/:id",
+            get(linked_library_album),
         )
         .route("/api/apple-music/dev/play-song", post(play_song))
         .route("/api/apple-music/transport", post(transport))
@@ -73,6 +88,21 @@ pub(super) fn routes() -> Router<AppState> {
             "/api/apple-music/comparison/switch",
             post(switch_comparison),
         )
+}
+
+#[derive(Debug, Serialize)]
+struct AppleMusicAlbumMatchResponse {
+    status: String,
+    linked_version: Option<AlbumVersionSummary>,
+    candidates: Vec<AppleMusicAlbumMatchPreview>,
+    message: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AppleMusicAlbumMatchQuery {
+    storefront: Option<String>,
+    #[serde(default)]
+    review: bool,
 }
 
 async fn launch(State(state): State<AppState>) -> AppleMusicApiResult {
@@ -193,6 +223,160 @@ async fn preview_album_version(
         .ok_or_else(album_not_found)
 }
 
+async fn match_album_version(
+    State(state): State<AppState>,
+    Path(local_album_id): Path<i64>,
+    Query(query): Query<AppleMusicAlbumMatchQuery>,
+) -> Result<Json<AppleMusicAlbumMatchResponse>, (StatusCode, Json<AppleMusicMvpError>)> {
+    let local_detail = state
+        .library()
+        .run_blocking(move |library| library.album_detail(local_album_id))
+        .await
+        .map_err(library_api_error)?
+        .ok_or_else(album_not_found)?;
+    if let Some(version) = local_detail
+        .versions
+        .iter()
+        .find(|version| version.provider == "apple_music")
+    {
+        if !query.review {
+            return Ok(Json(AppleMusicAlbumMatchResponse {
+                status: "already_linked".to_string(),
+                linked_version: Some(version.clone()),
+                candidates: Vec::new(),
+                message: None,
+            }));
+        }
+    }
+
+    let artist = local_detail
+        .album
+        .album_artist
+        .as_deref()
+        .unwrap_or("")
+        .trim();
+    let term = if artist.is_empty() {
+        local_detail.album.title.clone()
+    } else {
+        format!("{artist} {}", local_detail.album.title)
+    };
+    let search = match state
+        .apple_music()
+        .search_songs(term, query.storefront.clone(), 10)
+        .await
+    {
+        Ok(search) => search,
+        Err(error) => {
+            return Ok(Json(AppleMusicAlbumMatchResponse {
+                status: "unavailable".to_string(),
+                linked_version: None,
+                candidates: Vec::new(),
+                message: Some(error.message),
+            }));
+        }
+    };
+
+    let mut candidates = Vec::new();
+    let mut seen_album_ids = HashSet::new();
+    for candidate in search.albums.into_iter().take(6) {
+        if !seen_album_ids.insert(candidate.album_id.clone()) {
+            continue;
+        }
+        let album = match state
+            .apple_music()
+            .lookup_album(
+                candidate.album_id,
+                Some(candidate.storefront).filter(|value| !value.trim().is_empty()),
+            )
+            .await
+        {
+            Ok(album) => album,
+            Err(_) => continue,
+        };
+        let preview = state
+            .library()
+            .run_blocking(move |library| {
+                library.preview_apple_music_album_version(local_album_id, album)
+            })
+            .await
+            .map_err(library_api_error)?;
+        if let Some(preview) = preview {
+            candidates.push(preview);
+        }
+    }
+    candidates.sort_by(compare_apple_match_candidates);
+
+    // Apple can return multiple catalog IDs for recording-identical editions.
+    // They are one grouped Apple version in Fozmo, so choose the strongest
+    // safe candidate deterministically instead of exposing an unresolvable
+    // review state after the candidate UI was removed.
+    if !query.review
+        && let Some(safe_candidate) = candidates.iter().find(|candidate| candidate.safe_to_link)
+    {
+        let album = safe_candidate.apple_album.clone();
+        let linked_version = state
+            .library()
+            .run_blocking(move |library| library.link_apple_music_album(local_album_id, &album))
+            .await
+            .map_err(library_api_error)?
+            .ok_or_else(album_not_found)?;
+        return Ok(Json(AppleMusicAlbumMatchResponse {
+            status: "linked".to_string(),
+            linked_version: Some(linked_version),
+            candidates,
+            message: None,
+        }));
+    }
+
+    Ok(Json(AppleMusicAlbumMatchResponse {
+        status: if candidates.is_empty() {
+            "no_match".to_string()
+        } else {
+            "needs_review".to_string()
+        },
+        linked_version: None,
+        candidates,
+        message: None,
+    }))
+}
+
+fn compare_apple_match_candidates(
+    left: &AppleMusicAlbumMatchPreview,
+    right: &AppleMusicAlbumMatchPreview,
+) -> Ordering {
+    apple_match_preference(right)
+        .cmp(&apple_match_preference(left))
+        .then_with(|| left.apple_album.album_id.cmp(&right.apple_album.album_id))
+}
+
+fn apple_match_preference(
+    candidate: &AppleMusicAlbumMatchPreview,
+) -> (bool, i64, bool, bool, bool, bool, usize) {
+    let has_evidence = |expected: &str| {
+        candidate
+            .evidence
+            .iter()
+            .any(|evidence| evidence == expected)
+    };
+    let advertises_lossless = candidate.apple_album.audio_variants.iter().any(|variant| {
+        let normalized = variant
+            .chars()
+            .filter(|character| character.is_ascii_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect::<String>();
+        normalized == "lossless" || normalized == "highresolutionlossless"
+    });
+    (
+        candidate.safe_to_link,
+        candidate.confidence,
+        has_evidence("upc_match"),
+        has_evidence("exact_normalized_title"),
+        has_evidence("equal_track_count"),
+        advertises_lossless,
+        candidate.pairings.len(),
+    )
+}
+
 async fn link_album_version(
     State(state): State<AppState>,
     Path(local_album_id): Path<i64>,
@@ -223,6 +407,39 @@ async fn unlink_album_version(
         .map_err(library_api_error)?
         .map(Json)
         .ok_or_else(album_not_found)
+}
+
+async fn album_version_detail(
+    State(state): State<AppState>,
+    Path((local_album_id, version_id)): Path<(i64, i64)>,
+) -> Result<Json<AppleMusicVersionDetail>, (StatusCode, Json<AppleMusicMvpError>)> {
+    state
+        .library()
+        .run_blocking(move |library| library.apple_music_version_detail(local_album_id, version_id))
+        .await
+        .map_err(library_api_error)?
+        .map(Json)
+        .ok_or_else(|| {
+            api_error(comparison_error(
+                "apple_music_version_not_found",
+                "The linked Apple Music album version was not found.",
+                false,
+                "resolving_album_version",
+                true,
+            ))
+        })
+}
+
+async fn linked_library_album(
+    State(state): State<AppState>,
+    Path(apple_album_id): Path<String>,
+) -> Result<Json<Option<AlbumDetail>>, (StatusCode, Json<AppleMusicMvpError>)> {
+    state
+        .library()
+        .run_blocking(move |library| library.album_by_apple_music_id(&apple_album_id))
+        .await
+        .map_err(library_api_error)
+        .map(Json)
 }
 
 async fn play(
@@ -1071,6 +1288,90 @@ fn playback_api_error(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn apple_match_candidate(
+        album_id: &str,
+        evidence: &[&str],
+        safe_to_link: bool,
+    ) -> AppleMusicAlbumMatchPreview {
+        AppleMusicAlbumMatchPreview {
+            local_album_id: 7,
+            apple_album: AppleCatalogAlbum {
+                album_id: album_id.to_string(),
+                title: "Homogenic".to_string(),
+                artist: "Björk".to_string(),
+                audio_variants: vec!["lossless".to_string()],
+                ..AppleCatalogAlbum::default()
+            },
+            confidence: 100,
+            evidence: evidence.iter().map(|value| (*value).to_string()).collect(),
+            pairings: Vec::new(),
+            unmatched_local_track_ids: Vec::new(),
+            unmatched_apple_song_ids: Vec::new(),
+            safe_to_link,
+            resulting_version: None,
+        }
+    }
+
+    #[test]
+    fn grouped_safe_editions_prefer_the_exact_base_album() {
+        let mut candidates = vec![
+            apple_match_candidate(
+                "expanded",
+                &["edition_compatible_title", "equal_track_count"],
+                true,
+            ),
+            apple_match_candidate(
+                "base",
+                &["exact_normalized_title", "equal_track_count"],
+                true,
+            ),
+        ];
+
+        candidates.sort_by(compare_apple_match_candidates);
+
+        assert_eq!(candidates[0].apple_album.album_id, "base");
+    }
+
+    #[test]
+    fn grouped_safe_editions_use_the_album_id_as_a_stable_final_tiebreaker() {
+        let mut candidates = vec![
+            apple_match_candidate(
+                "200",
+                &["exact_normalized_title", "equal_track_count"],
+                true,
+            ),
+            apple_match_candidate(
+                "100",
+                &["exact_normalized_title", "equal_track_count"],
+                true,
+            ),
+        ];
+
+        candidates.sort_by(compare_apple_match_candidates);
+
+        assert_eq!(candidates[0].apple_album.album_id, "100");
+    }
+
+    #[test]
+    fn unsafe_candidates_never_outrank_a_groupable_apple_edition() {
+        let mut candidates = vec![
+            apple_match_candidate(
+                "unsafe-upc",
+                &["upc_match", "exact_normalized_title", "equal_track_count"],
+                false,
+            ),
+            apple_match_candidate(
+                "safe",
+                &["exact_normalized_title", "equal_track_count"],
+                true,
+            ),
+        ];
+
+        candidates.sort_by(compare_apple_match_candidates);
+
+        assert_eq!(candidates[0].apple_album.album_id, "safe");
+    }
 
     #[test]
     fn matched_position_clamps_to_the_apple_track_duration() {

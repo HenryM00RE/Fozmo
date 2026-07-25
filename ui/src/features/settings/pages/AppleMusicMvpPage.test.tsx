@@ -174,6 +174,34 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('AppleMusicMvpPage backend integration harness', () => {
+  it('offers the macOS privacy recovery route when Apple Music access is denied', async () => {
+    mocks.appleMusicStatus.mockResolvedValue({
+      helper_present: true,
+      helper_version: '0.2.0',
+      helper_musickit_entitled: true,
+      authorization: 'denied',
+      can_play_catalog_content: false,
+      playback_state: 'stopped',
+      state: 'awaiting_authorization',
+      process_tap: { state: 'stopped', metrics: {} },
+      recent_events: []
+    });
+
+    render(
+      <AppleMusicMvpPage
+        activeZoneStatus={defaultActiveZoneStatus}
+        addItemsToQueue={mocks.addItemsToQueue}
+      />
+    );
+
+    expect(
+      await screen.findByRole('link', { name: 'Open Media & Apple Music settings' })
+    ).toHaveAttribute(
+      'href',
+      'x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Media'
+    );
+  });
+
   it('searches Apple Music and plays a selected result on the active zone', async () => {
     const hegelStatus = {
       active_zone_id: 'local-U_107GUN3uT4',
@@ -199,9 +227,7 @@ describe('AppleMusicMvpPage backend integration harness', () => {
     const result = await screen.findByRole('button', {
       name: 'Play Jóga by Björk from Homogenic on Hegel H390'
     });
-    const captureRoute = screen.getByLabelText(
-      /Allow Fozmo to route native Music\.app playback/i
-    );
+    const captureRoute = screen.getByLabelText(/Allow Fozmo to route native Music\.app playback/i);
     expect(captureRoute).toBeChecked();
     expect(captureRoute).toHaveProperty('readOnly', true);
     expect(result).toBeEnabled();

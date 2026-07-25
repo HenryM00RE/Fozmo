@@ -1,6 +1,7 @@
 use super::{
-    AlbumDetail, AlbumSummary, AlbumVersionSummary, Library, TrackSummary, album_version_from_row,
-    albums::sort_album_tracks, collect_rows, normalize_key, now_secs, track_from_row,
+    AlbumDetail, AlbumSummary, AlbumVersionDetail, AlbumVersionMetadata, AlbumVersionSummary,
+    AlbumVersionTrack, Library, TrackSummary, album_version_from_row, albums::sort_album_tracks,
+    collect_rows, normalize_key, now_secs, track_from_row,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::{HashMap, HashSet};
@@ -19,12 +20,27 @@ impl Library {
                        CASE WHEN a.primary_version_id = v.id THEN 1 ELSE 0 END AS is_primary,
                        v.musicbrainz_match_status, v.musicbrainz_release_id,
                        v.musicbrainz_tagged_at, v.qobuz_match_status,
-                       v.qobuz_tagged_at, v.autometa_message
+                       v.qobuz_tagged_at, v.autometa_message,
+                       CASE WHEN v.provider = 'apple_music'
+                            THEN json_extract(v.payload_json, '$.artwork_url') END,
+                       CASE WHEN v.provider = 'apple_music'
+                            THEN json_extract(v.payload_json, '$.storefront') END
                 FROM album_versions v
                 JOIN albums a ON a.id = v.album_id
                 WHERE v.album_id = ?1
                 ORDER BY is_primary DESC,
-                         CASE WHEN v.provider = 'local' THEN 0 WHEN v.provider = 'qobuz' THEN 1 ELSE 2 END,
+                         CASE
+                           WHEN v.provider = 'local'
+                            AND (COALESCE(v.bit_depth, 0) >= 24 OR COALESCE(v.sample_rate, 0) > 48000)
+                           THEN 0
+                           WHEN v.provider = 'qobuz'
+                            AND (COALESCE(v.bit_depth, 0) >= 24 OR COALESCE(v.sample_rate, 0) > 48000)
+                           THEN 1
+                           WHEN v.provider = 'local' THEN 2
+                           WHEN v.provider = 'qobuz' THEN 3
+                           WHEN v.provider = 'apple_music' THEN 4
+                           ELSE 5
+                         END,
                          COALESCE(v.sample_rate, 0) DESC,
                          v.id
                 "#,
@@ -65,6 +81,66 @@ impl Library {
         .map_err(|e| format!("set primary version: {e}"))?;
         drop(conn);
         self.album_detail(album_id)
+    }
+
+    pub fn album_version_detail(
+        &self,
+        album_id: i64,
+        version_id: i64,
+    ) -> Result<Option<AlbumVersionDetail>, String> {
+        let Some(detail) = self.album_detail(album_id)? else {
+            return Ok(None);
+        };
+        let Some(version) = detail
+            .versions
+            .iter()
+            .find(|version| version.id == version_id)
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        let Some(plan) = self.resolve_album_playback(album_id, 0, false, Some(version_id))? else {
+            return Ok(None);
+        };
+        let mut album = AlbumVersionMetadata {
+            provider: version.provider.clone(),
+            provider_id: version.provider_id.clone(),
+            title: version.title.clone(),
+            artist: version.artist.clone(),
+            year: version.year,
+            release_date: None,
+            track_count: version.track_count,
+            image_url: version.image_url.clone(),
+            storefront: version.storefront.clone(),
+            description: None,
+        };
+        if version.provider == "qobuz" {
+            if let Some(canonical) = detail.canonical_album.as_ref() {
+                album.release_date = canonical.release_date.clone();
+                album.description = canonical.description.clone();
+                album.image_url = canonical.image_url.clone().or(album.image_url);
+            }
+        }
+        #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+        if version.provider == "apple_music" {
+            if let Some(apple) = self.apple_music_version_detail(album_id, version_id)? {
+                album.release_date = apple.apple_album.release_date;
+                album.description = apple.apple_album.editorial_notes_standard;
+            }
+        }
+        Ok(Some(AlbumVersionDetail {
+            version,
+            album,
+            tracks: plan
+                .sources
+                .into_iter()
+                .enumerate()
+                .map(|(position, play_source)| AlbumVersionTrack {
+                    position,
+                    play_source,
+                })
+                .collect(),
+        }))
     }
 
     pub(super) fn primary_local_album_tracks(

@@ -11,6 +11,7 @@ describe('Apple Music album adapter', () => {
       artist: 'Björk',
       release_date: '1997-09-22T00:00:00Z',
       artwork_url: 'https://example.test/homogenic.jpg',
+      editorial_notes_standard: 'Apple Music editorial notes for Homogenic.',
       audio_variants: ['lossless'],
       tracks: [
         {
@@ -33,13 +34,14 @@ describe('Apple Music album adapter', () => {
       title: 'Homogenic',
       album_artist: 'Björk',
       year: 1997,
-      track_count: 1
+      track_count: 1,
+      description: 'Apple Music editorial notes for Homogenic.'
     });
     expect(detail.versions).toEqual([
       expect.objectContaining({
         provider: 'apple_music',
-        source_label: 'Apple Music',
-        format: 'ALAC',
+        source_label: 'Lossless',
+        format: 'Apple Music',
         is_primary: true
       })
     ]);
@@ -51,7 +53,7 @@ describe('Apple Music album adapter', () => {
       album: 'Homogenic',
       album_id: '1440880938',
       image_url: 'https://example.test/homogenic.jpg',
-      format: 'ALAC'
+      format: 'Apple Music'
     });
     expect(appleMusicSourceFromAlbumTrack(track)).toMatchObject({
       kind: 'apple_music_track',
@@ -72,10 +74,10 @@ describe('Apple Music album adapter', () => {
     } as JsonRecord);
 
     expect(detail.tracks).toEqual([]);
-    expect(detail.quality_label).toBe('Apple Music');
+    expect(detail.quality_label).toBe('Lossless');
   });
 
-  it('uses the Apple catalog label for Hi-Res Lossless albums', () => {
+  it('groups all advertised Apple quality variants behind one Apple Music version', () => {
     const detail = appleMusicAlbumToLibraryDetail({
       album_id: 'album-1',
       storefront: 'nz',
@@ -87,6 +89,14 @@ describe('Apple Music album adapter', () => {
       tracks: []
     });
 
-    expect(detail.quality_label).toBe('Hi-Res Lossless');
+    expect(detail.quality_label).toBe('Lossless');
+    expect(detail.versions).toHaveLength(1);
+    expect(detail.versions).toEqual([
+      expect.objectContaining({
+        provider: 'apple_music',
+        source_label: 'Lossless',
+        format: 'Apple Music'
+      })
+    ]);
   });
 });

@@ -193,12 +193,11 @@ final class MusicSessionController {
             authorizationWindow.show()
         }
         Task { @MainActor in
-            let authorization: MusicAuthorization.Status
-            if MusicAuthorization.currentStatus == .notDetermined {
-                authorization = await MusicAuthorization.request()
-            } else {
-                authorization = MusicAuthorization.currentStatus
-            }
+            // An explicit authorize command is also the recovery path from a
+            // previously denied grant. MusicKit decides whether another
+            // consent dialog is necessary, so always ask it instead of
+            // short-circuiting on currentStatus.
+            let authorization = await MusicAuthorization.request()
             if authorization == .authorized {
                 do {
                     subscriptionCanPlay = try await MusicSubscription.current.canPlayCatalogContent

@@ -166,6 +166,17 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+function responseErrorMessage(text: string, fallback: string) {
+  if (!text) return fallback;
+  try {
+    const payload = JSON.parse(text) as JsonRecord;
+    const message = String(payload.message || '').trim();
+    return message || text;
+  } catch {
+    return text;
+  }
+}
+
 function withQuery(
   path: string,
   params?: Record<string, string | number | boolean | null | undefined>
@@ -233,15 +244,15 @@ export async function apiRequest<T = unknown>(
         if (options.silentStatuses?.includes(retry.status)) {
           throw new ApiError(retry.status, retry.statusText);
         }
-        const retryMessage = await retry.text().catch(() => retry.statusText);
-        throw new ApiError(retry.status, retryMessage || retry.statusText);
+        const retryText = await retry.text().catch(() => '');
+        throw new ApiError(retry.status, responseErrorMessage(retryText, retry.statusText));
       }
     }
     if (options.silentStatuses?.includes(response.status)) {
       throw new ApiError(response.status, response.statusText);
     }
-    const message = await response.text().catch(() => response.statusText);
-    throw new ApiError(response.status, message || response.statusText);
+    const responseText = await response.text().catch(() => '');
+    throw new ApiError(response.status, responseErrorMessage(responseText, response.statusText));
   }
 
   return parseResponse<T>(response);
@@ -272,8 +283,8 @@ async function uploadForm<T = unknown>(path: string, formData: FormData): Promis
   });
 
   if (!response.ok) {
-    const message = await response.text().catch(() => response.statusText);
-    throw new ApiError(response.status, message || response.statusText);
+    const responseText = await response.text().catch(() => '');
+    throw new ApiError(response.status, responseErrorMessage(responseText, response.statusText));
   }
 
   if (response.status === 204) return undefined as T;
@@ -435,15 +446,21 @@ export const endpoints = {
     api.post<JsonRecord>(
       `/api/library/albums/${encodeURIComponent(String(albumId))}/versions/${encodeURIComponent(String(versionId))}/primary`
     ),
-  albumPlaySources: (id: string | number, startIndex = 0, shuffle = false, versionId?: number) =>
-    api.post<{ sources?: ResolvedPlaySource[] }>(
-      `/api/library/albums/${encodeURIComponent(String(id))}/play-sources`,
-      {
-        start_index: startIndex,
-        shuffle,
-        ...(versionId === undefined ? {} : { version_id: versionId })
-      }
+  albumVersionDetail: (albumId: string | number, versionId: string | number) =>
+    api.get<JsonRecord>(
+      `/api/library/albums/${encodeURIComponent(String(albumId))}/versions/${encodeURIComponent(String(versionId))}`
     ),
+  albumPlaySources: (id: string | number, startIndex = 0, shuffle = false, versionId?: number) =>
+    api.post<{
+      sources?: ResolvedPlaySource[];
+      requested_version_id?: number | null;
+      resolved_version_id?: number | null;
+      fallback_reason?: string | null;
+    }>(`/api/library/albums/${encodeURIComponent(String(id))}/play-sources`, {
+      start_index: startIndex,
+      shuffle,
+      ...(versionId === undefined ? {} : { version_id: versionId })
+    }),
   favoriteAlbums: () => api.get<LibraryAlbum[]>('/api/library/favorite-albums'),
   addFavoriteAlbum: (album: unknown) =>
     api.post<LibraryAlbum>('/api/library/favorite-albums', album),
@@ -755,6 +772,18 @@ export const endpoints = {
       undefined,
       'no-store'
     ),
+  appleMusicAlbumMatch: (localAlbumId: string | number, storefront?: string, review = false) =>
+    api.post<JsonRecord>(
+      `/api/library/albums/${encodeURIComponent(String(localAlbumId))}/apple-music/match${
+        storefront || review
+          ? `?${new URLSearchParams({
+              ...(storefront ? { storefront } : {}),
+              ...(review ? { review: 'true' } : {})
+            }).toString()}`
+          : ''
+      }`,
+      {}
+    ),
   appleMusicAlbumLink: (localAlbumId: string | number, appleAlbumId: string, storefront?: string) =>
     api.post<JsonRecord>(
       `/api/library/albums/${encodeURIComponent(String(localAlbumId))}/apple-music/link`,
@@ -766,6 +795,17 @@ export const endpoints = {
   appleMusicAlbumUnlink: (localAlbumId: string | number) =>
     api.post<JsonRecord[]>(
       `/api/library/albums/${encodeURIComponent(String(localAlbumId))}/apple-music/unlink`
+    ),
+  appleMusicAlbumVersionDetail: (localAlbumId: string | number, versionId: string | number) =>
+    api.get<JsonRecord>(
+      `/api/library/albums/${encodeURIComponent(String(localAlbumId))}/apple-music/versions/${encodeURIComponent(String(versionId))}`,
+      undefined,
+      undefined,
+      'no-store'
+    ),
+  albumByAppleMusicId: (appleAlbumId: string | number) =>
+    api.get<JsonRecord | null>(
+      `/api/library/apple-music-albums/${encodeURIComponent(String(appleAlbumId))}`
     ),
   controlAppleMusic: (command: string) =>
     api.post<JsonRecord>('/api/apple-music/transport', { command }),

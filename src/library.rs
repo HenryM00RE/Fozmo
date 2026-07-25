@@ -424,6 +424,8 @@ fn album_version_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AlbumVers
         sample_rate: row.get(10)?,
         bit_depth: row.get(11)?,
         source_label: row.get(12)?,
+        image_url: row.get(21)?,
+        storefront: row.get(22)?,
         status: row.get(13)?,
         is_primary: row.get::<_, i64>(14)? != 0,
         musicbrainz_match_status: row.get(15)?,
