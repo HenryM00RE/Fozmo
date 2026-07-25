@@ -10,9 +10,11 @@ speaks authenticated protocol v2 over Fozmo's private Unix socket and supports:
 - deterministic playback, entry-change, interruption, failure, and queue-end
   events.
 
-Fozmo captures only this helper process's rendered PCM and sends it through the
-normal Player, DSP, and selected local output. Tokens and PCM never cross the
-control protocol, and PCM is not written to disk.
+MusicKit delegates this helper's playback to
+`com.apple.MediaPlayer.RemotePlayerService`. Fozmo discovers the single active
+renderer newly activated by playback, captures only that process's PCM, and
+sends it through the normal Player, DSP, and selected local output. Tokens and
+PCM never cross the control protocol, and PCM is not written to disk.
 
 ## Build without an Apple Developer account
 
@@ -23,16 +25,17 @@ swift test --package-path apple-music-helper
 
 The app is written to
 `target/apple-music-helper/FozmoAppleMusicHelper.app`. Its ad-hoc signature
-deliberately omits the restricted MusicKit entitlement, so launch, private IPC,
-protocol, lifecycle, and Swift tests work now. Authorization, catalog calls,
-and real playback return `musickit_capability_unavailable` until the app is
-provisioned.
+supports launch, private IPC, protocol, lifecycle, and Swift tests.
+Authorization, catalog calls, and real playback return
+`musickit_capability_unavailable` until the app is provisioned.
 
 ## Build after provisioning MusicKit
 
-The provisioning profile must belong to the explicit App ID
-`com.fozmo.apple-music-helper` and contain
-`com.apple.developer.musickit = true`.
+Enable MusicKit under the explicit App ID
+`com.fozmo.apple-music-helper` in the Apple Developer portal, then create a
+Mac App Development profile for that App ID and this Mac. MusicKit is an App
+Service associated with the App ID on Apple's servers; it does not add a
+`com.apple.developer.musickit` entitlement to the profile or signature.
 
 ```sh
 FOZMO_APPLE_MUSIC_SIGN_IDENTITY="Apple Development: Your Name (TEAMID)" \
@@ -40,9 +43,9 @@ FOZMO_APPLE_MUSIC_PROVISIONING_PROFILE="/absolute/path/Fozmo_MusicKit.provisionp
 ./apple-music-helper/build-app.sh
 ```
 
-The build script validates the profile's bundle ID and MusicKit entitlement,
-embeds it, signs with
-`Resources/FozmoAppleMusicHelper.entitlements`, and verifies the final
+The build script validates the profile's exact bundle ID, platform, local
+Provisioning UDID, and signing certificate. It embeds the profile, signs with
+only the entitlements Apple issued in that profile, and verifies the final
 signature.
 
 Run Fozmo with:

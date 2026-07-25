@@ -10,6 +10,7 @@
 use super::live_source::{
     CaptureProducer, LIVE_CHANNELS, LiveCaptureSource, live_capture_ring, ring_capacity_samples,
 };
+use super::rate_control::{FormatDetectionSource, SourceFormatDetection};
 use crate::audio::player::{Player, TrackTags};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, StreamConfig};
@@ -487,10 +488,18 @@ fn nonzero_u64(value: u64) -> Option<u64> {
 pub(super) struct SessionControl {
     /// 0 = unknown / not playing.
     pub detected_track_rate_hz: AtomicU32,
+    /// 0 = unknown.
+    pub detected_source_bit_depth: AtomicU32,
+    /// Numeric `FormatDetectionSource`; 0 = unknown.
+    pub format_detection_source: AtomicU32,
+    pub last_format_detection_unix_ms: AtomicU64,
     pub rate_switch_pending: AtomicBool,
+    /// Manual rate overrides suppress further probes for the current track.
+    pub manual_rate_override_active: AtomicBool,
     /// u32::MAX = unknown.
     pub music_sound_volume: AtomicU32,
     pub last_poll_error: Mutex<Option<String>>,
+    pub last_format_detection_error: Mutex<Option<String>>,
 }
 
 impl SessionControl {
@@ -506,6 +515,18 @@ impl SessionControl {
         nonzero_u32(self.detected_track_rate_hz.load(Ordering::Relaxed))
     }
 
+    pub(super) fn detected_source_bit_depth(&self) -> Option<u32> {
+        nonzero_u32(self.detected_source_bit_depth.load(Ordering::Relaxed))
+    }
+
+    pub(super) fn format_detection_source(&self) -> Option<FormatDetectionSource> {
+        FormatDetectionSource::from_code(self.format_detection_source.load(Ordering::Relaxed))
+    }
+
+    pub(super) fn last_format_detection_unix_ms(&self) -> Option<u64> {
+        nonzero_u64(self.last_format_detection_unix_ms.load(Ordering::Relaxed))
+    }
+
     pub(super) fn music_volume(&self) -> Option<u32> {
         let value = self.music_sound_volume.load(Ordering::Relaxed);
         (value != u32::MAX).then_some(value)
@@ -519,6 +540,15 @@ impl SessionControl {
         self.rate_switch_pending.store(pending, Ordering::Relaxed);
     }
 
+    pub(super) fn manual_rate_override_active(&self) -> bool {
+        self.manual_rate_override_active.load(Ordering::Relaxed)
+    }
+
+    pub(super) fn set_manual_rate_override_active(&self, active: bool) {
+        self.manual_rate_override_active
+            .store(active, Ordering::Relaxed);
+    }
+
     pub(super) fn poll_error(&self) -> Option<String> {
         self.last_poll_error.lock().unwrap().clone()
     }
@@ -527,21 +557,44 @@ impl SessionControl {
         *self.last_poll_error.lock().unwrap() = error;
     }
 
-    pub(super) fn observe_track_info(
-        &self,
-        track_rate_hz: Option<u32>,
-        sound_volume: Option<u32>,
-        _playing: bool,
-    ) {
-        self.detected_track_rate_hz
-            .store(track_rate_hz.unwrap_or(0), Ordering::Relaxed);
+    pub(super) fn format_detection_error(&self) -> Option<String> {
+        self.last_format_detection_error.lock().unwrap().clone()
+    }
+
+    pub(super) fn set_format_detection_error(&self, error: Option<String>) {
+        *self.last_format_detection_error.lock().unwrap() = error;
+    }
+
+    pub(super) fn observe_music_info(&self, sound_volume: Option<u32>) {
         self.music_sound_volume
             .store(sound_volume.unwrap_or(u32::MAX), Ordering::Relaxed);
         self.set_poll_error(None);
     }
 
-    pub(super) fn observe_music_gone(&self) {
+    pub(super) fn observe_source_format(&self, detection: &SourceFormatDetection) {
+        self.detected_track_rate_hz
+            .store(detection.sample_rate_hz, Ordering::Relaxed);
+        self.detected_source_bit_depth
+            .store(detection.source_bit_depth.unwrap_or(0), Ordering::Relaxed);
+        self.format_detection_source
+            .store(detection.source as u32, Ordering::Relaxed);
+        self.last_format_detection_unix_ms
+            .store(now_unix_ms(), Ordering::Relaxed);
+        self.set_format_detection_error(None);
+    }
+
+    pub(super) fn clear_source_format(&self) {
         self.detected_track_rate_hz.store(0, Ordering::Relaxed);
+        self.detected_source_bit_depth.store(0, Ordering::Relaxed);
+        self.format_detection_source.store(0, Ordering::Relaxed);
+        self.last_format_detection_unix_ms
+            .store(0, Ordering::Relaxed);
+    }
+
+    pub(super) fn observe_music_gone(&self) {
+        self.clear_source_format();
         self.music_sound_volume.store(u32::MAX, Ordering::Relaxed);
+        self.set_manual_rate_override_active(false);
+        self.set_format_detection_error(None);
     }
 }

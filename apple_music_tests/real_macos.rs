@@ -193,6 +193,7 @@ impl Api {
 struct TapIdentity {
     helper_pid: u64,
     target_pid: u64,
+    target_process_kind: String,
     tap_object_id: u64,
     player_epoch: u64,
 }
@@ -202,6 +203,7 @@ impl TapIdentity {
         Ok(Self {
             helper_pid: required_u64(apple, "/helper_pid")?,
             target_pid: required_u64(apple, "/process_tap/target_pid")?,
+            target_process_kind: required_string(apple, "/process_tap/target_process_kind")?,
             tap_object_id: required_u64(apple, "/process_tap/tap_object_id")?,
             player_epoch: required_u64(apple, "/playback_session/player_epoch")?,
         })
@@ -223,7 +225,7 @@ async fn provisioned_helper_runs_the_real_backend_matrix() -> Result<(), String>
             .get("helper_musickit_entitled")
             .and_then(Value::as_bool)
             == Some(true),
-        "helper is not signed with com.apple.developer.musickit",
+        "helper is not signed with the MusicKit-enabled App ID's development profile",
     )?;
     require(
         readiness.get("authorization").and_then(Value::as_str) == Some("authorized"),
@@ -276,8 +278,12 @@ async fn provisioned_helper_runs_the_real_backend_matrix() -> Result<(), String>
         .await?;
     let adjacent_identity = TapIdentity::from_status(&apple)?;
     require(
-        adjacent_identity.helper_pid == adjacent_identity.target_pid,
-        "the process tap targets a PID other than the authenticated helper",
+        adjacent_identity.helper_pid != adjacent_identity.target_pid,
+        "the process tap incorrectly targets the helper instead of MusicKit's renderer",
+    )?;
+    require(
+        adjacent_identity.target_process_kind == "musickit_renderer",
+        "the process tap does not identify its target as MusicKit's renderer",
     )?;
 
     api.post("/api/pause", json!({})).await?;
@@ -488,6 +494,14 @@ fn required_u64(value: &Value, pointer: &str) -> Result<u64, String> {
         .pointer(pointer)
         .and_then(Value::as_u64)
         .ok_or_else(|| format!("missing {pointer} in {}", compact(value)))
+}
+
+fn required_string(value: &Value, pointer: &str) -> Result<String, String> {
+    value
+        .pointer(pointer)
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| format!("missing string at {pointer}"))
 }
 
 fn require(condition: bool, message: &str) -> Result<(), String> {

@@ -15,6 +15,8 @@ use tracing::{debug, warn};
 
 const APPLE_PREFILL_SECS: f64 = 0.060;
 const APPLE_PREFILL_TIMEOUT: Duration = Duration::from_millis(900);
+const APPLE_AUDIO_PROCESS_TIMEOUT: Duration = Duration::from_secs(8);
+const APPLE_AUDIO_PROCESS_RETRY_INTERVAL: Duration = Duration::from_millis(50);
 const APPLE_TAP_STALL_TIMEOUT_MS: u64 = 3_000;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -89,18 +91,25 @@ pub(crate) async fn play_apple_music_source(
         .map_err(playback_error)?;
 
     let start_result = async {
-        state
+        let preexisting_renderer_pids = state
             .apple_music()
-            .prepare_helper_process_tap(player.clone())
-            .map_err(playback_error)?;
-        state
-            .apple_music()
-            .discard_process_tap_buffer()
+            .active_musickit_renderer_pids()
             .map_err(playback_error)?;
         state
             .apple_music()
             .play_prepared()
             .await
+            .map_err(playback_error)?;
+        prepare_musickit_process_tap_after_playback(
+            state,
+            player.clone(),
+            &preexisting_renderer_pids,
+        )
+        .await
+        .map_err(playback_error)?;
+        state
+            .apple_music()
+            .discard_process_tap_buffer()
             .map_err(playback_error)?;
         wait_for_prefill(state).await.map_err(playback_error)?;
         state
@@ -281,6 +290,33 @@ pub(crate) async fn skip_next_if_internal(
         .await
         .map_err(playback_error)?;
     Ok(true)
+}
+
+async fn prepare_musickit_process_tap_after_playback(
+    state: &AppState,
+    player: std::sync::Arc<crate::audio::player::Player>,
+    preexisting_renderer_pids: &[u32],
+) -> Result<(), AppleMusicMvpError> {
+    let deadline = tokio::time::Instant::now() + APPLE_AUDIO_PROCESS_TIMEOUT;
+    loop {
+        match state
+            .apple_music()
+            .prepare_musickit_process_tap(player.clone(), preexisting_renderer_pids)
+        {
+            Ok(_) => return Ok(()),
+            Err(error)
+                if should_retry_audio_process_visibility(&error)
+                    && tokio::time::Instant::now() < deadline =>
+            {
+                tokio::time::sleep(APPLE_AUDIO_PROCESS_RETRY_INTERVAL).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn should_retry_audio_process_visibility(error: &AppleMusicMvpError) -> bool {
+    error.retryable && error.code == "process_tap_start_failed" && error.stage == "audio_process"
 }
 
 pub(crate) async fn stop_replaced_session(state: &AppState, zone_id: &str) {
@@ -562,5 +598,29 @@ mod tests {
         let run = provider_run(repeated.clone(), std::slice::from_ref(&repeated));
         assert_eq!(run.contiguous.len(), 2);
         assert_eq!(run.contiguous[0].key(), run.contiguous[1].key());
+    }
+
+    #[test]
+    fn retries_only_transient_audio_process_visibility_failures() {
+        let transient = AppleMusicMvpError {
+            code: "process_tap_start_failed".to_string(),
+            message: "not visible yet".to_string(),
+            retryable: true,
+            stage: "audio_process".to_string(),
+            cleanup_complete: true,
+        };
+        assert!(should_retry_audio_process_visibility(&transient));
+
+        let permission = AppleMusicMvpError {
+            stage: "create_tap".to_string(),
+            ..transient.clone()
+        };
+        assert!(!should_retry_audio_process_visibility(&permission));
+
+        let permanent = AppleMusicMvpError {
+            retryable: false,
+            ..transient
+        };
+        assert!(!should_retry_audio_process_visibility(&permanent));
     }
 }

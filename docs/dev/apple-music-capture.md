@@ -25,8 +25,11 @@ The HAL driver itself is documented in
    normal DSP path applies (upsampling, EQ, dither, DSD rendering, device
    output).
 4. While capture runs, a poller reads the Music app once a second via
-   AppleScript: player state, current track database ID, reported sample
-   rate, title/artist/album, and output volume.
+   AppleScript for player state, track identity, metadata, and output volume.
+   On a track change it also reads a tightly filtered eight-second window from
+   macOS Unified Logging and parses the source format emitted by Apple's
+   lossless decoder. This path controls the native Music app and does not
+   require MusicKit.
 5. On stop (or app shutdown), the session EOFs the live stream, stops the
    player, closes the capture stream, and restores the saved macOS default
    output.
@@ -36,18 +39,39 @@ underrun output, so resume is instant.
 
 ## Automatic rate switching
 
-When the current Music track changes and its reported sample rate maps to a
-different supported device rate, the service performs a debounced switch:
-end the live session, set the driver nominal rate through the CoreAudio
-configuration-change handshake (confirmed by polling, 3 s timeout), then
-reopen capture and start a fresh session.
+When the current Music track changes, the service looks for either of these
+private log forms:
+
+- `ACAppleLosslessDecoder ... Input format: 2 ch, 96000 Hz from 24-bit source`
+- newer Music `audioCapabilities:` events containing `asbdSampleRate` and,
+  when present, `sdBitDepth`
+
+The newest event supplies the native source sample rate and optional source
+bit depth. If its rate maps to a different supported device rate, the service
+performs a debounced switch: end the live session, set the driver nominal rate
+through the CoreAudio configuration-change handshake (confirmed by polling,
+3 s timeout), then reopen capture and start a fresh DSP session. Overlapping
+log windows carry an event marker so the preceding track's decoder event is
+not applied again.
+
+When no new decoder event is available but AppleScript reports a rate (usually
+for a downloaded file), that value is used as an explicit fallback. For a
+streaming track where both sources are unavailable, the service probes up to
+five times and then leaves the capture device at its current rate. It never
+silently invents a 44.1 kHz source rate.
+
+A successful manual override suppresses remaining automatic probes for the
+current track. Automatic detection resumes when the poller observes the next
+track identity.
 
 Limitations:
 
-- AppleScript frequently returns `missing value` for **streaming** track
-  rates. Capture then falls back to 44.1 kHz, surfaces a status warning, and
-  the manual rate override (`POST /api/apple-music-capture/rate`) is the
-  escape hatch. Downloaded tracks report rates reliably.
+- Decoder messages are private Apple implementation details. Their subsystem,
+  process attribution, or wording can change in a macOS/Music update.
+- Reading the local Unified Log requires a non-sandboxed process and can
+  require an administrator account. Failure is surfaced in status; the manual
+  rate override (`POST /api/apple-music-capture/rate`) remains the escape
+  hatch.
 - Track polling is ~1 s, so the first moments of a new track can play at the
   previous device rate before the switch lands.
 - A rate change causes a brief, audible gap while Apple Music and CoreAudio
@@ -76,7 +100,9 @@ Limitations:
 ## API surface
 
 - `GET /api/apple-music-capture/status` — includes driver telemetry
-  (ring fill, underruns, overruns, latency snaps), detected track rate,
+  (ring fill, underruns, overruns, latency snaps), detected source rate/bit
+  depth, detection source (`apple_decoder_log`,
+  `music_audio_capabilities_log`, `music_applescript`, or `manual_override`),
   rate-switch state, Music volume, and quality warnings.
 - `GET/POST /api/apple-music-capture/settings` — devices, buffer target,
   auto-routing toggle.
@@ -98,8 +124,10 @@ Limitations:
   (marker + PRBS, sample-exact assert at 44.1/96/192 kHz, flat
   underrun/overrun/snap counters).
 - Rate switching: cycle supported rates through the manual rate API and watch
-  nominal-rate telemetry; then a 44.1 kHz track → downloaded 96 kHz track in
-  Music should auto-switch.
+  nominal-rate telemetry; then play known 44.1 and 96 kHz lossless tracks and
+  confirm `rate_detection_source`, `detected_track_rate_hz`,
+  `detected_source_bit_depth`, nominal-rate telemetry, and the reopened DSP
+  session agree.
 - Soak: a 30-minute album with `/api/apple-music-capture/status` showing
   stable ring fill and near-zero underruns/overruns/snaps after startup.
 
@@ -109,5 +137,6 @@ Limitations:
 - No hidden background capture — capture runs only after an explicit start.
 - No DRM bypass and no Apple Music stream URL extraction; the audio is
   whatever macOS plays to the default output.
-- Captured PCM rate is the CoreAudio device rate; the native Apple Music
-  asset rate is only as accurate as what the Music app reports.
+- Captured PCM remains stereo Float32 at the CoreAudio device rate. Reported
+  source bit depth describes Apple's decoded asset, not the Float32 capture
+  container.

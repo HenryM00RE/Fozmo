@@ -5,7 +5,9 @@ use super::model::{
     ApplePlaybackSnapshot, EXPECTED_HELPER_BUNDLE_ID, HelperMessage, HelperQueueItem,
     PROTOCOL_VERSION, SetQueueCommand,
 };
-use super::process_tap::{ProcessTapController, ProcessTapProcessKind, ProcessTapTarget};
+use super::process_tap::{
+    ProcessTapController, active_musickit_renderer_pids as discover_active_musickit_renderers,
+};
 use crate::audio::player::Player;
 use crate::protocol::SourceRef;
 use async_trait::async_trait;
@@ -188,9 +190,10 @@ impl AppleMusicService {
         }
     }
 
-    pub(crate) fn prepare_helper_process_tap(
+    pub(crate) fn prepare_musickit_process_tap(
         &self,
         player: Arc<Player>,
+        preexisting_renderer_pids: &[u32],
     ) -> Result<AppleMusicMvpStatus, AppleMusicMvpError> {
         if !self.system_audio_capture_confirmed.load(Ordering::Acquire) {
             return Err(error(
@@ -201,7 +204,7 @@ impl AppleMusicService {
                 true,
             ));
         }
-        let pid = self.status().helper_pid.ok_or_else(|| {
+        self.status().helper_pid.ok_or_else(|| {
             error(
                 "helper_exited",
                 "The Apple Music helper is not connected.",
@@ -210,16 +213,16 @@ impl AppleMusicService {
                 true,
             )
         })?;
-        self.process_tap.lock().unwrap().prepare_for_target(
+        self.process_tap.lock().unwrap().prepare_musickit_renderer(
             player,
-            ProcessTapTarget {
-                pid,
-                process_kind: ProcessTapProcessKind::MusicKitHelper,
-                display_name: "Fozmo Apple Music helper".to_string(),
-            },
             true,
+            preexisting_renderer_pids,
         )?;
         Ok(self.status())
+    }
+
+    pub(crate) fn active_musickit_renderer_pids(&self) -> Result<Vec<u32>, AppleMusicMvpError> {
+        discover_active_musickit_renderers()
     }
 
     pub(crate) fn discard_process_tap_buffer(&self) -> Result<u64, AppleMusicMvpError> {
@@ -950,7 +953,7 @@ impl AppleMusicService {
         if !status.helper_musickit_entitled {
             return Err(error(
                 "musickit_capability_unavailable",
-                "This helper build is not signed with the MusicKit capability.",
+                "This helper is not signed with a development profile for the MusicKit-enabled App ID.",
                 false,
                 "checking_capability",
                 true,

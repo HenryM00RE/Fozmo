@@ -64,6 +64,8 @@ enum {
     FOZMO_STATUS_UNSUPPORTED_FORMAT = 0x666d743f, /* fmt? */
 };
 
+uint32_t fozmo_process_tap_supported(void);
+
 static AudioObjectPropertyAddress kGlobalMainAddress(
     AudioObjectPropertySelector selector
 ) {
@@ -106,6 +108,117 @@ static AudioObjectID audio_process_for_pid(pid_t pid, OSStatus *out_status) {
         *out_status = status;
     }
     return process_id;
+}
+
+int32_t fozmo_active_musickit_renderer_pids(
+    int32_t *out_pids,
+    uint32_t capacity
+) {
+    if (!fozmo_process_tap_supported()) {
+        return 0;
+    }
+
+    AudioObjectPropertyAddress list_address =
+        kGlobalMainAddress(kAudioHardwarePropertyProcessObjectList);
+    UInt32 list_size = 0;
+    OSStatus status = AudioObjectGetPropertyDataSize(
+        kAudioObjectSystemObject,
+        &list_address,
+        0,
+        NULL,
+        &list_size
+    );
+    if (status != kAudioHardwareNoError) {
+        return -1;
+    }
+    if (list_size == 0) {
+        return 0;
+    }
+
+    AudioObjectID *processes = malloc(list_size);
+    if (processes == NULL) {
+        return -1;
+    }
+    status = AudioObjectGetPropertyData(
+        kAudioObjectSystemObject,
+        &list_address,
+        0,
+        NULL,
+        &list_size,
+        processes
+    );
+    if (status != kAudioHardwareNoError) {
+        free(processes);
+        return -1;
+    }
+
+    int32_t renderer_count = 0;
+    const UInt32 count = list_size / sizeof(AudioObjectID);
+    for (UInt32 index = 0; index < count; index += 1) {
+        const AudioObjectID process = processes[index];
+        CFStringRef bundle_id = NULL;
+        UInt32 property_size = sizeof(bundle_id);
+        AudioObjectPropertyAddress property_address =
+            kGlobalMainAddress(kAudioProcessPropertyBundleID);
+        status = AudioObjectGetPropertyData(
+            process,
+            &property_address,
+            0,
+            NULL,
+            &property_size,
+            &bundle_id
+        );
+        const bool is_musickit_renderer =
+            status == kAudioHardwareNoError
+            && bundle_id != NULL
+            && CFEqual(
+                bundle_id,
+                CFSTR("com.apple.MediaPlayer.RemotePlayerService")
+            );
+        if (bundle_id != NULL) {
+            CFRelease(bundle_id);
+        }
+        if (!is_musickit_renderer) {
+            continue;
+        }
+
+        UInt32 running_output = 0;
+        property_size = sizeof(running_output);
+        property_address =
+            kGlobalMainAddress(kAudioProcessPropertyIsRunningOutput);
+        status = AudioObjectGetPropertyData(
+            process,
+            &property_address,
+            0,
+            NULL,
+            &property_size,
+            &running_output
+        );
+        if (status != kAudioHardwareNoError || running_output == 0) {
+            continue;
+        }
+
+        pid_t pid = 0;
+        property_size = sizeof(pid);
+        property_address = kGlobalMainAddress(kAudioProcessPropertyPID);
+        status = AudioObjectGetPropertyData(
+            process,
+            &property_address,
+            0,
+            NULL,
+            &property_size,
+            &pid
+        );
+        if (status != kAudioHardwareNoError || pid <= 0) {
+            continue;
+        }
+        if (out_pids != NULL && (uint32_t)renderer_count < capacity) {
+            out_pids[renderer_count] = (int32_t)pid;
+        }
+        renderer_count += 1;
+    }
+    free(processes);
+    return renderer_count;
 }
 
 static OSStatus copy_default_system_output_uid(

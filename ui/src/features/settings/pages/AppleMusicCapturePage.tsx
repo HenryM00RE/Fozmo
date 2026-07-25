@@ -260,13 +260,10 @@ export function AppleMusicCapturePage() {
                 label="Current nominal rate"
                 value={formatRate(Number(status?.capture_rate_hz || 0))}
               />
+              <StatusRow label="Detected source" value={formatDetectedSource(status)} />
               <StatusRow
-                label="Detected track rate"
-                value={
-                  status?.detected_track_rate_hz
-                    ? formatRate(Number(status.detected_track_rate_hz))
-                    : 'not reported'
-                }
+                label="Detection method"
+                value={formatDetectionMethod(status?.rate_detection_source)}
               />
               <StatusRow
                 label="Rate switch"
@@ -425,8 +422,8 @@ export function AppleMusicCapturePage() {
               <span>
                 <strong>Manual rate override</strong>
                 <small>
-                  For streaming tracks whose rate Apple Music does not report. Restarts a running
-                  capture at the selected rate.
+                  Use when private decoder logs are unavailable. Restarts a running capture at the
+                  selected rate.
                 </small>
               </span>
               <span className="service-settings-actions">
@@ -499,8 +496,9 @@ export function AppleMusicCapturePage() {
               Lossless enabled, and the Fozmo zone set to a real physical output device.
             </p>
             <p>
-              Streaming tracks often hide their sample rate; capture falls back to 44.1 kHz until
-              the manual rate override is used.
+              Exact streaming format detection reads Apple Music&apos;s private Unified Log events.
+              If access or parsing fails, capture stays at its current rate until detection succeeds
+              or a manual override is applied.
             </p>
             {status?.message ? <p>{String(status.message)}</p> : null}
           </div>
@@ -549,6 +547,28 @@ function currentTrackSubtitle(status: JsonRecord | null) {
 function formatRate(rate: number) {
   if (!rate) return 'not observed';
   return `${(rate / 1000).toFixed(rate % 1000 === 0 ? 0 : 1)} kHz`;
+}
+
+function formatDetectedSource(status: JsonRecord | null) {
+  const rate = Number(status?.detected_track_rate_hz || 0);
+  if (!rate) return 'not detected';
+  const bitDepth = Number(status?.detected_source_bit_depth || 0);
+  return bitDepth ? `${bitDepth}-bit / ${formatRate(rate)}` : formatRate(rate);
+}
+
+function formatDetectionMethod(value: unknown) {
+  switch (String(value || '')) {
+    case 'apple_decoder_log':
+      return 'Apple lossless decoder log';
+    case 'music_audio_capabilities_log':
+      return 'Music audio capabilities log';
+    case 'music_applescript':
+      return 'AppleScript fallback';
+    case 'manual_override':
+      return 'Manual override';
+    default:
+      return 'not detected';
+  }
 }
 
 function formatCount(value: number) {

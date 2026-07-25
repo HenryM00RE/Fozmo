@@ -4,6 +4,6 @@ This folder keeps active experimental notes that are useful for future developme
 
 ## Other experiments
 
-- [Apple Music MusicKit MVP](apple-music-musickit-mvp.md): Native MusicKit helper, provider-neutral playback integration, and helper-process tap-to-DSP path.
+- [Apple Music MusicKit MVP](apple-music-musickit-mvp.md): Native MusicKit helper, provider-neutral playback integration, and isolated MusicKit-renderer tap-to-DSP path.
 - [Apple Music live capture](apple-music-capture.md): Experimental macOS capture path and implementation notes.
 - [HDR web UI notes](HDR-exp.md): Findings from the HDR-style browser rendering experiment.

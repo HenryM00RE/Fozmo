@@ -39,7 +39,9 @@ export function AppleMusicMvpPage() {
   const playbackSession = recordValue(appleStatus?.playback_session);
   const helperPresent = appleStatus?.helper_present === true;
   const helperRunning = numberValue(appleStatus?.helper_pid) !== null;
-  const musicKitEntitled = appleStatus?.helper_musickit_entitled === true;
+  // Protocol v2 retains the old field name, but it now reports whether this
+  // helper was signed with the MusicKit-enabled App ID's development profile.
+  const musicKitProvisioned = appleStatus?.helper_musickit_entitled === true;
   const authorized = appleStatus?.authorization === 'authorized';
   const canPlayCatalog = appleStatus?.can_play_catalog_content === true;
   const activeZoneID = String(fozmoStatus?.active_zone_id || '');
@@ -282,8 +284,10 @@ export function AppleMusicMvpPage() {
               }
             />
             <StatusRow
-              label="MusicKit entitlement"
-              value={musicKitEntitled ? 'signed and available' : 'awaiting developer signing'}
+              label="MusicKit App Service"
+              value={
+                musicKitProvisioned ? 'provisioned and enabled' : 'awaiting provisioned signing'
+              }
             />
             <StatusRow
               label="Authorization"
@@ -314,12 +318,13 @@ export function AppleMusicMvpPage() {
               value={`${activeZoneName}${localZoneSupported ? ' · supported' : ' · local output required'}`}
             />
           </div>
-          {!musicKitEntitled ? (
+          {!musicKitProvisioned ? (
             <div className="apple-music-routing-callout">
-              <strong>Ready for tomorrow&apos;s developer-account connection</strong>
+              <strong>Developer provisioning required</strong>
               <span>
                 Helper launch, IPC, protocol, fake catalog/queue tests, schema migration, and UI are
-                available now. Signed MusicKit authorization remains intentionally gated.
+                available now. MusicKit authorization requires a signed helper whose App ID has the
+                MusicKit App Service enabled.
               </span>
             </div>
           ) : null}
@@ -337,7 +342,7 @@ export function AppleMusicMvpPage() {
             <button
               className="pill"
               type="button"
-              disabled={Boolean(busy) || !musicKitEntitled}
+              disabled={Boolean(busy) || !musicKitProvisioned}
               onClick={() =>
                 run(
                   'authorize',
@@ -555,7 +560,7 @@ export function AppleMusicMvpPage() {
               onChange={(event) => setCaptureConfirmed(event.target.checked)}
             />
             <span>
-              Allow Fozmo to capture only the signed MusicKit helper process and feed its PCM
+              Allow Fozmo to capture MusicKit&apos;s isolated audio renderer and feed its PCM
               through the selected local DSP/output path.
             </span>
           </label>
@@ -966,7 +971,7 @@ function sourceLabel(source: SourceRef) {
 function statusLabel(status: JsonRecord | null) {
   if (!status) return 'Checking';
   if (status.playback_state === 'playing') return 'Playing through Fozmo';
-  if (status.helper_musickit_entitled !== true) return 'Awaiting signing';
+  if (status.helper_musickit_entitled !== true) return 'Awaiting provisioning';
   return formatProtocolLabel(status.state);
 }
 

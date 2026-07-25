@@ -277,7 +277,7 @@ impl AppleMusicMvpStatus {
             now_playing: None,
             helper_capabilities: Vec::new(),
             last_error: None,
-            integration_stage: "music_app_process_tap".to_string(),
+            integration_stage: "musickit_renderer_process_tap".to_string(),
             process_tap: AppleMusicProcessTapStatus::default(),
             playback_session: None,
             recent_events: Vec::new(),

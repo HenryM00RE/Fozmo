@@ -1,5 +1,5 @@
-//! Process-targeted Core Audio tap used by both the MusicKit helper and the
-//! explicitly labelled Music.app diagnostic.
+//! Process-targeted Core Audio tap used by both MusicKit's remote audio
+//! renderer and the explicitly labelled Music.app diagnostic.
 //!
 //! Core Audio owns the real-time callback thread. The callback performs no
 //! allocation, locking, logging, or IPC: it only updates atomics and writes
@@ -18,27 +18,30 @@ use std::slice;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
-const PROCESS_TAP_BUFFER_MS: u32 = 500;
+// Capacity only; startup still commits after the 60 ms prefill above. Keep
+// enough headroom for Core Audio's high-rate/DSD warmup without adding latency.
+const PROCESS_TAP_BUFFER_MS: u32 = 4_000;
+const MAX_MUSICKIT_RENDERERS: usize = 16;
 const LAYOUT_INTERLEAVED: u32 = 0;
 const LAYOUT_PLANAR: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProcessTapProcessKind {
-    MusicKitHelper,
+    MusicKitRenderer,
     MusicAppExperiment,
 }
 
 impl ProcessTapProcessKind {
     fn as_str(self) -> &'static str {
         match self {
-            Self::MusicKitHelper => "musickit_helper",
+            Self::MusicKitRenderer => "musickit_renderer",
             Self::MusicAppExperiment => "music_app_experiment",
         }
     }
 
     fn live_display_name(self) -> &'static str {
         match self {
-            Self::MusicKitHelper => "Apple Music (MusicKit helper)",
+            Self::MusicKitRenderer => "Apple Music (MusicKit renderer)",
             Self::MusicAppExperiment => "Apple Music (Music.app diagnostic)",
         }
     }
@@ -79,6 +82,7 @@ type NativeAudioCallback = unsafe extern "C" fn(
 
 unsafe extern "C" {
     fn fozmo_process_tap_supported() -> u32;
+    fn fozmo_active_musickit_renderer_pids(out_pids: *mut i32, capacity: u32) -> i32;
     fn fozmo_music_app_pid() -> i32;
     fn fozmo_process_tap_create(
         pid: i32,
@@ -554,6 +558,49 @@ impl ProcessTapController {
         }
     }
 
+    pub(super) fn prepare_musickit_renderer(
+        &mut self,
+        player: Arc<Player>,
+        mute_original: bool,
+        preexisting_renderer_pids: &[u32],
+    ) -> Result<AppleMusicProcessTapStatus, AppleMusicMvpError> {
+        if self.session.is_some() {
+            return Ok(self.status());
+        }
+        let active_renderer_pids = active_musickit_renderer_pids()?;
+        let pid = select_new_musickit_renderer_pid(
+            &active_renderer_pids,
+            preexisting_renderer_pids,
+        )
+        .map_err(|()| {
+            mvp_error(
+                "musickit_renderer_ambiguous",
+                "More than one new MusicKit renderer is producing audio. Stop playback in the other MusicKit app, then retry.",
+                true,
+                "audio_process",
+                true,
+            )
+        })?
+        .ok_or_else(|| {
+            mvp_error(
+                "process_tap_start_failed",
+                "MusicKit is playing, but macOS has not exposed its audio renderer yet.",
+                true,
+                "audio_process",
+                true,
+            )
+        })?;
+        self.prepare_for_target(
+            player,
+            ProcessTapTarget {
+                pid,
+                process_kind: ProcessTapProcessKind::MusicKitRenderer,
+                display_name: "MusicKit audio renderer".to_string(),
+            },
+            mute_original,
+        )
+    }
+
     pub(super) fn discard_buffered_audio(&mut self) -> Result<u64, AppleMusicMvpError> {
         self.session
             .as_mut()
@@ -640,6 +687,66 @@ impl ProcessTapController {
             .filter(|session| session.owns_player_session())
             .and_then(|session| session.playback_epoch)
     }
+}
+
+pub(super) fn active_musickit_renderer_pids() -> Result<Vec<u32>, AppleMusicMvpError> {
+    let mut raw_pids = [0_i32; MAX_MUSICKIT_RENDERERS];
+    let count = unsafe {
+        fozmo_active_musickit_renderer_pids(raw_pids.as_mut_ptr(), MAX_MUSICKIT_RENDERERS as u32)
+    };
+    if count < 0 {
+        return Err(mvp_error(
+            "musickit_renderer_discovery_failed",
+            "macOS could not enumerate active MusicKit audio renderers.",
+            true,
+            "audio_process",
+            true,
+        ));
+    }
+    let count = usize::try_from(count).unwrap_or(usize::MAX);
+    if count > MAX_MUSICKIT_RENDERERS {
+        return Err(mvp_error(
+            "musickit_renderer_ambiguous",
+            "Too many MusicKit audio renderers are active to identify Fozmo's safely.",
+            true,
+            "audio_process",
+            true,
+        ));
+    }
+    raw_pids[..count]
+        .iter()
+        .copied()
+        .map(|pid| {
+            u32::try_from(pid).map_err(|_| {
+                mvp_error(
+                    "musickit_renderer_discovery_failed",
+                    "macOS returned an invalid MusicKit audio-renderer process identifier.",
+                    true,
+                    "audio_process",
+                    true,
+                )
+            })
+        })
+        .collect()
+}
+
+fn select_new_musickit_renderer_pid(
+    active_renderer_pids: &[u32],
+    preexisting_renderer_pids: &[u32],
+) -> Result<Option<u32>, ()> {
+    let mut selected = None;
+    for pid in active_renderer_pids
+        .iter()
+        .copied()
+        .filter(|pid| !preexisting_renderer_pids.contains(pid))
+    {
+        match selected {
+            None => selected = Some(pid),
+            Some(selected_pid) if selected_pid == pid => {}
+            Some(_) => return Err(()),
+        }
+    }
+    Ok(selected)
 }
 
 fn process_tap_supported() -> bool {
@@ -847,5 +954,15 @@ mod tests {
         assert_eq!(validated_rate(48_000.0).unwrap(), 48_000);
         assert!(validated_rate(0.0).is_err());
         assert!(validated_rate(44_100.5).is_err());
+    }
+
+    #[test]
+    fn renderer_selection_uses_only_a_single_new_active_process() {
+        assert_eq!(
+            select_new_musickit_renderer_pid(&[10, 20], &[10]),
+            Ok(Some(20))
+        );
+        assert_eq!(select_new_musickit_renderer_pid(&[10], &[10]), Ok(None));
+        assert_eq!(select_new_musickit_renderer_pid(&[20, 30], &[10]), Err(()));
     }
 }

@@ -75,8 +75,12 @@ pub struct AppleMusicCaptureStatus {
     pub rms_r: f32,
     pub diagnostic_observed_rate_hz: Option<u32>,
     pub last_callback_unix_ms: Option<u64>,
-    /// Sample rate Apple Music reported for the current track, when known.
+    /// Native source rate detected from Apple's decoder logs (or AppleScript
+    /// fallback), before mapping onto the capture device's supported rates.
     pub detected_track_rate_hz: Option<u32>,
+    pub detected_source_bit_depth: Option<u32>,
+    pub rate_detection_source: Option<&'static str>,
+    pub last_format_detection_unix_ms: Option<u64>,
     /// True while a debounced rate switch (stop → set rate → restart) runs.
     pub rate_switch_pending: bool,
     pub auto_route_system_output: bool,
@@ -330,14 +334,19 @@ impl AppleMusicCaptureService {
             None
         };
         let detected_track_rate_hz = control.detected_rate();
+        let detected_source_bit_depth = control.detected_source_bit_depth();
+        let rate_detection_source = control.format_detection_source();
+        let last_format_detection_unix_ms = control.last_format_detection_unix_ms();
         let rate_switch_pending = control.rate_switch_pending();
         let music_app_sound_volume = control.music_volume();
         let warnings = build_warnings(
             running,
             detected_track_rate_hz,
+            rate_detection_source,
             music_app_sound_volume,
             music_app.player_state.as_deref(),
             control.poll_error(),
+            control.format_detection_error(),
         );
 
         AppleMusicCaptureStatus {
@@ -378,6 +387,9 @@ impl AppleMusicCaptureService {
             diagnostic_observed_rate_hz: metrics.observed_rate_hz,
             last_callback_unix_ms: metrics.last_callback_unix_ms,
             detected_track_rate_hz,
+            detected_source_bit_depth,
+            rate_detection_source: rate_detection_source.map(|source| source.as_str()),
+            last_format_detection_unix_ms,
             rate_switch_pending,
             auto_route_system_output: settings.auto_route_system_output,
             music_app_running: music_app.running,
@@ -590,15 +602,28 @@ impl AppleMusicCaptureService {
         }
         #[cfg(target_os = "macos")]
         {
-            let running = self.runtime.lock().unwrap().running;
+            let (running, control) = {
+                let runtime = self.runtime.lock().unwrap();
+                (runtime.running, Arc::clone(&runtime.control))
+            };
             if running {
-                self.perform_rate_switch(rate_hz)
+                self.perform_rate_switch(rate_hz).inspect(|_| {
+                    control.observe_source_format(
+                        &rate_control::SourceFormatDetection::from_manual_override(rate_hz),
+                    );
+                    control.set_manual_rate_override_active(true);
+                    control.set_format_detection_error(None);
+                })
             } else {
                 let device_id =
                     coreaudio::device_id_for_uid(CAPTURE_DEVICE_UID).ok_or_else(|| {
                         "Fozmo Capture HAL driver is not visible to CoreAudio.".to_string()
                     })?;
-                rate_control::set_nominal_rate(device_id, rate_hz)
+                rate_control::set_nominal_rate(device_id, rate_hz).inspect(|_| {
+                    control.observe_source_format(
+                        &rate_control::SourceFormatDetection::from_manual_override(rate_hz),
+                    );
+                })
             }
         }
         #[cfg(not(target_os = "macos"))]
@@ -652,6 +677,29 @@ impl AppleMusicCaptureService {
     }
 
     #[cfg(target_os = "macos")]
+    fn accept_source_format(
+        self: &Arc<Self>,
+        control: &SessionControl,
+        detection: rate_control::SourceFormatDetection,
+    ) -> Result<(), String> {
+        let desired = rate_control::desired_capture_rate(detection.sample_rate_hz);
+        control.observe_source_format(&detection);
+        let current = self
+            .runtime
+            .lock()
+            .unwrap()
+            .session
+            .as_ref()
+            .map(|session| session.rate_hz())
+            .ok_or_else(|| "Apple Music capture has no active session.".to_string())?;
+        if current == desired {
+            Ok(())
+        } else {
+            self.perform_rate_switch(desired)
+        }
+    }
+
+    #[cfg(target_os = "macos")]
     fn spawn_music_poller(self: &Arc<Self>, control: Arc<SessionControl>) -> MusicPoller {
         use std::time::Duration;
 
@@ -661,6 +709,10 @@ impl AppleMusicCaptureService {
             .name("fozmo-music-poller".to_string())
             .spawn(move || {
                 let mut debounce = rate_control::RateSwitchDebounce::default();
+                let mut pending_probe_attempts: Option<u8> = None;
+                let mut last_log_marker: Option<String> = None;
+                let mut manual_override_latched = false;
+                let mut manual_override_track_key: Option<String> = None;
                 loop {
                     match stop_rx.recv_timeout(Duration::from_millis(1000)) {
                         Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -671,29 +723,103 @@ impl AppleMusicCaptureService {
                     };
                     if !music_app_running() {
                         control.observe_music_gone();
+                        debounce.reset();
+                        pending_probe_attempts = None;
+                        manual_override_latched = false;
+                        manual_override_track_key = None;
                         continue;
                     }
                     match run_osascript(rate_control::MUSIC_POLL_SCRIPT) {
                         Ok(output) => {
                             let info = rate_control::parse_music_track_info(&output);
-                            control.observe_track_info(
-                                info.sample_rate_hz,
-                                info.sound_volume,
-                                info.is_playing(),
-                            );
-                            if let Some(desired) = debounce.desired_rate_on_track_change(&info) {
-                                let current = service
-                                    .runtime
-                                    .lock()
-                                    .unwrap()
-                                    .session
-                                    .as_ref()
-                                    .map(|session| session.rate_hz());
-                                if current.is_some_and(|rate| rate != desired) {
-                                    // Errors are recorded on the control state
-                                    // and surfaced through status warnings.
-                                    let _ = service.perform_rate_switch(desired);
+                            control.observe_music_info(info.sound_volume);
+                            let track_changed = debounce.track_changed(&info);
+                            let track_key = info.debounce_key();
+                            if control.manual_rate_override_active() {
+                                if !manual_override_latched {
+                                    manual_override_latched = true;
+                                    manual_override_track_key = track_key;
+                                    pending_probe_attempts = None;
+                                    continue;
                                 }
+                                if manual_override_track_key == track_key {
+                                    pending_probe_attempts = None;
+                                    continue;
+                                }
+                                control.set_manual_rate_override_active(false);
+                                manual_override_latched = false;
+                                manual_override_track_key = None;
+                            }
+                            if track_changed {
+                                control.clear_source_format();
+                                control.set_format_detection_error(None);
+                                pending_probe_attempts = Some(0);
+                            }
+
+                            let Some(previous_attempts) = pending_probe_attempts else {
+                                continue;
+                            };
+                            if !info.is_playing() && info.sample_rate_hz.is_none() {
+                                continue;
+                            }
+
+                            let attempts = previous_attempts.saturating_add(1);
+                            let mut log_query_error = None;
+                            let log_detection =
+                                match rate_control::query_recent_source_format() {
+                                    Ok(Some(detection))
+                                        if detection.log_marker.as_ref()
+                                            != last_log_marker.as_ref() =>
+                                    {
+                                        last_log_marker = detection.log_marker.clone();
+                                        Some(detection)
+                                    }
+                                    Ok(_) => None,
+                                    Err(err) => {
+                                        log_query_error = Some(err);
+                                        None
+                                    }
+                                };
+
+                            let detection = log_detection.or_else(|| {
+                                info.sample_rate_hz
+                                    .filter(|rate| *rate > 0)
+                                    .map(rate_control::SourceFormatDetection::from_applescript)
+                            });
+                            if let Some(detection) = detection {
+                                pending_probe_attempts = None;
+                                let used_applescript = detection.source
+                                    == rate_control::FormatDetectionSource::MusicAppleScript;
+                                if let Err(err) =
+                                    service.accept_source_format(&control, detection)
+                                {
+                                    control.set_poll_error(Some(format!(
+                                        "Could not apply the detected Apple Music format: {err}"
+                                    )));
+                                }
+                                if used_applescript
+                                    && let Some(err) = log_query_error
+                                {
+                                    control.set_format_detection_error(Some(format!(
+                                        "Exact Apple decoder log detection is unavailable ({err}); using AppleScript's reported rate."
+                                    )));
+                                }
+                                continue;
+                            }
+
+                            if let Some(err) = log_query_error {
+                                pending_probe_attempts = None;
+                                control.set_format_detection_error(Some(format!(
+                                    "Could not read Apple Music's decoder format from Unified Logging: {err}. Capture remains at its current rate; the manual rate override is still available."
+                                )));
+                            } else if attempts >= rate_control::UNIFIED_LOG_PROBE_ATTEMPTS {
+                                pending_probe_attempts = None;
+                                control.set_format_detection_error(Some(
+                                    "Apple Music's decoder log did not expose a source format after five probes. Capture remains at its current rate; use the manual rate override if needed."
+                                        .to_string(),
+                                ));
+                            } else {
+                                pending_probe_attempts = Some(attempts);
                             }
                         }
                         Err(err) => control.set_poll_error(Some(format!(
@@ -759,9 +885,11 @@ fn restore_default_output(_saved_uid: Option<String>) {}
 fn build_warnings(
     running: bool,
     detected_track_rate_hz: Option<u32>,
+    rate_detection_source: Option<rate_control::FormatDetectionSource>,
     music_volume: Option<u32>,
     music_player_state: Option<&str>,
     poll_error: Option<String>,
+    format_detection_error: Option<String>,
 ) -> Vec<String> {
     let mut warnings = Vec::new();
     if !running {
@@ -774,13 +902,33 @@ fn build_warnings(
             "Apple Music volume is {volume}%. Set it to 100% for bit-perfect capture."
         ));
     }
-    if detected_track_rate_hz.is_none() && music_player_state == Some("playing") {
+    if detected_track_rate_hz.is_none()
+        && music_player_state == Some("playing")
+        && format_detection_error.is_none()
+    {
         warnings.push(
-            "Apple Music did not report the current track's sample rate (common for streaming). Capture continues at the driver rate; use the manual rate override for hi-res streams."
+            "Apple Music's exact source format has not been detected yet. Capture remains at the current driver rate while the decoder-log probe is pending."
+                .to_string(),
+        );
+    }
+    if rate_detection_source == Some(rate_control::FormatDetectionSource::MusicAppleScript)
+        && format_detection_error.is_none()
+    {
+        warnings.push(
+            "The source rate came from AppleScript because no newer decoder-log event was available; source bit depth is unknown."
+                .to_string(),
+        );
+    }
+    if rate_detection_source == Some(rate_control::FormatDetectionSource::ManualOverride) {
+        warnings.push(
+            "A manual source-rate override is active for this track; it has not been verified against Apple's decoder log."
                 .to_string(),
         );
     }
     if let Some(error) = poll_error {
+        warnings.push(error);
+    }
+    if let Some(error) = format_detection_error {
         warnings.push(error);
     }
     warnings
@@ -1326,14 +1474,46 @@ mod tests {
 
     #[test]
     fn warnings_flag_low_music_volume_and_unknown_rate() {
-        let warnings = build_warnings(true, None, Some(80), Some("playing"), None);
+        let warnings = build_warnings(true, None, None, Some(80), Some("playing"), None, None);
         assert_eq!(warnings.len(), 2);
         assert!(warnings[0].contains("80%"));
-        assert!(warnings[1].contains("did not report"));
+        assert!(warnings[1].contains("has not been detected"));
+    }
+
+    #[test]
+    fn warnings_identify_applescript_fallback() {
+        let warnings = build_warnings(
+            true,
+            Some(96_000),
+            Some(rate_control::FormatDetectionSource::MusicAppleScript),
+            Some(100),
+            Some("playing"),
+            None,
+            None,
+        );
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("AppleScript"));
+    }
+
+    #[test]
+    fn warnings_identify_manual_override() {
+        let warnings = build_warnings(
+            true,
+            Some(96_000),
+            Some(rate_control::FormatDetectionSource::ManualOverride),
+            Some(100),
+            Some("playing"),
+            None,
+            None,
+        );
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("manual"));
     }
 
     #[test]
     fn warnings_empty_when_not_running() {
-        assert!(build_warnings(false, None, Some(50), Some("playing"), None).is_empty());
+        assert!(
+            build_warnings(false, None, None, Some(50), Some("playing"), None, None,).is_empty()
+        );
     }
 }

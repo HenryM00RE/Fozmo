@@ -7,8 +7,8 @@ final class MusicSessionController {
     private let sessionID: String
     private let sendEvent: (HelperEvent) -> Void
     private let player = ApplicationMusicPlayer.shared
-    private let musicKitEntitled =
-        (Bundle.main.object(forInfoDictionaryKey: "FozmoMusicKitEntitled") as? Bool) == true
+    private let musicKitProvisioned =
+        (Bundle.main.object(forInfoDictionaryKey: "FozmoMusicKitProvisioned") as? Bool) == true
     private let authorizationWindow = AuthorizationWindowController()
     private var accepted = false
     private var queueRevision: UInt64 = 0
@@ -40,7 +40,9 @@ final class MusicSessionController {
         event.helperVersion =
             Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
             ?? "0.2.0"
-        event.musicKitEntitled = musicKitEntitled
+        // Keep the protocol-v2 field name for compatibility. MusicKit is an
+        // App Service associated with the App ID, not a code-signing entitlement.
+        event.musicKitEntitled = musicKitProvisioned
         event.capabilities = [
             "authorize",
             "lookup_song",
@@ -163,11 +165,12 @@ final class MusicSessionController {
     }
 
     private func authorize(commandID: String, presentUI: Bool) {
-        guard musicKitEntitled else {
+        guard musicKitProvisioned else {
             sendError(
                 commandID: commandID,
                 code: "musickit_capability_unavailable",
-                message: "This helper build is not signed with the MusicKit capability.",
+                message:
+                    "This helper is not signed with a development profile for the MusicKit-enabled App ID.",
                 retryable: false
             )
             return
@@ -619,11 +622,12 @@ final class MusicSessionController {
     }
 
     private func validateCatalogAccess(commandID: String) -> Bool {
-        guard musicKitEntitled else {
+        guard musicKitProvisioned else {
             sendError(
                 commandID: commandID,
                 code: "musickit_capability_unavailable",
-                message: "This helper build is not signed with the MusicKit capability.",
+                message:
+                    "This helper is not signed with a development profile for the MusicKit-enabled App ID.",
                 retryable: false
             )
             return false

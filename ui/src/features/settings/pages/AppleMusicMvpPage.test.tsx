@@ -98,7 +98,7 @@ afterEach(cleanup);
 describe('AppleMusicMvpPage backend integration harness', () => {
   it('looks up a song, adds it to a scenario, and submits through the router endpoint', async () => {
     render(<AppleMusicMvpPage />);
-    await screen.findByText('awaiting developer signing', { exact: false });
+    await screen.findByText('awaiting provisioned signing', { exact: false });
 
     fireEvent.change(screen.getByLabelText('Song ID'), {
       target: { value: '2037093408' }
@@ -109,7 +109,7 @@ describe('AppleMusicMvpPage backend integration harness', () => {
 
     expect(screen.getByText(/apple music · Test Artist · Test Song/i)).toBeInTheDocument();
     fireEvent.click(
-      screen.getByLabelText(/Allow Fozmo to capture only the signed MusicKit helper process/i)
+      screen.getByLabelText(/Allow Fozmo to capture MusicKit's isolated audio renderer/i)
     );
     fireEvent.click(screen.getByRole('button', { name: 'Play from selected row' }));
 
@@ -153,7 +153,7 @@ describe('AppleMusicMvpPage backend integration harness', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Load canned scenario' }));
     fireEvent.click(
-      screen.getByLabelText(/Allow Fozmo to capture only the signed MusicKit helper process/i)
+      screen.getByLabelText(/Allow Fozmo to capture MusicKit's isolated audio renderer/i)
     );
     fireEvent.click(screen.getByRole('button', { name: 'Play from selected row' }));
 
@@ -182,14 +182,14 @@ describe('AppleMusicMvpPage backend integration harness', () => {
     await screen.findByText(/Remote Mac · local output required/);
     fireEvent.click(screen.getByRole('button', { name: 'Load canned scenario' }));
     fireEvent.click(
-      screen.getByLabelText(/Allow Fozmo to capture only the signed MusicKit helper process/i)
+      screen.getByLabelText(/Allow Fozmo to capture MusicKit's isolated audio renderer/i)
     );
 
     expect(screen.getByRole('button', { name: 'Play from selected row' })).toBeDisabled();
     expect(mocks.playAppleMusicScenario).not.toHaveBeenCalled();
   });
 
-  it('renders entitlement, session revision, helper events, and structured failures', async () => {
+  it('renders provisioning, session revision, helper events, and structured failures', async () => {
     mocks.appleMusicStatus.mockResolvedValue({
       helper_present: true,
       helper_version: '0.2.0',
@@ -213,7 +213,7 @@ describe('AppleMusicMvpPage backend integration harness', () => {
 
     render(<AppleMusicMvpPage />);
 
-    await screen.findByText('signed and available');
+    await screen.findByText('provisioned and enabled');
     expect(screen.getByText('authorized')).toBeInTheDocument();
     expect(screen.getByText('available')).toBeInTheDocument();
     expect(screen.getAllByText(/"queue_revision": 12/)).toHaveLength(2);

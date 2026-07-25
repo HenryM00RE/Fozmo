@@ -24,7 +24,7 @@
     <string>14.2</string>
     <key>LSUIElement</key>
     <true/>
-    <key>FozmoMusicKitEntitled</key>
+    <key>FozmoMusicKitProvisioned</key>
     <false/>
     <key>NSAppleMusicUsageDescription</key>
     <string>Fozmo uses Apple Music access to prepare and play the songs you select.</string>

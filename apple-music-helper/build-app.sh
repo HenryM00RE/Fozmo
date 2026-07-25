@@ -8,6 +8,16 @@ OUTPUT_ROOT="${FOZMO_APPLE_MUSIC_OUTPUT_DIR:-$ROOT_DIR/target/apple-music-helper
 APP_PATH="$OUTPUT_ROOT/FozmoAppleMusicHelper.app"
 CONTENTS="$APP_PATH/Contents"
 MACOS="$CONTENTS/MacOS"
+PROFILE_PLIST=""
+SIGNING_ENTITLEMENTS=""
+SIGNER_CERT_DIR=""
+
+cleanup() {
+  [[ -z "$PROFILE_PLIST" ]] || rm -f "$PROFILE_PLIST"
+  [[ -z "$SIGNING_ENTITLEMENTS" ]] || rm -f "$SIGNING_ENTITLEMENTS"
+  [[ -z "$SIGNER_CERT_DIR" ]] || rm -rf "$SIGNER_CERT_DIR"
+}
+trap cleanup EXIT
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "error: the Apple Music helper can only be built on macOS" >&2
@@ -37,7 +47,7 @@ cp "$SCRIPT_DIR/Resources/Info.plist" "$CONTENTS/Info.plist"
 
 SIGN_IDENTITY="${FOZMO_APPLE_MUSIC_SIGN_IDENTITY:--}"
 if [[ "$SIGN_IDENTITY" != "-" && -z "${FOZMO_APPLE_MUSIC_PROVISIONING_PROFILE:-}" ]]; then
-  echo "error: a MusicKit-enabled provisioning profile is required with a non-ad-hoc signing identity" >&2
+  echo "error: a Mac App Development provisioning profile is required with a non-ad-hoc signing identity" >&2
   exit 1
 fi
 if [[ "$SIGN_IDENTITY" == "-" && -n "${FOZMO_APPLE_MUSIC_PROVISIONING_PROFILE:-}" ]]; then
@@ -51,17 +61,12 @@ if [[ -n "${FOZMO_APPLE_MUSIC_PROVISIONING_PROFILE:-}" ]]; then
     exit 1
   }
   PROFILE_PLIST="$(mktemp "${TMPDIR:-/tmp}/fozmo-apple-profile.XXXXXX")"
-  trap 'rm -f "$PROFILE_PLIST"' EXIT
+  SIGNING_ENTITLEMENTS="$(mktemp "${TMPDIR:-/tmp}/fozmo-apple-entitlements.XXXXXX")"
   security cms -D -i "$FOZMO_APPLE_MUSIC_PROVISIONING_PROFILE" -o "$PROFILE_PLIST"
-  MUSIC_KIT_VALUE="$(
-    /usr/libexec/PlistBuddy \
-      -c "Print :Entitlements:com.apple.developer.musickit" \
-      "$PROFILE_PLIST" 2>/dev/null || true
+
+  BUNDLE_ID="$(
+    /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$CONTENTS/Info.plist"
   )"
-  [[ "$MUSIC_KIT_VALUE" == "true" ]] || {
-    echo "error: provisioning profile does not contain com.apple.developer.musickit=true" >&2
-    exit 1
-  }
   APP_IDENTIFIER="$(
     /usr/libexec/PlistBuddy \
       -c "Print :Entitlements:application-identifier" \
@@ -71,20 +76,62 @@ if [[ -n "${FOZMO_APPLE_MUSIC_PROVISIONING_PROFILE:-}" ]]; then
         "$PROFILE_PLIST" 2>/dev/null ||
       true
   )"
-  [[ "$APP_IDENTIFIER" == *".$(
-    /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$CONTENTS/Info.plist"
-  )" ]] || {
-    echo "error: provisioning profile App ID does not match com.fozmo.apple-music-helper" >&2
+  TEAM_IDENTIFIER="$(
+    /usr/libexec/PlistBuddy \
+      -c "Print :Entitlements:com.apple.developer.team-identifier" \
+      "$PROFILE_PLIST" 2>/dev/null ||
+      true
+  )"
+  [[ -n "$TEAM_IDENTIFIER" && "$APP_IDENTIFIER" == "$TEAM_IDENTIFIER.$BUNDLE_ID" ]] || {
+    echo "error: provisioning profile App ID does not exactly match $BUNDLE_ID" >&2
     exit 1
   }
+
+  PROFILE_PLATFORM="$(
+    /usr/libexec/PlistBuddy -c "Print :Platform:0" "$PROFILE_PLIST" 2>/dev/null ||
+      true
+  )"
+  [[ "$PROFILE_PLATFORM" == "OSX" ]] || {
+    echo "error: provisioning profile is not for macOS" >&2
+    exit 1
+  }
+
+  PROVISIONING_UDID="$(
+    system_profiler SPHardwareDataType -json |
+      plutil -extract SPHardwareDataType.0.provisioning_UDID raw -o - - 2>/dev/null ||
+      true
+  )"
+  [[ -n "$PROVISIONING_UDID" ]] || {
+    echo "error: could not read this Mac's Provisioning UDID" >&2
+    exit 1
+  }
+  DEVICE_ALLOWED=false
+  DEVICE_INDEX=0
+  while DEVICE_UDID="$(
+    /usr/libexec/PlistBuddy \
+      -c "Print :ProvisionedDevices:$DEVICE_INDEX" \
+      "$PROFILE_PLIST" 2>/dev/null
+  )"; do
+    if [[ "$DEVICE_UDID" == "$PROVISIONING_UDID" ]]; then
+      DEVICE_ALLOWED=true
+      break
+    fi
+    DEVICE_INDEX=$((DEVICE_INDEX + 1))
+  done
+  [[ "$DEVICE_ALLOWED" == "true" ]] || {
+    echo "error: provisioning profile does not allow this Mac ($PROVISIONING_UDID)" >&2
+    exit 1
+  }
+
+  # MusicKit is an App Service tied to the App ID on Apple's servers. It has
+  # no com.apple.developer.musickit entitlement. Sign with only the
+  # entitlements Apple actually issued in this profile.
+  plutil -extract Entitlements xml1 -o "$SIGNING_ENTITLEMENTS" "$PROFILE_PLIST"
   cp "$FOZMO_APPLE_MUSIC_PROVISIONING_PROFILE" "$CONTENTS/embedded.provisionprofile"
-  /usr/libexec/PlistBuddy -c "Set :FozmoMusicKitEntitled true" "$CONTENTS/Info.plist"
+  /usr/libexec/PlistBuddy -c "Set :FozmoMusicKitProvisioned true" "$CONTENTS/Info.plist"
 fi
 
 if [[ "$SIGN_IDENTITY" == "-" ]]; then
-  # MusicKit is a restricted entitlement. Including it in an ad-hoc signature
-  # makes AMFI reject the executable before main(), which prevents even the
-  # launch/IPC proof from running.
   codesign \
     --force \
     --options runtime \
@@ -97,26 +144,70 @@ else
     --options runtime \
     --timestamp=none \
     --sign "$SIGN_IDENTITY" \
-    --entitlements "$SCRIPT_DIR/Resources/FozmoAppleMusicHelper.entitlements" \
+    --entitlements "$SIGNING_ENTITLEMENTS" \
     "$APP_PATH"
 fi
 codesign --verify --strict --verbose=2 "$APP_PATH"
 if [[ "$SIGN_IDENTITY" != "-" ]]; then
-  SIGNED_ENTITLEMENTS="$(mktemp "${TMPDIR:-/tmp}/fozmo-apple-entitlements.XXXXXX")"
-  trap 'rm -f "$PROFILE_PLIST" "$SIGNED_ENTITLEMENTS"' EXIT
-  codesign -d --entitlements :- "$APP_PATH" >"$SIGNED_ENTITLEMENTS" 2>/dev/null
-  [[ "$(
-    /usr/libexec/PlistBuddy \
-      -c "Print :com.apple.developer.musickit" \
-      "$SIGNED_ENTITLEMENTS" 2>/dev/null || true
-  )" == "true" ]] || {
-    echo "error: signed helper is missing the MusicKit entitlement" >&2
+  SIGNED_APP_IDENTIFIER="$(
+    codesign -d --entitlements - --xml "$APP_PATH" 2>/dev/null |
+      plutil \
+        -extract 'com\.apple\.application-identifier' \
+        raw \
+        -o - \
+        - 2>/dev/null ||
+      true
+  )"
+  [[ "$SIGNED_APP_IDENTIFIER" == "$APP_IDENTIFIER" ]] || {
+    echo "error: signed helper is missing the profile's application identifier" >&2
+    exit 1
+  }
+
+  SIGNER_CERT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/fozmo-apple-signer.XXXXXX")"
+  (
+    cd "$SIGNER_CERT_DIR"
+    codesign -d --extract-certificates "$APP_PATH" >/dev/null 2>&1
+  )
+  SIGNER_SHA1="$(
+    openssl x509 \
+      -inform DER \
+      -in "$SIGNER_CERT_DIR/codesign0" \
+      -noout \
+      -fingerprint \
+      -sha1 |
+      sed 's/^.*=//; s/://g' |
+      tr '[:lower:]' '[:upper:]'
+  )"
+  PROFILE_CERT_MATCH=false
+  PROFILE_CERT_INDEX=0
+  while PROFILE_CERT_BASE64="$(
+    plutil \
+      -extract "DeveloperCertificates.$PROFILE_CERT_INDEX" \
+      raw \
+      -o - \
+      "$PROFILE_PLIST" 2>/dev/null
+  )"; do
+    PROFILE_CERT_SHA1="$(
+      printf '%s' "$PROFILE_CERT_BASE64" |
+        base64 -D |
+        openssl x509 -inform DER -noout -fingerprint -sha1 |
+        sed 's/^.*=//; s/://g' |
+        tr '[:lower:]' '[:upper:]'
+    )"
+    if [[ "$SIGNER_SHA1" == "$PROFILE_CERT_SHA1" ]]; then
+      PROFILE_CERT_MATCH=true
+      break
+    fi
+    PROFILE_CERT_INDEX=$((PROFILE_CERT_INDEX + 1))
+  done
+  [[ "$PROFILE_CERT_MATCH" == "true" ]] || {
+    echo "error: signing identity is not included in the provisioning profile" >&2
     exit 1
   }
 fi
 
 if [[ "$SIGN_IDENTITY" == "-" ]]; then
-  echo "warning: built without the restricted MusicKit entitlement; launch/IPC can be tested, but authorization and playback require a provisioned build" >&2
+  echo "warning: built ad hoc; launch/IPC can be tested, but MusicKit authorization and playback require a provisioned build" >&2
 fi
 
 echo "$APP_PATH"

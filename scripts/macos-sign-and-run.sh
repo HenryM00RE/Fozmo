@@ -14,11 +14,13 @@ identity="${FOZMO_DEV_SIGN_IDENTITY:-fozmo-dev}"
 binary="$1"
 shift
 
-if security find-identity -v -p codesigning 2>/dev/null | grep -q "\"$identity\""; then
+if security find-identity -v -p codesigning 2>/dev/null | grep -Fq "$identity"; then
     if ! output=$(codesign --force --sign "$identity" \
         --identifier com.fozmo.dev "$binary" 2>&1); then
         echo "warning: codesign with '$identity' failed; running unsigned: $output" >&2
     fi
+elif [ -n "${FOZMO_DEV_SIGN_IDENTITY:-}" ]; then
+    echo "warning: codesign identity '$identity' was not found; running unsigned" >&2
 fi
 
 exec "$binary" "$@"
