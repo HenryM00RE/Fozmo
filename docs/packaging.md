@@ -81,15 +81,15 @@ cargo build --release --features asio
 Windows ASIO builds require the Steinberg ASIO SDK and LLVM/libclang setup;
 ASIO is not compiled or shipped in the macOS DMG.
 
-Apple Music live capture is an opt-in, macOS-only experiment and is not part
-of the default build:
+Apple Music is an opt-in macOS integration and is not part of the default
+build:
 
 ```sh
-cargo build --release --features apple_music_capture
+cargo build --release --features apple_music_musickit
 ```
 
-It is not compiled or shipped in the macOS DMG. Its implementation and driver notes are kept in the
-[development archive](dev/apple-music-capture.md).
+Its MusicKit catalog helper and Music.app/Fozmo Capture playback architecture
+are documented in [Apple Music development notes](dev/apple-music-musickit-mvp.md).
 
 ## Generated Frontend Assets
 

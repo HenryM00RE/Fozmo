@@ -10,8 +10,6 @@ mod agents;
 mod appearance;
 #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
 mod apple_music;
-#[cfg(feature = "apple_music_capture")]
-mod apple_music_capture;
 mod artist_radio;
 mod artwork;
 mod config;
@@ -94,8 +92,6 @@ pub fn create_router() -> Router<AppState> {
         // Streams back browser playback (`<audio>`), not just Sonos/UPnP, so
         // they are registered for every feature set.
         .merge(streams::routes());
-    #[cfg(feature = "apple_music_capture")]
-    let router = router.merge(apple_music_capture::routes());
     #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
     let router = router.merge(apple_music::routes());
     #[cfg(feature = "qobuz")]

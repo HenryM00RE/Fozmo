@@ -13,8 +13,8 @@ use crate::playback::config_applicator::PlaybackConfigApplicator;
 use crate::playback::sequencer::PlaybackCommandSequencer;
 use crate::protocol::{AgentCapabilities, OutputDeviceCapabilities, SourceRef};
 use crate::secrets::{MemorySecretsStore, SecretsStore};
-#[cfg(feature = "apple_music_capture")]
-use crate::services::apple_music::AppleMusicCaptureService;
+#[cfg(feature = "apple_music_musickit")]
+use crate::services::apple_music::AppleMusicPlaybackService;
 #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
 use crate::services::apple_music_musickit::AppleMusicService;
 use crate::services::hegel::HegelStatusCache;
@@ -64,8 +64,8 @@ pub(crate) fn app_state_with_pairing(
                 QobuzService::new(root.join("qobuz-cache"), Arc::clone(&secrets)).unwrap(),
             ),
             lastfm: Arc::new(LastFmService::new().unwrap()),
-            #[cfg(feature = "apple_music_capture")]
-            apple_music_capture: Arc::new(AppleMusicCaptureService::new(Arc::clone(&player))),
+            #[cfg(feature = "apple_music_musickit")]
+            apple_music_playback: Arc::new(AppleMusicPlaybackService::new(Arc::clone(&player))),
             #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
             apple_music: Arc::new(AppleMusicService::new(&root, &root.join("cache"))),
             airplay: Arc::new(airplay::AirPlayRegistry::new()),

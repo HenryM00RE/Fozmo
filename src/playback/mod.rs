@@ -1,11 +1,5 @@
 pub mod airplay_volume;
 #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
-pub(crate) mod apple_music;
-#[cfg(all(
-    target_os = "macos",
-    feature = "apple_music_musickit",
-    feature = "apple_music_capture"
-))]
 pub(crate) mod apple_music_native;
 pub mod apply_settings;
 pub mod artist_radio;

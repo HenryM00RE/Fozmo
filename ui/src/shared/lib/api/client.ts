@@ -693,29 +693,11 @@ export const endpoints = {
   clearQobuzCache: () => api.post('/api/qobuz/cache/clear'),
   lastfmStatus: () => api.get<JsonRecord>('/api/lastfm/status'),
   saveLastfmSettings: (settings: unknown) => api.post<JsonRecord>('/api/lastfm/settings', settings),
-  appleMusicCaptureStatus: () => api.get<JsonRecord>('/api/apple-music-capture/status'),
-  appleMusicCaptureSettings: () => api.get<JsonRecord>('/api/apple-music-capture/settings'),
-  saveAppleMusicCaptureSettings: (settings: unknown) =>
-    api.post<JsonRecord>('/api/apple-music-capture/settings', settings),
-  appleMusicCaptureDevices: () => api.get<JsonRecord>('/api/apple-music-capture/devices'),
-  startAppleMusicCapture: (settings: unknown) =>
-    api.post<JsonRecord>('/api/apple-music-capture/start', settings),
-  stopAppleMusicCapture: () => api.post<JsonRecord>('/api/apple-music-capture/stop'),
-  setAppleMusicCaptureRate: (rateHz: number) =>
-    api.post<JsonRecord>('/api/apple-music-capture/rate', { rate_hz: rateHz }),
-  appleMusicCaptureMetrics: () => api.get<JsonRecord>('/api/apple-music-capture/metrics'),
-  appleMusicAppStatus: () => api.get<JsonRecord>('/api/apple-music-capture/music-app/status'),
-  controlAppleMusicApp: (command: string) =>
-    api.post<JsonRecord>('/api/apple-music-capture/music-app/control', { command }),
   appleMusicStatus: () =>
     api.get<JsonRecord>('/api/apple-music/status', undefined, undefined, 'no-store'),
   launchAppleMusicHelper: () => api.post<JsonRecord>('/api/apple-music/launch'),
   authorizeAppleMusic: () =>
     api.post<JsonRecord>('/api/apple-music/authorize', { present_ui: true }),
-  confirmAppleMusicCapture: () =>
-    api.post<JsonRecord>('/api/apple-music/capture/confirm', {
-      confirm_system_audio_capture: true
-    }),
   appleMusicCatalogSearch: (term: string, storefront?: string, limit = 10) =>
     api.get<JsonRecord>(
       '/api/apple-music/catalog/search',
@@ -737,27 +719,16 @@ export const endpoints = {
       undefined,
       'no-store'
     ),
-  playAppleMusicScenario: (
-    zoneId: string,
-    source: SourceRef,
-    queue: SourceRef[],
-    confirmSystemAudioCapture: boolean
-  ) =>
+  playAppleMusicScenario: (zoneId: string, source: SourceRef, queue: SourceRef[]) =>
     api.post<JsonRecord>(
       '/api/apple-music/play',
       {
         zone_id: zoneId,
         source,
-        queue,
-        confirm_system_audio_capture: confirmSystemAudioCapture
+        queue
       },
       [409]
     ),
-  playAppleMusicSong: (songId: string, storefront?: string) =>
-    api.post<JsonRecord>('/api/apple-music/dev/play-song', {
-      song_id: songId,
-      storefront: storefront || null
-    }),
   appleMusicAlbumPreview: (
     localAlbumId: string | number,
     appleAlbumId: string,
@@ -807,26 +778,7 @@ export const endpoints = {
     api.get<JsonRecord | null>(
       `/api/library/apple-music-albums/${encodeURIComponent(String(appleAlbumId))}`
     ),
-  controlAppleMusic: (command: string) =>
-    api.post<JsonRecord>('/api/apple-music/transport', { command }),
-  stopAppleMusic: () => api.post<JsonRecord>('/api/apple-music/stop'),
   shutdownAppleMusicHelper: () => api.post<JsonRecord>('/api/apple-music/shutdown'),
-  startAppleMusicProcessTap: (confirmSystemAudioCapture: boolean, muteOriginalAudio = true) =>
-    api.post<JsonRecord>('/api/apple-music/process-tap/start', {
-      confirm_system_audio_capture: confirmSystemAudioCapture,
-      mute_original_audio: muteOriginalAudio
-    }),
-  stopAppleMusicProcessTap: () => api.post<JsonRecord>('/api/apple-music/process-tap/stop'),
-  switchAppleMusicComparison: (
-    target: 'apple_music' | 'fozmo',
-    confirmSystemAudioCapture: boolean,
-    matchPosition: boolean
-  ) =>
-    api.post<JsonRecord>('/api/apple-music/comparison/switch', {
-      target,
-      confirm_system_audio_capture: confirmSystemAudioCapture,
-      match_position: matchPosition
-    }),
 
   nowPlayingQueue: (zoneId: string, signal?: AbortSignal) =>
     api.get<{

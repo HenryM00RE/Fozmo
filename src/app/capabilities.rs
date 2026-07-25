@@ -8,7 +8,6 @@ pub struct BuildCapabilities {
     pub pcm_output: bool,
     pub airplay2: bool,
     pub asio: bool,
-    pub apple_music_capture: bool,
     pub apple_music_musickit: bool,
     pub sonos: bool,
     pub hegel: bool,
@@ -26,7 +25,6 @@ impl BuildCapabilities {
             // runtime; this flag means this server build supports its IPC.
             airplay2: cfg!(feature = "airplay_helper"),
             asio: cfg!(feature = "asio"),
-            apple_music_capture: cfg!(feature = "apple_music_capture"),
             apple_music_musickit: cfg!(all(target_os = "macos", feature = "apple_music_musickit")),
             sonos: cfg!(feature = "sonos"),
             hegel: cfg!(feature = "hegel"),

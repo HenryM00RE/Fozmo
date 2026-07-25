@@ -21,7 +21,7 @@ fn main() {
         env::var_os("CARGO_MANIFEST_DIR").expect("Cargo must set CARGO_MANIFEST_DIR"),
     );
 
-    build_apple_music_process_tap(&manifest_dir);
+    build_apple_music_app_bridge(&manifest_dir);
     emit_rerun_inputs(&manifest_dir);
     emit("FOZMO_BUILD_PROVENANCE_SCHEMA", PROVENANCE_SCHEMA);
     emit("FOZMO_BUILD_SOURCE_SNAPSHOT_SCHEMA", SOURCE_SNAPSHOT_SCHEMA);
@@ -75,14 +75,14 @@ fn main() {
     );
 }
 
-fn build_apple_music_process_tap(manifest_dir: &Path) {
+fn build_apple_music_app_bridge(manifest_dir: &Path) {
     if env::var_os("CARGO_FEATURE_APPLE_MUSIC_MUSICKIT").is_none()
         || env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos")
     {
         return;
     }
 
-    let bridge = manifest_dir.join("src/services/apple_music_musickit/process_tap_bridge.m");
+    let bridge = manifest_dir.join("src/services/apple_music_musickit/music_app_bridge.m");
     let embedded_info = manifest_dir.join("macos/FozmoServer-Info.plist");
     println!("cargo:rerun-if-changed={}", bridge.display());
     println!("cargo:rerun-if-changed={}", embedded_info.display());
@@ -91,11 +91,10 @@ fn build_apple_music_process_tap(manifest_dir: &Path) {
         .file(&bridge)
         .flag("-fobjc-arc")
         .flag("-mmacosx-version-min=11.0")
-        .compile("fozmo_process_tap_bridge");
+        .compile("fozmo_music_app_bridge");
 
     println!("cargo:rustc-link-lib=framework=AppKit");
     println!("cargo:rustc-link-lib=framework=ApplicationServices");
-    println!("cargo:rustc-link-lib=framework=CoreAudio");
     println!("cargo:rustc-link-lib=framework=Foundation");
     println!(
         "cargo:rustc-link-arg-bin=fozmo=-Wl,-sectcreate,__TEXT,__info_plist,{}",

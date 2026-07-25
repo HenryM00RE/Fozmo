@@ -493,6 +493,7 @@ impl ZoneManager {
     /// CoreAudio enumeration miss marked it offline. Apple Music uses this to
     /// wake/reopen a configured physical DAC after routing Music.app through
     /// the virtual capture device.
+    #[cfg(any(test, all(target_os = "macos", feature = "apple_music_musickit")))]
     pub(crate) fn player_for_enabled_local_zone(&self, zone_id: &str) -> Option<Arc<Player>> {
         self.inner
             .lock()

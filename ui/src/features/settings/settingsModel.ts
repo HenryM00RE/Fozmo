@@ -47,10 +47,7 @@ export function visibleSettingsSections(status: JsonRecord | null | undefined) {
   return settingsSections.filter((section) => {
     if (section.id === 'qobuz') return capabilityEnabled(status, 'qobuz');
     if (section.id === 'apple-music') {
-      return (
-        capabilityEnabled(status, 'apple_music_musickit') ||
-        capabilityEnabled(status, 'apple_music_capture')
-      );
+      return capabilityEnabled(status, 'apple_music_musickit');
     }
     return true;
   });

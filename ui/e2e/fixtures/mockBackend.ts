@@ -57,7 +57,6 @@ export const fixtures = {
     surface: 'local',
     capabilities: {
       airplay2: false,
-      apple_music_capture: false,
       asio: false,
       experimental_dsd256: false,
       hegel: true,

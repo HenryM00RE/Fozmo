@@ -25,11 +25,10 @@ airplay_helper = []
 # Set CPAL_ASIO_DIR to the SDK path and ensure libclang.dll is on PATH or LIBCLANG_PATH is set.
 # See README for setup details.
 asio = ["dep:ndsd-asio-sys"]
-apple_music_capture = []
 # MusicKit provides authorization/catalog access. Catalog playback on macOS
 # uses the Fozmo Capture virtual device so Music.app can deliver its native
 # Lossless/Hi-Res Lossless stream through the selected local DSP/output path.
-apple_music_musickit = ["apple_music_capture"]
+apple_music_musickit = []
 sonos = []
 hegel = []
 upnp = []
@@ -126,11 +125,6 @@ path = "audio_tests/dsd_public_quality.rs"
 [[test]]
 name = "audio_smoke"
 path = "audio_tests/audio_smoke.rs"
-
-[[test]]
-name = "apple_music_real_macos"
-path = "apple_music_tests/real_macos.rs"
-required-features = ["apple_music_musickit"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.9"

@@ -300,7 +300,7 @@ manifest = {
         "aggregation_assessment_sha256": sha256(root / "docs/gpl-aggregation-assessment.md"),
         "aggregation_policy_sha256": sha256(root / "LEGAL/gpl-aggregation-policy.json"),
     },
-    "excluded_features": ["apple_music_capture", "asio", "in_process_airplay"],
+    "excluded_features": ["apple_music_musickit", "asio", "in_process_airplay"],
     "ffmpeg": ffmpeg_provenance,
     "ffmpeg_configure_flags_sha256": sha256(ffmpeg_stage / "configure-flags.txt") if ffmpeg_stage.exists() else None,
     "included_features": feature_string.split(","),

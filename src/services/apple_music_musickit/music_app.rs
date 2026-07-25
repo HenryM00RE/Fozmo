@@ -1,9 +1,6 @@
-//! Small, synchronous Music.app control surface for the process-tap A/B tool.
-//!
-//! The API route runs these calls with `spawn_blocking`; keeping AppleScript
-//! here prevents Music.app transport details from leaking into HTTP handlers.
+//! Synchronous Music.app controls for native Apple Music product playback.
 
-use super::model::AppleMusicComparisonTrack;
+use super::model::MusicAppTrack;
 use std::ffi::{CStr, CString, c_char};
 use std::process::{Command, Stdio};
 
@@ -32,36 +29,10 @@ const MUSIC_STATUS_SCRIPT: &[&str] = &[
     "end tell",
 ];
 
-const MUSIC_PAUSE_AND_STATUS_SCRIPT: &[&str] = &[
-    "tell application \"Music\"",
-    "pause",
-    "set playbackState to player state as string",
-    "set trackKey to \"\"",
-    "set trackName to \"\"",
-    "set artistName to \"\"",
-    "set albumName to \"\"",
-    "set trackDuration to \"\"",
-    "set trackPosition to \"\"",
-    "if player state is not stopped then",
-    "try",
-    "set trackKey to (database ID of current track) as string",
-    "end try",
-    "try",
-    "set trackName to name of current track",
-    "set artistName to artist of current track",
-    "set albumName to album of current track",
-    "set trackDuration to duration of current track as string",
-    "set trackPosition to player position as string",
-    "end try",
-    "end if",
-    "return playbackState & linefeed & trackKey & linefeed & trackName & linefeed & artistName & linefeed & albumName & linefeed & trackDuration & linefeed & trackPosition",
-    "end tell",
-];
-
 const MUSIC_PLAY_CURRENT_ONCE_FROM_START_SCRIPT: &[&str] = &[
     "tell application \"Music\"",
-    "set player position to 0",
     "play current track once true",
+    "set player position to 0",
     "end tell",
 ];
 
@@ -69,10 +40,11 @@ const MUSIC_PLAY_CURRENT_ONCE_FROM_START_SCRIPT: &[&str] = &[
 pub(crate) struct MusicAppSnapshot {
     pub running: bool,
     pub player_state: Option<String>,
-    pub track: AppleMusicComparisonTrack,
+    pub track: MusicAppTrack,
 }
 
 unsafe extern "C" {
+    fn fozmo_music_app_pid() -> i32;
     fn fozmo_music_activate_catalog_track(
         storefront: *const c_char,
         album_id: *const c_char,
@@ -80,6 +52,12 @@ unsafe extern "C" {
         error_buffer: *mut c_char,
         error_capacity: usize,
     ) -> i32;
+}
+
+pub(super) fn pid() -> Option<u32> {
+    u32::try_from(unsafe { fozmo_music_app_pid() })
+        .ok()
+        .filter(|pid| *pid > 0)
 }
 
 impl MusicAppSnapshot {
@@ -165,34 +143,12 @@ pub(crate) fn activate_catalog_track(
     })
 }
 
-pub(crate) fn pause_and_status() -> Result<MusicAppSnapshot, String> {
-    if !music_app_running() {
-        return Ok(MusicAppSnapshot::default());
-    }
-    let output = run_osascript(MUSIC_PAUSE_AND_STATUS_SCRIPT.iter().copied())?;
-    Ok(parse_status(&output))
-}
-
 pub(crate) fn set_position(seconds: f64) -> Result<(), String> {
     if !seconds.is_finite() || seconds < 0.0 {
         return Err("Apple Music position must be a finite non-negative value.".to_string());
     }
     let position = format!("set player position to {seconds:.3}");
     run_osascript(["tell application \"Music\"", position.as_str(), "end tell"]).map(|_| ())
-}
-
-pub(crate) fn set_position_and_play(seconds: f64) -> Result<(), String> {
-    if !seconds.is_finite() || seconds < 0.0 {
-        return Err("Apple Music position must be a finite non-negative value.".to_string());
-    }
-    let position = format!("set player position to {seconds:.3}");
-    run_osascript([
-        "tell application \"Music\"",
-        position.as_str(),
-        "play",
-        "end tell",
-    ])
-    .map(|_| ())
 }
 
 fn run_music_command(command: &str) -> Result<(), String> {
@@ -253,7 +209,7 @@ fn parse_status(output: &str) -> MusicAppSnapshot {
     MusicAppSnapshot {
         running: true,
         player_state,
-        track: AppleMusicComparisonTrack {
+        track: MusicAppTrack {
             track_key,
             title,
             artist,
@@ -314,13 +270,13 @@ mod tests {
     }
 
     #[test]
-    fn single_track_restart_resets_timeline_before_playing() {
+    fn single_track_restart_resets_timeline_after_starting_transport() {
         assert_eq!(
             MUSIC_PLAY_CURRENT_ONCE_FROM_START_SCRIPT,
             &[
                 "tell application \"Music\"",
-                "set player position to 0",
                 "play current track once true",
+                "set player position to 0",
                 "end tell",
             ]
         );

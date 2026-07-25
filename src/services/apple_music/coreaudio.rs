@@ -78,10 +78,6 @@ pub(super) fn device_id_for_uid(uid: &str) -> Option<AudioDeviceID> {
         .find(|device_id| device_uid(*device_id).as_deref() == Some(uid))
 }
 
-pub(super) fn device_name_for_uid(uid: &str) -> Option<String> {
-    device_id_for_uid(uid).and_then(device_name)
-}
-
 pub(super) fn local_physical_device_id_for_name(name: &str) -> Option<AudioDeviceID> {
     let trimmed = name.trim();
     all_device_ids().into_iter().find(|device_id| {
@@ -159,14 +155,6 @@ pub(super) fn set_default_output_device(device_id: AudioDeviceID) -> Result<(), 
             "CoreAudio refused to change the default output device (status {status})."
         ))
     }
-}
-
-pub(super) fn read_u32(device_id: AudioDeviceID, selector: u32) -> Option<u32> {
-    read_scalar::<u32>(device_id, selector)
-}
-
-pub(super) fn read_u64(device_id: AudioDeviceID, selector: u32) -> Option<u64> {
-    read_scalar::<u64>(device_id, selector)
 }
 
 pub(super) fn read_f64(device_id: AudioDeviceID, selector: u32) -> Option<f64> {

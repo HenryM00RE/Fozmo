@@ -201,12 +201,8 @@ describe('settings navigation', () => {
     expect(settingsTabFromValue('unknown', 'zones', {})).toBe('zones');
   });
 
-  it('shows the Apple Music tab for either native-helper or legacy capture builds', () => {
-    const legacyEnabled = { capabilities: { apple_music_capture: true } };
+  it('shows the Apple Music tab only for the MusicKit product build', () => {
     const helperEnabled = { capabilities: { apple_music_musickit: true } };
-    expect(
-      visibleSettingsSections(legacyEnabled).some((section) => section.id === 'apple-music')
-    ).toBe(true);
     expect(
       visibleSettingsSections(helperEnabled).some((section) => section.id === 'apple-music')
     ).toBe(true);

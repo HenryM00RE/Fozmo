@@ -1,4 +1,4 @@
-#[cfg(feature = "apple_music_capture")]
+#[cfg(feature = "apple_music_musickit")]
 pub(crate) mod apple_music;
 #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
 pub(crate) mod apple_music_musickit;

@@ -603,63 +603,18 @@ pub fn build_status_response_for_zone(
         return Err(format!("Zone '{zone_id}' is not available"));
     };
     #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
-    apply_apple_music_status_overlay(state, zone_id, &mut response);
-    #[cfg(all(
-        target_os = "macos",
-        feature = "apple_music_musickit",
-        feature = "apple_music_capture"
-    ))]
     apply_native_apple_music_status_overlay(state, zone_id, &mut response);
     Ok(response)
 }
 
 #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
-fn apply_apple_music_status_overlay(
-    state: &AppState,
-    zone_id: &str,
-    response: &mut StatusResponse,
-) {
-    let Some(snapshot) = state.apple_music().playback_snapshot_for_zone(zone_id) else {
-        return;
-    };
-    let Some(player) = state.zones().player_for_zone(zone_id) else {
-        return;
-    };
-    if player.playback_epoch() != snapshot.player_epoch {
-        return;
-    }
-    let Some(source) = snapshot.current_source().cloned() else {
-        return;
-    };
-    response.state = match snapshot.playback_state.as_str() {
-        "playing" => "Playing",
-        "paused" => "Paused",
-        "preparing" => "Starting",
-        "failed" | "stopped" => "Stopped",
-        _ => response.state.as_str(),
-    }
-    .to_string();
-    response.file_name = Some(source.key());
-    response.current_source = Some(source.clone());
-    response.track_title = source.title().map(str::to_string);
-    response.track_artist = source.artist().map(str::to_string);
-    response.track_album = source.album().map(str::to_string);
-    response.position_secs = snapshot.position_secs;
-    response.duration_secs = source.duration_secs().unwrap_or(0.0);
-}
-
-#[cfg(all(
-    target_os = "macos",
-    feature = "apple_music_musickit",
-    feature = "apple_music_capture"
-))]
 fn apply_native_apple_music_status_overlay(
     state: &AppState,
     zone_id: &str,
     response: &mut StatusResponse,
 ) {
     let Some(snapshot) = state
-        .apple_music_capture()
+        .apple_music_playback()
         .playback_snapshot_for_zone(zone_id)
     else {
         return;
@@ -878,57 +833,6 @@ mod tests {
 
     #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
     #[test]
-    fn apple_music_snapshot_overlays_identity_without_replacing_player_signal_fields() {
-        let state = app_state("apple-music-status-overlay");
-        let zone_id = state.zones().active_zone_id();
-        let player = state.zones().player_for_zone(&zone_id).unwrap();
-        let baseline = build_status_response(&state);
-        let source = SourceRef::AppleMusicTrack {
-            song_id: "song-1".to_string(),
-            storefront: Some("nz".to_string()),
-            title: Some("Apple Song".to_string()),
-            artist: Some("Apple Artist".to_string()),
-            album: Some("Apple Album".to_string()),
-            album_artist: Some("Apple Artist".to_string()),
-            album_id: Some("album-1".to_string()),
-            artwork_url: None,
-            duration_secs: Some(123.0),
-            track_number: Some(1),
-            disc_number: Some(1),
-            isrc: None,
-            radio: false,
-            radio_context: None,
-            playlist_context: None,
-        };
-        state.apple_music().activate_playback(
-            zone_id,
-            player.playback_epoch(),
-            "helper-session".to_string(),
-            7,
-            vec![source.clone()],
-        );
-
-        let status = build_status_response(&state);
-
-        assert_eq!(status.state, "Playing");
-        assert_eq!(status.file_name.as_deref(), Some("apple_music:song-1"));
-        assert_eq!(status.current_source, Some(source));
-        assert_eq!(status.track_title.as_deref(), Some("Apple Song"));
-        assert_eq!(status.track_artist.as_deref(), Some("Apple Artist"));
-        assert_eq!(status.track_album.as_deref(), Some("Apple Album"));
-        assert_eq!(status.duration_secs, 123.0);
-        assert_eq!(status.zone_protocol, SinkProtocol::LocalCoreAudio);
-        assert_eq!(status.output_mode, baseline.output_mode);
-        assert_eq!(status.filter_type, baseline.filter_type);
-        assert_eq!(status.headroom_db, baseline.headroom_db);
-    }
-
-    #[cfg(all(
-        target_os = "macos",
-        feature = "apple_music_musickit",
-        feature = "apple_music_capture"
-    ))]
-    #[test]
     fn native_apple_music_snapshot_exposes_catalog_artwork_and_timeline() {
         let state = app_state("native-apple-music-status-overlay");
         let zone_id = state.zones().active_zone_id();
@@ -950,12 +854,12 @@ mod tests {
             radio_context: None,
             playlist_context: None,
         };
-        let snapshot = state.apple_music_capture().activate_managed_playback(
+        let snapshot = state.apple_music_playback().activate_playback(
             zone_id.clone(),
             player.playback_epoch(),
             source.clone(),
         );
-        state.apple_music_capture().update_managed_playback(
+        state.apple_music_playback().update_playback(
             snapshot.generation,
             "playing",
             Some(42.5),

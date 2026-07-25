@@ -16,9 +16,7 @@ use crate::playback::service::{
 };
 use crate::playback::source::qobuz_play_request_from_source_ref;
 use crate::protocol::SourceRef;
-use crate::services::apple_music::{
-    APPLE_MUSIC_LIVE_DISPLAY_NAME, NativeAppleMusicPlaybackSnapshot,
-};
+use crate::services::apple_music::{APPLE_MUSIC_LIVE_DISPLAY_NAME, AppleMusicPlaybackSnapshot};
 use crate::services::apple_music_musickit::{
     AppleMusicMvpError, MusicAppSnapshot, activate_catalog_track, music_app_status,
     pause_music_app, play_music_app, play_music_app_current_once, prepare_music_app,
@@ -37,9 +35,14 @@ const RESUME_PREFILL_TARGET_SECS: f64 = 0.080;
 const RESUME_PREFILL_MIN_SECS: f64 = 0.030;
 const RESUME_PREFILL_TIMEOUT: Duration = Duration::from_millis(1_000);
 const MONITOR_INTERVAL: Duration = Duration::from_millis(350);
+const TERMINAL_STATE_STARTUP_GRACE: Duration = Duration::from_secs(1);
+const TERMINAL_STATE_CONFIRMATIONS: u8 = 3;
+const STARTUP_TRANSPORT_STATUS_POLL: Duration = Duration::from_millis(350);
+const STARTUP_TRANSPORT_RECOVERY_TIMEOUT: Duration = Duration::from_secs(3);
+const STARTUP_STALL_POSITION_MAX_SECS: f64 = 1.0;
 const COMPLETION_TAIL_SECS: f64 = 4.0;
 const PLAYER_PAUSE_TIMEOUT: Duration = Duration::from_secs(4);
-const PLAYER_OUTPUT_START_TIMEOUT: Duration = Duration::from_secs(12);
+const PLAYER_OUTPUT_START_TIMEOUT: Duration = Duration::from_secs(25);
 const PLAYER_EOF_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 const PLAYER_AUTO_ADVANCE_START_GRACE: Duration = Duration::from_millis(750);
 
@@ -55,11 +58,6 @@ pub(crate) async fn play_apple_music_source(
 ) -> Result<PlaybackOutcome, PlaybackError> {
     let source = hydrate_catalog_source(state, source).await?;
     let (song_id, storefront, album_id) = catalog_identity(&source)?;
-    if !state.apple_music().system_audio_capture_confirmed() {
-        return Err(PlaybackError::forbidden(
-            "Confirm macOS system-audio capture in Apple Music settings before playback.",
-        ));
-    }
     if !guard.is_current(state) {
         return Err(PlaybackError::conflict("Playback changed"));
     }
@@ -68,13 +66,12 @@ pub(crate) async fn play_apple_music_source(
     let _playback_switch = state.apple_music().lock_playback_switch().await;
     ensure_guard_current(state, &guard)?;
     pause_music_blocking().await?;
-    if let Some(previous) = state.apple_music_capture().managed_playback_snapshot() {
+    if let Some(previous) = state.apple_music_playback().playback_snapshot() {
         clear_prefetched_player_queue(state, &previous);
     }
-    if state.apple_music_capture().capture_running() {
-        state.apple_music_capture().stop_runtime(false);
+    if state.apple_music_playback().capture_running() {
+        state.apple_music_playback().stop_runtime(false);
     }
-    crate::playback::apple_music::stop_replaced_session_locked(state, zone_id).await;
     ensure_guard_current(state, &guard)?;
 
     apply_playback_settings_for_zone(state, zone_id);
@@ -82,17 +79,12 @@ pub(crate) async fn play_apple_music_source(
     prepare_hegel_for_zone(state, zone_id).await?;
     prepare_music_blocking().await?;
 
-    let settings = state.settings().apple_music_capture_settings();
+    let settings = state.settings().apple_music_playback_settings();
     let initial_epoch = state
-        .apple_music_capture()
-        .start_managed_playback(
-            player.clone(),
-            &settings,
-            zone_id,
-            state.apple_music().system_audio_capture_confirmed(),
-        )
+        .apple_music_playback()
+        .start_playback_capture(player.clone(), &settings)
         .map_err(PlaybackError::integration)?;
-    let playback = state.apple_music_capture().activate_managed_playback(
+    let playback = state.apple_music_playback().activate_playback(
         zone_id.to_string(),
         initial_epoch,
         source.clone(),
@@ -121,6 +113,11 @@ pub(crate) async fn play_apple_music_source(
         .map_err(PlaybackError::integration)?;
 
         let selected = wait_for_selected_track(state, &guard, &playback).await?;
+        // Music.app can carry its global player position across an
+        // Accessibility-selected catalog row. Reset only after the requested
+        // track is current so a shorter track cannot inherit a position at or
+        // beyond its EOF.
+        set_music_position_blocking(0.0).await?;
         // Music must still be decoding while we inspect its fresh decoder-log
         // event. Pausing here can make the app briefly disappear from Core
         // Audio and can prevent the ALAC event from being emitted at all. The
@@ -142,12 +139,12 @@ pub(crate) async fn play_apple_music_source(
         let source_rate_hz = source_format.sample_rate_hz;
         let source_bits = source_format.source_bit_depth_bits;
         let verified_epoch = state
-            .apple_music_capture()
+            .apple_music_playback()
             .restart_at_verified_source_format(source_rate_hz, source_bits)
             .map_err(PlaybackError::integration)?;
         if !state
-            .apple_music_capture()
-            .replace_managed_player_epoch(playback.generation, verified_epoch)
+            .apple_music_playback()
+            .replace_player_epoch(playback.generation, verified_epoch)
         {
             return Err(PlaybackError::conflict("Playback changed"));
         }
@@ -170,7 +167,7 @@ pub(crate) async fn play_apple_music_source(
         prepare_hegel_for_zone(state, zone_id).await?;
         player.resume();
         wait_for_player_output_ready(state, &guard, &playback, &player, verified_epoch).await?;
-        state.apple_music_capture().update_managed_playback(
+        state.apple_music_playback().update_playback(
             playback.generation,
             "playing",
             Some(0.0),
@@ -219,9 +216,9 @@ pub(crate) async fn play_apple_music_source(
 pub(crate) fn active_snapshot(
     state: &AppState,
     zone_id: &str,
-) -> Option<NativeAppleMusicPlaybackSnapshot> {
+) -> Option<AppleMusicPlaybackSnapshot> {
     let snapshot = state
-        .apple_music_capture()
+        .apple_music_playback()
         .playback_snapshot_for_zone(zone_id)?;
     let player = native_local_player(state, zone_id)?;
     (player.playback_epoch() == snapshot.player_epoch).then_some(snapshot)
@@ -237,8 +234,8 @@ pub(crate) fn spawn_native_next_prefetch(state: AppState, zone_id: String) {
         return;
     };
     let Some(revision) = state
-        .apple_music_capture()
-        .reserve_managed_prefetch(snapshot.generation)
+        .apple_music_playback()
+        .reserve_prefetch(snapshot.generation)
     else {
         return;
     };
@@ -260,7 +257,7 @@ pub(crate) fn spawn_native_next_prefetch(state: AppState, zone_id: String) {
 async fn arm_native_next_player_queue(
     state: &AppState,
     zone_id: &str,
-    snapshot: &NativeAppleMusicPlaybackSnapshot,
+    snapshot: &AppleMusicPlaybackSnapshot,
     revision: u64,
 ) -> Result<(), String> {
     let player =
@@ -326,13 +323,13 @@ async fn arm_native_next_player_queue(
 fn native_prefetch_is_current(
     state: &AppState,
     zone_id: &str,
-    snapshot: &NativeAppleMusicPlaybackSnapshot,
+    snapshot: &AppleMusicPlaybackSnapshot,
     revision: u64,
     expected_next_key: Option<&str>,
 ) -> bool {
     state
-        .apple_music_capture()
-        .managed_prefetch_is_current(snapshot.generation, revision)
+        .apple_music_playback()
+        .prefetch_is_current(snapshot.generation, revision)
         && active_snapshot(state, zone_id)
             .is_some_and(|active| active.player_epoch == snapshot.player_epoch)
         && expected_next_key.is_none_or(|expected| {
@@ -342,7 +339,7 @@ fn native_prefetch_is_current(
         })
 }
 
-fn clear_prefetched_player_queue(state: &AppState, snapshot: &NativeAppleMusicPlaybackSnapshot) {
+fn clear_prefetched_player_queue(state: &AppState, snapshot: &AppleMusicPlaybackSnapshot) {
     if let Some(player) = native_local_player(state, &snapshot.zone_id) {
         player.set_queue_if_epoch(Vec::new(), Some(snapshot.player_epoch));
     }
@@ -361,9 +358,8 @@ pub(crate) async fn stop_replaced_session_if_current(
         // item before closing the live producer.
         clear_prefetched_player_queue(state, &snapshot);
         let _ = pause_music_blocking().await;
-        state.apple_music_capture().stop_runtime(false);
+        state.apple_music_playback().stop_runtime(false);
     }
-    crate::playback::apple_music::stop_replaced_session_locked(state, zone_id).await;
     Ok(())
 }
 
@@ -376,8 +372,8 @@ pub(crate) async fn pause(state: &AppState, zone_id: &str) -> Result<bool, Playb
     let player = native_local_player(state, zone_id).ok_or(PlaybackError::ZoneNotAvailable)?;
     player.pause();
     state
-        .apple_music_capture()
-        .update_managed_playback(snapshot.generation, "paused", None, None);
+        .apple_music_playback()
+        .update_playback(snapshot.generation, "paused", None, None);
     Ok(true)
 }
 
@@ -399,8 +395,8 @@ pub(crate) async fn resume(state: &AppState, zone_id: &str) -> Result<bool, Play
     prepare_hegel_for_zone(state, zone_id).await?;
     player.resume();
     state
-        .apple_music_capture()
-        .update_managed_playback(snapshot.generation, "playing", None, None);
+        .apple_music_playback()
+        .update_playback(snapshot.generation, "playing", None, None);
     Ok(true)
 }
 
@@ -421,14 +417,14 @@ pub(crate) async fn seek(
     let player = native_local_player(state, zone_id).ok_or(PlaybackError::ZoneNotAvailable)?;
     pause_music_blocking().await?;
     player.pause();
-    state.apple_music_capture().update_managed_playback(
+    state.apple_music_playback().update_playback(
         snapshot.generation,
         "paused",
         Some(seconds),
         None,
     );
     let replacement_epoch = state
-        .apple_music_capture()
+        .apple_music_playback()
         .restart_current_managed_session()
         .map_err(PlaybackError::integration)?;
     hold_player_paused(&player, replacement_epoch).await?;
@@ -444,7 +440,7 @@ pub(crate) async fn seek(
     .await?;
     prepare_hegel_for_zone(state, zone_id).await?;
     player.resume();
-    state.apple_music_capture().update_managed_playback(
+    state.apple_music_playback().update_playback(
         snapshot.generation,
         "playing",
         Some(seconds),
@@ -460,7 +456,7 @@ pub(crate) async fn stop(state: &AppState, zone_id: &str) -> Result<bool, Playba
         return Ok(false);
     }
     let _ = pause_music_blocking().await;
-    state.apple_music_capture().stop_runtime(true);
+    state.apple_music_playback().stop_runtime(true);
     Ok(true)
 }
 
@@ -477,7 +473,7 @@ pub(crate) async fn next(state: &AppState, zone_id: &str) -> Result<bool, Playba
     clear_prefetched_player_queue(state, &snapshot);
     let _ = pause_music_blocking().await;
     let detached_epoch = state
-        .apple_music_capture()
+        .apple_music_playback()
         .stop_runtime(false)
         .unwrap_or(snapshot.player_epoch);
     let Some((next, rest)) = queue.split_first() else {
@@ -566,7 +562,7 @@ fn catalog_identity(source: &SourceRef) -> Result<(String, String, String), Play
 async fn wait_for_selected_track(
     state: &AppState,
     guard: &PlaybackGuard,
-    playback: &NativeAppleMusicPlaybackSnapshot,
+    playback: &AppleMusicPlaybackSnapshot,
 ) -> Result<MusicAppSnapshot, PlaybackError> {
     let deadline = tokio::time::Instant::now() + TRACK_ACTIVATION_TIMEOUT;
     let mut last_track = None;
@@ -646,13 +642,13 @@ fn ensure_guard_current(state: &AppState, guard: &PlaybackGuard) -> Result<(), P
 fn ensure_owned(
     state: &AppState,
     guard: &PlaybackGuard,
-    expected: &NativeAppleMusicPlaybackSnapshot,
+    expected: &AppleMusicPlaybackSnapshot,
 ) -> Result<(), PlaybackError> {
     if !guard.sequence_is_current(state) {
         return Err(PlaybackError::conflict("Playback changed"));
     }
     let Some(current) = state
-        .apple_music_capture()
+        .apple_music_playback()
         .playback_snapshot_for_zone(&expected.zone_id)
     else {
         return Err(PlaybackError::conflict("Playback changed"));
@@ -695,13 +691,16 @@ async fn hold_player_paused(
 async fn wait_for_player_output_ready(
     state: &AppState,
     guard: &PlaybackGuard,
-    playback: &NativeAppleMusicPlaybackSnapshot,
+    playback: &AppleMusicPlaybackSnapshot,
     player: &std::sync::Arc<crate::audio::player::Player>,
     expected_epoch: u64,
 ) -> Result<(), PlaybackError> {
     use crate::audio::player::{OutputTransport, PlaybackState};
 
     let deadline = tokio::time::Instant::now() + PLAYER_OUTPUT_START_TIMEOUT;
+    let mut next_music_status = tokio::time::Instant::now();
+    let mut consecutive_music_stopped = 0_u8;
+    let mut startup_recovery_attempted = false;
     loop {
         ensure_owned(state, guard, playback)?;
         if player.playback_epoch() != expected_epoch {
@@ -718,6 +717,44 @@ async fn wait_for_player_output_ready(
                 "The local output path is ready for native Apple Music playback"
             );
             return Ok(());
+        }
+        if tokio::time::Instant::now() >= next_music_status {
+            let music = music_status_blocking().await?;
+            if !music.running {
+                return Err(PlaybackError::integration(
+                    "Music.app quit while Fozmo was opening the local output.",
+                ));
+            }
+            if music.has_current_track() && !music_track_matches_source(&music, &playback.source) {
+                return Err(PlaybackError::integration(
+                    "Music.app changed tracks while Fozmo was opening the local output.",
+                ));
+            }
+            match music.player_state.as_deref() {
+                Some("playing") => consecutive_music_stopped = 0,
+                Some("paused" | "stopped") => {
+                    consecutive_music_stopped = consecutive_music_stopped.saturating_add(1);
+                    if consecutive_music_stopped >= 2 {
+                        if startup_recovery_attempted {
+                            return Err(PlaybackError::integration(
+                                "Music.app repeatedly stopped while Fozmo was opening the local output.",
+                            ));
+                        }
+                        startup_recovery_attempted = true;
+                        warn!(
+                            event = "apple_music_native_startup_transport_recovery",
+                            zone_id = playback.zone_id,
+                            generation = playback.generation,
+                            "Music.app stopped during output startup; retrying the selected track with its normal transport"
+                        );
+                        restart_selected_track_with_normal_transport(&playback.source).await?;
+                        ensure_owned(state, guard, playback)?;
+                        consecutive_music_stopped = 0;
+                    }
+                }
+                _ => {}
+            }
+            next_music_status = tokio::time::Instant::now() + STARTUP_TRANSPORT_STATUS_POLL;
         }
         if snapshot.state == PlaybackState::Stopped {
             return Err(PlaybackError::integration(
@@ -748,7 +785,7 @@ async fn wait_for_player_output_ready(
 async fn wait_for_prefill(
     state: &AppState,
     guard: &PlaybackGuard,
-    playback: &NativeAppleMusicPlaybackSnapshot,
+    playback: &AppleMusicPlaybackSnapshot,
     target_secs: f64,
     minimum_secs: f64,
     timeout: Duration,
@@ -758,7 +795,7 @@ async fn wait_for_prefill(
     loop {
         ensure_owned(state, guard, playback)?;
         let buffered = state
-            .apple_music_capture()
+            .apple_music_playback()
             .buffered_audio_secs()
             .map_err(PlaybackError::integration)?;
         if buffered >= target_secs && started.elapsed().as_secs_f64() >= minimum_secs {
@@ -792,7 +829,7 @@ async fn wait_for_prefill(
 
 async fn wait_for_prefill_without_guard(
     state: &AppState,
-    snapshot: &NativeAppleMusicPlaybackSnapshot,
+    snapshot: &AppleMusicPlaybackSnapshot,
     target_secs: f64,
     minimum_secs: f64,
     timeout: Duration,
@@ -815,11 +852,11 @@ async fn cleanup_failed_start(
 ) {
     let _ = pause_music_blocking().await;
     if state
-        .apple_music_capture()
-        .managed_playback_snapshot()
+        .apple_music_playback()
+        .playback_snapshot()
         .is_some_and(|snapshot| snapshot.generation == generation)
     {
-        state.apple_music_capture().stop_runtime(true);
+        state.apple_music_playback().stop_runtime(true);
     } else {
         player.stop();
     }
@@ -832,6 +869,9 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
         let mut last_position = 0.0_f64;
         let mut last_duration = 0.0_f64;
         let mut consecutive_errors = 0_u8;
+        let mut consecutive_stopped = 0_u8;
+        let mut startup_recovery_attempted = false;
+        let monitor_started = tokio::time::Instant::now();
         loop {
             ticker.tick().await;
             let Some(snapshot) = active_snapshot(&state, &zone_id) else {
@@ -879,19 +919,35 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
                 break;
             }
             if music.has_current_track() && !music_track_matches_source(&music, &snapshot.source) {
+                let duration = if last_duration > 0.0 {
+                    last_duration
+                } else {
+                    snapshot.duration_secs
+                };
+                let completed = native_track_completed(last_position, duration);
                 warn!(
                     event = "apple_music_native_track_interrupted",
                     zone_id,
                     expected = snapshot.source.key(),
                     actual_title = music.track.title.as_deref().unwrap_or_default(),
+                    last_position_secs = last_position,
+                    duration_secs = duration,
+                    completed,
                     "Music.app changed away from Fozmo's selected catalog track"
                 );
+                if completed {
+                    let _ = pause_music_blocking().await;
+                }
                 finish_native_playback(
                     state.clone(),
                     zone_id.clone(),
                     generation,
-                    false,
-                    "track_interrupted",
+                    completed,
+                    if completed {
+                        "completed_track_transition"
+                    } else {
+                        "track_interrupted"
+                    },
                 )
                 .await;
                 break;
@@ -904,7 +960,8 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
             }
             match music.player_state.as_deref() {
                 Some("playing") => {
-                    state.apple_music_capture().update_managed_playback(
+                    consecutive_stopped = 0;
+                    state.apple_music_playback().update_playback(
                         generation,
                         "playing",
                         music.track.position_secs,
@@ -912,7 +969,8 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
                     );
                 }
                 Some("paused") => {
-                    state.apple_music_capture().update_managed_playback(
+                    consecutive_stopped = 0;
+                    state.apple_music_playback().update_playback(
                         generation,
                         "paused",
                         music.track.position_secs,
@@ -920,6 +978,55 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
                     );
                 }
                 Some("stopped") => {
+                    consecutive_stopped = consecutive_stopped.saturating_add(1);
+                    let elapsed = monitor_started.elapsed();
+                    if !stopped_state_is_terminal(consecutive_stopped, elapsed) {
+                        debug!(
+                            event = "apple_music_native_terminal_state_deferred",
+                            zone_id,
+                            generation,
+                            consecutive_stopped,
+                            elapsed_ms = elapsed.as_millis(),
+                            "Deferring a transient Music.app stopped state"
+                        );
+                        continue;
+                    }
+                    if should_recover_startup_stall(last_position, startup_recovery_attempted) {
+                        startup_recovery_attempted = true;
+                        match restart_selected_track_with_normal_transport(&snapshot.source).await {
+                            Ok(recovered) => {
+                                consecutive_stopped = 0;
+                                if let Some(position) = recovered.track.position_secs {
+                                    last_position = position;
+                                }
+                                if let Some(duration) = recovered.track.duration_secs {
+                                    last_duration = duration;
+                                }
+                                state.apple_music_playback().update_playback(
+                                    generation,
+                                    "playing",
+                                    recovered.track.position_secs,
+                                    recovered.track.duration_secs,
+                                );
+                                info!(
+                                    event = "apple_music_native_startup_transport_recovered",
+                                    zone_id,
+                                    generation,
+                                    "Restarted a track-specific Music.app startup stall without reopening the output"
+                                );
+                                continue;
+                            }
+                            Err(error) => {
+                                warn!(
+                                    event = "apple_music_native_startup_transport_recovery_failed",
+                                    zone_id,
+                                    generation,
+                                    error = %error,
+                                    "Music.app did not recover from its startup stall"
+                                );
+                            }
+                        }
+                    }
                     let duration = if last_duration > 0.0 {
                         last_duration
                     } else {
@@ -936,7 +1043,7 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
                         queued_count = zone_queue_sources(&state, &zone_id).len(),
                         "Observed Music.app's terminal state"
                     );
-                    state.apple_music_capture().update_managed_playback(
+                    state.apple_music_playback().update_playback(
                         generation,
                         "stopped",
                         Some(last_position),
@@ -956,10 +1063,22 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
                     .await;
                     break;
                 }
-                _ => {}
+                _ => {
+                    consecutive_stopped = 0;
+                }
             }
         }
     });
+}
+
+fn stopped_state_is_terminal(consecutive_stopped: u8, elapsed: Duration) -> bool {
+    elapsed >= TERMINAL_STATE_STARTUP_GRACE && consecutive_stopped >= TERMINAL_STATE_CONFIRMATIONS
+}
+
+fn should_recover_startup_stall(last_position_secs: f64, already_attempted: bool) -> bool {
+    !already_attempted
+        && (!last_position_secs.is_finite()
+            || last_position_secs <= STARTUP_STALL_POSITION_MAX_SECS)
 }
 
 fn native_track_completed(last_position_secs: f64, duration_secs: f64) -> bool {
@@ -991,7 +1110,7 @@ async fn finish_native_playback(
         .profile_id(&zone_id)
         .unwrap_or_else(|| crate::settings::DEFAULT_PROFILE_ID.to_string());
     let detached_epoch = state
-        .apple_music_capture()
+        .apple_music_playback()
         .stop_runtime(false)
         .unwrap_or(snapshot.player_epoch);
     if !completed {
@@ -1218,6 +1337,31 @@ async fn music_status_blocking() -> Result<MusicAppSnapshot, PlaybackError> {
         .map_err(PlaybackError::integration)
 }
 
+async fn restart_selected_track_with_normal_transport(
+    source: &SourceRef,
+) -> Result<MusicAppSnapshot, PlaybackError> {
+    play_music_blocking().await?;
+    // `play` can restore Music.app's previous global player position while it
+    // creates the transport. Apply the start position after that transition.
+    set_music_position_blocking(0.0).await?;
+    let deadline = tokio::time::Instant::now() + STARTUP_TRANSPORT_RECOVERY_TIMEOUT;
+    loop {
+        let snapshot = music_status_blocking().await?;
+        if snapshot.running
+            && snapshot.player_state.as_deref() == Some("playing")
+            && music_track_matches_source(&snapshot, source)
+        {
+            return Ok(snapshot);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(PlaybackError::integration(
+                "Music.app did not restart the selected track with its normal transport.",
+            ));
+        }
+        tokio::time::sleep(TRACK_ACTIVATION_POLL).await;
+    }
+}
+
 async fn prepare_music_blocking() -> Result<(), PlaybackError> {
     tokio::task::spawn_blocking(prepare_music_app)
         .await
@@ -1272,14 +1416,11 @@ fn playback_error(error: AppleMusicMvpError) -> PlaybackError {
         "music_authorization_not_determined"
         | "music_authorization_denied"
         | "subscription_required"
-        | "musickit_capability_unavailable"
-        | "process_tap_confirmation_required" => PlaybackError::forbidden(error.message),
+        | "musickit_capability_unavailable" => PlaybackError::forbidden(error.message),
         "song_not_found" | "album_not_found" | "helper_missing" => {
             PlaybackError::not_found(error.message)
         }
-        "process_tap_playback_changed" | "apple_music_active_segment_requires_reprepare" => {
-            PlaybackError::conflict(error.message)
-        }
+        "apple_music_active_segment_requires_reprepare" => PlaybackError::conflict(error.message),
         "apple_music_storefront_invalid" | "apple_music_seek_invalid" | "queue_prepare_failed" => {
             PlaybackError::bad_request(error.message)
         }
@@ -1341,5 +1482,35 @@ mod tests {
         assert!(!native_track_completed(280.0, 300.0));
         assert!(!native_track_completed(0.0, 300.0));
         assert!(!native_track_completed(296.5, 0.0));
+    }
+
+    #[test]
+    fn terminal_music_state_requires_grace_and_consecutive_observations() {
+        assert!(!stopped_state_is_terminal(
+            TERMINAL_STATE_CONFIRMATIONS,
+            TERMINAL_STATE_STARTUP_GRACE - Duration::from_millis(1)
+        ));
+        assert!(!stopped_state_is_terminal(
+            TERMINAL_STATE_CONFIRMATIONS - 1,
+            TERMINAL_STATE_STARTUP_GRACE
+        ));
+        assert!(stopped_state_is_terminal(
+            TERMINAL_STATE_CONFIRMATIONS,
+            TERMINAL_STATE_STARTUP_GRACE
+        ));
+    }
+
+    #[test]
+    fn startup_stall_recovery_is_limited_to_an_unadvanced_first_attempt() {
+        assert!(should_recover_startup_stall(0.0, false));
+        assert!(should_recover_startup_stall(
+            STARTUP_STALL_POSITION_MAX_SECS,
+            false
+        ));
+        assert!(!should_recover_startup_stall(
+            STARTUP_STALL_POSITION_MAX_SECS + 0.001,
+            false
+        ));
+        assert!(!should_recover_startup_stall(0.0, true));
     }
 }

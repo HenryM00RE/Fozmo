@@ -1,5 +1,5 @@
-#[cfg(feature = "apple_music_capture")]
-use super::AppleMusicCaptureSettings;
+#[cfg(feature = "apple_music_musickit")]
+use super::AppleMusicPlaybackSettings;
 use super::{AppearanceSettings, ListeningProfile, PersistedSettings, ZonePlaybackSettings};
 use crate::app::paths::atomic_write;
 use crate::secrets::{SecretKey, SecretValue, SecretsStore};
@@ -262,9 +262,9 @@ impl SettingsStore {
         self.inner.lock().unwrap().hegel.clone()
     }
 
-    #[cfg(feature = "apple_music_capture")]
-    pub fn apple_music_capture_settings(&self) -> AppleMusicCaptureSettings {
-        self.inner.lock().unwrap().apple_music_capture.clone()
+    #[cfg(feature = "apple_music_musickit")]
+    pub fn apple_music_playback_settings(&self) -> AppleMusicPlaybackSettings {
+        self.inner.lock().unwrap().apple_music_playback.clone()
     }
 
     pub fn appearance_settings(&self) -> AppearanceSettings {

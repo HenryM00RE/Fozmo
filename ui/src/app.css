@@ -8938,707 +8938,100 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
   color: var(--terracotta-ink, #f4b0a8);
 }
 
-.react-app .apple-music-capture-page {
-  padding-right: 28px;
+.react-app .apple-music-page .settings-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
 }
 
-.react-app .apple-music-mvp-banner {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--s-5);
-  margin-bottom: var(--s-6);
-  padding: 22px 24px;
+.react-app .apple-music-page .settings-summary-item,
+.react-app .apple-music-page .settings-list-row {
   border-radius: var(--r-panel);
   background: var(--canvas-tint);
   box-shadow: var(--panel-rest);
 }
 
-.react-app .apple-music-mvp-banner h2 {
-  margin: 7px 0 10px;
-  font-size: 30px;
+.react-app .apple-music-page .settings-summary-item {
+  display: grid;
+  gap: 4px;
+  padding: 16px 18px;
 }
 
-.react-app .apple-music-mvp-banner p {
+.react-app .apple-music-page .settings-summary-item span,
+.react-app .apple-music-page .settings-inline-form label > span {
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.react-app .apple-music-page .settings-actions,
+.react-app .apple-music-page .settings-inline-form {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.react-app .apple-music-page .settings-inline-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.react-app .apple-music-page .settings-inline-form label:first-child {
+  flex: 0 0 100px;
+}
+
+.react-app .apple-music-page .settings-inline-form .settings-grow {
+  min-width: min(280px, 100%);
+  flex: 1;
+}
+
+.react-app .apple-music-page .settings-inline-form input {
+  width: 100%;
+  min-height: 38px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--canvas);
+  color: var(--ink);
+  box-shadow: var(--deboss-input);
+  padding: 0 14px;
+}
+
+.react-app .apple-music-page .settings-notice {
   margin: 0;
   color: var(--ink-muted);
 }
 
-.react-app .apple-music-mvp-banner .stamp {
-  flex-shrink: 0;
+.react-app .apple-music-page .settings-notice.error {
+  color: var(--terracotta-ink, #f4b0a8);
 }
 
-.react-app .apple-music-message {
-  margin: 0;
-}
-
-.react-app .apple-music-grid {
-  gap: 30px;
-}
-
-.react-app .apple-music-ab-panel {
+.react-app .apple-music-page .settings-list {
   display: grid;
-  gap: 16px;
-  padding: 22px 28px;
-}
-
-.react-app .apple-music-ab-route {
-  color: var(--ink-muted, #a8a297);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.react-app .apple-music-ab-switch {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
-.react-app .apple-music-ab-choice {
-  min-width: 0;
-  min-height: 82px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  border: 0;
-  border-radius: 10px;
-  padding: 14px;
-  background: var(--canvas-tint, rgba(255, 255, 255, 0.025));
-  color: var(--ink, #f5f0e8);
-  box-shadow: inset 0 0 0 1px var(--line-08, rgba(255, 255, 255, 0.08));
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background 140ms ease,
-    box-shadow 140ms ease,
-    transform 140ms ease;
-}
-
-.react-app .apple-music-ab-choice:not(:disabled):hover {
-  background: color-mix(in srgb, var(--accent, #59b6ff) 8%, var(--canvas-tint));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, #59b6ff) 42%, transparent);
-  transform: translateY(-1px);
-}
-
-.react-app .apple-music-ab-choice:focus-visible {
-  outline: 2px solid var(--accent, #59b6ff);
-  outline-offset: 2px;
-}
-
-.react-app .apple-music-ab-choice.is-active {
-  background: color-mix(in srgb, var(--accent, #59b6ff) 13%, var(--canvas-tint));
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--accent, #59b6ff) 66%, transparent),
-    0 8px 24px rgba(0, 0, 0, 0.13);
-}
-
-.react-app .apple-music-ab-choice:disabled:not(.is-active) {
-  cursor: default;
-  opacity: 0.52;
-}
-
-.react-app .apple-music-ab-letter {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--line-08, rgba(255, 255, 255, 0.08));
-  color: var(--ink-strong, #fff);
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.react-app .apple-music-ab-choice.is-active .apple-music-ab-letter {
-  background: var(--accent, #59b6ff);
-  color: #07121c;
-}
-
-.react-app .apple-music-ab-copy {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
-.react-app .apple-music-ab-copy strong,
-.react-app .apple-music-ab-copy small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.react-app .apple-music-ab-copy strong {
-  font-size: 14px;
-}
-
-.react-app .apple-music-ab-copy small {
-  color: var(--ink-muted, #a8a297);
-  font-size: 11px;
-}
-
-.react-app .apple-music-ab-state {
-  color: var(--ink-muted, #a8a297);
-  font-size: 10px;
-  font-weight: 750;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.react-app .apple-music-ab-choice.is-active .apple-music-ab-state {
-  color: var(--accent, #59b6ff);
-}
-
-.react-app .apple-music-ab-guide {
-  display: grid;
-  gap: 4px;
-  border-radius: 8px;
-  padding: 12px 14px;
-  background: color-mix(in srgb, var(--ochre-ink, #d6b66f) 9%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ochre-ink, #d6b66f) 24%, transparent);
-}
-
-.react-app .apple-music-ab-guide strong {
-  font-size: 12px;
-}
-
-.react-app .apple-music-ab-guide span,
-.react-app .apple-music-ab-details {
-  color: var(--ink-muted, #a8a297);
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.react-app .apple-music-ab-details {
+.react-app .apple-music-page .settings-list-row {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  gap: 8px 18px;
-}
-
-.react-app .apple-music-ab-options {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 24px;
-}
-
-.react-app .apple-music-form-panel,
-.react-app .apple-music-search-panel,
-.react-app .apple-music-warning-panel,
-.react-app .apple-music-app-panel,
-.react-app .apple-music-tap-panel {
-  display: grid;
-  gap: 16px;
-  padding: 22px 28px;
-}
-
-.react-app .apple-music-tap-metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
-  gap: 1px;
-  overflow: hidden;
-  border-radius: 8px;
-  background: var(--line-08, rgba(255, 255, 255, 0.08));
-}
-
-.react-app .apple-music-tap-metrics > div {
-  min-width: 0;
-  display: grid;
-  gap: 5px;
-  padding: 12px 14px;
-  background: var(--canvas-tint, rgba(255, 255, 255, 0.025));
-}
-
-.react-app .apple-music-tap-metrics span {
-  color: var(--ink-muted, #a8a297);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.react-app .apple-music-tap-metrics strong {
-  overflow: hidden;
-  color: var(--ink, #f5f0e8);
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.react-app .apple-music-tap-rate-note {
-  margin: -6px 0 0;
-  color: var(--ink-muted, #a8a297);
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.react-app .apple-music-capture-confirmation {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: 10px;
-  color: var(--ink-muted, #a8a297);
-  font-size: 12px;
-  line-height: 1.45;
-  cursor: pointer;
-}
-
-.react-app .apple-music-capture-confirmation input {
-  margin: 2px 0 0;
-  accent-color: var(--accent, #59b6ff);
-}
-
-.react-app .apple-music-capture-confirmation:has(input:disabled) {
-  cursor: default;
-  opacity: 0.72;
-}
-
-@media (max-width: 760px) {
-  .react-app .apple-music-ab-switch,
-  .react-app .apple-music-ab-options {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.react-app .apple-music-app-panel {
   gap: 18px;
+  padding: 14px 16px;
 }
 
-.react-app .apple-music-now-playing {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
-  align-items: center;
-  gap: 14px;
-}
-
-.react-app .apple-music-note-tile {
-  width: 52px;
-  height: 52px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #fa2d48, #ff6a88);
-  color: white;
-}
-
-.react-app .apple-music-note-tile svg {
-  width: 28px;
-  height: 28px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.8;
-}
-
-.react-app .apple-music-transport-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
-
-.react-app .apple-music-play-button {
-  color: var(--ink-strong, #fff);
-}
-
-.react-app .apple-music-driver-callout {
-  display: grid;
-  gap: 5px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--terracotta-ink, #f4b0a8) 10%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--terracotta-ink, #f4b0a8) 26%, transparent);
-  padding: 12px 14px;
-}
-
-.react-app .apple-music-routing-callout {
-  display: grid;
-  gap: 5px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--accent, #59b6ff) 10%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, #59b6ff) 26%, transparent);
-  padding: 12px 14px;
-}
-
-.react-app .apple-music-driver-callout strong,
-.react-app .apple-music-routing-callout strong {
-  color: var(--ink, #f5f0e8);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.react-app .apple-music-driver-callout span,
-.react-app .apple-music-routing-callout span {
-  color: var(--ink-muted, #a8a297);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.react-app .apple-music-inline-fields {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.react-app .apple-music-search-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
-}
-
-.react-app .apple-music-search-row input {
-  width: 100%;
-  min-height: 42px;
-  box-sizing: border-box;
-  border: 0;
-  border-radius: var(--r-input, 10px);
-  background: var(--canvas, rgba(0, 0, 0, 0.16));
-  color: var(--ink, #f5f0e8);
-  box-shadow: var(--deboss-input, inset 0 0 0 1px rgba(255, 255, 255, 0.08));
-  padding: 0 14px;
-  font: inherit;
-  font-size: 14px;
-  outline: 0;
-}
-
-.react-app .apple-music-results {
-  display: grid;
-}
-
-.react-app .apple-music-result-heading {
-  margin-top: 12px;
-  padding: 10px 0 6px;
-  color: var(--ink-muted, #a8a297);
-  font-size: 11px;
-  font-weight: 750;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.react-app .apple-music-result-heading:first-child {
-  margin-top: 0;
-}
-
-.react-app .apple-music-result-row {
-  min-width: 0;
-  min-height: 68px;
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--line-08, rgba(255, 255, 255, 0.08));
-}
-
-.react-app .apple-music-result-row:last-child {
-  border-bottom: 0;
-}
-
-.react-app .apple-music-artwork {
-  width: 44px;
-  height: 44px;
-  overflow: hidden;
-  border-radius: 8px;
-  background: var(--line-08, rgba(255, 255, 255, 0.08));
-}
-
-.react-app .apple-music-artwork img {
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: cover;
-}
-
-.react-app .apple-music-result-copy {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
-.react-app .apple-music-result-copy strong,
-.react-app .apple-music-result-copy small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.react-app .apple-music-result-copy strong {
-  color: var(--ink, #f5f0e8);
-  font-size: 14px;
-  font-weight: 650;
-}
-
-.react-app .apple-music-result-copy small,
-.react-app .apple-music-warning-panel p {
-  color: var(--ink-muted, #a8a297);
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.react-app .apple-music-catalog-search {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 12px;
-}
-
-.react-app .apple-music-catalog-search .pill {
-  min-height: 42px;
-  padding-inline: 22px;
-}
-
-.react-app .apple-music-search-target {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: baseline;
-  gap: 4px 10px;
-  margin: 14px 0;
-  padding: 12px 14px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--accent, #59b6ff) 7%, var(--canvas-tint));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, #59b6ff) 24%, transparent);
-}
-
-.react-app .apple-music-search-target span {
-  color: var(--ink-muted, #a8a297);
-  font-size: 12px;
-  font-weight: 650;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.react-app .apple-music-search-target strong {
-  color: var(--ink, #f5f0e8);
-  font-size: 14px;
-}
-
-.react-app .apple-music-search-target small {
-  grid-column: 2;
-  color: var(--ink-muted, #a8a297);
-  font-size: 12px;
-}
-
-.react-app .apple-music-search-result {
-  width: 100%;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  transition:
-    background 140ms ease,
-    padding 140ms ease;
-}
-
-.react-app .apple-music-search-result:hover {
-  padding-inline: 10px;
-  background: color-mix(in srgb, var(--accent, #59b6ff) 7%, transparent);
-}
-
-.react-app .apple-music-album-search-result {
-  appearance: none;
-  border: 0;
-  font: inherit;
-  cursor: pointer;
-  text-decoration: none;
-}
-
-.react-app .apple-music-album-search-result:focus-visible {
-  outline: 2px solid var(--accent, #59b6ff);
-  outline-offset: 2px;
-}
-
-.react-app .apple-music-album-result-open {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 5px;
-  color: var(--accent, #59b6ff);
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.react-app .apple-music-album-result-open svg {
-  width: 14px;
-  height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-}
-
-.react-app .apple-music-result-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 7px;
-}
-
-.react-app .apple-music-result-action {
-  min-height: 30px;
-  padding: 6px 10px;
-  white-space: nowrap;
-}
-
-.react-app .apple-music-console-divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 22px 0 14px;
-  color: var(--ink-muted, #a8a297);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.react-app .apple-music-console-divider::after {
-  height: 1px;
-  flex: 1;
-  background: var(--line-08, rgba(255, 255, 255, 0.08));
-  content: "";
-}
-
-.react-app .apple-music-console-fields {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 14px;
-}
-
-.react-app .apple-music-inline-action {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.react-app .apple-music-inline-action > .input {
-  min-width: 0;
-  flex: 1;
-}
-
-.react-app .apple-music-scenario-list {
-  display: grid;
-  gap: 8px;
-  margin: 14px 0;
-}
-
-.react-app .apple-music-scenario-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--panel) 82%, transparent);
-}
-
-.react-app .apple-music-scenario-row label {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.react-app .apple-music-scenario-row span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.react-app .apple-music-empty-state {
-  color: var(--muted);
-  margin: 4px 0;
-}
-
-.react-app .apple-music-diagnostics {
-  margin-top: 14px;
-}
-
-.react-app .apple-music-diagnostics > summary {
-  cursor: pointer;
-}
-
-.react-app .apple-music-json-editor {
-  width: 100%;
-  min-height: 220px;
-  margin-top: 12px;
-  resize: vertical;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.react-app .apple-music-state-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 12px;
-  margin-top: 12px;
-}
-
-.react-app .apple-music-json-panel {
-  min-width: 0;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 12px;
-  background: color-mix(in srgb, var(--panel) 76%, #000 6%);
-}
-
-.react-app .apple-music-json-panel > strong {
-  display: block;
-  margin-bottom: 8px;
-}
-
-.react-app .apple-music-json-panel pre {
-  max-height: 320px;
-  margin: 0;
-  overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--muted);
-  font: 11px / 1.45 var(--font-mono);
+.react-app .apple-music-page .settings-list-row p {
+  margin: 4px 0 0;
+  color: var(--ink-muted);
 }
 
 @media (max-width: 620px) {
-  .react-app .apple-music-catalog-search {
-    grid-template-columns: 1fr;
-  }
-
-  .react-app .apple-music-search-target {
-    grid-template-columns: 1fr;
-  }
-
-  .react-app .apple-music-search-target small {
-    grid-column: 1;
-  }
-
-  .react-app .apple-music-inline-action,
-  .react-app .apple-music-scenario-row {
+  .react-app .apple-music-page .settings-inline-form,
+  .react-app .apple-music-page .settings-list-row {
     align-items: stretch;
     flex-direction: column;
   }
-
-  .react-app .apple-music-result-row {
-    grid-template-columns: 44px minmax(0, 1fr);
-  }
-
-  .react-app .apple-music-result-actions {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
-    flex-wrap: wrap;
-  }
-
-  .react-app .apple-music-album-result-open {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
-  }
-
-  .react-app .apple-music-scenario-row label {
-    width: 100%;
-  }
-}
-
-.react-app .apple-music-warning-panel p {
-  margin: 0;
 }
 
 .react-app .zone-audio-heading {

@@ -11,8 +11,8 @@ mod store;
 mod validation;
 
 pub use dsd::DsdSourceRule;
-#[cfg(feature = "apple_music_capture")]
-pub use model::AppleMusicCaptureSettings;
+#[cfg(feature = "apple_music_musickit")]
+pub use model::AppleMusicPlaybackSettings;
 pub use model::{
     AppearanceSettings, AuthTokenBinding, AuthTokenKind, DEFAULT_PROFILE_ID, HegelSettings,
     ListeningProfile, PairingTokenRecord, PersistedSettings, RemoteAccessSettings,

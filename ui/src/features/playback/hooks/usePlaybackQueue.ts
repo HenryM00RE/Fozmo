@@ -398,8 +398,7 @@ export function usePlaybackQueue({
           playbackRequest = endpoints.playAppleMusicScenario(
             activeZoneId,
             itemSource,
-            sourceRefsForPlayback(nextQueue, index),
-            false
+            sourceRefsForPlayback(nextQueue, index)
           );
           warmImage(pendingArtSrc);
           setPendingPlaybackArt(pendingArtSrc);

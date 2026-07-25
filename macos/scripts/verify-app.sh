@@ -99,7 +99,7 @@ manifest = json.load(open(sys.argv[1]))
 expected_mode = sys.argv[2]
 expected_version = sys.argv[3]
 required = {"local_library", "qobuz", "pcm_output", "airplay_helper", "sonos", "hegel", "upnp", "experimental_dsd256"}
-excluded = {"apple_music_capture", "asio", "in_process_airplay"}
+excluded = {"apple_music_musickit", "asio", "in_process_airplay"}
 if manifest.get("build_mode") != expected_mode or manifest.get("version") != expected_version:
     raise SystemExit("packaged build mode/version provenance is invalid")
 if set(manifest.get("included_features", [])) != required:

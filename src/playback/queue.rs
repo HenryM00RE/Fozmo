@@ -521,23 +521,6 @@ pub(crate) async fn apply_zone_queue_sources(
     expected_current: Option<String>,
 ) -> Result<(), PlaybackError> {
     let queue_sources = normalize_upcoming_queue_sources(state, zone_id, queue_sources);
-    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
-    if let Some(snapshot) = state.apple_music().playback_snapshot_for_zone(zone_id) {
-        let loaded_upcoming = snapshot
-            .segment
-            .get(snapshot.current_segment_index.saturating_add(1)..)
-            .unwrap_or_default();
-        if queue_sources.len() < loaded_upcoming.len()
-            || !queue_sources
-                .iter()
-                .zip(loaded_upcoming)
-                .all(|(requested, loaded)| requested == loaded)
-        {
-            return Err(PlaybackError::conflict(
-                "apple_music_queue_edit_requires_restart",
-            ));
-        }
-    }
     let protocol = state.zones().zone_protocol(zone_id);
     if protocol == Some(SinkProtocol::SonosUpnp) {
         if !sonos_current_matches(state, zone_id, &expected_current) {
@@ -600,11 +583,7 @@ pub(crate) async fn apply_zone_queue_sources(
         return Ok(());
     }
     if let Some(player) = player {
-        #[cfg(all(
-            target_os = "macos",
-            feature = "apple_music_musickit",
-            feature = "apple_music_capture"
-        ))]
+        #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
         if crate::playback::apple_music_native::active_snapshot(state, zone_id).is_some() {
             // Clear the old engine queue immediately, then asynchronously arm
             // exactly the new first entry when it is a local file or Qobuz
@@ -726,61 +705,6 @@ mod tests {
             "apple_music"
         );
         assert_eq!(queue_kind_for_items(&[apple, qobuz]), "mixed");
-    }
-
-    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
-    #[tokio::test]
-    async fn active_apple_run_rejects_removal_but_allows_append_after_loaded_prefix() {
-        let state = app_state("apple-live-queue-edit");
-        let zone_id = crate::zones::LOCAL_ZONE_ID;
-        state
-            .library()
-            .upsert_zone_definition(zone_id, "Core", "local_coreaudio", None, true)
-            .unwrap();
-        let player = state.zones().player_for_zone(zone_id).unwrap();
-        let epoch = player.playback_epoch();
-        let current = apple_source("1");
-        let loaded_next = apple_source("2");
-        state.apple_music().activate_playback(
-            zone_id.to_string(),
-            epoch,
-            "helper-session".to_string(),
-            9,
-            vec![current.clone(), loaded_next.clone()],
-        );
-        state.listening().start(
-            state.library(),
-            zone_id.to_string(),
-            "Local".to_string(),
-            state.settings().active_profile_id(),
-            current,
-            vec![loaded_next.clone()],
-        );
-
-        let rejected = apply_zone_queue_sources(
-            &state,
-            zone_id,
-            &state.settings().active_profile_id(),
-            vec![qobuz_source(3, false)],
-            None,
-        )
-        .await;
-        assert_eq!(
-            rejected,
-            Err(PlaybackError::conflict(
-                "apple_music_queue_edit_requires_restart"
-            ))
-        );
-
-        let accepted = apply_zone_queue_sources(
-            &state,
-            zone_id,
-            &state.settings().active_profile_id(),
-            vec![loaded_next, qobuz_source(3, false)],
-            None,
-        )
-        .await;
-        assert!(accepted.is_ok(), "append should be accepted: {accepted:?}");
     }
 
     #[tokio::test]

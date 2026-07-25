@@ -1,94 +1,46 @@
-# Apple Music MusicKit integration
+# Apple Music integration
 
-The `apple_music_musickit` feature contains the backend-first Apple Music
-provider for macOS. Everything except Apple's signed entitlement,
-authorization, subscription, live catalog, and real playback can be built and
-tested without an Apple Developer account.
+The `apple_music_musickit` feature provides Fozmo's Apple Music product route
+on macOS.
 
-This path is separate from the legacy `apple_music_capture` virtual-device
-experiment.
+## Architecture
 
-## Implemented architecture
-
-Fozmo owns the complete provider-neutral queue, listening state, history, and
-album versions. The helper owns only the currently loaded Apple Music item:
+MusicKit is the authorization and catalog plane. It does not render audio:
 
 ```text
-Settings / future product UI
+Apple Music catalog
         |
         v
-local-only Apple Music API
+signed MusicKit helper (authorization and catalog only)
         |
         v
-PlaybackIntent -> PlaybackRouter -> provider-neutral queue/history/status
+SourceRef::AppleMusicTrack -> PlaybackRouter
         |
-        +-- Local / Qobuz use their existing playback paths
-        |
-        `-- Apple Music service
-              |
-              +-- authenticated protocol-v2 Unix socket
-              +-- MusicKit helper queue and transport
-              `-- include-only MusicKit renderer Core Audio process tap
-                         |
-                         v
-                  Player -> DSP -> selected local output
+        v
+Music.app -> Fozmo Capture -> Player -> DSP -> selected local output
 ```
 
-The current implementation includes:
+Fozmo activates the exact catalog track in Music.app, verifies the fresh
+Music.app decoder format, configures Fozmo Capture to that supported rate, and
+starts the normal local Player path. Pause, resume, seek, next, stop, queue
+advance, listening history, and status remain owned by Fozmo.
 
-- `SourceRef::AppleMusicTrack` and stable `apple_music:<song-id>` identity;
-- mixed Local, Qobuz, and Apple queue persistence;
-- protocol-v2 song search, song/album lookups, and revisioned queue events;
-- duplicate Apple song occurrences distinguished by segment index;
-- active MusicKit renderer discovery and a guarded PCM/DSP handoff;
-- per-track Apple handoffs so every queued song is independently verified as
-  lossless before its renderer can reach the DSP;
-- normal pause, resume, seek, next, stop, status, listening, and history paths;
-- stale session/revision/duplicate-event rejection;
-- provider-boundary auto-advance;
-- schema v2 with generic provider track links;
-- Apple versions attached to existing local albums, including preview, link,
-  unlink, recording identity, and playback resolution;
-- a Settings integration console and in-memory fake-helper tests.
+The Apple Music source is restricted to an explicit local physical Core Audio
+output. Fozmo rejects the system-default output, Fozmo Capture itself, virtual
+outputs, and network renderers to prevent feedback and unsupported routing.
 
-MusicKit's rendered process audio is Float32 PCM. The tap format is not treated
-as proof of the decoded catalog asset's native sample rate or bit depth. Before
-playback, the helper requires catalog lossless availability and rejects an
-explicit active AAC/lossy, Dolby, or Spatial Audio variant. MusicKit can leave
-its observable active variant unset while rendering begins, so a missing value
-is deferred to the stricter PID-scoped decoder check below instead of being
-mislabelled as lossy.
+The helper protocol exposes only:
 
-For lossless playback, Fozmo can separately read a fresh
-`ACAppleLosslessDecoder` format event scoped to the exact
-`RemotePlayerService` PID. A supported 44.1/48 kHz-family rate can stage a
-rate-specific replacement tap before the normal prefill/DSP commit. When Core
-Audio fixes the tap at 48 kHz, Fozmo can rate-bridge that PCM down to a verified
-44.1 kHz-family source rate. It refuses to upsample a lower-bandwidth tap and
-present it as native high-resolution audio. Missing/stale lossless decoder
-events, an unreadable Unified Log, or an unsafe rate transition fail playback
-instead of guessing. Each play has a wall-clock boundary captured before it can
-start decoding; the bounded probe accepts only PID-scoped ALAC decoder records
-strictly newer than that boundary. A fresh AAC decoder record produces an
-explicit fail-closed error before DSP handoff. Catalog `audioVariants` only
-describe available renditions; they do not guarantee that macOS selected one.
-The public macOS `ApplicationMusicPlayer` API exposes the active variant as a
-read-only property and offers no lossless-quality selector, so playback remains
-blocked whenever its renderer chooses AAC. Tap status reports the measured PCM
-rate, verified source rate/depth, and whether sample values were bridged
-separately.
+- authorization and subscription status;
+- song and album lookup;
+- song and album search;
+- lifecycle commands.
 
-On macOS, `ApplicationMusicPlayer` delegates audio rendering to
-`com.apple.MediaPlayer.RemotePlayerService`; the signed helper remains the
-queue and transport owner. After starting helper playback, Fozmo finds the
-single newly active renderer, taps only that process, and mutes its direct path
-while the captured PCM runs through Fozmo. A pre-play snapshot excludes
-renderers already owned by other apps, and Fozmo refuses to guess if more than
-one new MusicKit renderer appears.
+It has no MusicKit player, renderer queue, or playback transport.
 
-## What works before account setup
+## Development setup
 
-Build the unsigned helper and run all entitlement-free tests:
+Build the helper and run the deterministic test suites:
 
 ```sh
 ./apple-music-helper/build-app.sh
@@ -97,67 +49,33 @@ cargo test --lib --features apple_music_musickit
 npm --prefix ui test -- AppleMusicMvpPage.test.tsx
 ```
 
-Start the feature-enabled server:
+Start the feature-enabled server with:
 
 ```sh
 cargo run --features apple_music_musickit
 ```
 
-The helper is written to:
+The helper app is written to:
 
 ```text
 target/apple-music-helper/FozmoAppleMusicHelper.app
 ```
 
-An ad-hoc development run should show:
+An ad-hoc helper can exercise IPC and failure handling, but live MusicKit
+authorization and catalog access require a provisioned App ID.
 
-- helper present and launchable;
-- authenticated IPC protocol v2;
-- `helper_musickit_entitled = false` (the protocol-v2 compatibility field now
-  means the helper has not been provisioned);
-- authorization and catalog actions failing cleanly with
-  `musickit_capability_unavailable`;
-- the complete Settings integration harness;
-- fake catalog, mixed queue, migration, history, and album-version tests.
+## Apple Developer setup
 
-MusicKit is an App Service associated with the App ID on Apple's servers. It
-does not add a `com.apple.developer.musickit` entitlement to either the
-provisioning profile or the code signature.
-
-## Apple Developer setup checklist
-
-Use the exact helper bundle ID already committed in `Info.plist`:
+Use the committed helper bundle ID:
 
 ```text
 com.fozmo.apple-music-helper
 ```
 
-1. Enroll the account in the Apple Developer Program and accept any pending
-   agreements.
-2. In Xcode **Settings → Accounts**, add the Apple Account and select the new
-   team. Let Xcode create an **Apple Development** certificate, or create and
-   install one manually. Confirm the identity with:
-
-   ```sh
-   security find-identity -v -p codesigning
-   ```
-
-3. In
-   [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list),
-   register an **explicit App ID** whose bundle ID is
-   `com.fozmo.apple-music-helper`.
-4. On that App ID's **App Services** tab, enable **MusicKit** and save. Apple's
-   current account instructions are:
-   [Enable MusicKit for an App ID](https://developer.apple.com/help/account/services/musickit)
-   and
-   [Register an App ID](https://developer.apple.com/help/account/identifiers/register-an-app-id/).
-5. Register this development Mac if the portal or Xcode has not already done
-   so.
-6. Create a **Mac App Development** provisioning profile using that App ID,
-   the Apple Development certificate, and this Mac. Download the resulting
-   `.provisionprofile`. See Apple's
-   [development-profile instructions](https://developer.apple.com/help/account/provisioning-profiles/create-a-development-provisioning-profile/).
-7. Build the provisioned helper:
+1. Register an explicit App ID for that bundle ID.
+2. Enable the MusicKit App Service.
+3. Create a Mac App Development provisioning profile for the development Mac.
+4. Build the signed helper:
 
    ```sh
    FOZMO_APPLE_MUSIC_SIGN_IDENTITY="Apple Development: Your Name (TEAMID)" \
@@ -165,172 +83,35 @@ com.fozmo.apple-music-helper
    ./apple-music-helper/build-app.sh
    ```
 
-   The script fails early if the profile targets a different bundle ID or
-   platform, omits this Mac's Provisioning UDID, or does not include the
-   selected signing certificate.
+5. Launch Fozmo, open **Settings → Apple Music**, launch the helper, and
+   authorize access.
 
-8. Verify the result:
+MusicKit is an App Service associated with the App ID; there is no
+`com.apple.developer.musickit` code-signing entitlement.
 
-   ```sh
-   codesign --verify --strict --verbose=2 \
-     target/apple-music-helper/FozmoAppleMusicHelper.app
+## Local API
 
-   codesign -d --entitlements :- \
-     target/apple-music-helper/FozmoAppleMusicHelper.app
-   ```
-
-   The displayed entitlements must include
-   `com.apple.application-identifier =
-   TEAMID.com.fozmo.apple-music-helper`. They must not include the nonexistent
-   `com.apple.developer.musickit` entitlement.
-
-9. Start Fozmo with `--features apple_music_musickit`, open
-   **Settings → Apple Music**, launch the helper, and choose
-   **Authorize Apple Music**. macOS should show the usage text from
-   `NSAppleMusicUsageDescription`.
-10. Sign into the Music app with an Apple Music subscriber account, then use
-    the catalog inspector and the real-Mac test matrix below.
-
-This native Swift MusicKit path does not need a Media ID, private MusicKit key,
-or hand-generated developer token. Those are used for Apple Music API or web
-integrations and should not be added unless Fozmo later introduces a separate
-server/web catalog client.
-
-If MusicKit is enabled after a profile was generated, regenerate the profile;
-Apple notes that capability changes invalidate affected provisioning profiles.
-
-## First provisioned test run
-
-Use a local Core Audio zone and keep **System Settings → Privacy & Security →
-Screen & System Audio Recording** open in case macOS asks for process-audio
-capture permission.
-
-After authorizing once in Settings, the opt-in real-Mac runner can exercise the
-automatable matrix against a Fozmo server already running on port 3000:
-
-```sh
-FOZMO_APPLE_MUSIC_REAL=1 \
-FOZMO_APPLE_MUSIC_CONFIRM_CAPTURE=1 \
-FOZMO_APPLE_MUSIC_SONG_IDS="FIRST_SONG_ID,SECOND_SONG_ID" \
-FOZMO_APPLE_MUSIC_LOCAL_TRACK_ID="123" \
-FOZMO_APPLE_MUSIC_QOBUZ_TRACK_ID="456" \
-cargo test --features apple_music_musickit \
-  --test apple_music_real_macos -- --nocapture
-```
-
-Choose two subscriber-playable songs, a valid local track, and a
-subscriber-playable Qobuz track. The runner verifies helper provisioning and
-subscriber capability before changing playback. It covers the DSP handoff,
-tap identity across Apple adjacency, pause/resume/seek, manual Next, all four
-Local/Qobuz/Apple boundaries, ring overruns, and helper-termination cleanup.
-Without `FOZMO_APPLE_MUSIC_REAL=1` it self-skips without touching playback.
-Authorization revocation and process-capture permission revocation remain
-manual because they are OS-owned actions.
-
-Run these in order from Settings:
-
-1. Launch helper.
-2. Authorize Apple Music.
-3. Search by song, artist, or album and verify selecting a result targets the
-   currently active local zone.
-4. Lookup one known Song ID and one Album ID in the signed-in storefront.
-5. Add two different Apple songs, then the same song twice, to a scenario.
-6. Confirm MusicKit renderer capture and play from row one.
-7. Verify the tap target is `musickit_renderer`, with a PID distinct from both
-   the helper and Music.app PIDs.
-8. Exercise normal pause, resume, seek, next, and stop.
-9. Test the mixed boundaries:
-
-   - Apple → Apple;
-   - Local → Apple;
-   - Qobuz → Apple;
-   - Apple → Local;
-   - Apple → Qobuz;
-   - Local → Apple → Apple → Qobuz;
-   - duplicate Apple song twice.
-
-10. During playback, quit the helper once and revoke authorization once. Fozmo
-   should stop only the owned Player epoch, finalize listening, retain the
-   remaining queue, and expose a structured failure.
-11. Preview and link an Apple album to an existing local Fozmo album, resolve
-    its playback plan, play it, restart Fozmo while stopped, and confirm the
-    version and remaining queue persist without auto-resuming.
-
-For adjacent Apple tracks, Fozmo completes the current single-item helper
-session, advances the provider-neutral queue, then repeats the lossless
-variant/rate verification and prebuffered process-tap handoff for the next
-track.
-
-## Settings integration console
-
-The page is split into:
-
-1. App Service provisioning, authorization, helper/tap PID, and zone support;
-2. live song search with one-click active-zone playback, plus normalized song
-   and album catalog inspection;
-3. mixed queue builder, canned cases, and raw `SourceRef[]` validation;
-4. normal Fozmo transport;
-5. Fozmo status, current source, persisted queue, Apple revision/segment,
-   helper events, and tap telemetry;
-6. Apple album-version preview, link, unlink, resolve, and play.
-
-Direct helper transport and the old Music.app tap proof remain collapsed under
-**Advanced diagnostics**. The primary workflow always exercises the normal
-router.
-
-## Local-only API
-
-These routes are added only to the feature-enabled local router and are not
-part of the remote-access surface:
+The feature-enabled local router adds:
 
 - `GET /api/apple-music/status`
 - `POST /api/apple-music/launch`
 - `POST /api/apple-music/authorize`
-- `GET /api/apple-music/catalog/search?term=:term&storefront=:storefront&limit=:limit`
+- `GET /api/apple-music/catalog/search`
 - `GET /api/apple-music/catalog/songs/:id`
 - `GET /api/apple-music/catalog/albums/:id`
 - `POST /api/apple-music/play`
-- `GET /api/library/albums/:local_id/apple-music/preview`
-- `POST /api/library/albums/:local_id/apple-music/link`
-- `POST /api/library/albums/:local_id/apple-music/unlink`
-- `POST /api/apple-music/dev/play-song`
-- `POST /api/apple-music/transport`
-- `POST /api/apple-music/stop`
+- Apple Music album-version preview, match, link, unlink, and detail routes
 - `POST /api/apple-music/shutdown`
-- `POST /api/apple-music/process-tap/start`
-- `POST /api/apple-music/process-tap/stop`
-- `POST /api/apple-music/comparison/switch`
 
-Normal playback controls remain `/api/pause`, `/api/resume`, `/api/next`,
-`/api/seek`, and `/api/stop`.
+Normal transport continues through the standard zone playback endpoints.
 
-## Security and persistence boundaries
+## Security and persistence
 
-- The helper accepts only a matching protocol version, random launch token,
-  session ID, child PID, and bundle ID over an owner-only Unix socket.
-- Apple credentials and tokens are never sent through the helper protocol.
-- Captured PCM stays in memory and is never written to disk.
-- Apple queue, history, recent-play, and recording identity reuse the existing
-  provider-neutral tables.
-- Apple catalog album JSON is retained only as an attached album-version
-  payload.
-- Network/remote sinks reject Apple sources because helper PCM must enter the
-  local DSP path.
-- Reorders or removals inside an already prepared Apple run return
-  `409 apple_music_queue_edit_requires_restart` until safe in-place MusicKit
-  queue mutation exists.
-
-## Current external dependency
-
-Only these checks require the connected Apple account and a real Mac:
-
-- server-side MusicKit App Service association for the signed helper;
-- user authorization prompt and revocation behavior;
-- subscriber capability;
-- live song/album catalog responses and storefront availability;
-- real `ApplicationMusicPlayer` queue behavior;
-- isolated MusicKit renderer process audio under signed playback;
-- audible mixed-provider boundary tests.
-
-All other layers have deterministic Rust, Swift, migration, contract, or
-frontend coverage.
+- The helper connection uses a random launch token, session ID, child PID,
+  expected bundle ID, and an owner-only Unix socket.
+- Apple credentials and tokens never cross the helper protocol.
+- Captured PCM stays in memory.
+- Queue, history, listening state, and album versions use the existing
+  provider-neutral storage.
+- Catalog playback requires an Apple Music subscription, Music.app, the Fozmo
+  Capture driver, and an explicit local physical output.

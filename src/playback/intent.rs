@@ -85,6 +85,7 @@ impl PlaybackGuard {
 
     /// Once a command has deliberately replaced the Player epoch, only its
     /// request-sequence ownership remains meaningful.
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
     pub(crate) fn sequence_is_current(&self, state: &crate::app::state::AppState) -> bool {
         self.expected_sequence
             .as_ref()

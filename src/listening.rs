@@ -456,6 +456,7 @@ impl ListeningTracker {
     /// Promote an engine-queued item after the previous source reached its
     /// natural EOF. This is distinct from a user-initiated Next command so the
     /// completed listen is recorded accurately.
+    #[cfg(any(test, all(target_os = "macos", feature = "apple_music_musickit")))]
     pub fn completed_next(&self, library: &Library, zone_id: &str) {
         self.advance_to_next(library, zone_id, true);
     }

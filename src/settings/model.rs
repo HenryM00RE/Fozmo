@@ -67,29 +67,21 @@ impl Default for HegelSettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppleMusicCaptureSettings {
+pub struct AppleMusicPlaybackSettings {
     #[serde(default)]
     pub enabled: bool,
-    #[serde(default)]
-    pub capture_device_name: Option<String>,
     #[serde(default)]
     pub output_device_name: Option<String>,
     #[serde(default = "default_apple_music_buffer_ms")]
     pub buffer_ms: u32,
-    /// When true, starting capture switches the macOS default output to
-    /// Fozmo Capture and restores the previous default on stop.
-    #[serde(default = "default_apple_music_auto_route")]
-    pub auto_route_system_output: bool,
 }
 
-impl Default for AppleMusicCaptureSettings {
+impl Default for AppleMusicPlaybackSettings {
     fn default() -> Self {
         Self {
             enabled: false,
-            capture_device_name: None,
             output_device_name: None,
             buffer_ms: default_apple_music_buffer_ms(),
-            auto_route_system_output: default_apple_music_auto_route(),
         }
     }
 }
@@ -167,10 +159,6 @@ fn default_remote_access_port() -> u16 {
 
 fn default_apple_music_buffer_ms() -> u32 {
     250
-}
-
-fn default_apple_music_auto_route() -> bool {
-    true
 }
 
 fn default_hegel_port() -> u16 {
@@ -298,8 +286,10 @@ pub struct PersistedSettings {
     pub lastfm_api_key: Option<String>,
     #[serde(default)]
     pub hegel: HegelSettings,
-    #[serde(default)]
-    pub apple_music_capture: AppleMusicCaptureSettings,
+    // Read the pre-unification key once so existing output selections survive
+    // the move to the single Apple Music playback route.
+    #[serde(default, alias = "apple_music_capture")]
+    pub apple_music_playback: AppleMusicPlaybackSettings,
     #[serde(default)]
     pub appearance: AppearanceSettings,
     #[serde(default)]

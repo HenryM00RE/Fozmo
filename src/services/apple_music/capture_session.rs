@@ -1,65 +1,17 @@
-//! CPAL capture streams for the Fozmo Capture device and the live playback
-//! session that feeds captured PCM into the existing player/DSP engine.
-//!
-//! Two paths share the metrics plumbing:
-//! - the diagnostic stream (format-tolerant, conversion allowed) used to prove
-//!   the driver is passing audio, and
-//! - the real live path, which requires the exact F32/stereo/driver-rate
-//!   configuration and errors instead of coercing formats.
+//! CPAL capture stream and live Player session for the Fozmo Capture device.
 
 use super::live_source::{
     CaptureFlow, CaptureProducer, LIVE_CHANNELS, LiveCaptureSource, live_capture_ring,
     ring_capacity_samples,
 };
-use super::rate_control::{FormatDetectionSource, SourceFormatDetection};
 use crate::audio::player::{Player, TrackTags};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, StreamConfig};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(super) const LIVE_DISPLAY_NAME: &str = "Apple Music (Live)";
-
-#[derive(Debug, Default)]
-pub(super) struct DiagnosticMetrics {
-    pub frames_received: AtomicU64,
-    pub callbacks_received: AtomicU64,
-    pub dropouts: AtomicU64,
-    pub ring_overruns: AtomicU64,
-    pub rms_l_bits: AtomicU32,
-    pub rms_r_bits: AtomicU32,
-    pub observed_rate_hz: AtomicU32,
-    pub last_callback_unix_ms: AtomicU64,
-}
-
-impl DiagnosticMetrics {
-    pub(super) fn snapshot(&self) -> DiagnosticMetricsSnapshot {
-        DiagnosticMetricsSnapshot {
-            frames_received: self.frames_received.load(Ordering::Relaxed),
-            callbacks_received: self.callbacks_received.load(Ordering::Relaxed),
-            dropouts: self.dropouts.load(Ordering::Relaxed),
-            ring_overruns: self.ring_overruns.load(Ordering::Relaxed),
-            rms_l: f32::from_bits(self.rms_l_bits.load(Ordering::Relaxed)),
-            rms_r: f32::from_bits(self.rms_r_bits.load(Ordering::Relaxed)),
-            observed_rate_hz: nonzero_u32(self.observed_rate_hz.load(Ordering::Relaxed)),
-            last_callback_unix_ms: nonzero_u64(self.last_callback_unix_ms.load(Ordering::Relaxed)),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub(super) struct DiagnosticMetricsSnapshot {
-    pub frames_received: u64,
-    pub callbacks_received: u64,
-    pub dropouts: u64,
-    pub ring_overruns: u64,
-    pub rms_l: f32,
-    pub rms_r: f32,
-    pub observed_rate_hz: Option<u32>,
-    pub last_callback_unix_ms: Option<u64>,
-}
 
 /// Holds a capture stream open on a worker thread (cpal streams are not Send).
 pub(super) struct CaptureWorker {
@@ -150,20 +102,12 @@ pub(super) struct LiveSession {
 }
 
 impl LiveSession {
-    pub(super) fn rate_hz(&self) -> u32 {
-        self.rate_hz
-    }
-
     pub(super) fn player_epoch(&self) -> u64 {
         self.player_epoch
     }
 
     pub(super) fn buffered_audio_secs(&self) -> f64 {
         self.flow.buffered_frames() as f64 / f64::from(self.rate_hz.max(1))
-    }
-
-    pub(super) fn discard_buffered_audio(&self) -> u64 {
-        self.flow.request_discard()
     }
 }
 
@@ -176,7 +120,6 @@ impl Drop for LiveSession {
 pub(super) fn start_live_session(
     player: &Arc<Player>,
     params: &LiveSessionParams,
-    metrics: Arc<DiagnosticMetrics>,
     start_paused: bool,
 ) -> Result<LiveSession, String> {
     let capacity = ring_capacity_samples(params.rate_hz, params.buffer_ms);
@@ -186,10 +129,9 @@ pub(super) fn start_live_session(
 
     let device_name = params.device_name.clone();
     let rate_hz = params.rate_hz;
-    let worker_metrics = Arc::clone(&metrics);
     let worker_flow = Arc::clone(&flow);
     let worker = spawn_capture_worker("fozmo-capture-live", move || {
-        open_fozmo_capture_stream(&device_name, rate_hz, worker_metrics, producer, worker_flow)
+        open_fozmo_capture_stream(&device_name, rate_hz, producer, worker_flow)
     })?;
 
     let source = LiveCaptureSource::new_with_flow(
@@ -254,7 +196,6 @@ fn source_bit_depth_for_tags(source_bit_depth: Option<u32>) -> u32 {
 pub(super) fn open_fozmo_capture_stream(
     device_name: &str,
     rate_hz: u32,
-    metrics: Arc<DiagnosticMetrics>,
     mut producer: CaptureProducer,
     flow: Arc<CaptureFlow>,
 ) -> Result<cpal::Stream, String> {
@@ -278,7 +219,6 @@ pub(super) fn open_fozmo_capture_stream(
         sample_rate: cpal::SampleRate(rate_hz),
         buffer_size: cpal::BufferSize::Default,
     };
-    let error_metrics = Arc::clone(&metrics);
     let channels = usize::from(LIVE_CHANNELS);
     let stream = device
         .build_input_stream(
@@ -286,14 +226,13 @@ pub(super) fn open_fozmo_capture_stream(
             move |data: &[f32], _| {
                 let pushed = producer.push_slice(data);
                 flow.record_enqueued(pushed / channels);
-                if pushed < data.len() {
-                    // Drop-on-full: the consumer is behind; never block the callback.
-                    metrics.ring_overruns.fetch_add(1, Ordering::Relaxed);
-                }
-                update_metrics(data, channels, rate_hz, &metrics, |sample: f32| sample);
             },
-            move |_| {
-                error_metrics.dropouts.fetch_add(1, Ordering::Relaxed);
+            move |error| {
+                tracing::warn!(
+                    event = "apple_music_playback_stream_error",
+                    %error,
+                    "Fozmo Capture input stream reported an error"
+                );
             },
             None,
         )
@@ -302,233 +241,6 @@ pub(super) fn open_fozmo_capture_stream(
         .play()
         .map_err(|err| format!("Could not start live capture stream: {err}"))?;
     Ok(stream)
-}
-
-// ---------------------------------------------------------------------------
-// Diagnostic capture (format-tolerant; not used for the live audio path)
-// ---------------------------------------------------------------------------
-
-pub(super) fn start_fozmo_diagnostic_capture(
-    device_name: &str,
-) -> Result<(CaptureWorker, Arc<DiagnosticMetrics>), String> {
-    let metrics = Arc::new(DiagnosticMetrics::default());
-    let thread_metrics = Arc::clone(&metrics);
-    let device_name = device_name.to_string();
-    let worker = spawn_capture_worker("fozmo-capture-diagnostic", move || {
-        open_fozmo_capture_diagnostic_stream(&device_name, thread_metrics)
-    })?;
-    Ok((worker, metrics))
-}
-
-fn open_fozmo_capture_diagnostic_stream(
-    device_name: &str,
-    metrics: Arc<DiagnosticMetrics>,
-) -> Result<cpal::Stream, String> {
-    let device = find_input_device(device_name)?;
-    let supported = supported_or_default_input_config(&device)?;
-    let sample_format = supported.sample_format();
-    let config: StreamConfig = supported.config();
-    let stream =
-        build_input_stream_for_format(&device, &config, sample_format, Arc::clone(&metrics))?;
-    stream
-        .play()
-        .map_err(|err| format!("Could not start diagnostic input stream: {err}"))?;
-    Ok(stream)
-}
-
-fn supported_or_default_input_config(
-    device: &cpal::Device,
-) -> Result<cpal::SupportedStreamConfig, String> {
-    let mut fallback = None;
-    if let Ok(configs) = device.supported_input_configs() {
-        for config in configs {
-            if fallback.is_none() {
-                fallback = Some(config.with_max_sample_rate());
-            }
-            let min_rate = config.min_sample_rate().0;
-            let max_rate = config.max_sample_rate().0;
-            if config.sample_format() == SampleFormat::F32
-                && config.channels() >= 2
-                && min_rate <= 48_000
-                && max_rate >= 48_000
-            {
-                return Ok(config.with_sample_rate(cpal::SampleRate(48_000)));
-            }
-        }
-    }
-    fallback
-        .or_else(|| device.default_input_config().ok())
-        .ok_or_else(|| "Fozmo Capture has no usable input stream configuration.".to_string())
-}
-
-fn build_input_stream_for_format(
-    device: &cpal::Device,
-    config: &StreamConfig,
-    sample_format: SampleFormat,
-    metrics: Arc<DiagnosticMetrics>,
-) -> Result<cpal::Stream, String> {
-    let channels = usize::from(config.channels.max(1));
-    let sample_rate = config.sample_rate.0;
-    match sample_format {
-        SampleFormat::F32 => build_typed_input_stream(
-            device,
-            config,
-            metrics,
-            move |sample: f32| sample,
-            channels,
-            sample_rate,
-        ),
-        SampleFormat::F64 => build_typed_input_stream(
-            device,
-            config,
-            metrics,
-            move |sample: f64| sample as f32,
-            channels,
-            sample_rate,
-        ),
-        SampleFormat::I8 => build_typed_input_stream(
-            device,
-            config,
-            metrics,
-            move |sample: i8| sample as f32 / 128.0,
-            channels,
-            sample_rate,
-        ),
-        SampleFormat::I16 => build_typed_input_stream(
-            device,
-            config,
-            metrics,
-            move |sample: i16| sample as f32 / 32768.0,
-            channels,
-            sample_rate,
-        ),
-        SampleFormat::I32 => build_typed_input_stream(
-            device,
-            config,
-            metrics,
-            move |sample: i32| sample as f32 / 2147483648.0,
-            channels,
-            sample_rate,
-        ),
-        SampleFormat::U8 => build_typed_input_stream(
-            device,
-            config,
-            metrics,
-            move |sample: u8| (sample as f32 - 128.0) / 128.0,
-            channels,
-            sample_rate,
-        ),
-        SampleFormat::U16 => build_typed_input_stream(
-            device,
-            config,
-            metrics,
-            move |sample: u16| (sample as f32 - 32768.0) / 32768.0,
-            channels,
-            sample_rate,
-        ),
-        SampleFormat::U32 => build_typed_input_stream(
-            device,
-            config,
-            metrics,
-            move |sample: u32| (sample as f32 - 2147483648.0) / 2147483648.0,
-            channels,
-            sample_rate,
-        ),
-        other => Err(format!(
-            "Diagnostic capture does not support {other:?} input samples yet."
-        )),
-    }
-}
-
-fn build_typed_input_stream<T, F>(
-    device: &cpal::Device,
-    config: &StreamConfig,
-    metrics: Arc<DiagnosticMetrics>,
-    convert: F,
-    channels: usize,
-    sample_rate: u32,
-) -> Result<cpal::Stream, String>
-where
-    T: cpal::SizedSample + Copy + Send + 'static,
-    F: Fn(T) -> f32 + Copy + Send + 'static,
-{
-    let data_metrics = Arc::clone(&metrics);
-    let error_metrics = Arc::clone(&metrics);
-    device
-        .build_input_stream(
-            config,
-            move |data: &[T], _| {
-                update_metrics(data, channels, sample_rate, &data_metrics, convert);
-            },
-            move |_| {
-                error_metrics.dropouts.fetch_add(1, Ordering::Relaxed);
-            },
-            None,
-        )
-        .map_err(|err| format!("Could not open diagnostic input stream: {err}"))
-}
-
-fn update_metrics<T, F>(
-    data: &[T],
-    channels: usize,
-    sample_rate: u32,
-    metrics: &DiagnosticMetrics,
-    convert: F,
-) where
-    T: Copy,
-    F: Fn(T) -> f32,
-{
-    if channels == 0 {
-        return;
-    }
-    let frames = data.len() / channels;
-    if frames == 0 {
-        return;
-    }
-
-    let mut left_sum = 0.0_f64;
-    let mut right_sum = 0.0_f64;
-    for frame in 0..frames {
-        let base = frame * channels;
-        let left = convert(data[base]);
-        let right = if channels > 1 {
-            convert(data[base + 1])
-        } else {
-            left
-        };
-        left_sum += f64::from(left * left);
-        right_sum += f64::from(right * right);
-    }
-
-    let rms_l = (left_sum / frames as f64).sqrt() as f32;
-    let rms_r = (right_sum / frames as f64).sqrt() as f32;
-    metrics
-        .frames_received
-        .fetch_add(frames as u64, Ordering::Relaxed);
-    metrics.callbacks_received.fetch_add(1, Ordering::Relaxed);
-    metrics.rms_l_bits.store(rms_l.to_bits(), Ordering::Relaxed);
-    metrics.rms_r_bits.store(rms_r.to_bits(), Ordering::Relaxed);
-    metrics
-        .observed_rate_hz
-        .store(sample_rate, Ordering::Relaxed);
-    metrics
-        .last_callback_unix_ms
-        .store(now_unix_ms(), Ordering::Relaxed);
-}
-
-pub(super) fn now_unix_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis().try_into().unwrap_or(u64::MAX))
-        .unwrap_or_default()
-}
-
-fn nonzero_u32(value: u32) -> Option<u32> {
-    (value != 0).then_some(value)
-}
-
-fn nonzero_u64(value: u64) -> Option<u64> {
-    (value != 0).then_some(value)
 }
 
 #[cfg(test)]
@@ -541,122 +253,5 @@ mod tests {
         assert_eq!(source_bit_depth_for_tags(Some(16)), 16);
         assert_eq!(source_bit_depth_for_tags(None), 32);
         assert_eq!(source_bit_depth_for_tags(Some(20)), 32);
-    }
-}
-
-// Session control state shared between the service, the Music poller, and
-// status snapshots.
-#[derive(Debug, Default)]
-pub(super) struct SessionControl {
-    /// 0 = unknown / not playing.
-    pub detected_track_rate_hz: AtomicU32,
-    /// 0 = unknown.
-    pub detected_source_bit_depth: AtomicU32,
-    /// Numeric `FormatDetectionSource`; 0 = unknown.
-    pub format_detection_source: AtomicU32,
-    pub last_format_detection_unix_ms: AtomicU64,
-    pub rate_switch_pending: AtomicBool,
-    /// Manual rate overrides suppress further probes for the current track.
-    pub manual_rate_override_active: AtomicBool,
-    /// u32::MAX = unknown.
-    pub music_sound_volume: AtomicU32,
-    pub last_poll_error: Mutex<Option<String>>,
-    pub last_format_detection_error: Mutex<Option<String>>,
-}
-
-impl SessionControl {
-    pub(super) fn new_unknown() -> Self {
-        let control = Self::default();
-        control
-            .music_sound_volume
-            .store(u32::MAX, Ordering::Relaxed);
-        control
-    }
-
-    pub(super) fn detected_rate(&self) -> Option<u32> {
-        nonzero_u32(self.detected_track_rate_hz.load(Ordering::Relaxed))
-    }
-
-    pub(super) fn detected_source_bit_depth(&self) -> Option<u32> {
-        nonzero_u32(self.detected_source_bit_depth.load(Ordering::Relaxed))
-    }
-
-    pub(super) fn format_detection_source(&self) -> Option<FormatDetectionSource> {
-        FormatDetectionSource::from_code(self.format_detection_source.load(Ordering::Relaxed))
-    }
-
-    pub(super) fn last_format_detection_unix_ms(&self) -> Option<u64> {
-        nonzero_u64(self.last_format_detection_unix_ms.load(Ordering::Relaxed))
-    }
-
-    pub(super) fn music_volume(&self) -> Option<u32> {
-        let value = self.music_sound_volume.load(Ordering::Relaxed);
-        (value != u32::MAX).then_some(value)
-    }
-
-    pub(super) fn rate_switch_pending(&self) -> bool {
-        self.rate_switch_pending.load(Ordering::Relaxed)
-    }
-
-    pub(super) fn set_rate_switch_pending(&self, pending: bool) {
-        self.rate_switch_pending.store(pending, Ordering::Relaxed);
-    }
-
-    pub(super) fn manual_rate_override_active(&self) -> bool {
-        self.manual_rate_override_active.load(Ordering::Relaxed)
-    }
-
-    pub(super) fn set_manual_rate_override_active(&self, active: bool) {
-        self.manual_rate_override_active
-            .store(active, Ordering::Relaxed);
-    }
-
-    pub(super) fn poll_error(&self) -> Option<String> {
-        self.last_poll_error.lock().unwrap().clone()
-    }
-
-    pub(super) fn set_poll_error(&self, error: Option<String>) {
-        *self.last_poll_error.lock().unwrap() = error;
-    }
-
-    pub(super) fn format_detection_error(&self) -> Option<String> {
-        self.last_format_detection_error.lock().unwrap().clone()
-    }
-
-    pub(super) fn set_format_detection_error(&self, error: Option<String>) {
-        *self.last_format_detection_error.lock().unwrap() = error;
-    }
-
-    pub(super) fn observe_music_info(&self, sound_volume: Option<u32>) {
-        self.music_sound_volume
-            .store(sound_volume.unwrap_or(u32::MAX), Ordering::Relaxed);
-        self.set_poll_error(None);
-    }
-
-    pub(super) fn observe_source_format(&self, detection: &SourceFormatDetection) {
-        self.detected_track_rate_hz
-            .store(detection.sample_rate_hz, Ordering::Relaxed);
-        self.detected_source_bit_depth
-            .store(detection.source_bit_depth.unwrap_or(0), Ordering::Relaxed);
-        self.format_detection_source
-            .store(detection.source as u32, Ordering::Relaxed);
-        self.last_format_detection_unix_ms
-            .store(now_unix_ms(), Ordering::Relaxed);
-        self.set_format_detection_error(None);
-    }
-
-    pub(super) fn clear_source_format(&self) {
-        self.detected_track_rate_hz.store(0, Ordering::Relaxed);
-        self.detected_source_bit_depth.store(0, Ordering::Relaxed);
-        self.format_detection_source.store(0, Ordering::Relaxed);
-        self.last_format_detection_unix_ms
-            .store(0, Ordering::Relaxed);
-    }
-
-    pub(super) fn observe_music_gone(&self) {
-        self.clear_source_format();
-        self.music_sound_volume.store(u32::MAX, Ordering::Relaxed);
-        self.set_manual_rate_override_active(false);
-        self.set_format_detection_error(None);
     }
 }

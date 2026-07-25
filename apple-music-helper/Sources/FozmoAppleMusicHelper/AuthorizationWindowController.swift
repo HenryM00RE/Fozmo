@@ -16,7 +16,7 @@ final class AuthorizationWindowController {
             window.isReleasedWhenClosed = false
 
             let label = NSTextField(wrappingLabelWithString:
-                "Fozmo needs Apple Music access to prepare and play the song ID you select. Complete the Apple authorization prompt, then return to Fozmo."
+                "Fozmo needs Apple Music access to search and identify catalog tracks. Complete the Apple authorization prompt, then return to Fozmo."
             )
             label.font = .systemFont(ofSize: 14)
             label.textColor = .labelColor

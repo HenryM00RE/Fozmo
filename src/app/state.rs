@@ -10,8 +10,8 @@ use crate::listening::ListeningTracker;
 use crate::playback::config_applicator::PlaybackConfigApplicator;
 use crate::playback::sequencer::PlaybackCommandSequencer;
 use crate::secrets::{SecretKey, SecretsStore};
-#[cfg(feature = "apple_music_capture")]
-use crate::services::apple_music::AppleMusicCaptureService;
+#[cfg(feature = "apple_music_musickit")]
+use crate::services::apple_music::AppleMusicPlaybackService;
 #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
 use crate::services::apple_music_musickit::AppleMusicService;
 use crate::services::hegel;
@@ -30,8 +30,8 @@ pub struct AppState {
     listening: Arc<ListeningTracker>,
     qobuz: Arc<QobuzService>,
     lastfm: Arc<LastFmService>,
-    #[cfg(feature = "apple_music_capture")]
-    apple_music_capture: Arc<AppleMusicCaptureService>,
+    #[cfg(feature = "apple_music_musickit")]
+    apple_music_playback: Arc<AppleMusicPlaybackService>,
     #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
     apple_music: Arc<AppleMusicService>,
     airplay: Arc<airplay::AirPlayRegistry>,
@@ -65,8 +65,8 @@ pub(crate) struct AppCoreServices {
 pub(crate) struct AppMediaServices {
     pub(crate) qobuz: Arc<QobuzService>,
     pub(crate) lastfm: Arc<LastFmService>,
-    #[cfg(feature = "apple_music_capture")]
-    pub(crate) apple_music_capture: Arc<AppleMusicCaptureService>,
+    #[cfg(feature = "apple_music_musickit")]
+    pub(crate) apple_music_playback: Arc<AppleMusicPlaybackService>,
     #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
     pub(crate) apple_music: Arc<AppleMusicService>,
     pub(crate) airplay: Arc<airplay::AirPlayRegistry>,
@@ -113,8 +113,8 @@ impl AppState {
             listening: core.listening,
             qobuz: media.qobuz,
             lastfm: media.lastfm,
-            #[cfg(feature = "apple_music_capture")]
-            apple_music_capture: media.apple_music_capture,
+            #[cfg(feature = "apple_music_musickit")]
+            apple_music_playback: media.apple_music_playback,
             #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
             apple_music: media.apple_music,
             airplay: media.airplay,
@@ -193,9 +193,9 @@ impl AppState {
         &self.lastfm
     }
 
-    #[cfg(feature = "apple_music_capture")]
-    pub(crate) fn apple_music_capture(&self) -> &Arc<AppleMusicCaptureService> {
-        &self.apple_music_capture
+    #[cfg(feature = "apple_music_musickit")]
+    pub(crate) fn apple_music_playback(&self) -> &Arc<AppleMusicPlaybackService> {
+        &self.apple_music_playback
     }
 
     #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]

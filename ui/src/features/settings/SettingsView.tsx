@@ -15,7 +15,6 @@ import { useProfileSettings } from './hooks/useProfileSettings';
 import { useQobuzCache } from './hooks/useQobuzCache';
 import { useSettingsInitialLoad } from './hooks/useSettingsInitialLoad';
 import { useZonesSettings } from './hooks/useZonesSettings';
-import { AppleMusicCapturePage } from './pages/AppleMusicCapturePage';
 import { AppleMusicMvpPage } from './pages/AppleMusicMvpPage';
 import { DspSettingsPage } from './pages/DspSettingsPage';
 import { EqSettingsPage } from './pages/EqSettingsPage';
@@ -321,14 +320,7 @@ export function SettingsView({
       ) : null}
 
       {activeTab === 'apple-music' ? (
-        capabilityEnabled(status, 'apple_music_musickit') ? (
-          <>
-            <AppleMusicMvpPage activeZoneStatus={status} addItemsToQueue={addItemsToQueue} />
-            {capabilityEnabled(status, 'apple_music_capture') ? <AppleMusicCapturePage /> : null}
-          </>
-        ) : (
-          <AppleMusicCapturePage />
-        )
+        <AppleMusicMvpPage activeZoneStatus={status} addItemsToQueue={addItemsToQueue} />
       ) : null}
 
       {activeTab === 'metabrainz' ? (

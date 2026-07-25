@@ -1,9 +1,7 @@
-//! Native source-format detection for MusicKit's out-of-process renderer.
+//! Native source-format detection for Music.app.
 //!
-//! Core Audio's process-tap format describes the PCM mix delivered by the tap.
-//! It is not proof of the catalog asset's decoded sample rate. For lossless
-//! playback, the renderer's tightly PID-scoped Unified Log event is the only
-//! observable source-rate signal currently available to this integration.
+//! Music.app's tightly PID-scoped Unified Log event is the observable
+//! source-rate signal used before Fozmo configures the capture driver.
 //! Missing, stale, or unreadable events deliberately produce no detection:
 //! callers must not guess a source rate, and the strict playback path fails
 //! before DSP handoff.
@@ -23,7 +21,7 @@ pub(super) const NATIVE_APPLE_MUSIC_RATES: [u32; 6] =
     [44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct MusicKitSourceFormat {
+pub(crate) struct AppleMusicSourceFormat {
     pub(crate) sample_rate_hz: u32,
     pub(crate) source_bit_depth_bits: Option<u32>,
     /// Unified Log wall-clock timestamp used to prove this record belongs
@@ -34,8 +32,8 @@ pub(crate) struct MusicKitSourceFormat {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum MusicKitDecoderDetection {
-    Lossless(MusicKitSourceFormat),
+pub(crate) enum AppleMusicDecoderDetection {
+    Lossless(AppleMusicSourceFormat),
     Lossy {
         codec: String,
         sample_rate_hz: u32,
@@ -44,7 +42,7 @@ pub(crate) enum MusicKitDecoderDetection {
     },
 }
 
-impl MusicKitDecoderDetection {
+impl AppleMusicDecoderDetection {
     fn logged_at(&self) -> SystemTime {
         match self {
             Self::Lossless(format) => format.logged_at,
@@ -62,19 +60,19 @@ impl MusicKitDecoderDetection {
 
 #[derive(Debug, Default)]
 pub(super) struct SourceFormatProbeState {
-    renderer_pid: Option<u32>,
+    music_app_pid: Option<u32>,
     last_log_marker: Option<String>,
 }
 
 impl SourceFormatProbeState {
     pub(super) fn accept_new(
         &mut self,
-        renderer_pid: u32,
+        music_app_pid: u32,
         boundary: SystemTime,
-        detection: Option<MusicKitDecoderDetection>,
-    ) -> Option<MusicKitDecoderDetection> {
-        if self.renderer_pid != Some(renderer_pid) {
-            self.renderer_pid = Some(renderer_pid);
+        detection: Option<AppleMusicDecoderDetection>,
+    ) -> Option<AppleMusicDecoderDetection> {
+        if self.music_app_pid != Some(music_app_pid) {
+            self.music_app_pid = Some(music_app_pid);
             self.last_log_marker = None;
         }
         let detection = detection?;
@@ -94,11 +92,11 @@ pub(super) fn is_native_apple_music_rate(rate_hz: u32) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-pub(super) fn query_recent_renderer_source_format(
-    renderer_pid: u32,
+pub(super) fn query_recent_music_app_source_format(
+    music_app_pid: u32,
     boundary: SystemTime,
     query_timeout: Duration,
-) -> Result<Option<MusicKitDecoderDetection>, String> {
+) -> Result<Option<AppleMusicDecoderDetection>, String> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|error| format!("system clock is before the Unix epoch: {error}"))?
@@ -111,7 +109,7 @@ pub(super) fn query_recent_renderer_source_format(
         .saturating_sub(UNIFIED_LOG_LOOKBACK_SECS)
         .max(boundary_secs.saturating_sub(1));
     let start = format!("@{start_secs}");
-    let predicate = renderer_log_predicate(renderer_pid);
+    let predicate = music_app_log_predicate(music_app_pid);
     let mut command = Command::new("/usr/bin/log");
     command
         .args([
@@ -145,31 +143,31 @@ pub(super) fn query_recent_renderer_source_format(
             format!("`log show` exited with {}: {detail}", output.status)
         });
     }
-    Ok(parse_renderer_log_output(
+    Ok(parse_music_app_log_output(
         &String::from_utf8_lossy(&output.stdout),
         boundary,
     ))
 }
 
 #[cfg(not(target_os = "macos"))]
-pub(super) fn query_recent_renderer_source_format(
-    _renderer_pid: u32,
+pub(super) fn query_recent_music_app_source_format(
+    _music_app_pid: u32,
     _boundary: SystemTime,
     _query_timeout: Duration,
-) -> Result<Option<MusicKitDecoderDetection>, String> {
+) -> Result<Option<AppleMusicDecoderDetection>, String> {
     Ok(None)
 }
 
-fn renderer_log_predicate(renderer_pid: u32) -> String {
+fn music_app_log_predicate(music_app_pid: u32) -> String {
     format!(
-        r#"processIdentifier == {renderer_pid} AND subsystem == "com.apple.coreaudio" AND eventMessage CONTAINS[c] "Input format:" AND (eventMessage CONTAINS[c] "ACAppleLosslessDecoder" OR eventMessage CONTAINS[c] "ACMP4AACBaseDecoder")"#
+        r#"processIdentifier == {music_app_pid} AND subsystem == "com.apple.coreaudio" AND eventMessage CONTAINS[c] "Input format:" AND (eventMessage CONTAINS[c] "ACAppleLosslessDecoder" OR eventMessage CONTAINS[c] "ACMP4AACBaseDecoder")"#
     )
 }
 
-fn parse_renderer_log_output(
+fn parse_music_app_log_output(
     output: &str,
     boundary: SystemTime,
-) -> Option<MusicKitDecoderDetection> {
+) -> Option<AppleMusicDecoderDetection> {
     let detections = output
         .lines()
         .filter_map(|line| {
@@ -184,7 +182,7 @@ fn parse_renderer_log_output(
                 .find_map(|field| value.get(field).and_then(Value::as_str))?;
             let marker = format!("{timestamp}\u{1f}{message}");
             parse_apple_lossless_decoder_message(message, logged_at, marker.clone())
-                .map(MusicKitDecoderDetection::Lossless)
+                .map(AppleMusicDecoderDetection::Lossless)
                 .or_else(|| parse_aac_decoder_message(message, logged_at, marker))
         })
         .collect::<Vec<_>>();
@@ -197,16 +195,16 @@ fn parse_renderer_log_output(
     detections
         .iter()
         .filter_map(|detection| match detection {
-            MusicKitDecoderDetection::Lossless(format) => Some(format),
-            MusicKitDecoderDetection::Lossy { .. } => None,
+            AppleMusicDecoderDetection::Lossless(format) => Some(format),
+            AppleMusicDecoderDetection::Lossy { .. } => None,
         })
         .max_by_key(|format| format.logged_at)
         .cloned()
-        .map(MusicKitDecoderDetection::Lossless)
+        .map(AppleMusicDecoderDetection::Lossless)
         .or_else(|| {
             detections
                 .into_iter()
-                .max_by_key(MusicKitDecoderDetection::logged_at)
+                .max_by_key(AppleMusicDecoderDetection::logged_at)
         })
 }
 
@@ -214,7 +212,7 @@ fn parse_apple_lossless_decoder_message(
     message: &str,
     logged_at: SystemTime,
     log_marker: String,
-) -> Option<MusicKitSourceFormat> {
+) -> Option<AppleMusicSourceFormat> {
     static RATE_PATTERN: OnceLock<Regex> = OnceLock::new();
     static BIT_DEPTH_PATTERN: OnceLock<Regex> = OnceLock::new();
     let rate_pattern = RATE_PATTERN.get_or_init(|| {
@@ -237,7 +235,7 @@ fn parse_apple_lossless_decoder_message(
         .and_then(|captures| captures.get(1))
         .and_then(|value| value.as_str().parse::<u32>().ok())
         .filter(|bits| (1..=64).contains(bits));
-    Some(MusicKitSourceFormat {
+    Some(AppleMusicSourceFormat {
         sample_rate_hz,
         source_bit_depth_bits,
         logged_at,
@@ -249,7 +247,7 @@ fn parse_aac_decoder_message(
     message: &str,
     logged_at: SystemTime,
     log_marker: String,
-) -> Option<MusicKitDecoderDetection> {
+) -> Option<AppleMusicDecoderDetection> {
     static AAC_PATTERN: OnceLock<Regex> = OnceLock::new();
     let pattern = AAC_PATTERN.get_or_init(|| {
         Regex::new(
@@ -260,7 +258,7 @@ fn parse_aac_decoder_message(
     let captures = pattern.captures(message)?;
     let sample_rate_hz = parse_rate(captures.get(1)?.as_str())?;
     let codec = captures.get(2)?.as_str().to_ascii_uppercase();
-    Some(MusicKitDecoderDetection::Lossy {
+    Some(AppleMusicDecoderDetection::Lossy {
         codec,
         sample_rate_hz,
         logged_at,
@@ -365,8 +363,8 @@ mod tests {
     }
 
     #[test]
-    fn renderer_predicate_is_pid_scoped_and_decoder_only() {
-        let predicate = renderer_log_predicate(1234);
+    fn music_app_predicate_is_pid_scoped_and_decoder_only() {
+        let predicate = music_app_log_predicate(1234);
         assert!(predicate.contains("processIdentifier == 1234"));
         assert!(predicate.contains("ACAppleLosslessDecoder"));
         assert!(predicate.contains("ACMP4AACBaseDecoder"));
@@ -384,9 +382,9 @@ mod tests {
             "ACAppleLosslessDecoder.cpp Input format:\n 2 ch, 192000 Hz from 24 - bit source",
         );
         let boundary = timestamp("2026-07-25 09:59:59.999999+1200");
-        let detection =
-            parse_renderer_log_output(&format!("{old}\n{new}\n"), boundary).expect("source format");
-        let MusicKitDecoderDetection::Lossless(detection) = detection else {
+        let detection = parse_music_app_log_output(&format!("{old}\n{new}\n"), boundary)
+            .expect("source format");
+        let AppleMusicDecoderDetection::Lossless(detection) = detection else {
             panic!("expected Apple Lossless detection");
         };
         assert_eq!(detection.sample_rate_hz, 192_000);
@@ -401,11 +399,11 @@ mod tests {
             "ACMP4AACBaseDecoder.cpp:310 (0x79a27aa00) Input format: 2 ch, 44100 Hz, aac (0x00000000) 0 bits/channel, 0 bytes/packet, 1024 frames/packet, 0 bytes/frame",
         );
         let detection =
-            parse_renderer_log_output(&aac, timestamp("2026-07-25 15:32:54.000000+1200"))
+            parse_music_app_log_output(&aac, timestamp("2026-07-25 15:32:54.000000+1200"))
                 .expect("AAC decoder detection");
         assert_eq!(
             detection,
-            MusicKitDecoderDetection::Lossy {
+            AppleMusicDecoderDetection::Lossy {
                 codec: "AAC".to_string(),
                 sample_rate_hz: 44_100,
                 logged_at: timestamp("2026-07-25 15:32:54.744462+1200"),
@@ -432,12 +430,12 @@ mod tests {
             "2026-07-25 19:46:18.905879+1200",
             "ACMP4AACBaseDecoder.cpp:310 (0x943a5ea00) Input format: 2 ch, 48000 Hz, aac (0x00000000) 0 bits/channel, 0 bytes/packet, 1024 frames/packet, 0 bytes/frame",
         );
-        let detection = parse_renderer_log_output(
+        let detection = parse_music_app_log_output(
             &format!("{initial_aac}\n{lossless}\n{later_aac}\n"),
             timestamp("2026-07-25 19:46:17.000000+1200"),
         )
         .expect("lossless decoder detection");
-        let MusicKitDecoderDetection::Lossless(format) = detection else {
+        let AppleMusicDecoderDetection::Lossless(format) = detection else {
             panic!("expected Apple Lossless to win over transitional AAC");
         };
         assert_eq!(format.sample_rate_hz, 96_000);
@@ -455,7 +453,7 @@ mod tests {
             "audioCapabilities: asbdSampleRate = 96 kHz, sdBitDepth = 24 bit",
         );
         assert!(
-            parse_renderer_log_output(
+            parse_music_app_log_output(
                 &format!("{unsupported}\n{capabilities}\n"),
                 timestamp("2026-07-25 09:59:59.999999+1200"),
             )
@@ -471,15 +469,15 @@ mod tests {
         );
         let boundary = timestamp("2026-07-25 10:00:01.000000+1200");
 
-        assert!(parse_renderer_log_output(&previous, boundary).is_none());
+        assert!(parse_music_app_log_output(&previous, boundary).is_none());
 
         let current = record(
             "2026-07-25 10:00:01.250000+1200",
             "ACAppleLosslessDecoder.cpp Input format: 2 ch, 192000 Hz from 24-bit source",
         );
-        let detection = parse_renderer_log_output(&format!("{previous}\n{current}\n"), boundary)
+        let detection = parse_music_app_log_output(&format!("{previous}\n{current}\n"), boundary)
             .expect("fresh source format");
-        let MusicKitDecoderDetection::Lossless(detection) = detection else {
+        let AppleMusicDecoderDetection::Lossless(detection) = detection else {
             panic!("expected Apple Lossless detection");
         };
         assert_eq!(detection.sample_rate_hz, 192_000);
@@ -489,7 +487,7 @@ mod tests {
     fn overlapping_queries_emit_each_log_record_once() {
         let mut probe = SourceFormatProbeState::default();
         let first_boundary = timestamp("2026-07-25 10:00:00.000000+1200");
-        let detection = MusicKitSourceFormat {
+        let detection = AppleMusicSourceFormat {
             sample_rate_hz: 96_000,
             source_bit_depth_bits: Some(24),
             logged_at: timestamp("2026-07-25 10:00:00.500000+1200"),
@@ -499,15 +497,15 @@ mod tests {
             probe.accept_new(
                 42,
                 first_boundary,
-                Some(MusicKitDecoderDetection::Lossless(detection.clone()))
+                Some(AppleMusicDecoderDetection::Lossless(detection.clone()))
             ),
-            Some(MusicKitDecoderDetection::Lossless(detection.clone()))
+            Some(AppleMusicDecoderDetection::Lossless(detection.clone()))
         );
         assert_eq!(
             probe.accept_new(
                 42,
                 first_boundary,
-                Some(MusicKitDecoderDetection::Lossless(detection.clone()))
+                Some(AppleMusicDecoderDetection::Lossless(detection.clone()))
             ),
             None
         );
@@ -515,16 +513,16 @@ mod tests {
             probe.accept_new(
                 43,
                 first_boundary,
-                Some(MusicKitDecoderDetection::Lossless(detection.clone()))
+                Some(AppleMusicDecoderDetection::Lossless(detection.clone()))
             ),
-            Some(MusicKitDecoderDetection::Lossless(detection))
+            Some(AppleMusicDecoderDetection::Lossless(detection))
         );
     }
 
     #[test]
     fn a_missed_probe_cannot_leak_the_previous_rate_into_a_reused_pid() {
         let mut probe = SourceFormatProbeState::default();
-        let previous = MusicKitSourceFormat {
+        let previous = AppleMusicSourceFormat {
             sample_rate_hz: 44_100,
             source_bit_depth_bits: Some(16),
             logged_at: timestamp("2026-07-25 10:00:00.500000+1200"),
@@ -537,12 +535,12 @@ mod tests {
             probe.accept_new(
                 42,
                 next_boundary,
-                Some(MusicKitDecoderDetection::Lossless(previous))
+                Some(AppleMusicDecoderDetection::Lossless(previous))
             ),
             None
         );
 
-        let current = MusicKitSourceFormat {
+        let current = AppleMusicSourceFormat {
             sample_rate_hz: 192_000,
             source_bit_depth_bits: Some(24),
             logged_at: timestamp("2026-07-25 10:00:01.250000+1200"),
@@ -552,9 +550,9 @@ mod tests {
             probe.accept_new(
                 42,
                 next_boundary,
-                Some(MusicKitDecoderDetection::Lossless(current.clone()))
+                Some(AppleMusicDecoderDetection::Lossless(current.clone()))
             ),
-            Some(MusicKitDecoderDetection::Lossless(current))
+            Some(AppleMusicDecoderDetection::Lossless(current))
         );
     }
 }

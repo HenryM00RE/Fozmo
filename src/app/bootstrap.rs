@@ -16,8 +16,8 @@ use crate::playback::sequencer::PlaybackCommandSequencer;
 #[cfg(not(test))]
 use crate::secrets::KeyringSecretsStore;
 use crate::secrets::{SecretKey, SecretValue, SecretsStore};
-#[cfg(feature = "apple_music_capture")]
-use crate::services::apple_music::AppleMusicCaptureService;
+#[cfg(feature = "apple_music_musickit")]
+use crate::services::apple_music::AppleMusicPlaybackService;
 #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
 use crate::services::apple_music_musickit::AppleMusicService;
 use crate::services::hegel::HegelStatusCache;
@@ -142,19 +142,19 @@ pub(crate) fn build_app_state(
         .map_err(AppError::qobuz)?,
     );
     let lastfm = Arc::new(LastFmService::new().map_err(AppError::lastfm)?);
-    #[cfg(feature = "apple_music_capture")]
-    let apple_music_capture = Arc::new(AppleMusicCaptureService::new(Arc::clone(&player)));
-    #[cfg(feature = "apple_music_capture")]
-    match apple_music_capture
-        .restore_configured_output_if_idle(&settings.apple_music_capture_settings())
+    #[cfg(feature = "apple_music_musickit")]
+    let apple_music_playback = Arc::new(AppleMusicPlaybackService::new(Arc::clone(&player)));
+    #[cfg(feature = "apple_music_musickit")]
+    match apple_music_playback
+        .restore_configured_output_if_idle(&settings.apple_music_playback_settings())
     {
         Ok(true) => tracing::info!(
-            event = "apple_music_capture_output_restored",
+            event = "apple_music_playback_output_restored",
             "Restored the configured physical output left behind by an interrupted capture session"
         ),
         Ok(false) => {}
         Err(error) => tracing::warn!(
-            event = "apple_music_capture_output_restore_failed",
+            event = "apple_music_playback_output_restore_failed",
             error,
             "Could not restore the configured physical Apple Music output during startup"
         ),
@@ -189,8 +189,8 @@ pub(crate) fn build_app_state(
         AppMediaServices {
             qobuz,
             lastfm,
-            #[cfg(feature = "apple_music_capture")]
-            apple_music_capture,
+            #[cfg(feature = "apple_music_musickit")]
+            apple_music_playback,
             #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
             apple_music,
             airplay,
