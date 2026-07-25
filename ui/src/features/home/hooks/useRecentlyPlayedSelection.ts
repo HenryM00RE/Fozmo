@@ -12,7 +12,8 @@ import {
 import {
   normalizeQueueItem,
   qobuzTrackToQueueItem,
-  resolvedPlaySourceToQueueItem
+  resolvedPlaySourceToQueueItem,
+  sourceRefToQueueItem
 } from '../../../shared/lib/queue';
 import type {
   JsonRecord,
@@ -22,14 +23,42 @@ import type {
   QobuzTrack,
   QueueItem,
   ResolvedPlaySource,
-  RouteState
+  RouteState,
+  SourceRef
 } from '../../../shared/types';
+import {
+  appleMusicAlbumToLibraryDetail,
+  appleMusicSourceFromAlbumTrack
+} from '../../albums/model/appleMusicAlbum';
 import {
   loadQobuzPlaylistDetailCached,
   qobuzPlaylistQueueItems
 } from '../../qobuz/model/qobuzPlaylistData';
 
 type QueuePlacement = 'next' | 'end';
+
+function isAppleMusicRecent(item: JsonRecord) {
+  return item.is_apple_music === true || item.provider === 'apple_music';
+}
+
+async function appleMusicAlbumIdForRecent(item: JsonRecord) {
+  const explicitId = String(item.apple_music_album_id || '').trim();
+  if (explicitId) return explicitId;
+
+  const rawId = String(item.id || '').trim();
+  if (rawId && !rawId.startsWith('apple_music:')) return rawId;
+
+  const songId = String(
+    item.source_track_id ||
+      (rawId.startsWith('apple_music:track:') ? rawId.slice('apple_music:track:'.length) : '')
+  ).trim();
+  if (!songId) return '';
+  const song = await endpoints.appleMusicCatalogSong(
+    songId,
+    String(item.storefront || '').trim() || undefined
+  );
+  return String(song.album_id || '').trim();
+}
 
 type UseRecentlyPlayedSelectionParams = {
   albums: LibraryAlbum[];
@@ -138,6 +167,21 @@ export function useRecentlyPlayedSelection({
           .map(qobuzTrackFromAlbumTrack)
           .filter(Boolean)
           .map((track) => qobuzTrackToQueueItem(track as QobuzTrack));
+      }
+
+      if (isAppleMusicRecent(item)) {
+        const albumId = await appleMusicAlbumIdForRecent(item);
+        if (!albumId) return [];
+        const catalogAlbum = await endpoints.appleMusicCatalogAlbum(
+          albumId,
+          String(item.storefront || '').trim() || undefined
+        );
+        const detail = appleMusicAlbumToLibraryDetail(catalogAlbum);
+        return safeArray<LibraryTrack>(detail.tracks)
+          .map(appleMusicSourceFromAlbumTrack)
+          .filter((source): source is SourceRef => source !== null)
+          .map(sourceRefToQueueItem)
+          .filter((queueItem): queueItem is QueueItem => queueItem !== null);
       }
 
       const albumId = resolveLocalAlbumId(item, albums);
@@ -279,6 +323,20 @@ export function useRecentlyPlayedSelection({
         else setNotice('Could not resolve the Qobuz album for this play');
         return;
       }
+      if (isAppleMusicRecent(item)) {
+        const albumId = await appleMusicAlbumIdForRecent(item);
+        if (albumId) {
+          navigate({
+            view: 'album',
+            id: albumId,
+            provider: 'apple_music',
+            ...(item.storefront ? { storefront: String(item.storefront) } : {})
+          });
+        } else {
+          setNotice('Could not resolve the Apple Music album for this play');
+        }
+        return;
+      }
       const albumId = resolveLocalAlbumId(item, albums);
       if (albumId === null || albumId === undefined || albumId === '') {
         setNotice('Could not resolve this recently played album');
@@ -306,10 +364,16 @@ export function useRecentlyPlayedSelection({
         playItems(items, 0);
         return;
       }
+      if (isAppleMusicRecent(item)) {
+        const items = await resolveItemQueueItems(item);
+        if (items.length) playItems(items, 0);
+        else setNotice('No playable Apple Music tracks found for this album');
+        return;
+      }
       const albumId = resolveLocalAlbumId(item, albums);
       if (albumId !== null && albumId !== undefined && albumId !== '') playAlbum(albumId);
     },
-    [albums, playAlbum, playItems, playlists, resolveItemQueueItems]
+    [albums, playAlbum, playItems, playlists, resolveItemQueueItems, setNotice]
   );
 
   return {

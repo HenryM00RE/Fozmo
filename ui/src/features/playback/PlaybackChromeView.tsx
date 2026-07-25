@@ -34,7 +34,8 @@ export function PlaybackChromeView({ onOpenArtist, playbackChrome }: PlaybackChr
     zones
   } = playbackChrome;
   const { connection } = usePlaybackSnapshot();
-  const { pendingArtSrc, playbackLoading, transportPending } = usePlaybackControlSnapshot();
+  const { pendingArtSrc, pendingPlaybackIntent, playbackLoading, transportPending } =
+    usePlaybackControlSnapshot();
   const interpolatedPosition = useInterpolatedPosition(status as PlaybackStatus);
   const playbackPosition = usePersistentSeekPosition(
     status as PlaybackStatus,
@@ -49,7 +50,14 @@ export function PlaybackChromeView({ onOpenArtist, playbackChrome }: PlaybackChr
     currentTrackName,
     sourceProvider,
     trackTitleClass
-  } = playbackChromeTrackModel({ pendingArtSrc, albums, playbackLoading, queue, status });
+  } = playbackChromeTrackModel({
+    pendingArtSrc,
+    pendingPlaybackIntent,
+    albums,
+    playbackLoading,
+    queue,
+    status
+  });
   const signalLabel = signalTriggerLabel(status);
   const signalTriggerClass = `signal-quality-trigger${signalLabel.length > 10 ? ' is-wide' : ''}`;
 

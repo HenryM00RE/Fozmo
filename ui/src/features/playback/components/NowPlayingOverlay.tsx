@@ -47,7 +47,7 @@ export function NowPlayingOverlay({
   onOpenAlbum: (target: PlaybackAlbumTarget) => void;
   onOpenArtist: (name: string) => void;
 }) {
-  const { pendingArtSrc, playbackLoading } = usePlaybackControlSnapshot();
+  const { pendingArtSrc, pendingPlaybackIntent, playbackLoading } = usePlaybackControlSnapshot();
   if (!open) return null;
   const {
     currentAlbum,
@@ -56,7 +56,14 @@ export function NowPlayingOverlay({
     currentArt,
     currentTrackName,
     trackTitleClass
-  } = playbackChromeTrackModel({ pendingArtSrc, albums, playbackLoading, queue, status });
+  } = playbackChromeTrackModel({
+    pendingArtSrc,
+    pendingPlaybackIntent,
+    albums,
+    playbackLoading,
+    queue,
+    status
+  });
   const queueDurationLabel = formatQueueDuration(queueRemainingSeconds(queue, status));
 
   return (

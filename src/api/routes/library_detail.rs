@@ -609,7 +609,12 @@ async fn library_album_play_sources(
             .iter()
             .any(|version| version.id == selected_id && version.provider == "apple_music")
     });
-    if selected_is_apple {
+    // An explicitly selected Apple Music version is a playback intent, not a
+    // preference hint. Let the Apple Music playback route launch/refresh the
+    // helper and report its real result instead of replacing the request from
+    // a cached availability snapshot. Keep automatic fallback only when Apple
+    // Music is the album's implicit primary version.
+    if should_auto_fallback_from_apple(selected_is_apple, requested_version_id) {
         #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
         let apple_available = {
             let status = state.apple_music().status();
@@ -668,6 +673,13 @@ async fn library_album_play_sources(
     plan.requested_version_id = requested_version_id;
     plan.fallback_reason = fallback_reason;
     Ok(Json(plan))
+}
+
+fn should_auto_fallback_from_apple(
+    selected_is_apple: bool,
+    requested_version_id: Option<i64>,
+) -> bool {
+    selected_is_apple && requested_version_id.is_none()
 }
 
 async fn library_album_version_detail(
@@ -1795,6 +1807,13 @@ mod tests {
         assert_eq!(payload["message"], "No linked version is playable.");
         assert_eq!(payload["requested_version_id"], 42);
         assert!(payload.get("status").is_none());
+    }
+
+    #[test]
+    fn explicitly_selected_apple_music_version_bypasses_automatic_fallback() {
+        assert!(!should_auto_fallback_from_apple(true, Some(42)));
+        assert!(should_auto_fallback_from_apple(true, None));
+        assert!(!should_auto_fallback_from_apple(false, None));
     }
 
     #[test]

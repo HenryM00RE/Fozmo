@@ -837,10 +837,13 @@ export function recentlyPlayedSelectionKey(item: JsonRecord) {
     return `qobuz-playlist:${item.playlist_id || item.id || item.title || ''}`;
   if (item.recent_type === 'playlist')
     return `playlist:${item.playlist_id || item.id || item.title || ''}`;
-  const provider = item.is_qobuz ? 'qobuz' : 'local';
+  const isAppleMusic = item.is_apple_music === true || item.provider === 'apple_music';
+  const provider = item.is_qobuz ? 'qobuz' : isAppleMusic ? 'apple_music' : 'local';
   const id = item.is_qobuz
     ? normalizeQobuzAlbumId(item) || item.qobuz_album_id || item.source_track_id || item.id
-    : item.album_id || item.local_album_id || item.id;
+    : isAppleMusic
+      ? item.apple_music_album_id || item.source_track_id || item.id
+      : item.album_id || item.local_album_id || item.id;
   const title = normalizeSearchText(item.title);
   const artist = normalizeSearchText(item.album_artist || item.artist);
   return `${provider}:${id || `${title}::${artist}`}`;

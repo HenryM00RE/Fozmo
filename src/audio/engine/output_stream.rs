@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use super::buffers::DsdWorkerState;
 use super::dsd_path::DsdFallbackKey;
+use super::signal_path::OutputTransport;
 use crate::audio::engine::state::{
     AtomicPlayerState, COREAUDIO_DOP_LIFECYCLE_DROP, COREAUDIO_DOP_LIFECYCLE_QUIESCE,
     COREAUDIO_DOP_LIFECYCLE_STOP, FLUSH_REASON_REOPEN,
@@ -44,6 +45,31 @@ pub(super) enum ActiveOutput {
 }
 
 impl ActiveOutput {
+    /// Return the public signal-path transport represented by this live output.
+    ///
+    /// A stopped session can retain a compatible output handle for a quiet
+    /// restart. In that case no backend open occurs for the next session, so
+    /// the worker must be able to republish the retained handle's transport.
+    pub(super) fn transport(&self) -> OutputTransport {
+        match self {
+            Self::Cpal(_) => OutputTransport::PcmShared,
+            #[cfg(target_os = "windows")]
+            Self::WasapiExclusive(_) => OutputTransport::PcmWasapiExclusive,
+            #[cfg(target_os = "windows")]
+            Self::WasapiExclusiveDop(_) => OutputTransport::DopWasapi,
+            #[cfg(target_os = "macos")]
+            Self::CoreAudioPcm(_) => OutputTransport::PcmCoreAudio,
+            #[cfg(target_os = "macos")]
+            Self::CoreAudioDop(_) => OutputTransport::DopCoreAudio,
+            #[cfg(all(target_os = "windows", feature = "asio"))]
+            Self::AsioPcm(_) => OutputTransport::PcmAsio,
+            #[cfg(all(target_os = "windows", feature = "asio"))]
+            Self::AsioNativeDsd(_) => OutputTransport::NativeDsdAsio,
+            Self::AirPlayRaop(_) => OutputTransport::PcmAirPlayRaop,
+            Self::AirPlay2(_) => OutputTransport::PcmAirPlay2,
+        }
+    }
+
     pub(super) fn debug_name(&self) -> &'static str {
         match self {
             Self::Cpal(_) => "cpal",

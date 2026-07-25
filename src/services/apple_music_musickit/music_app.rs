@@ -3,6 +3,11 @@
 use super::model::MusicAppTrack;
 use std::ffi::{CStr, CString, c_char};
 use std::process::{Command, Stdio};
+use std::thread;
+use std::time::Duration;
+
+const MUSIC_COMMAND_ATTEMPTS: usize = 3;
+const MUSIC_COMMAND_RETRY_DELAY: Duration = Duration::from_millis(150);
 
 const MUSIC_STATUS_SCRIPT: &[&str] = &[
     "tell application \"Music\"",
@@ -31,6 +36,8 @@ const MUSIC_STATUS_SCRIPT: &[&str] = &[
 
 const MUSIC_PLAY_CURRENT_ONCE_FROM_START_SCRIPT: &[&str] = &[
     "tell application \"Music\"",
+    "pause",
+    "set player position to 0",
     "play current track once true",
     "set player position to 0",
     "end tell",
@@ -82,7 +89,7 @@ pub(crate) fn play() -> Result<(), String> {
 /// to that one track. Fozmo, rather than Music.app's album queue, owns the next
 /// provider boundary.
 pub(crate) fn play_current_once() -> Result<(), String> {
-    run_osascript(MUSIC_PLAY_CURRENT_ONCE_FROM_START_SCRIPT.iter().copied()).map(|_| ())
+    run_music_script_with_retry(MUSIC_PLAY_CURRENT_ONCE_FROM_START_SCRIPT).map(|_| ())
 }
 
 pub(crate) fn pause() -> Result<(), String> {
@@ -90,7 +97,7 @@ pub(crate) fn pause() -> Result<(), String> {
 }
 
 pub(crate) fn prepare_bit_perfect() -> Result<(), String> {
-    run_osascript([
+    run_music_script_with_retry(&[
         "tell application \"Music\"",
         "set sound volume to 100",
         "try",
@@ -148,11 +155,12 @@ pub(crate) fn set_position(seconds: f64) -> Result<(), String> {
         return Err("Apple Music position must be a finite non-negative value.".to_string());
     }
     let position = format!("set player position to {seconds:.3}");
-    run_osascript(["tell application \"Music\"", position.as_str(), "end tell"]).map(|_| ())
+    run_music_script_with_retry(&["tell application \"Music\"", position.as_str(), "end tell"])
+        .map(|_| ())
 }
 
 fn run_music_command(command: &str) -> Result<(), String> {
-    run_osascript(["tell application \"Music\"", command, "end tell"]).map(|_| ())
+    run_music_script_with_retry(&["tell application \"Music\"", command, "end tell"]).map(|_| ())
 }
 
 fn validate_catalog_component(label: &str, value: &str) -> Result<(), String> {
@@ -192,8 +200,47 @@ fn run_osascript<'a>(lines: impl IntoIterator<Item = &'a str>) -> Result<String,
         Err(if stderr.is_empty() {
             "The Music app command failed.".to_string()
         } else {
-            stderr
+            readable_osascript_error(&stderr)
         })
+    }
+}
+
+fn run_music_script_with_retry(lines: &[&str]) -> Result<String, String> {
+    let mut last_error = None;
+    for attempt in 0..MUSIC_COMMAND_ATTEMPTS {
+        match run_osascript(lines.iter().copied()) {
+            Ok(output) => return Ok(output),
+            Err(error) => last_error = Some(error),
+        }
+        if attempt + 1 < MUSIC_COMMAND_ATTEMPTS {
+            thread::sleep(MUSIC_COMMAND_RETRY_DELAY);
+        }
+    }
+    Err(last_error.unwrap_or_else(|| "The Music app command failed.".to_string()))
+}
+
+fn readable_osascript_error(stderr: &str) -> String {
+    let message = stderr.trim();
+    let mut parts = message.splitn(3, ':');
+    let first = parts.next().unwrap_or_default().trim();
+    let second = parts.next().unwrap_or_default().trim();
+    let message = if !first.is_empty()
+        && !second.is_empty()
+        && first.bytes().all(|byte| byte.is_ascii_digit())
+        && second.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        parts.next().unwrap_or(message).trim()
+    } else {
+        message
+    };
+    let message = message
+        .strip_prefix("execution error:")
+        .unwrap_or(message)
+        .trim();
+    if let Some(detail) = message.strip_prefix("Music got an error:") {
+        format!("Music.app reported: {}", detail.trim())
+    } else {
+        message.to_string()
     }
 }
 
@@ -275,10 +322,26 @@ mod tests {
             MUSIC_PLAY_CURRENT_ONCE_FROM_START_SCRIPT,
             &[
                 "tell application \"Music\"",
+                "pause",
+                "set player position to 0",
                 "play current track once true",
                 "set player position to 0",
                 "end tell",
             ]
+        );
+    }
+
+    #[test]
+    fn apple_script_errors_hide_source_offsets_and_name_music_app() {
+        assert_eq!(
+            readable_osascript_error(
+                "54:58: execution error: Music got an error: The operation timed out. (-1712)"
+            ),
+            "Music.app reported: The operation timed out. (-1712)"
+        );
+        assert_eq!(
+            readable_osascript_error("execution error: Music is not running. (-600)"),
+            "Music is not running. (-600)"
         );
     }
 }

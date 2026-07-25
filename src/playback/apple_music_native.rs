@@ -28,6 +28,9 @@ use tracing::{debug, info, warn};
 
 const TRACK_ACTIVATION_TIMEOUT: Duration = Duration::from_secs(10);
 const TRACK_ACTIVATION_POLL: Duration = Duration::from_millis(75);
+const TRACK_TRANSPORT_SETTLE_TIMEOUT: Duration = Duration::from_secs(3);
+const TRACK_START_POSITION_TOLERANCE_SECS: f64 = 1.0;
+const TRACK_PARK_POSITION_TOLERANCE_SECS: f64 = 0.050;
 const START_PREFILL_TARGET_SECS: f64 = 0.500;
 const START_PREFILL_MIN_SECS: f64 = 0.250;
 const START_PREFILL_TIMEOUT: Duration = Duration::from_millis(2_500);
@@ -138,6 +141,36 @@ pub(crate) async fn play_apple_music_source(
         ensure_owned(state, &guard, &playback)?;
         let source_rate_hz = source_format.sample_rate_hz;
         let source_bits = source_format.source_bit_depth_bits;
+
+        // Establish Music.app's single-track transport before creating the
+        // capture session that Fozmo will actually play. Starting a catalog
+        // track is asynchronous: setting player position to zero in the same
+        // AppleScript call is not enough, because the transport can restore
+        // its previous global position a moment later.
+        play_current_once_blocking().await?;
+        wait_for_selected_track_transport(
+            &source,
+            "playing",
+            None,
+            "start its single-track transport",
+        )
+        .await?;
+        ensure_owned(state, &guard, &playback)?;
+        pause_music_blocking().await?;
+        ensure_owned(state, &guard, &playback)?;
+        set_music_position_blocking(0.0).await?;
+        wait_for_selected_track_transport(
+            &source,
+            "paused",
+            Some(TRACK_PARK_POSITION_TOLERANCE_SECS),
+            "park at 0:00",
+        )
+        .await?;
+        ensure_owned(state, &guard, &playback)?;
+
+        // Recreate the capture ring only after Music.app is confirmed paused
+        // at zero. This guarantees that PCM from its former seek position
+        // cannot survive into the new Fozmo timeline.
         let verified_epoch = state
             .apple_music_playback()
             .restart_at_verified_source_format(source_rate_hz, source_bits)
@@ -152,7 +185,15 @@ pub(crate) async fn play_apple_music_source(
         player.flush_live_output();
         ensure_owned(state, &guard, &playback)?;
 
-        play_current_once_blocking().await?;
+        play_music_blocking().await?;
+        wait_for_selected_track_transport(
+            &source,
+            "playing",
+            Some(TRACK_START_POSITION_TOLERANCE_SECS),
+            "resume from 0:00",
+        )
+        .await?;
+        ensure_owned(state, &guard, &playback)?;
         wait_for_prefill(
             state,
             &guard,
@@ -427,6 +468,12 @@ pub(crate) async fn seek(
         .apple_music_playback()
         .restart_current_managed_session()
         .map_err(PlaybackError::integration)?;
+    if !state
+        .apple_music_playback()
+        .set_timeline_origin(snapshot.generation, seconds)
+    {
+        return Err(PlaybackError::conflict("Playback changed"));
+    }
     hold_player_paused(&player, replacement_epoch).await?;
     set_music_position_blocking(seconds).await?;
     play_music_blocking().await?;
@@ -600,6 +647,45 @@ async fn ensure_selected_track_still_playing(source: &SourceRef) -> Result<(), P
     Ok(())
 }
 
+async fn wait_for_selected_track_transport(
+    source: &SourceRef,
+    expected_state: &str,
+    maximum_position_secs: Option<f64>,
+    operation: &str,
+) -> Result<MusicAppSnapshot, PlaybackError> {
+    let deadline = tokio::time::Instant::now() + TRACK_TRANSPORT_SETTLE_TIMEOUT;
+    loop {
+        let snapshot = music_status_blocking().await?;
+        let position_matches = maximum_position_secs
+            .is_none_or(|maximum| track_position_is_at_start(&snapshot, maximum));
+        if music_track_matches_source(&snapshot, source)
+            && snapshot.player_state.as_deref() == Some(expected_state)
+            && position_matches
+        {
+            return Ok(snapshot);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(PlaybackError::integration(format!(
+                "Music.app did not {operation} (state={}, position={}).",
+                snapshot.player_state.as_deref().unwrap_or("unknown"),
+                snapshot
+                    .track
+                    .position_secs
+                    .map(|position| format!("{position:.3}s"))
+                    .unwrap_or_else(|| "unknown".to_string())
+            )));
+        }
+        tokio::time::sleep(TRACK_ACTIVATION_POLL).await;
+    }
+}
+
+fn track_position_is_at_start(snapshot: &MusicAppSnapshot, maximum_position_secs: f64) -> bool {
+    snapshot
+        .track
+        .position_secs
+        .is_some_and(|position| position <= maximum_position_secs)
+}
+
 fn music_track_matches_source(snapshot: &MusicAppSnapshot, source: &SourceRef) -> bool {
     let Some(actual_title) = snapshot.track.title.as_deref() else {
         return false;
@@ -695,7 +781,7 @@ async fn wait_for_player_output_ready(
     player: &std::sync::Arc<crate::audio::player::Player>,
     expected_epoch: u64,
 ) -> Result<(), PlaybackError> {
-    use crate::audio::player::{OutputTransport, PlaybackState};
+    use crate::audio::player::PlaybackState;
 
     let deadline = tokio::time::Instant::now() + PLAYER_OUTPUT_START_TIMEOUT;
     let mut next_music_status = tokio::time::Instant::now();
@@ -707,9 +793,7 @@ async fn wait_for_player_output_ready(
             return Err(PlaybackError::conflict("Playback changed"));
         }
         let snapshot = player.snapshot_no_cover();
-        if snapshot.state == PlaybackState::Playing
-            && snapshot.signal_path.output_transport != OutputTransport::None
-        {
+        if local_player_output_is_ready(snapshot.state) {
             debug!(
                 event = "apple_music_native_output_ready",
                 output_mode = snapshot.signal_path.active_output_mode.as_name(),
@@ -780,6 +864,16 @@ async fn wait_for_player_output_ready(
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+}
+
+fn local_player_output_is_ready(state: crate::audio::player::PlaybackState) -> bool {
+    use crate::audio::player::PlaybackState;
+
+    // A live session resumes in Starting. The audio worker only promotes it to
+    // Playing after an ActiveOutput exists and its pre-roll/warmup is ready.
+    // Signal-path transport is diagnostic metadata and can briefly lag when
+    // the worker deliberately retains a compatible CoreAudio/DoP stream.
+    state == PlaybackState::Playing
 }
 
 async fn wait_for_prefill(
@@ -1482,6 +1576,32 @@ mod tests {
         assert!(!native_track_completed(280.0, 300.0));
         assert!(!native_track_completed(0.0, 300.0));
         assert!(!native_track_completed(296.5, 0.0));
+    }
+
+    #[test]
+    fn native_track_start_requires_a_position_near_zero() {
+        let mut snapshot = MusicAppSnapshot::default();
+        snapshot.track.position_secs = Some(0.75);
+        assert!(track_position_is_at_start(
+            &snapshot,
+            TRACK_START_POSITION_TOLERANCE_SECS
+        ));
+
+        snapshot.track.position_secs = Some(42.0);
+        assert!(!track_position_is_at_start(
+            &snapshot,
+            TRACK_START_POSITION_TOLERANCE_SECS
+        ));
+    }
+
+    #[test]
+    fn native_output_is_ready_when_the_audio_worker_enters_playing() {
+        use crate::audio::player::PlaybackState;
+
+        assert!(!local_player_output_is_ready(PlaybackState::Starting));
+        assert!(local_player_output_is_ready(PlaybackState::Playing));
+        assert!(!local_player_output_is_ready(PlaybackState::Paused));
+        assert!(!local_player_output_is_ready(PlaybackState::Stopped));
     }
 
     #[test]

@@ -39,6 +39,60 @@ describe('playbackChromeTrackModel', () => {
     expect(model.currentTrackName).toBe('Jóga');
     expect(model.currentArtist).toBe('Björk');
     expect(model.currentAlbum).toBe('Homogenic');
+    expect(model.currentAlbumTarget).toEqual({
+      source: 'apple_music',
+      id: '1440880968',
+      storefront: null
+    });
     expect(model.sourceProvider).toBe('Apple Music');
+  });
+
+  it('uses the requested Apple identity instead of a stale queue cursor during startup', () => {
+    const queue: QueueState = {
+      kind: 'apple_music',
+      cursor: 0,
+      items: [
+        {
+          title: '2 + 2 = 5 (Live)',
+          artist: 'Radiohead',
+          album: 'Hail to the Thief (Live Recordings 2003–2009)',
+          durationSecs: 216,
+          filename: 'apple_music:old',
+          resolvedSource: { kind: 'apple_music_track', song_id: 'old' }
+        },
+        {
+          title: 'There, There (Live)',
+          artist: 'Radiohead',
+          album: 'Hail to the Thief (Live Recordings 2003–2009)',
+          durationSecs: 333,
+          filename: 'apple_music:new',
+          resolvedSource: { kind: 'apple_music_track', song_id: 'new' }
+        }
+      ],
+      loopMode: 'off'
+    };
+
+    const model = playbackChromeTrackModel({
+      pendingArtSrc: 'https://example.test/new.jpg',
+      pendingPlaybackIntent: {
+        artist: 'Radiohead',
+        fileName: 'apple_music:new',
+        sourceKey: 'apple_music:new',
+        title: 'There, There (Live)'
+      },
+      playbackLoading: true,
+      queue,
+      status: {
+        state: 'Starting',
+        file_name: 'apple_music:old',
+        track_title: '2 + 2 = 5 (Live)',
+        track_artist: 'Radiohead',
+        current_source: { kind: 'apple_music_track', song_id: 'old' }
+      }
+    });
+
+    expect(model.currentTrackName).toBe('There, There (Live)');
+    expect(model.currentQueueItem?.title).toBe('There, There (Live)');
+    expect(model.currentArt).toBe('https://example.test/new.jpg');
   });
 });

@@ -35,6 +35,9 @@ pub(crate) struct AppleMusicPlaybackSnapshot {
     pub(crate) generation: u64,
     pub(crate) source: SourceRef,
     pub(crate) playback_state: String,
+    /// Source position represented by Player position zero. This is non-zero
+    /// after a seek because reopening the live capture resets Player metrics.
+    pub(crate) timeline_origin_secs: f64,
     pub(crate) position_secs: f64,
     pub(crate) duration_secs: f64,
 }
@@ -291,6 +294,7 @@ impl AppleMusicPlaybackService {
             duration_secs: source.duration_secs().unwrap_or(0.0),
             source,
             playback_state: "preparing".to_string(),
+            timeline_origin_secs: 0.0,
             position_secs: 0.0,
         };
         runtime.playback = Some(snapshot.clone());
@@ -367,6 +371,22 @@ impl AppleMusicPlaybackService {
         if let Some(duration) = duration_secs.filter(|value| value.is_finite() && *value > 0.0) {
             snapshot.duration_secs = duration;
         }
+        true
+    }
+
+    pub(crate) fn set_timeline_origin(&self, generation: u64, position_secs: f64) -> bool {
+        if !position_secs.is_finite() || position_secs < 0.0 {
+            return false;
+        }
+        let mut runtime = self.runtime.lock().unwrap();
+        let Some(snapshot) = runtime
+            .playback
+            .as_mut()
+            .filter(|snapshot| snapshot.generation == generation)
+        else {
+            return false;
+        };
+        snapshot.timeline_origin_secs = position_secs;
         true
     }
 

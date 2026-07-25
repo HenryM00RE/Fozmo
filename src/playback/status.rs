@@ -638,11 +638,20 @@ fn apply_native_apple_music_status_overlay(
     response.track_title = snapshot.source.title().map(str::to_string);
     response.track_artist = snapshot.source.artist().map(str::to_string);
     response.track_album = snapshot.source.album().map(str::to_string);
-    response.position_secs = snapshot.position_secs;
     response.duration_secs = if snapshot.duration_secs > 0.0 {
         snapshot.duration_secs
     } else {
         snapshot.source.duration_secs().unwrap_or(0.0)
+    };
+    // Music.app runs ahead while Fozmo prebuffers and opens the physical
+    // output. Report the Player-consumed timeline—the audio the user is
+    // actually hearing—rather than the decoder head. A seek establishes a
+    // new source-position origin for the fresh live Player session.
+    let audible_position_secs = snapshot.timeline_origin_secs + response.position_secs;
+    response.position_secs = if response.duration_secs > 0.0 {
+        audible_position_secs.min(response.duration_secs)
+    } else {
+        audible_position_secs
     };
 }
 
@@ -871,8 +880,19 @@ mod tests {
         assert_eq!(status.state, "Playing");
         assert_eq!(status.current_source, Some(source));
         assert_eq!(status.track_title.as_deref(), Some("New Kid In Town"));
-        assert_eq!(status.position_secs, 42.5);
+        assert_eq!(
+            status.position_secs, 0.0,
+            "decoder prebuffer must not move the audible timeline"
+        );
         assert_eq!(status.duration_secs, 305.0);
+
+        assert!(
+            state
+                .apple_music_playback()
+                .set_timeline_origin(snapshot.generation, 42.5)
+        );
+        let sought_status = build_status_response_for_zone(&state, &zone_id).unwrap();
+        assert_eq!(sought_status.position_secs, 42.5);
     }
 
     #[cfg(feature = "hegel")]

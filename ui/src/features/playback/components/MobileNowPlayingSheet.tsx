@@ -46,7 +46,7 @@ export function MobileNowPlayingSheet({
     status,
     zones
   } = playbackChrome;
-  const { pendingArtSrc, playbackLoading } = usePlaybackControlSnapshot();
+  const { pendingArtSrc, pendingPlaybackIntent, playbackLoading } = usePlaybackControlSnapshot();
   const [view, setView] = useState<'now-playing' | 'queue'>('now-playing');
   const [sheetDragY, setSheetDragY] = useState(0);
   const [sheetDragging, setSheetDragging] = useState(false);
@@ -93,6 +93,7 @@ export function MobileNowPlayingSheet({
 
   const model = playbackChromeTrackModel({
     pendingArtSrc,
+    pendingPlaybackIntent,
     albums,
     playbackLoading,
     queue,

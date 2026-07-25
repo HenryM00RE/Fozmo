@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   onSelectionItemsChange: vi.fn(),
   onToggleSelection: vi.fn(),
   openPlaylistPickerForItems: vi.fn(),
+  playAlbum: vi.fn(),
   playItems: vi.fn()
 }));
 
@@ -187,5 +188,83 @@ describe('AppleMusicAlbumPage', () => {
     expect(
       screen.queryByText('Apple Music editorial notes for In Rainbows.')
     ).not.toBeInTheDocument();
+  });
+
+  it('plays linked catalog albums directly instead of falling back through the library version', async () => {
+    mocks.albumByAppleMusicId.mockResolvedValue({
+      album: {
+        id: 7,
+        title: 'In Rainbows',
+        album_artist: 'Radiohead',
+        primary_version_id: 11
+      },
+      tracks: [],
+      versions: [
+        {
+          id: 11,
+          provider: 'local',
+          source_label: 'Library',
+          title: 'In Rainbows',
+          is_primary: true
+        },
+        {
+          id: 12,
+          provider: 'apple_music',
+          provider_id: '1109714933',
+          source_label: 'Apple Music',
+          title: 'In Rainbows',
+          is_primary: false
+        }
+      ]
+    });
+    mocks.appleMusicAlbumVersionDetail.mockResolvedValue({
+      apple_album: await mocks.appleMusicCatalogAlbum()
+    });
+
+    render(
+      <AppleMusicAlbumPage
+        id="1109714933"
+        storefront="nz"
+        onOpenArtist={mocks.onOpenArtist}
+        playAlbum={mocks.playAlbum}
+        playItems={mocks.playItems}
+        addItemsToQueue={mocks.addItemsToQueue}
+        selectedTrackKeys={new Set()}
+        selectionActive={false}
+        onSelectionItemsChange={mocks.onSelectionItemsChange}
+        onToggleSelection={mocks.onToggleSelection}
+        openPlaylistPickerForItems={mocks.openPlaylistPickerForItems}
+        playbackStatus={{ state: 'Stopped' }}
+        customDisplayFont={null}
+      />
+    );
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'In Rainbows' })
+    ).toBeInTheDocument();
+    await waitFor(() => expect(mocks.appleMusicAlbumVersionDetail).toHaveBeenCalledWith(7, 12));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Play now' }));
+
+    await waitFor(() =>
+      expect(mocks.playItems).toHaveBeenCalledWith(
+        [
+          expect.objectContaining({
+            resolvedSource: expect.objectContaining({
+              kind: 'apple_music_track',
+              song_id: '1109715066'
+            })
+          }),
+          expect.objectContaining({
+            resolvedSource: expect.objectContaining({
+              kind: 'apple_music_track',
+              song_id: '1109715161'
+            })
+          })
+        ],
+        0
+      )
+    );
+    expect(mocks.playAlbum).not.toHaveBeenCalled();
   });
 });

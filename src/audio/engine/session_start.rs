@@ -11,7 +11,9 @@ use super::dsd_path::{dop_wire_rate_for_mode, should_force_44k_family_dsd256};
 use super::output_stream::{ActiveOutput, drop_active_stream_for_reopen};
 use super::render::{eq_processing_rate, output_headroom_gain, render_pcm_dsp_path_eof_tail};
 use super::session::{init_pending_start_session, publish_started_session_metadata};
-use super::signal_path::{OutputMode, dsd_policy_for_source, effective_dsd_target_rate};
+use super::signal_path::{
+    OutputMode, OutputTransport, dsd_policy_for_source, effective_dsd_target_rate,
+};
 use super::state::{
     FLUSH_REASON_PENDING_START, PLAYBACK_PAUSED, PLAYBACK_STARTING, REOPEN_REASON_PENDING_START,
 };
@@ -315,6 +317,10 @@ pub(super) fn install_pending_start(runtime: &mut WorkerRuntime) -> PendingStart
                     .active_filter_type
                     .store(filter_type.as_id(), Ordering::Relaxed);
             }
+            republish_retained_output_transport(
+                active_stream.as_ref().map(ActiveOutput::transport),
+                &shared.state,
+            );
             eq_processor.update(
                 eq_processing_rate(output_mode, new_source, *target_rate),
                 current_eq_config,
@@ -524,6 +530,17 @@ fn record_pending_start_dsp_graph_install(
     }
 }
 
+fn republish_retained_output_transport(
+    transport: Option<OutputTransport>,
+    state: &super::state::AtomicPlayerState,
+) {
+    if let Some(transport) = transport {
+        state
+            .output_transport
+            .store(transport.as_id(), Ordering::Relaxed);
+    }
+}
+
 fn should_use_transition_preroll(gapless_start: bool, has_active_stream: bool) -> bool {
     !gapless_start && has_active_stream
 }
@@ -534,6 +551,18 @@ mod tests {
     use crate::audio::dsd::dsd_render::{DsdRate, DsdRenderer};
     use crate::audio::dsp::resampler::FilterType;
     use crate::audio::engine::dsd_path::DsdFallbackKey;
+
+    #[test]
+    fn retained_output_transport_is_republished_for_a_new_session() {
+        let state = super::super::state::AtomicPlayerState::new();
+
+        republish_retained_output_transport(Some(OutputTransport::DopCoreAudio), &state);
+
+        assert_eq!(
+            state.output_transport.load(Ordering::Relaxed),
+            OutputTransport::DopCoreAudio.as_id()
+        );
+    }
 
     fn test_dsd_state(source_rate: u32, mode: OutputMode) -> super::super::buffers::DsdWorkerState {
         let dsd_rate = match mode {

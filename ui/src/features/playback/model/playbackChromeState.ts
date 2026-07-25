@@ -8,8 +8,9 @@ import type {
 } from '../../../shared/types';
 
 export type PlaybackAlbumTarget = {
-  source: 'local' | 'qobuz';
+  source: 'local' | 'qobuz' | 'apple_music';
   id: string | number;
+  storefront?: string | null;
 };
 
 export type PlaybackChromeState = {

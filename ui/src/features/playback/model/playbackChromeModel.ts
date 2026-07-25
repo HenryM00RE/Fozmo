@@ -19,6 +19,7 @@ import {
   stringValue
 } from '../../settings/settingsModel';
 import type { PlaybackAlbumTarget } from './playbackChromeState';
+import type { PendingPlaybackIntentSnapshot } from './playbackControlStore';
 
 const VOLATILE_ARTWORK_REQUEST_KEY = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
@@ -83,12 +84,14 @@ export function signalTriggerLabel(status: JsonRecord) {
 
 export function playbackChromeTrackModel({
   pendingArtSrc,
+  pendingPlaybackIntent,
   albums = [],
   playbackLoading,
   queue,
   status
 }: {
   pendingArtSrc: string | null;
+  pendingPlaybackIntent?: PendingPlaybackIntentSnapshot | null;
   albums?: LibraryAlbum[];
   playbackLoading: boolean;
   queue: QueueState;
@@ -96,14 +99,21 @@ export function playbackChromeTrackModel({
 }): PlaybackChromeTrackModel {
   const statusIsActive =
     status.state === 'Playing' || status.state === 'Paused' || status.state === 'Starting';
-  const queuedItem =
+  const cursorItem =
     (statusIsActive || playbackLoading) && queue.cursor >= 0 ? queue.items[queue.cursor] : null;
+  const pendingItem = pendingPlaybackIntent
+    ? queue.items.find((item) => queueItemMatchesPendingIntent(item, pendingPlaybackIntent)) || null
+    : null;
+  const queuedItem = pendingItem || cursorItem;
   const currentSource = sourceRefFromStatus(status);
   const sourceItem = currentSource ? sourceRefToQueueItem(currentSource) : null;
   const queueMatchesStatus = queuedItem
     ? queueItemMatchesStatus(queuedItem, status, currentSource)
     : false;
-  const showPendingQueueItem = playbackLoading && Boolean(queuedItem) && !queueMatchesStatus;
+  const showPendingQueueItem =
+    playbackLoading &&
+    Boolean(pendingPlaybackIntent || queuedItem) &&
+    !pendingIntentMatchesStatus(pendingPlaybackIntent, status, currentSource);
   const matchedQueueItem =
     !showPendingQueueItem && !queueMatchesStatus
       ? queue.items.find((item) => queueItemMatchesStatus(item, status, currentSource)) || null
@@ -115,10 +125,15 @@ export function playbackChromeTrackModel({
       : matchedQueueItem;
   const metadataItem = currentQueueItem || sourceItem;
   const currentTrackName = showPendingQueueItem
-    ? currentQueueItem?.title || liveTrackTitle(status) || 'Select a track'
+    ? pendingPlaybackIntent?.title ||
+      currentQueueItem?.title ||
+      liveTrackTitle(status) ||
+      'Select a track'
     : liveTrackTitle(status) || metadataItem?.title || 'Select a track';
   const currentArtist = showPendingQueueItem
-    ? currentQueueItem?.artist || stringValue(status.track_artist, '')
+    ? pendingPlaybackIntent?.artist ||
+      currentQueueItem?.artist ||
+      stringValue(status.track_artist, '')
     : stringValue(status.track_artist, '') || metadataItem?.artist || '';
   const currentAlbum = showPendingQueueItem
     ? currentQueueItem?.album || stringValue(status.track_album, '')
@@ -140,13 +155,14 @@ export function playbackChromeTrackModel({
     currentSource?.kind === 'apple_music_track' || currentSource?.kind === 'apple_music'
       ? currentSource.artwork_url || currentSource.image_url || null
       : null;
-  const currentArt =
+  const settledArt =
     appleMusicArt ||
     (coverVersion > 0
       ? volatileArtworkUrl(
           `${statusZoneId ? `/api/zones/${encodeURIComponent(statusZoneId)}/cover` : '/api/cover'}?v=${coverVersion}`
         )
       : metadataArt || serverArt || pendingArtSrc);
+  const currentArt = showPendingQueueItem ? pendingArtSrc || metadataArt || settledArt : settledArt;
 
   return {
     currentAlbum,
@@ -166,6 +182,13 @@ function albumTargetForQueueItem(item: QueueItem | null): PlaybackAlbumTarget | 
     item.albumId ?? item.qobuzTrack?.album_id ?? item.resolvedSource?.album_id ?? null;
   if (albumId === null || albumId === undefined || albumId === '') return null;
   const resolvedKind = String(item.resolvedSource?.kind || '');
+  if (resolvedKind.includes('apple_music')) {
+    return {
+      source: 'apple_music',
+      id: albumId,
+      storefront: item.resolvedSource?.storefront || null
+    };
+  }
   const qobuz = Boolean(item.qobuzTrack) || resolvedKind.includes('qobuz');
   return { source: qobuz ? 'qobuz' : 'local', id: albumId };
 }
@@ -248,6 +271,43 @@ function queueItemMatchesStatus(
       itemTitle === statusTitle &&
       (!statusArtist || !itemArtist || statusArtist === itemArtist) &&
       (!statusAlbum || !itemAlbum || statusAlbum === itemAlbum)
+  );
+}
+
+function queueItemMatchesPendingIntent(
+  item: QueueItem,
+  pendingIntent: PendingPlaybackIntentSnapshot
+) {
+  const itemSourceKey = sourceRefKey(queueItemToSourceRef(item));
+  if (pendingIntent.sourceKey && itemSourceKey === pendingIntent.sourceKey) return true;
+  const pendingFileName = normalizedText(pendingIntent.fileName);
+  if (pendingFileName && normalizedText(queueItemFileName(item)) === pendingFileName) return true;
+  return (
+    Boolean(pendingIntent.title) &&
+    normalizedText(item.title) === normalizedText(pendingIntent.title) &&
+    (!pendingIntent.artist || normalizedText(item.artist) === normalizedText(pendingIntent.artist))
+  );
+}
+
+function pendingIntentMatchesStatus(
+  pendingIntent: PendingPlaybackIntentSnapshot | null | undefined,
+  status: JsonRecord,
+  currentSource: SourceRef | null
+) {
+  if (!pendingIntent) return false;
+  const statusSourceKey = sourceRefKey(currentSource);
+  if (pendingIntent.sourceKey && statusSourceKey === pendingIntent.sourceKey) return true;
+  const pendingFileName = normalizedText(pendingIntent.fileName);
+  const statusFileName = normalizedText(status.file_name);
+  if (pendingFileName && pendingFileName === statusFileName) return true;
+  const pendingTitle = normalizedText(pendingIntent.title);
+  const statusTitle = normalizedText(status.track_title);
+  const pendingArtist = normalizedText(pendingIntent.artist);
+  const statusArtist = normalizedText(status.track_artist);
+  return Boolean(
+    pendingTitle &&
+      pendingTitle === statusTitle &&
+      (!pendingArtist || !statusArtist || pendingArtist === statusArtist)
   );
 }
 

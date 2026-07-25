@@ -58,7 +58,11 @@ import {
   sourceRefsForPlayback
 } from '../model/queueModel';
 
-const PLAYBACK_INTENT_TTL_MS = 12_000;
+// Native Apple Music startup can include catalog activation, decoder-format
+// verification, and a physical-output reopen. Keep the requested identity
+// visible for that whole bounded startup instead of falling back to the
+// previous track while the backend still reports Starting.
+const PLAYBACK_INTENT_TTL_MS = 75_000;
 const PREVIOUS_RESTART_THRESHOLD_SECS = 3;
 const PREVIOUS_RESTART_SKIP_WINDOW_MS = 1_500;
 
@@ -282,6 +286,7 @@ export function usePlaybackQueue({
           ? {
               artist: intent.artist,
               fileName: intent.fileName,
+              sourceKey: intent.sourceKey,
               title: intent.title
             }
           : null
@@ -377,6 +382,7 @@ export function usePlaybackQueue({
           title: String(item.title || '')
         });
       }
+      latestQueueRef.current = nextQueue;
       setQueue(nextQueue);
       try {
         let playbackRequest: Promise<unknown> | null = null;
@@ -417,10 +423,14 @@ export function usePlaybackQueue({
         }
         if (playbackIntentSeqRef.current !== intentId) return;
         persistQueue(nextQueue);
+        await refreshPlaybackStatus({ force: true });
+        clearPendingPlaybackIntent(intentId);
       } catch (error) {
         if (playbackIntentSeqRef.current !== intentId) return;
         clearPendingPlaybackIntent(intentId);
+        latestQueueRef.current = previousQueue;
         setQueue(previousQueue);
+        await refreshPlaybackStatus({ force: true });
         refreshQueueRef.current().catch(() => undefined);
         setNotice(error instanceof Error ? error.message : 'Playback failed');
       }
@@ -589,6 +599,17 @@ export function usePlaybackQueue({
     try {
       const response = await endpoints.nowPlayingQueue(activeZoneId, controller.signal);
       if (queueRefreshRequestRef.current.id !== requestId) return;
+      const pendingIntent = pendingPlaybackIntentRef.current;
+      if (
+        pendingIntent &&
+        Date.now() - pendingIntent.requestedAt < PLAYBACK_INTENT_TTL_MS &&
+        !statusMatchesPendingIntent(
+          { current_source: response.current_source || null },
+          pendingIntent
+        )
+      ) {
+        return;
+      }
       const saved = normalizeQueueState(response.state || null);
       const currentSourceKey = sourceRefKey(response.current_source);
       const queuedSources = safeArray<SourceRef>(response.queued_sources).filter(
@@ -769,12 +790,15 @@ export function usePlaybackQueue({
 
   useEffect(() => {
     const fileName = String(status.file_name || '');
-    if (status.state !== 'Playing') return;
+    if (status.state !== 'Starting' && status.state !== 'Playing' && status.state !== 'Paused')
+      return;
     if (!fileName && !statusCurrentSource(status)) return;
     const pendingIntent = pendingPlaybackIntentRef.current;
     if (pendingIntent) {
       if (statusMatchesPendingIntent(status, pendingIntent)) {
-        clearPendingPlaybackIntent(pendingIntent.id);
+        if (status.state === 'Playing' || status.state === 'Paused') {
+          clearPendingPlaybackIntent(pendingIntent.id);
+        }
       } else if (Date.now() - pendingIntent.requestedAt < PLAYBACK_INTENT_TTL_MS) {
         return;
       } else {

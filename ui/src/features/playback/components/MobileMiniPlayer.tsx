@@ -17,10 +17,11 @@ type MobileMiniPlayerProps = {
 
 export function MobileMiniPlayer({ playbackChrome }: MobileMiniPlayerProps) {
   const { albums, queue, setNowPlayingOpen, status } = playbackChrome;
-  const { pendingArtSrc, playbackLoading } = usePlaybackControlSnapshot();
+  const { pendingArtSrc, pendingPlaybackIntent, playbackLoading } = usePlaybackControlSnapshot();
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const model = playbackChromeTrackModel({
     pendingArtSrc,
+    pendingPlaybackIntent,
     albums,
     playbackLoading,
     queue,

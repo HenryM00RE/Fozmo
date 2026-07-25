@@ -23,6 +23,7 @@ export interface PlaybackControlSnapshot {
 export interface PendingPlaybackIntentSnapshot {
   artist: string;
   fileName: string;
+  sourceKey: string;
   title: string;
 }
 
@@ -104,6 +105,7 @@ export function setPendingPlaybackIntent(
 ) {
   if (
     snapshot.pendingPlaybackIntent?.fileName === pendingPlaybackIntent?.fileName &&
+    snapshot.pendingPlaybackIntent?.sourceKey === pendingPlaybackIntent?.sourceKey &&
     snapshot.pendingPlaybackIntent?.title === pendingPlaybackIntent?.title &&
     snapshot.pendingPlaybackIntent?.artist === pendingPlaybackIntent?.artist
   )

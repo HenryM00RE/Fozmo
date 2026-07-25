@@ -4,11 +4,20 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { QueueItem, SourceRef } from '../../../shared/types';
 import { getNowPlayingQueueActions } from '../model/nowPlayingQueueStore';
+import { playbackChromeTrackModel } from '../model/playbackChromeModel';
+import {
+  clearTransportPending,
+  setPendingPlaybackArt,
+  setPendingPlaybackIntent,
+  setPlaybackLoading,
+  usePlaybackControlSnapshot
+} from '../model/playbackControlStore';
 import { usePlaybackQueue } from './usePlaybackQueue';
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   nowPlayingQueue: vi.fn(),
+  playAppleMusicScenario: vi.fn(),
   saveNowPlayingQueue: vi.fn(),
   zoneQueue: vi.fn()
 }));
@@ -20,6 +29,7 @@ vi.mock('../../../shared/lib/api', () => ({
   endpoints: {
     artUrl: () => null,
     nowPlayingQueue: mocks.nowPlayingQueue,
+    playAppleMusicScenario: mocks.playAppleMusicScenario,
     saveNowPlayingQueue: mocks.saveNowPlayingQueue,
     zoneQueue: mocks.zoneQueue
   }
@@ -96,7 +106,12 @@ function renderQueueHook() {
 
 beforeEach(() => {
   for (const mock of Object.values(mocks)) mock.mockReset();
+  clearTransportPending();
+  setPendingPlaybackIntent(null);
+  setPendingPlaybackArt(null);
+  setPlaybackLoading(false);
   mocks.apiGet.mockResolvedValue({});
+  mocks.playAppleMusicScenario.mockResolvedValue({});
   mocks.saveNowPlayingQueue.mockResolvedValue({});
   mocks.nowPlayingQueue.mockResolvedValue({
     state: {
@@ -111,6 +126,72 @@ beforeEach(() => {
 });
 
 describe('usePlaybackQueue serialized mutations', () => {
+  it('keeps a newly requested Apple track visible until slow startup completes', async () => {
+    const playRequest = deferred<Record<string, never>>();
+    mocks.playAppleMusicScenario.mockReturnValue(playRequest.promise);
+    const hook = renderQueueHook();
+    const controls = renderHook(() => usePlaybackControlSnapshot());
+    await waitFor(() => expect(hook.result.current.queue.items).toHaveLength(3));
+
+    act(() => {
+      hook.result.current.playItems(
+        [appleItem('apple-1', 'Apple One'), appleItem('apple-2', 'Apple Two')],
+        1
+      );
+    });
+
+    await waitFor(() => expect(mocks.playAppleMusicScenario).toHaveBeenCalledTimes(1));
+    expect(controls.result.current.pendingPlaybackIntent?.title).toBe('Apple Two');
+    expect(controls.result.current.playbackLoading).toBe(true);
+    expect(
+      playbackChromeTrackModel({
+        pendingArtSrc: controls.result.current.pendingArtSrc,
+        playbackLoading: controls.result.current.playbackLoading,
+        queue: hook.result.current.queue,
+        status: {
+          state: 'Playing',
+          file_name: 'apple_music:apple-1',
+          track_title: 'Apple One',
+          track_artist: 'Apple Artist',
+          track_album: 'Apple Album',
+          current_source: appleItem('apple-1', 'Apple One').resolvedSource
+        }
+      }).currentTrackName
+    ).toBe('Apple Two');
+
+    playRequest.resolve({});
+
+    await waitFor(() => expect(controls.result.current.playbackLoading).toBe(false));
+    expect(controls.result.current.pendingPlaybackIntent).toBeNull();
+    expect(mocks.apiGet).toHaveBeenCalledWith('/api/status', undefined, undefined, 'no-store');
+  });
+
+  it('does not let a stale queue refresh undo an Apple track selection during startup', async () => {
+    const playRequest = deferred<Record<string, never>>();
+    mocks.playAppleMusicScenario.mockReturnValue(playRequest.promise);
+    const hook = renderQueueHook();
+    await waitFor(() => expect(hook.result.current.queue.items).toHaveLength(3));
+
+    act(() => {
+      hook.result.current.playItems(
+        [appleItem('apple-1', 'Apple One'), appleItem('apple-2', 'Apple Two')],
+        1
+      );
+    });
+
+    await waitFor(() => expect(hook.result.current.queue.cursor).toBe(1));
+    act(() => {
+      window.dispatchEvent(new Event('focus'));
+    });
+    await waitFor(() => expect(mocks.nowPlayingQueue.mock.calls.length).toBeGreaterThan(1));
+
+    expect(hook.result.current.queue.cursor).toBe(1);
+    expect(hook.result.current.queue.items[1]?.title).toBe('Apple Two');
+
+    playRequest.resolve({});
+    await waitFor(() => expect(mocks.apiGet).toHaveBeenCalled());
+  });
+
   it('keeps the visible removal target when Apple Play next is still committing', async () => {
     const firstCommit = deferred<Record<string, never>>();
     mocks.zoneQueue.mockImplementationOnce(() => firstCommit.promise).mockResolvedValueOnce({});

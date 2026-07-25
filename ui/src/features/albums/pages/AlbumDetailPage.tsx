@@ -623,13 +623,13 @@ export function AlbumDetailPage({
   ].filter(Boolean) as Array<[string, string]>;
   const playVisibleTracks = (startIndex = 0, shuffle = false) => {
     const versionId = positiveNumber(viewingVersion?.id) || undefined;
-    if (isViewingAppleMusic && linkedLocalAlbumId && versionId) {
-      playAlbum(linkedLocalAlbumId, startIndex, shuffle, versionId);
-      return;
-    }
-    if (isViewingAppleMusic) {
+    if (isViewingAppleMusic && onPlayAppleMusicTracks) {
       if (!tracks.length) return;
       onPlayAppleMusicTracks?.(shuffle ? shuffled(tracks) : tracks, shuffle ? 0 : startIndex);
+      return;
+    }
+    if (isViewingAppleMusic && linkedLocalAlbumId && versionId) {
+      playAlbum(linkedLocalAlbumId, startIndex, shuffle, versionId);
       return;
     }
     if (isViewingQobuz && isQobuz) {

@@ -59,7 +59,18 @@ export function buildPlaybackChrome({
     onClearQueue: clearQueue,
     onOpenAlbum: (target) => {
       setNowPlayingOpen(false);
-      navigate({ view: target.source === 'qobuz' ? 'qobuz-album' : 'album', id: target.id });
+      navigate(
+        target.source === 'qobuz'
+          ? { view: 'qobuz-album', id: target.id }
+          : target.source === 'apple_music'
+            ? {
+                view: 'album',
+                id: target.id,
+                provider: 'apple_music',
+                ...(target.storefront ? { storefront: target.storefront } : {})
+              }
+            : { view: 'album', id: target.id }
+      );
     },
     onSelectZone,
     onShuffleQueue: shuffleQueue,
