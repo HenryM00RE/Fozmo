@@ -695,6 +695,13 @@ export const endpoints = {
   launchAppleMusicHelper: () => api.post<JsonRecord>('/api/apple-music/launch'),
   authorizeAppleMusic: () =>
     api.post<JsonRecord>('/api/apple-music/authorize', { present_ui: true }),
+  appleMusicCatalogSearch: (term: string, storefront?: string, limit = 10) =>
+    api.get<JsonRecord>(
+      '/api/apple-music/catalog/search',
+      { term, storefront: storefront || undefined, limit },
+      undefined,
+      'no-store'
+    ),
   appleMusicCatalogSong: (songId: string, storefront?: string) =>
     api.get<JsonRecord>(
       `/api/apple-music/catalog/songs/${encodeURIComponent(songId)}`,
@@ -710,6 +717,7 @@ export const endpoints = {
       'no-store'
     ),
   playAppleMusicScenario: (
+    zoneId: string,
     source: SourceRef,
     queue: SourceRef[],
     confirmSystemAudioCapture: boolean
@@ -717,6 +725,7 @@ export const endpoints = {
     api.post<JsonRecord>(
       '/api/apple-music/play',
       {
+        zone_id: zoneId,
         source,
         queue,
         confirm_system_audio_capture: confirmSystemAudioCapture

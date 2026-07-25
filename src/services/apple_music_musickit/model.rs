@@ -78,6 +78,14 @@ pub(crate) struct AppleCatalogAlbum {
     pub tracks: Vec<AppleCatalogSong>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub(crate) struct AppleCatalogSearchResult {
+    pub term: String,
+    pub storefront: String,
+    #[serde(default)]
+    pub songs: Vec<AppleCatalogSong>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub(crate) struct AppleMusicAlbumVersionRequest {
     pub album_id: String,
@@ -345,6 +353,8 @@ pub(crate) struct AppleMusicDevPlaySongRequest {
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub(crate) struct AppleMusicPlayRequest {
     #[serde(default)]
+    pub zone_id: Option<String>,
+    #[serde(default)]
     pub song_id: Option<String>,
     #[serde(default)]
     pub source: Option<SourceRef>,
@@ -360,6 +370,20 @@ pub(crate) struct AppleMusicPlayRequest {
 pub(crate) struct AppleMusicCatalogQuery {
     #[serde(default)]
     pub storefront: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub(crate) struct AppleMusicCatalogSearchQuery {
+    #[serde(default)]
+    pub term: String,
+    #[serde(default)]
+    pub storefront: Option<String>,
+    #[serde(default = "default_catalog_search_limit")]
+    pub limit: u32,
+}
+
+fn default_catalog_search_limit() -> u32 {
+    10
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -440,6 +464,10 @@ pub(crate) struct HelperMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub album_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub term: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub storefront: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub playback_position: Option<f64>,
@@ -453,6 +481,8 @@ pub(crate) struct HelperMessage {
     pub catalog_song: Option<AppleCatalogSong>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub catalog_album: Option<AppleCatalogAlbum>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub catalog_search: Option<AppleCatalogSearchResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -485,6 +515,8 @@ impl HelperMessage {
             segment_index: None,
             song_id: None,
             album_id: None,
+            term: None,
+            limit: None,
             storefront: None,
             playback_position: None,
             position_secs: None,
@@ -492,6 +524,7 @@ impl HelperMessage {
             now_playing: None,
             catalog_song: None,
             catalog_album: None,
+            catalog_search: None,
             code: None,
             message: None,
             retryable: None,

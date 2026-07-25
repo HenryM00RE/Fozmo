@@ -139,6 +139,18 @@ enum CatalogInput {
             .lowercased()
             .nonEmpty ?? "current"
     }
+
+    static func normalizedSearchTerm(_ value: String?) -> String? {
+        guard let value = normalizedID(value), value.count <= 200 else { return nil }
+        guard !value.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+        else { return nil }
+        return value
+    }
+
+    static func normalizedSearchLimit(_ value: Int?) -> Int? {
+        let value = value ?? 10
+        return (1...25).contains(value) ? value : nil
+    }
 }
 
 struct IncomingCommand: Decodable, Equatable {
@@ -153,6 +165,8 @@ struct IncomingCommand: Decodable, Equatable {
     let startIndex: Int?
     let songID: String?
     let albumID: String?
+    let term: String?
+    let limit: Int?
     let storefront: String?
     let positionSecs: Double?
 
@@ -168,6 +182,8 @@ struct IncomingCommand: Decodable, Equatable {
         case startIndex = "start_index"
         case songID = "song_id"
         case albumID = "album_id"
+        case term
+        case limit
         case storefront
         case positionSecs = "position_secs"
     }
@@ -299,6 +315,12 @@ struct CatalogAlbumPayload: Codable, Equatable {
     }
 }
 
+struct CatalogSearchPayload: Codable, Equatable {
+    let term: String
+    let storefront: String
+    let songs: [CatalogSongPayload]
+}
+
 struct NowPlayingPayload: Codable, Equatable {
     let songID: String
     let title: String
@@ -349,6 +371,7 @@ struct HelperEvent: Encodable, Equatable {
     var nowPlaying: NowPlayingPayload?
     var catalogSong: CatalogSongPayload?
     var catalogAlbum: CatalogAlbumPayload?
+    var catalogSearch: CatalogSearchPayload?
     var code: String?
     var message: String?
     var retryable: Bool?
@@ -379,6 +402,7 @@ struct HelperEvent: Encodable, Equatable {
         case nowPlaying = "now_playing"
         case catalogSong = "catalog_song"
         case catalogAlbum = "catalog_album"
+        case catalogSearch = "catalog_search"
         case code
         case message
         case retryable

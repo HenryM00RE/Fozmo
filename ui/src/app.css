@@ -9350,6 +9350,105 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
   line-height: 1.45;
 }
 
+.react-app .apple-music-catalog-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.react-app .apple-music-catalog-search .pill {
+  min-height: 42px;
+  padding-inline: 22px;
+}
+
+.react-app .apple-music-search-target {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 14px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent, #59b6ff) 7%, var(--canvas-tint));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, #59b6ff) 24%, transparent);
+}
+
+.react-app .apple-music-search-target span {
+  color: var(--ink-muted, #a8a297);
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.react-app .apple-music-search-target strong {
+  color: var(--ink, #f5f0e8);
+  font-size: 14px;
+}
+
+.react-app .apple-music-search-target small {
+  grid-column: 2;
+  color: var(--ink-muted, #a8a297);
+  font-size: 12px;
+}
+
+.react-app .apple-music-search-result {
+  width: 100%;
+  border-top: 0;
+  border-right: 0;
+  border-left: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    padding 140ms ease;
+}
+
+.react-app .apple-music-search-result:not(:disabled):hover {
+  padding-inline: 10px;
+  background: color-mix(in srgb, var(--accent, #59b6ff) 7%, transparent);
+}
+
+.react-app .apple-music-search-result:focus-visible {
+  border-radius: 9px;
+  outline: 2px solid var(--accent, #59b6ff);
+  outline-offset: 2px;
+}
+
+.react-app .apple-music-search-result:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.react-app .apple-music-result-play {
+  color: var(--blue-ink, #7fb4ff);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.react-app .apple-music-console-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 22px 0 14px;
+  color: var(--ink-muted, #a8a297);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.react-app .apple-music-console-divider::after {
+  height: 1px;
+  flex: 1;
+  background: var(--line-08, rgba(255, 255, 255, 0.08));
+  content: "";
+}
+
 .react-app .apple-music-console-fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -9451,6 +9550,18 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
 }
 
 @media (max-width: 620px) {
+  .react-app .apple-music-catalog-search {
+    grid-template-columns: 1fr;
+  }
+
+  .react-app .apple-music-search-target {
+    grid-template-columns: 1fr;
+  }
+
+  .react-app .apple-music-search-target small {
+    grid-column: 1;
+  }
+
   .react-app .apple-music-inline-action,
   .react-app .apple-music-scenario-row {
     align-items: stretch;

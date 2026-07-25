@@ -1,9 +1,9 @@
 use super::ipc::{read_json_frame, write_json_frame};
 use super::model::{
-    AppleCatalogAlbum, AppleCatalogSong, AppleMusicComparisonReference, AppleMusicComparisonStatus,
-    AppleMusicComparisonTrack, AppleMusicMvpError, AppleMusicMvpState, AppleMusicMvpStatus,
-    ApplePlaybackSnapshot, EXPECTED_HELPER_BUNDLE_ID, HelperMessage, HelperQueueItem,
-    PROTOCOL_VERSION, SetQueueCommand,
+    AppleCatalogAlbum, AppleCatalogSearchResult, AppleCatalogSong, AppleMusicComparisonReference,
+    AppleMusicComparisonStatus, AppleMusicComparisonTrack, AppleMusicMvpError, AppleMusicMvpState,
+    AppleMusicMvpStatus, ApplePlaybackSnapshot, EXPECTED_HELPER_BUNDLE_ID, HelperMessage,
+    HelperQueueItem, PROTOCOL_VERSION, SetQueueCommand,
 };
 use super::process_tap::{
     ProcessTapController, active_musickit_renderer_pids as discover_active_musickit_renderers,
@@ -56,6 +56,12 @@ pub(crate) trait AppleMusicHelperClient: Send + Sync {
         album_id: String,
         storefront: Option<String>,
     ) -> Result<AppleCatalogAlbum, AppleMusicMvpError>;
+    async fn search_songs(
+        &self,
+        term: String,
+        storefront: Option<String>,
+        limit: u32,
+    ) -> Result<AppleCatalogSearchResult, AppleMusicMvpError>;
     async fn set_queue(
         &self,
         sources: Vec<SourceRef>,
@@ -567,6 +573,40 @@ impl AppleMusicService {
                 "The Apple Music helper returned an empty album response.",
                 false,
                 "catalog_lookup",
+                true,
+            )
+        })
+    }
+
+    pub(crate) async fn search_songs(
+        &self,
+        term: String,
+        storefront: Option<String>,
+        limit: u32,
+    ) -> Result<AppleCatalogSearchResult, AppleMusicMvpError> {
+        let term = validate_catalog_search_term(term)?;
+        let storefront = validate_storefront(storefront)?;
+        if !(1..=25).contains(&limit) {
+            return Err(error(
+                "catalog_search_limit_invalid",
+                "Choose between 1 and 25 Apple Music search results.",
+                false,
+                "validating_request",
+                true,
+            ));
+        }
+        self.ensure_ready().await?;
+        let mut command = self.next_command("search_songs").await?;
+        command.term = Some(term);
+        command.storefront = storefront;
+        command.limit = Some(limit);
+        let event = self.send_and_wait(command, &["catalog_search"]).await?;
+        event.catalog_search.ok_or_else(|| {
+            error(
+                "helper_protocol_mismatch",
+                "The Apple Music helper returned an empty search response.",
+                false,
+                "catalog_search",
                 true,
             )
         })
@@ -1239,6 +1279,15 @@ impl AppleMusicHelperClient for AppleMusicService {
         AppleMusicService::lookup_album(self, album_id, storefront).await
     }
 
+    async fn search_songs(
+        &self,
+        term: String,
+        storefront: Option<String>,
+        limit: u32,
+    ) -> Result<AppleCatalogSearchResult, AppleMusicMvpError> {
+        AppleMusicService::search_songs(self, term, storefront, limit).await
+    }
+
     async fn set_queue(
         &self,
         sources: Vec<SourceRef>,
@@ -1325,7 +1374,7 @@ fn apply_helper_event(status: &Arc<Mutex<AppleMusicMvpStatus>>, event: &HelperMe
                 AppleMusicMvpState::AwaitingAuthorization
             };
         }
-        "queue_prepared" | "catalog_song" | "catalog_album" => {
+        "queue_prepared" | "catalog_song" | "catalog_album" | "catalog_search" => {
             status.state = AppleMusicMvpState::Ready
         }
         "playback_state_changed" => {
@@ -1503,6 +1552,20 @@ fn validate_catalog_id(
         return Err(error(
             error_code,
             "Enter a valid Apple Music catalog ID.",
+            false,
+            "validating_request",
+            true,
+        ));
+    }
+    Ok(value)
+}
+
+fn validate_catalog_search_term(value: String) -> Result<String, AppleMusicMvpError> {
+    let value = value.trim().to_string();
+    if value.is_empty() || value.chars().count() > 200 || value.chars().any(char::is_control) {
+        return Err(error(
+            "catalog_search_term_invalid",
+            "Enter an Apple Music search term between 1 and 200 characters.",
             false,
             "validating_request",
             true,
@@ -1699,6 +1762,28 @@ mod tests {
             })
         }
 
+        async fn search_songs(
+            &self,
+            term: String,
+            storefront: Option<String>,
+            limit: u32,
+        ) -> Result<AppleCatalogSearchResult, AppleMusicMvpError> {
+            let storefront = storefront.unwrap_or_else(|| "nz".to_string());
+            Ok(AppleCatalogSearchResult {
+                term,
+                storefront: storefront.clone(),
+                songs: (0..limit)
+                    .map(|index| AppleCatalogSong {
+                        song_id: format!("song-{index}"),
+                        storefront: storefront.clone(),
+                        title: format!("Fake song {index}"),
+                        artist: "Fake artist".to_string(),
+                        ..AppleCatalogSong::default()
+                    })
+                    .collect(),
+            })
+        }
+
         async fn set_queue(
             &self,
             sources: Vec<SourceRef>,
@@ -1744,6 +1829,12 @@ mod tests {
     #[tokio::test]
     async fn fake_helper_exercises_catalog_and_queue_without_entitlement() {
         let fake = FakeHelper::default();
+        let search = fake
+            .search_songs("fake".to_string(), Some("nz".to_string()), 3)
+            .await
+            .unwrap();
+        assert_eq!(search.term, "fake");
+        assert_eq!(search.songs.len(), 3);
         let song = fake
             .lookup_song("2037093408".to_string(), Some("nz".to_string()))
             .await
@@ -1761,5 +1852,16 @@ mod tests {
         fake.resume().await.unwrap();
         fake.skip_next().await.unwrap();
         fake.stop().await.unwrap();
+    }
+
+    #[test]
+    fn catalog_search_validation_accepts_unicode_and_rejects_unsafe_input() {
+        assert_eq!(
+            validate_catalog_search_term("  Björk – Jóga  ".to_string()).unwrap(),
+            "Björk – Jóga"
+        );
+        assert!(validate_catalog_search_term(" \n ".to_string()).is_err());
+        assert!(validate_catalog_search_term("hello\u{0000}world".to_string()).is_err());
+        assert!(validate_catalog_search_term("x".repeat(201)).is_err());
     }
 }

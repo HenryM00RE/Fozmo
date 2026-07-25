@@ -18,8 +18,9 @@ use std::slice;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
-// Capacity only; startup still commits after the 60 ms prefill above. Keep
-// enough headroom for Core Audio's high-rate/DSD warmup without adding latency.
+// Capacity only; playback owns the startup/resume prefill policy. Keep enough
+// headroom for the initial capture cushion plus Core Audio's high-rate/DSD
+// warmup without forcing that capacity to become fixed playback latency.
 const PROCESS_TAP_BUFFER_MS: u32 = 4_000;
 const MAX_MUSICKIT_RENDERERS: usize = 16;
 const LAYOUT_INTERLEAVED: u32 = 0;

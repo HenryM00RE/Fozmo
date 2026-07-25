@@ -11,13 +11,15 @@ type ScenarioName =
   | 'apple_qobuz'
   | 'mixed_run';
 
-export function AppleMusicMvpPage() {
+export function AppleMusicMvpPage({ activeZoneStatus }: { activeZoneStatus: JsonRecord }) {
   const [appleStatus, setAppleStatus] = useState<JsonRecord | null>(null);
-  const [fozmoStatus, setFozmoStatus] = useState<JsonRecord | null>(null);
+  const [fozmoStatus, setFozmoStatus] = useState<JsonRecord | null>(activeZoneStatus);
   const [zoneQueue, setZoneQueue] = useState<JsonRecord | null>(null);
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
   const [storefront, setStorefront] = useState('nz');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchResult, setSearchResult] = useState<JsonRecord | null>(null);
   const [songID, setSongID] = useState('');
   const [albumID, setAlbumID] = useState('');
   const [catalogResult, setCatalogResult] = useState<JsonRecord | null>(null);
@@ -44,9 +46,9 @@ export function AppleMusicMvpPage() {
   const musicKitProvisioned = appleStatus?.helper_musickit_entitled === true;
   const authorized = appleStatus?.authorization === 'authorized';
   const canPlayCatalog = appleStatus?.can_play_catalog_content === true;
-  const activeZoneID = String(fozmoStatus?.active_zone_id || '');
-  const activeZoneName = String(fozmoStatus?.active_zone_name || 'not selected');
-  const activeZoneProtocol = String(fozmoStatus?.zone_protocol || '');
+  const activeZoneID = String(activeZoneStatus.active_zone_id || '');
+  const activeZoneName = String(activeZoneStatus.active_zone_name || 'not selected');
+  const activeZoneProtocol = String(activeZoneStatus.zone_protocol || '');
   const localZoneSupported = activeZoneProtocol
     ? activeZoneProtocol === 'local_core_audio'
     : activeZoneID === 'local-core';
@@ -57,7 +59,7 @@ export function AppleMusicMvpPage() {
   const loadState = useCallback(async () => {
     const [nextApple, nextFozmo] = await Promise.all([
       endpoints.appleMusicStatus(),
-      endpoints.status()
+      activeZoneID ? endpoints.zoneStatus(activeZoneID) : endpoints.status()
     ]);
     const fozmo = nextFozmo as unknown as JsonRecord;
     setAppleStatus(nextApple);
@@ -69,7 +71,7 @@ export function AppleMusicMvpPage() {
       setZoneQueue(null);
     }
     return nextApple;
-  }, []);
+  }, [activeZoneID]);
 
   useEffect(() => {
     loadState().catch((error) => setMessage(appleMusicErrorMessage(error)));
@@ -120,6 +122,30 @@ export function AppleMusicMvpPage() {
       },
       'Normalized Apple Music song loaded.'
     );
+
+  const searchCatalog = () =>
+    run(
+      'catalog-search',
+      async () => {
+        const result = await endpoints.appleMusicCatalogSearch(
+          searchTerm.trim(),
+          storefront.trim(),
+          10
+        );
+        setSearchResult(result);
+      },
+      'Apple Music search complete.'
+    );
+
+  const playSearchResult = (song: JsonRecord) => {
+    const source = catalogSongSource(song);
+    setSongID(String(song.song_id || ''));
+    return run(
+      `play-search-${String(song.song_id || '')}`,
+      () => endpoints.playAppleMusicScenario(activeZoneID, source, [], captureConfirmed),
+      `${String(song.title || 'Apple Music song')} started on ${activeZoneName}.`
+    );
+  };
 
   const lookupAlbum = () =>
     run(
@@ -177,6 +203,7 @@ export function AppleMusicMvpPage() {
       'play-scenario',
       () =>
         endpoints.playAppleMusicScenario(
+          activeZoneID,
           source,
           scenarioQueue.slice(selectedRow + 1),
           captureConfirmed
@@ -241,7 +268,13 @@ export function AppleMusicMvpPage() {
     replaceScenario(sources);
     return run(
       'album-play',
-      () => endpoints.playAppleMusicScenario(sources[0], sources.slice(1), captureConfirmed),
+      () =>
+        endpoints.playAppleMusicScenario(
+          activeZoneID,
+          sources[0],
+          sources.slice(1),
+          captureConfirmed
+        ),
       'Resolved Apple Music album version started through the normal router.'
     );
   };
@@ -249,6 +282,7 @@ export function AppleMusicMvpPage() {
   const currentSource = recordValue(fozmoStatus?.current_source);
   const helperNowPlaying = recordValue(appleStatus?.now_playing);
   const recentEvents = Array.isArray(appleStatus?.recent_events) ? appleStatus.recent_events : [];
+  const searchSongs = recordArray(searchResult?.songs);
 
   return (
     <section className="settings-panel apple-music-capture-page apple-music-mvp-page">
@@ -366,7 +400,106 @@ export function AppleMusicMvpPage() {
           </div>
         </ConsoleSection>
 
-        <ConsoleSection title="2 · Catalog inspector">
+        <ConsoleSection title="2 · Search and play">
+          <form
+            className="apple-music-catalog-search"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void searchCatalog();
+            }}
+          >
+            <Field label="Search Apple Music songs">
+              <input
+                className="input"
+                type="search"
+                value={searchTerm}
+                maxLength={200}
+                placeholder="Song, artist, or album"
+                autoComplete="off"
+                onChange={(event) => setSearchTerm(event.target.value)}
+              />
+            </Field>
+            <button
+              className="pill is-active"
+              type="submit"
+              disabled={Boolean(busy) || !searchTerm.trim()}
+            >
+              {busy === 'catalog-search' ? 'Searching…' : 'Search'}
+            </button>
+          </form>
+
+          <div className="apple-music-search-target">
+            <span>Playback target</span>
+            <strong>{activeZoneName}</strong>
+            <small>
+              {localZoneSupported
+                ? 'Tap a result to start it through the active DSP path.'
+                : 'Apple Music currently requires an active local output zone.'}
+            </small>
+          </div>
+
+          <label className="apple-music-capture-confirmation">
+            <input
+              type="checkbox"
+              checked={captureConfirmed}
+              onChange={(event) => setCaptureConfirmed(event.target.checked)}
+            />
+            <span>
+              Allow Fozmo to capture MusicKit&apos;s isolated audio renderer and feed its PCM
+              through the selected local DSP/output path.
+            </span>
+          </label>
+
+          {searchResult ? (
+            <div className="apple-music-results" aria-label="Apple Music song search results">
+              {searchSongs.length ? (
+                searchSongs.map((song, index) => {
+                  const songID = String(song.song_id || '');
+                  const title = String(song.title || 'Untitled');
+                  const artist = String(song.artist || 'Unknown artist');
+                  const album = String(song.album_title || '');
+                  const artworkURL = String(song.artwork_url || '');
+                  return (
+                    <button
+                      className="apple-music-result-row apple-music-search-result"
+                      type="button"
+                      key={`${songID}-${index}`}
+                      aria-label={`Play ${title} by ${artist}${album ? ` from ${album}` : ''} on ${activeZoneName}`}
+                      disabled={Boolean(busy) || !captureConfirmed || !localZoneSupported}
+                      onClick={() => void playSearchResult(song)}
+                    >
+                      <span className="apple-music-artwork" aria-hidden="true">
+                        {artworkURL ? (
+                          <img src={artworkURL} alt="" loading="lazy" />
+                        ) : (
+                          <Icon path="M9 18V5l12-2v13M9 18a3 3 0 1 1-2-2.83M21 16a3 3 0 1 1-2-2.83M9 9l12-2" />
+                        )}
+                      </span>
+                      <span className="apple-music-result-copy">
+                        <strong>{title}</strong>
+                        <small>{[artist, album].filter(Boolean).join(' · ')}</small>
+                      </span>
+                      <span className="apple-music-result-play">
+                        {busy === `play-search-${songID}` ? 'Starting…' : 'Play'}
+                      </span>
+                    </button>
+                  );
+                })
+              ) : (
+                <p className="apple-music-empty-state">
+                  No songs matched “{String(searchResult.term || searchTerm)}”.
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="apple-music-empty-state">
+              Search the Apple Music catalog by song, artist, or album.
+            </p>
+          )}
+
+          <div className="apple-music-console-divider">
+            <span>Catalog ID inspector</span>
+          </div>
           <div className="apple-music-console-fields">
             <Field label="Storefront">
               <input
@@ -553,17 +686,6 @@ export function AppleMusicMvpPage() {
             </div>
           </details>
 
-          <label className="apple-music-capture-confirmation">
-            <input
-              type="checkbox"
-              checked={captureConfirmed}
-              onChange={(event) => setCaptureConfirmed(event.target.checked)}
-            />
-            <span>
-              Allow Fozmo to capture MusicKit&apos;s isolated audio renderer and feed its PCM
-              through the selected local DSP/output path.
-            </span>
-          </label>
           <div className="service-settings-actions">
             <button
               className="pill is-active"
@@ -587,7 +709,9 @@ export function AppleMusicMvpPage() {
               className="pill"
               type="button"
               disabled={Boolean(busy)}
-              onClick={() => run('pause', endpoints.pause, 'Playback paused.')}
+              onClick={() =>
+                run('pause', () => endpoints.pauseZone(activeZoneID), 'Playback paused.')
+              }
             >
               Pause
             </button>
@@ -595,7 +719,9 @@ export function AppleMusicMvpPage() {
               className="pill"
               type="button"
               disabled={Boolean(busy)}
-              onClick={() => run('resume', endpoints.resume, 'Playback resumed.')}
+              onClick={() =>
+                run('resume', () => endpoints.resumeZone(activeZoneID), 'Playback resumed.')
+              }
             >
               Resume
             </button>
@@ -603,7 +729,13 @@ export function AppleMusicMvpPage() {
               className="pill"
               type="button"
               disabled={Boolean(busy)}
-              onClick={() => run('next', endpoints.next, 'Advanced through the normal queue.')}
+              onClick={() =>
+                run(
+                  'next',
+                  () => endpoints.nextZone(activeZoneID),
+                  'Advanced through the normal queue.'
+                )
+              }
             >
               Next
             </button>
@@ -611,7 +743,9 @@ export function AppleMusicMvpPage() {
               className="pill service-settings-danger"
               type="button"
               disabled={Boolean(busy)}
-              onClick={() => run('stop', endpoints.stop, 'Playback stopped.')}
+              onClick={() =>
+                run('stop', () => endpoints.stopZone(activeZoneID), 'Playback stopped.')
+              }
             >
               Stop
             </button>
@@ -631,7 +765,7 @@ export function AppleMusicMvpPage() {
               onClick={() =>
                 run(
                   'seek',
-                  () => endpoints.seek(numberValue(seekSeconds) || 0),
+                  () => endpoints.seekZone(activeZoneID, numberValue(seekSeconds) || 0),
                   `Seeked to ${seekSeconds} seconds.`
                 )
               }

@@ -82,6 +82,7 @@ export function queueItemArt(item: QueueItem | null | undefined) {
   if (item.imageUrl) return item.imageUrl;
   if (item.qobuzTrack?.image_url) return item.qobuzTrack.image_url;
   if (item.resolvedSource?.image_url) return item.resolvedSource.image_url;
+  if (item.resolvedSource?.artwork_url) return item.resolvedSource.artwork_url;
   return endpoints.artUrl(item.artId ?? item.resolvedSource?.art_id);
 }
 

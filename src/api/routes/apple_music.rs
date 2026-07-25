@@ -7,8 +7,9 @@ use crate::playback::router::PlaybackRouter;
 use crate::playback::status::build_status_response_for_zone;
 use crate::protocol::{SinkProtocol, SourceRef};
 use crate::services::apple_music_musickit::{
-    AppleCatalogAlbum, AppleCatalogSong, AppleMusicAlbumVersionRequest, AppleMusicAuthorizeRequest,
-    AppleMusicCatalogQuery, AppleMusicComparisonReferenceState, AppleMusicComparisonSwitchRequest,
+    AppleCatalogAlbum, AppleCatalogSearchResult, AppleCatalogSong, AppleMusicAlbumVersionRequest,
+    AppleMusicAuthorizeRequest, AppleMusicCatalogQuery, AppleMusicCatalogSearchQuery,
+    AppleMusicComparisonReferenceState, AppleMusicComparisonSwitchRequest,
     AppleMusicDevPlaySongRequest, AppleMusicMvpError, AppleMusicMvpStatus, AppleMusicPlayRequest,
     AppleMusicProcessTapStartRequest, AppleMusicTransportRequest, MusicAppSnapshot,
     music_app_status, pause_music_app, pause_music_app_and_status, play_music_app,
@@ -37,6 +38,7 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/api/apple-music/launch", post(launch))
         .route("/api/apple-music/authorize", post(authorize))
         .route("/api/apple-music/play", post(play))
+        .route("/api/apple-music/catalog/search", get(search_catalog))
         .route("/api/apple-music/catalog/songs/:id", get(lookup_song))
         .route("/api/apple-music/catalog/albums/:id", get(lookup_album))
         .route(
@@ -121,6 +123,18 @@ async fn lookup_song(
         .map_err(api_error)
 }
 
+async fn search_catalog(
+    State(state): State<AppState>,
+    Query(query): Query<AppleMusicCatalogSearchQuery>,
+) -> Result<Json<AppleCatalogSearchResult>, (StatusCode, Json<AppleMusicMvpError>)> {
+    state
+        .apple_music()
+        .search_songs(query.term, query.storefront, query.limit)
+        .await
+        .map(Json)
+        .map_err(api_error)
+}
+
 async fn lookup_album(
     State(state): State<AppState>,
     Path(album_id): Path<String>,
@@ -191,6 +205,13 @@ async fn play(
     State(state): State<AppState>,
     Json(request): Json<AppleMusicPlayRequest>,
 ) -> AppleMusicApiResult {
+    let zone_id = request
+        .zone_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|zone_id| !zone_id.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| state.zones().active_zone_id());
     state
         .apple_music()
         .confirm_system_audio_capture(request.confirm_system_audio_capture);
@@ -224,7 +245,6 @@ async fn play(
                 .map_err(api_error)?,
         );
     }
-    let zone_id = state.zones().active_zone_id();
     let profile_id = state.settings().active_profile_id();
     PlaybackRouter::new(&state)
         .execute(
@@ -949,9 +969,10 @@ fn api_error(error: AppleMusicMvpError) -> (StatusCode, Json<AppleMusicMvpError>
         | "process_tap_stalled"
         | "process_tap_start_failed"
         | "process_tap_unsupported" => StatusCode::SERVICE_UNAVAILABLE,
-        "comparison_playback_failed" | "helper_protocol_mismatch" | "music_app_control_failed" => {
-            StatusCode::BAD_GATEWAY
-        }
+        "catalog_search_failed"
+        | "comparison_playback_failed"
+        | "helper_protocol_mismatch"
+        | "music_app_control_failed" => StatusCode::BAD_GATEWAY,
         _ => StatusCode::BAD_REQUEST,
     };
     (status, Json(error))
@@ -1066,6 +1087,8 @@ mod tests {
                 "musickit_capability_unavailable",
                 StatusCode::SERVICE_UNAVAILABLE,
             ),
+            ("catalog_search_failed", StatusCode::BAD_GATEWAY),
+            ("catalog_search_term_invalid", StatusCode::BAD_REQUEST),
             ("helper_protocol_mismatch", StatusCode::BAD_GATEWAY),
             ("apple_music_storefront_invalid", StatusCode::BAD_REQUEST),
         ] {

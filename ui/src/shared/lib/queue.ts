@@ -129,6 +129,22 @@ export function sourceRefToQueueItem(source: SourceRef): QueueItem | null {
       resolvedSource: source
     };
   }
+  if (source.kind === 'apple_music_track' || source.kind === 'apple_music') {
+    return {
+      title: text(source.title, source.song_id ? `Apple Music ${source.song_id}` : 'Untitled'),
+      artist: text(source.artist),
+      album: text(source.album),
+      albumArtist: text(source.album_artist ?? source.artist),
+      albumId: source.album_id ?? null,
+      artId: null,
+      imageUrl: source.artwork_url ?? source.image_url ?? null,
+      durationSecs: number(source.duration_secs),
+      filename: source.song_id ? `apple_music:${source.song_id}` : 'apple_music',
+      resolvedSource: source,
+      radio: Boolean(source.radio),
+      playlistContext: playlistContext(source.playlist_context)
+    };
+  }
   return null;
 }
 
@@ -209,6 +225,12 @@ export function queueItemToSourceRef(item: QueueItem): SourceRef | null {
 }
 
 export function itemKey(item: QueueItem) {
+  if (
+    String(item.resolvedSource?.kind || '').includes('apple_music') &&
+    item.resolvedSource?.song_id
+  ) {
+    return `apple_music:${item.resolvedSource.song_id}`;
+  }
   if (item.qobuzTrack?.id || item.qobuzTrack?.track_id)
     return `qobuz:${item.qobuzTrack.id ?? item.qobuzTrack.track_id}`;
   if (item.ref?.track_id) return `local:${item.ref.track_id}`;
@@ -223,7 +245,14 @@ export function sourceRefKey(source?: SourceRef | null) {
 
 export function queueKindForItems(items: QueueItem[]): QueueKind {
   const kinds = new Set(
-    items.map((item) => (item.qobuzTrack ? 'qobuz' : item.ref ? 'local' : null)).filter(Boolean)
+    items
+      .map((item) => {
+        if (item.qobuzTrack) return 'qobuz';
+        if (String(item.resolvedSource?.kind || '').includes('apple_music')) return 'apple_music';
+        if (item.ref) return 'local';
+        return null;
+      })
+      .filter(Boolean)
   );
   if (kinds.size === 0) return null;
   if (kinds.size === 1) return Array.from(kinds)[0] as QueueKind;

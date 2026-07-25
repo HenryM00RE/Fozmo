@@ -13,8 +13,16 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use tracing::{debug, warn};
 
-const APPLE_PREFILL_SECS: f64 = 0.060;
-const APPLE_PREFILL_TIMEOUT: Duration = Duration::from_millis(900);
+// A new DSP/output session needs enough captured program audio to absorb
+// decoder probing, high-rate DSP warmup, and the first output-ring fill. The
+// shorter cushion remains appropriate for resume/seek, where that machinery
+// is already initialized.
+const APPLE_START_PREFILL_SECS: f64 = 0.500;
+const APPLE_START_PREFILL_MIN_SECS: f64 = 0.250;
+const APPLE_START_PREFILL_TIMEOUT: Duration = Duration::from_secs(2);
+const APPLE_RESUME_PREFILL_SECS: f64 = 0.060;
+const APPLE_RESUME_PREFILL_MIN_SECS: f64 = 0.010;
+const APPLE_RESUME_PREFILL_TIMEOUT: Duration = Duration::from_millis(900);
 const APPLE_AUDIO_PROCESS_TIMEOUT: Duration = Duration::from_secs(8);
 const APPLE_AUDIO_PROCESS_RETRY_INTERVAL: Duration = Duration::from_millis(50);
 const APPLE_TAP_STALL_TIMEOUT_MS: u64 = 3_000;
@@ -111,11 +119,21 @@ pub(crate) async fn play_apple_music_source(
             .apple_music()
             .discard_process_tap_buffer()
             .map_err(playback_error)?;
-        wait_for_prefill(state).await.map_err(playback_error)?;
         state
             .apple_music()
             .prepare_process_tap_stream()
             .map_err(playback_error)?;
+        // Preparing the decoder can consume capture-ring data while probing
+        // the live WAV. Measure the cushion afterwards so commit never starts
+        // with a nominal prefill that probing has already drained.
+        wait_for_prefill(
+            state,
+            APPLE_START_PREFILL_SECS,
+            APPLE_START_PREFILL_MIN_SECS,
+            APPLE_START_PREFILL_TIMEOUT,
+        )
+        .await
+        .map_err(playback_error)?;
         if !guard.is_current(state) || player.playback_epoch() != starting_epoch {
             return Err(PlaybackError::conflict("Playback changed"));
         }
@@ -206,7 +224,14 @@ pub(crate) async fn resume(state: &AppState, zone_id: &str) -> Result<bool, Play
         .transport("resume")
         .await
         .map_err(playback_error)?;
-    wait_for_prefill(state).await.map_err(playback_error)?;
+    wait_for_prefill(
+        state,
+        APPLE_RESUME_PREFILL_SECS,
+        APPLE_RESUME_PREFILL_MIN_SECS,
+        APPLE_RESUME_PREFILL_TIMEOUT,
+    )
+    .await
+    .map_err(playback_error)?;
     prepare_hegel_for_zone(state, zone_id).await?;
     player.resume();
     state
@@ -248,7 +273,14 @@ pub(crate) async fn seek(
         .transport("resume")
         .await
         .map_err(playback_error)?;
-    wait_for_prefill(state).await.map_err(playback_error)?;
+    wait_for_prefill(
+        state,
+        APPLE_RESUME_PREFILL_SECS,
+        APPLE_RESUME_PREFILL_MIN_SECS,
+        APPLE_RESUME_PREFILL_TIMEOUT,
+    )
+    .await
+    .map_err(playback_error)?;
     player.resume();
     state
         .apple_music()
@@ -330,21 +362,42 @@ pub(crate) async fn stop_replaced_session(state: &AppState, zone_id: &str) {
         .clear_playback(zone_id, Some(snapshot.player_epoch));
 }
 
-async fn wait_for_prefill(state: &AppState) -> Result<(), AppleMusicMvpError> {
-    let deadline = tokio::time::Instant::now() + APPLE_PREFILL_TIMEOUT;
+async fn wait_for_prefill(
+    state: &AppState,
+    target_secs: f64,
+    minimum_secs: f64,
+    timeout: Duration,
+) -> Result<(), AppleMusicMvpError> {
+    let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let buffered = state.apple_music().process_tap_buffered_audio_secs()?;
-        if buffered >= APPLE_PREFILL_SECS {
+        if buffered >= target_secs {
+            debug!(
+                event = "apple_music_process_tap_prefill_ready",
+                buffered_ms = buffered * 1000.0,
+                target_ms = target_secs * 1000.0,
+                "Apple Music capture prebuffer is ready"
+            );
             return Ok(());
         }
         if tokio::time::Instant::now() >= deadline {
-            return if buffered >= 0.010 {
+            return if buffered >= minimum_secs {
+                warn!(
+                    event = "apple_music_process_tap_prefill_short",
+                    buffered_ms = buffered * 1000.0,
+                    target_ms = target_secs * 1000.0,
+                    minimum_ms = minimum_secs * 1000.0,
+                    "Apple Music capture prebuffer timed out above its safe minimum"
+                );
                 Ok(())
             } else {
                 Err(AppleMusicMvpError {
                     code: "process_tap_prefill_timeout".to_string(),
-                    message: "The MusicKit helper did not deliver enough captured audio."
-                        .to_string(),
+                    message: format!(
+                        "The MusicKit helper delivered only {:.0} ms of the required {:.0} ms audio prebuffer.",
+                        buffered * 1000.0,
+                        minimum_secs * 1000.0
+                    ),
                     retryable: true,
                     stage: "preparing_dsp_handoff".to_string(),
                     cleanup_complete: false,

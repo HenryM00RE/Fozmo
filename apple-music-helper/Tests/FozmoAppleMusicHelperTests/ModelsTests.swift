@@ -110,6 +110,53 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(command.storefront, "nz")
     }
 
+    func testCatalogSearchCommandAndPayloadUseStableWireFields() throws {
+        let data = Data(
+            """
+            {
+              "v": 2,
+              "id": "cmd-search",
+              "type": "search_songs",
+              "session_id": "am-test",
+              "term": "Björk Jóga",
+              "limit": 8,
+              "storefront": "nz"
+            }
+            """.utf8
+        )
+
+        let command = try JSONDecoder().decode(IncomingCommand.self, from: data)
+        XCTAssertEqual(command.term, "Björk Jóga")
+        XCTAssertEqual(command.limit, 8)
+
+        let song = CatalogSongPayload(
+            songID: "song-1",
+            storefront: "nz",
+            albumID: nil,
+            title: "Jóga",
+            artist: "Björk",
+            albumTitle: "Homogenic",
+            albumArtist: "Björk",
+            durationSecs: 312,
+            trackNumber: 2,
+            discNumber: 1,
+            isrc: nil,
+            artworkURL: "https://example.test/joga.jpg"
+        )
+        var event = HelperEvent(type: "catalog_search")
+        event.catalogSearch = CatalogSearchPayload(
+            term: "Björk Jóga",
+            storefront: "nz",
+            songs: [song]
+        )
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(event)) as? [String: Any]
+        )
+        let search = try XCTUnwrap(object["catalog_search"] as? [String: Any])
+        XCTAssertEqual(search["term"] as? String, "Björk Jóga")
+        XCTAssertEqual((search["songs"] as? [[String: Any]])?.first?["song_id"] as? String, "song-1")
+    }
+
     func testQueuePlanValidationRejectsStaleAndMalformedPlans() {
         let first = QueueItem(songID: "same", storefront: "nz", segmentIndex: 0)
         let second = QueueItem(songID: "same", storefront: "nz", segmentIndex: 1)
@@ -239,6 +286,13 @@ final class ModelsTests: XCTestCase {
         XCTAssertNil(CatalogInput.normalizedID(" \n "))
         XCTAssertEqual(CatalogInput.normalizedStorefront(" NZ "), "nz")
         XCTAssertEqual(CatalogInput.normalizedStorefront(nil), "current")
+        XCTAssertEqual(CatalogInput.normalizedSearchTerm("  Björk – Jóga "), "Björk – Jóga")
+        XCTAssertNil(CatalogInput.normalizedSearchTerm(" \n "))
+        XCTAssertNil(CatalogInput.normalizedSearchTerm(String(repeating: "x", count: 201)))
+        XCTAssertEqual(CatalogInput.normalizedSearchLimit(nil), 10)
+        XCTAssertEqual(CatalogInput.normalizedSearchLimit(25), 25)
+        XCTAssertNil(CatalogInput.normalizedSearchLimit(0))
+        XCTAssertNil(CatalogInput.normalizedSearchLimit(26))
 
         let payload = CatalogSongPayload(
             songID: "song-1",

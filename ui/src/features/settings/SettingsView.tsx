@@ -320,7 +320,7 @@ export function SettingsView({
 
       {activeTab === 'apple-music' ? (
         capabilityEnabled(status, 'apple_music_musickit') ? (
-          <AppleMusicMvpPage />
+          <AppleMusicMvpPage activeZoneStatus={status} />
         ) : (
           <AppleMusicCapturePage />
         )

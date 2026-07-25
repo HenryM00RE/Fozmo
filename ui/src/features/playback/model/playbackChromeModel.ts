@@ -136,12 +136,17 @@ export function playbackChromeTrackModel({
         )
       : null;
   const metadataArt = queueItemArt(metadataItem);
+  const appleMusicArt =
+    currentSource?.kind === 'apple_music_track' || currentSource?.kind === 'apple_music'
+      ? currentSource.artwork_url || currentSource.image_url || null
+      : null;
   const currentArt =
-    coverVersion > 0
+    appleMusicArt ||
+    (coverVersion > 0
       ? volatileArtworkUrl(
           `${statusZoneId ? `/api/zones/${encodeURIComponent(statusZoneId)}/cover` : '/api/cover'}?v=${coverVersion}`
         )
-      : metadataArt || serverArt || pendingArtSrc;
+      : metadataArt || serverArt || pendingArtSrc);
 
   return {
     currentAlbum,
@@ -250,6 +255,7 @@ function queueSourceProvider(item: QueueItem | null) {
   if (!item) return '';
   const kind = String(item.resolvedSource?.kind || '');
   if (item.qobuzTrack || kind.includes('qobuz')) return 'Qobuz';
+  if (kind.includes('apple_music')) return 'Apple Music';
   if (item.ref || kind.includes('local') || item.filename) return 'Local';
   return '';
 }

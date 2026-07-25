@@ -39,7 +39,7 @@ The current implementation includes:
 
 - `SourceRef::AppleMusicTrack` and stable `apple_music:<song-id>` identity;
 - mixed Local, Qobuz, and Apple queue persistence;
-- protocol-v2 song/album lookups and revisioned queue events;
+- protocol-v2 song search, song/album lookups, and revisioned queue events;
 - duplicate Apple song occurrences distinguished by segment index;
 - active MusicKit renderer discovery and a guarded PCM/DSP handoff;
 - contiguous Apple runs without rebuilding the tap between adjacent songs;
@@ -209,13 +209,15 @@ Run these in order from Settings:
 
 1. Launch helper.
 2. Authorize Apple Music.
-3. Lookup one known Song ID and one Album ID in the signed-in storefront.
-4. Add two different Apple songs, then the same song twice, to a scenario.
-5. Confirm MusicKit renderer capture and play from row one.
-6. Verify the tap target is `musickit_renderer`, with a PID distinct from both
+3. Search by song, artist, or album and verify selecting a result targets the
+   currently active local zone.
+4. Lookup one known Song ID and one Album ID in the signed-in storefront.
+5. Add two different Apple songs, then the same song twice, to a scenario.
+6. Confirm MusicKit renderer capture and play from row one.
+7. Verify the tap target is `musickit_renderer`, with a PID distinct from both
    the helper and Music.app PIDs.
-7. Exercise normal pause, resume, seek, next, and stop.
-8. Test the mixed boundaries:
+8. Exercise normal pause, resume, seek, next, and stop.
+9. Test the mixed boundaries:
 
    - Apple → Apple;
    - Local → Apple;
@@ -225,10 +227,10 @@ Run these in order from Settings:
    - Local → Apple → Apple → Qobuz;
    - duplicate Apple song twice.
 
-9. During playback, quit the helper once and revoke authorization once. Fozmo
+10. During playback, quit the helper once and revoke authorization once. Fozmo
    should stop only the owned Player epoch, finalize listening, retain the
    remaining queue, and expose a structured failure.
-10. Preview and link an Apple album to an existing local Fozmo album, resolve
+11. Preview and link an Apple album to an existing local Fozmo album, resolve
     its playback plan, play it, restart Fozmo while stopped, and confirm the
     version and remaining queue persist without auto-resuming.
 
@@ -241,7 +243,8 @@ index, current source, listening entry, and persisted queue advance.
 The page is split into:
 
 1. App Service provisioning, authorization, helper/tap PID, and zone support;
-2. normalized song and album catalog inspection;
+2. live song search with one-click active-zone playback, plus normalized song
+   and album catalog inspection;
 3. mixed queue builder, canned cases, and raw `SourceRef[]` validation;
 4. normal Fozmo transport;
 5. Fozmo status, current source, persisted queue, Apple revision/segment,
@@ -260,6 +263,7 @@ part of the remote-access surface:
 - `GET /api/apple-music/status`
 - `POST /api/apple-music/launch`
 - `POST /api/apple-music/authorize`
+- `GET /api/apple-music/catalog/search?term=:term&storefront=:storefront&limit=:limit`
 - `GET /api/apple-music/catalog/songs/:id`
 - `GET /api/apple-music/catalog/albums/:id`
 - `POST /api/apple-music/play`

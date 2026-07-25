@@ -240,7 +240,7 @@ export interface QueueItem extends JsonRecord {
   playlistContext?: PlaylistPlaybackContext | null;
 }
 
-export type QueueKind = 'local' | 'qobuz' | 'mixed' | null;
+export type QueueKind = 'local' | 'qobuz' | 'apple_music' | 'mixed' | null;
 export type LoopMode = 'off' | 'loop';
 
 export interface QueueState {

@@ -9,11 +9,11 @@ mod process_tap;
 mod service;
 
 pub(crate) use model::{
-    AppleCatalogAlbum, AppleCatalogSong, AppleMusicAlbumVersionRequest, AppleMusicAuthorizeRequest,
-    AppleMusicCatalogQuery, AppleMusicComparisonSwitchRequest, AppleMusicDevPlaySongRequest,
-    AppleMusicMvpError, AppleMusicMvpStatus, AppleMusicPlayRequest,
-    AppleMusicProcessTapStartRequest, AppleMusicTransportRequest, ApplePlaybackSnapshot,
-    HelperMessage,
+    AppleCatalogAlbum, AppleCatalogSearchResult, AppleCatalogSong, AppleMusicAlbumVersionRequest,
+    AppleMusicAuthorizeRequest, AppleMusicCatalogQuery, AppleMusicCatalogSearchQuery,
+    AppleMusicComparisonSwitchRequest, AppleMusicDevPlaySongRequest, AppleMusicMvpError,
+    AppleMusicMvpStatus, AppleMusicPlayRequest, AppleMusicProcessTapStartRequest,
+    AppleMusicTransportRequest, ApplePlaybackSnapshot, HelperMessage,
 };
 pub(crate) use music_app::{
     MusicAppSnapshot, pause as pause_music_app, pause_and_status as pause_music_app_and_status,

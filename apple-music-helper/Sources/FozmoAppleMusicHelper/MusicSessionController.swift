@@ -47,6 +47,7 @@ final class MusicSessionController {
             "authorize",
             "lookup_song",
             "lookup_album",
+            "search_songs",
             "queue",
             "play",
             "pause",
@@ -125,6 +126,8 @@ final class MusicSessionController {
             lookupSong(command)
         case "lookup_album":
             lookupAlbum(command)
+        case "search_songs":
+            searchSongs(command)
         case "set_queue":
             prepareQueue(command)
         case "play", "resume":
@@ -297,6 +300,46 @@ final class MusicSessionController {
                     commandID: command.id,
                     code: "catalog_lookup_failed",
                     message: "Apple Music could not load that album.",
+                    retryable: true
+                )
+            }
+        }
+    }
+
+    private func searchSongs(_ command: IncomingCommand) {
+        guard validateCatalogAccess(commandID: command.id) else { return }
+        guard
+            let term = CatalogInput.normalizedSearchTerm(command.term),
+            let limit = CatalogInput.normalizedSearchLimit(command.limit)
+        else {
+            sendError(
+                commandID: command.id,
+                code: "catalog_search_term_invalid",
+                message: "Enter a valid Apple Music search term and result limit.",
+                retryable: false
+            )
+            return
+        }
+        let storefront = CatalogInput.normalizedStorefront(command.storefront)
+        Task { @MainActor in
+            do {
+                var request = MusicCatalogSearchRequest(term: term, types: [Song.self])
+                request.limit = limit
+                let response = try await request.response()
+                var event = statusEvent(type: "catalog_search", commandID: command.id)
+                event.catalogSearch = CatalogSearchPayload(
+                    term: term,
+                    storefront: storefront,
+                    songs: response.songs.map {
+                        CatalogSongPayload(song: $0, storefront: storefront)
+                    }
+                )
+                sendAndCache(event, commandID: command.id)
+            } catch {
+                sendError(
+                    commandID: command.id,
+                    code: "catalog_search_failed",
+                    message: "Apple Music could not search the catalog.",
                     retryable: true
                 )
             }
