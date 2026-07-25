@@ -40,6 +40,7 @@ const PROP_LAST_START_MS: u32 = 0x7472_7374; // trst
 const PROP_LAST_STOP_MS: u32 = 0x7472_7370; // trsp
 const PROP_VERSION: u32 = 0x7472_7672; // trvr
 const MANAGED_CAPTURE_BUFFER_MS: u32 = 1_500;
+const LOCAL_DEVICE_REFRESH_SETTLE_MS: u64 = 15_000;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AppleMusicCaptureStatus {
@@ -280,6 +281,46 @@ impl AppleMusicCaptureService {
         }
     }
 
+    /// Recover from an interrupted previous process that left macOS routed to
+    /// the virtual capture driver. The configured physical target is resolved
+    /// through CoreAudio directly because CPAL may not enumerate it until it
+    /// becomes the system default again.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn restore_configured_output_if_idle(
+        &self,
+        settings: &AppleMusicCaptureSettings,
+    ) -> Result<bool, String> {
+        if self.runtime.lock().unwrap().running
+            || coreaudio::default_output_device_uid().as_deref() != Some(CAPTURE_DEVICE_UID)
+        {
+            return Ok(false);
+        }
+        let output_device_name = normalize_optional(settings.output_device_name.as_deref())
+            .ok_or_else(|| {
+                "macOS is still routed to Fozmo Capture, but no physical Apple Music output is configured."
+                    .to_string()
+            })?;
+        let device_id = coreaudio::local_physical_device_id_for_name(&output_device_name)
+            .ok_or_else(|| {
+                format!(
+                    "macOS is still routed to Fozmo Capture, and configured output {output_device_name} is not visible to CoreAudio."
+                )
+            })?;
+        coreaudio::set_default_output_device(device_id).map_err(|error| {
+            format!("Could not restore configured Apple Music output {output_device_name}: {error}")
+        })?;
+        self.runtime.lock().unwrap().stopped_unix_ms = Some(now_unix_ms());
+        Ok(true)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn restore_configured_output_if_idle(
+        &self,
+        _settings: &AppleMusicCaptureSettings,
+    ) -> Result<bool, String> {
+        Ok(false)
+    }
+
     pub fn status(&self, settings: &AppleMusicCaptureSettings) -> AppleMusicCaptureStatus {
         let devices = device_snapshot();
         let (
@@ -494,6 +535,10 @@ impl AppleMusicCaptureService {
             request.capture_device_name.as_deref(),
             settings.capture_device_name.as_deref(),
         )?;
+        let configured_output_device_name =
+            normalize_optional(request.output_device_name.as_deref())
+                .or_else(|| normalize_optional(settings.output_device_name.as_deref()))
+                .or_else(|| player.selected_device_name());
         self.guard_against_feedback_loop(&player)?;
 
         let device_id = coreaudio::device_id_for_uid(CAPTURE_DEVICE_UID).ok_or_else(|| {
@@ -508,6 +553,13 @@ impl AppleMusicCaptureService {
             let current_default = coreaudio::default_output_device_uid();
             if current_default.as_deref() != Some(CAPTURE_DEVICE_UID) {
                 saved_default_output_uid = current_default;
+            } else {
+                // A crashed/restarted process has lost the in-memory previous
+                // default. Recover it from the configured physical target so
+                // every stop and failed start can still leave macOS audible.
+                saved_default_output_uid = configured_output_device_name
+                    .as_deref()
+                    .and_then(coreaudio::local_physical_device_uid_for_name);
             }
             coreaudio::set_default_output_device(device_id)
                 .map_err(|err| format!("Could not route macOS output to Fozmo Capture: {err}"))?;
@@ -555,11 +607,7 @@ impl AppleMusicCaptureService {
             runtime.running = true;
             runtime.player = Some(Arc::clone(&player));
             runtime.capture_device_name = Some(capture_device_name);
-            runtime.output_device_name = request
-                .output_device_name
-                .and_then(|name| normalize_optional(Some(&name)))
-                .or_else(|| normalize_optional(settings.output_device_name.as_deref()))
-                .or_else(|| player.selected_device_name());
+            runtime.output_device_name = configured_output_device_name;
             runtime.started_unix_ms = Some(now_unix_ms());
             runtime.metrics = metrics;
             runtime.control = control;
@@ -680,6 +728,18 @@ impl AppleMusicCaptureService {
 
     pub(crate) fn capture_running(&self) -> bool {
         self.runtime.lock().unwrap().running
+    }
+
+    /// CoreAudio can temporarily omit the physical DAC while Music.app is
+    /// routed through Fozmo Capture, and for a short period while the previous
+    /// system default is restored. Zone discovery must not mark that selected
+    /// DAC offline during this handoff.
+    pub(crate) fn quiet_local_device_refresh(&self) -> bool {
+        let runtime = self.runtime.lock().unwrap();
+        runtime.running
+            || runtime.stopped_unix_ms.is_some_and(|stopped| {
+                now_unix_ms().saturating_sub(stopped) <= LOCAL_DEVICE_REFRESH_SETTLE_MS
+            })
     }
 
     pub(crate) fn session_player_epoch(&self) -> Option<u64> {
@@ -1279,15 +1339,18 @@ pub fn apply_settings_update(
     if let Some(buffer_ms) = update.buffer_ms {
         settings.buffer_ms = normalized_buffer_ms(buffer_ms);
     }
-    if let Some(auto_route) = update.auto_route_system_output {
-        settings.auto_route_system_output = auto_route;
-    }
+    // Native Apple Music playback has a single supported audio path:
+    // Music.app -> Fozmo Capture -> selected local DSP/output. Keep routing on
+    // even when an older UI or saved settings payload sends `false`.
+    let _ = update.auto_route_system_output;
+    settings.auto_route_system_output = true;
 }
 
 pub fn sanitize_settings(settings: &mut AppleMusicCaptureSettings) {
     settings.capture_device_name =
         normalize_capture_device_name(settings.capture_device_name.as_deref());
     settings.buffer_ms = normalized_buffer_ms(settings.buffer_ms);
+    settings.auto_route_system_output = true;
 }
 
 fn music_app_status() -> AppleMusicAppStatus {
@@ -1671,13 +1734,13 @@ mod tests {
         assert!(settings.enabled);
         assert_eq!(settings.capture_device_name, None);
         assert_eq!(settings.buffer_ms, 2_000);
-        assert!(!settings.auto_route_system_output);
+        assert!(settings.auto_route_system_output);
     }
 
     #[test]
-    fn settings_update_toggles_auto_route() {
+    fn settings_update_keeps_required_auto_route_enabled() {
         let mut settings = AppleMusicCaptureSettings::default();
-        assert!(!settings.auto_route_system_output);
+        assert!(settings.auto_route_system_output);
 
         apply_settings_update(
             &mut settings,
@@ -1686,11 +1749,37 @@ mod tests {
                 capture_device_name: None,
                 output_device_name: None,
                 buffer_ms: None,
-                auto_route_system_output: Some(true),
+                auto_route_system_output: Some(false),
             },
         );
 
         assert!(settings.auto_route_system_output);
+    }
+
+    #[test]
+    fn local_device_refresh_is_quiet_while_capture_runs_and_settles() {
+        let service = AppleMusicCaptureService::new(Arc::new(Player::new()));
+        assert!(!service.quiet_local_device_refresh());
+
+        {
+            let mut runtime = service.runtime.lock().unwrap();
+            runtime.running = true;
+        }
+        assert!(service.quiet_local_device_refresh());
+
+        {
+            let mut runtime = service.runtime.lock().unwrap();
+            runtime.running = false;
+            runtime.stopped_unix_ms = Some(now_unix_ms());
+        }
+        assert!(service.quiet_local_device_refresh());
+
+        {
+            let mut runtime = service.runtime.lock().unwrap();
+            runtime.stopped_unix_ms =
+                Some(now_unix_ms().saturating_sub(LOCAL_DEVICE_REFRESH_SETTLE_MS + 1));
+        }
+        assert!(!service.quiet_local_device_refresh());
     }
 
     #[test]

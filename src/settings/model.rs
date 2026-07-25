@@ -170,7 +170,7 @@ fn default_apple_music_buffer_ms() -> u32 {
 }
 
 fn default_apple_music_auto_route() -> bool {
-    false
+    true
 }
 
 fn default_hegel_port() -> u16 {

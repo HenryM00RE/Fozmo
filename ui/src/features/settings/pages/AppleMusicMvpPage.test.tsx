@@ -68,6 +68,18 @@ beforeEach(() => {
   mocks.appleMusicCatalogSearch.mockResolvedValue({
     term: 'joga bjork',
     storefront: 'nz',
+    albums: [
+      {
+        album_id: '1440880938',
+        storefront: 'nz',
+        title: 'Homogenic',
+        artist: 'Björk',
+        release_date: '1997-09-22T00:00:00Z',
+        artwork_url: 'https://example.test/homogenic.jpg',
+        audio_variants: ['lossless'],
+        tracks: []
+      }
+    ],
     songs: [
       {
         song_id: '1440880976',
@@ -88,11 +100,43 @@ beforeEach(() => {
     album_title: 'Test Album'
   });
   mocks.appleMusicCatalogAlbum.mockResolvedValue({
-    album_id: 'album-1',
+    album_id: '1440880938',
     storefront: 'nz',
-    title: 'Test Album',
-    artist: 'Test Artist',
-    tracks: []
+    title: 'Homogenic',
+    artist: 'Björk',
+    release_date: '1997-09-22T00:00:00Z',
+    artwork_url: 'https://example.test/homogenic.jpg',
+    audio_variants: ['lossless'],
+    tracks: [
+      {
+        song_id: '1440880967',
+        storefront: 'nz',
+        album_id: '1440880938',
+        title: 'Hunter',
+        artist: 'Björk',
+        album_title: 'Homogenic',
+        album_artist: 'Björk',
+        duration_secs: 255,
+        track_number: 1,
+        disc_number: 1,
+        artwork_url: 'https://example.test/homogenic.jpg',
+        audio_variants: ['lossless']
+      },
+      {
+        song_id: '1440880976',
+        storefront: 'nz',
+        album_id: '1440880938',
+        title: 'Jóga',
+        artist: 'Björk',
+        album_title: 'Homogenic',
+        album_artist: 'Björk',
+        duration_secs: 312,
+        track_number: 2,
+        disc_number: 1,
+        artwork_url: 'https://example.test/homogenic.jpg',
+        audio_variants: ['lossless']
+      }
+    ]
   });
   mocks.playAppleMusicScenario.mockResolvedValue({});
   mocks.appleMusicAlbumPreview.mockResolvedValue({
@@ -144,7 +188,7 @@ describe('AppleMusicMvpPage backend integration harness', () => {
     );
     await screen.findByText('2 · Search and play');
 
-    fireEvent.change(screen.getByLabelText('Search Apple Music songs'), {
+    fireEvent.change(screen.getByLabelText('Search Apple Music albums and songs'), {
       target: { value: 'joga bjork' }
     });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
@@ -155,9 +199,11 @@ describe('AppleMusicMvpPage backend integration harness', () => {
     const result = await screen.findByRole('button', {
       name: 'Play Jóga by Björk from Homogenic on Hegel H390'
     });
-    expect(result).toBeDisabled();
-
-    fireEvent.click(screen.getByLabelText(/Allow Fozmo to route native Music\.app playback/i));
+    const captureRoute = screen.getByLabelText(
+      /Allow Fozmo to route native Music\.app playback/i
+    );
+    expect(captureRoute).toBeChecked();
+    expect(captureRoute).toHaveProperty('readOnly', true);
     expect(result).toBeEnabled();
     fireEvent.click(result);
 
@@ -178,6 +224,30 @@ describe('AppleMusicMvpPage backend integration harness', () => {
     );
   });
 
+  it('links an album search result to the normal routed album page', async () => {
+    render(
+      <AppleMusicMvpPage
+        activeZoneStatus={defaultActiveZoneStatus}
+        addItemsToQueue={mocks.addItemsToQueue}
+      />
+    );
+    await screen.findByText('2 · Search and play');
+
+    fireEvent.change(screen.getByLabelText('Search Apple Music albums and songs'), {
+      target: { value: 'homogenic bjork' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    const openAlbum = await screen.findByRole('link', {
+      name: 'Open Homogenic by Björk'
+    });
+    expect(openAlbum).toHaveAttribute(
+      'href',
+      '#/album/1440880938?provider=apple_music&storefront=nz'
+    );
+    expect(mocks.appleMusicCatalogAlbum).not.toHaveBeenCalled();
+  });
+
   it('adds Apple Music search results to the shared mixed-provider queue', async () => {
     const hegelStatus = {
       active_zone_id: 'local-U_107GUN3uT4',
@@ -191,12 +261,11 @@ describe('AppleMusicMvpPage backend integration harness', () => {
       <AppleMusicMvpPage activeZoneStatus={hegelStatus} addItemsToQueue={mocks.addItemsToQueue} />
     );
     await screen.findByText('2 · Search and play');
-    fireEvent.change(screen.getByLabelText('Search Apple Music songs'), {
+    fireEvent.change(screen.getByLabelText('Search Apple Music albums and songs'), {
       target: { value: 'joga bjork' }
     });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     await screen.findByText('Jóga');
-    fireEvent.click(screen.getByLabelText(/Allow Fozmo to route native Music\.app playback/i));
     fireEvent.click(screen.getByRole('button', { name: 'Play Jóga by Björk from Homogenic next' }));
 
     await waitFor(() => expect(mocks.confirmAppleMusicCapture).toHaveBeenCalledTimes(1));
@@ -247,7 +316,6 @@ describe('AppleMusicMvpPage backend integration harness', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add song to scenario' }));
 
     expect(screen.getByText(/apple music · Test Artist · Test Song/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText(/Allow Fozmo to route native Music\.app playback/i));
     fireEvent.click(screen.getByRole('button', { name: 'Play from selected row' }));
 
     await waitFor(() =>
@@ -300,7 +368,6 @@ describe('AppleMusicMvpPage backend integration harness', () => {
       target: { value: 'mixed_run' }
     });
     fireEvent.click(screen.getByRole('button', { name: 'Load canned scenario' }));
-    fireEvent.click(screen.getByLabelText(/Allow Fozmo to route native Music\.app playback/i));
     fireEvent.click(screen.getByRole('button', { name: 'Play from selected row' }));
 
     await waitFor(() =>
@@ -331,7 +398,6 @@ describe('AppleMusicMvpPage backend integration harness', () => {
     );
     await screen.findByText(/Remote Mac · local output required/);
     fireEvent.click(screen.getByRole('button', { name: 'Load canned scenario' }));
-    fireEvent.click(screen.getByLabelText(/Allow Fozmo to route native Music\.app playback/i));
 
     expect(screen.getByRole('button', { name: 'Play from selected row' })).toBeDisabled();
     expect(mocks.playAppleMusicScenario).not.toHaveBeenCalled();

@@ -82,15 +82,23 @@ pub(super) fn device_name_for_uid(uid: &str) -> Option<String> {
     device_id_for_uid(uid).and_then(device_name)
 }
 
+pub(super) fn local_physical_device_id_for_name(name: &str) -> Option<AudioDeviceID> {
+    let trimmed = name.trim();
+    all_device_ids().into_iter().find(|device_id| {
+        device_name(*device_id).as_deref().map(str::trim) == Some(trimmed)
+            && device_transport_type(*device_id).is_some_and(is_local_physical_transport)
+    })
+}
+
+pub(super) fn local_physical_device_uid_for_name(name: &str) -> Option<String> {
+    local_physical_device_id_for_name(name).and_then(device_uid)
+}
+
 /// Returns true only when CoreAudio identifies a matching output as a local
 /// physical transport. Virtual, aggregate, Bluetooth, AirPlay, and other
 /// network devices deliberately fail closed.
 pub(super) fn output_device_is_local_physical_by_name(name: &str) -> bool {
-    let trimmed = name.trim();
-    all_device_ids().into_iter().any(|device_id| {
-        device_name(device_id).as_deref().map(str::trim) == Some(trimmed)
-            && device_transport_type(device_id).is_some_and(is_local_physical_transport)
-    })
+    local_physical_device_id_for_name(name).is_some()
 }
 
 fn device_transport_type(device_id: AudioDeviceID) -> Option<u32> {

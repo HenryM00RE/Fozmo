@@ -489,6 +489,20 @@ impl ZoneManager {
             .map(|zone| zone.player.clone())
     }
 
+    /// Returns the player for an enabled local zone even when a transient
+    /// CoreAudio enumeration miss marked it offline. Apple Music uses this to
+    /// wake/reopen a configured physical DAC after routing Music.app through
+    /// the virtual capture device.
+    pub(crate) fn player_for_enabled_local_zone(&self, zone_id: &str) -> Option<Arc<Player>> {
+        self.inner
+            .lock()
+            .unwrap()
+            .local_zones
+            .get(zone_id)
+            .filter(|zone| zone.enabled)
+            .map(|zone| zone.player.clone())
+    }
+
     pub fn select_zone(&self, zone_id: &str) -> Result<(), String> {
         let mut guard = self.inner.lock().unwrap();
         if guard.agents.get(zone_id).is_some_and(|agent| agent.browser) {
@@ -845,6 +859,11 @@ mod tests {
         manager.sync_local_devices(Vec::new());
 
         assert_eq!(manager.active_zone_id(), LOCAL_ZONE_ID);
+        assert!(
+            manager
+                .player_for_enabled_local_zone(&hegel_zone_id)
+                .is_some()
+        );
         let zone = manager
             .list_zones()
             .into_iter()

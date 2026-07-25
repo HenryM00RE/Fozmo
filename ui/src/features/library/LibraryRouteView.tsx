@@ -3,6 +3,7 @@ import type { RouteState } from '../../shared/types';
 import type { AlbumTrackSelectionRouteState } from '../albums/model/albumModel';
 import { AlbumDetailPage } from '../albums/pages/AlbumDetailPage';
 import { AlbumsPage } from '../albums/pages/AlbumsPage';
+import { AppleMusicAlbumPage } from '../albums/pages/AppleMusicAlbumPage';
 import { ArtistDetailPage } from '../artists/pages/ArtistDetailPage';
 import { ArtistsPage } from '../artists/pages/ArtistsPage';
 import { HistoryPage } from '../history/HistoryPage';
@@ -80,6 +81,25 @@ export function LibraryRouteView({
         />
       );
     case 'album':
+      if (route.provider === 'apple_music') {
+        return (
+          <AppleMusicAlbumPage
+            id={route.id}
+            storefront={route.storefront}
+            onOpenArtist={openArtistName}
+            playItems={playbackActions.playItems}
+            addItemsToQueue={addItemsToQueue}
+            playbackStatus={playbackStatus}
+            selectedTrackKeys={albumTrackSelection.selectedTrackKeys}
+            selectionActive={albumTrackSelection.selectionActive}
+            onSelectionItemsChange={albumTrackSelection.onSelectionItemsChange}
+            onToggleSelection={albumTrackSelection.onToggleSelection}
+            openPlaylistPickerForItems={albumTrackSelection.openPlaylistPickerForItems}
+            remoteSurface={remoteSurface}
+            customDisplayFont={customDisplayFont}
+          />
+        );
+      }
       return (
         <AlbumDetailPage
           id={route.id}

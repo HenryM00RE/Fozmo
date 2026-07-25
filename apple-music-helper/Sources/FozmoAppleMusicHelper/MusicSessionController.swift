@@ -291,7 +291,7 @@ final class MusicSessionController {
                     equalTo: MusicItemID(albumID)
                 )
                 request.limit = 1
-                request.properties = [.tracks]
+                request.properties = [.tracks, .audioVariants]
                 let response = try await request.response()
                 guard let album = response.items.first else {
                     throw HelperMusicError.albumNotFound
@@ -334,7 +334,10 @@ final class MusicSessionController {
         let storefront = CatalogInput.normalizedStorefront(command.storefront)
         Task { @MainActor in
             do {
-                var request = MusicCatalogSearchRequest(term: term, types: [Song.self])
+                var request = MusicCatalogSearchRequest(
+                    term: term,
+                    types: [Album.self, Song.self]
+                )
                 request.limit = limit
                 let response = try await request.response()
                 var event = statusEvent(type: "catalog_search", commandID: command.id)
@@ -343,6 +346,9 @@ final class MusicSessionController {
                     storefront: storefront,
                     songs: response.songs.map {
                         CatalogSongPayload(song: $0, storefront: storefront)
+                    },
+                    albums: response.albums.map {
+                        CatalogAlbumPayload(album: $0, storefront: storefront)
                     }
                 )
                 sendAndCache(event, commandID: command.id)

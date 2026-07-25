@@ -88,6 +88,8 @@ pub(crate) struct AppleCatalogSearchResult {
     pub storefront: String,
     #[serde(default)]
     pub songs: Vec<AppleCatalogSong>,
+    #[serde(default)]
+    pub albums: Vec<AppleCatalogAlbum>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

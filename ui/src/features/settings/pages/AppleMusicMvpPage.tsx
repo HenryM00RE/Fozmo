@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { endpoints } from '../../../shared/lib/api';
 import { sourceRefToQueueItem } from '../../../shared/lib/queue';
+import { routeToHash } from '../../../shared/lib/route';
 import type { JsonRecord, QueueItem, ResolvedPlaySource, SourceRef } from '../../../shared/types';
 import { Icon } from '../../../shared/ui/Icon';
 
@@ -37,7 +38,7 @@ export function AppleMusicMvpPage({
   const [localTrackID, setLocalTrackID] = useState('');
   const [qobuzTrackID, setQobuzTrackID] = useState('');
   const [scenarioName, setScenarioName] = useState<ScenarioName>('apple_apple');
-  const [captureConfirmed, setCaptureConfirmed] = useState(false);
+  const captureConfirmed = true;
   const [seekSeconds, setSeekSeconds] = useState('30');
   const [localAlbumID, setLocalAlbumID] = useState('');
   const [albumPreview, setAlbumPreview] = useState<JsonRecord | null>(null);
@@ -310,6 +311,7 @@ export function AppleMusicMvpPage({
   const currentSource = recordValue(fozmoStatus?.current_source);
   const helperNowPlaying = recordValue(appleStatus?.now_playing);
   const recentEvents = Array.isArray(appleStatus?.recent_events) ? appleStatus.recent_events : [];
+  const searchAlbums = recordArray(searchResult?.albums);
   const searchSongs = recordArray(searchResult?.songs);
 
   return (
@@ -444,7 +446,7 @@ export function AppleMusicMvpPage({
               void searchCatalog();
             }}
           >
-            <Field label="Search Apple Music songs">
+            <Field label="Search Apple Music albums and songs">
               <input
                 className="input"
                 type="search"
@@ -478,11 +480,11 @@ export function AppleMusicMvpPage({
             <input
               type="checkbox"
               checked={captureConfirmed}
-              onChange={(event) => setCaptureConfirmed(event.target.checked)}
+              readOnly
             />
             <span>
               Allow Fozmo to route native Music.app playback through the Fozmo Capture virtual
-              driver and feed it through the selected local DSP/output path.
+              driver and feed it through the selected local DSP/output path. Always on.
             </span>
           </label>
 
@@ -496,69 +498,115 @@ export function AppleMusicMvpPage({
           </div>
 
           {searchResult ? (
-            <div className="apple-music-results" aria-label="Apple Music song search results">
+            <div className="apple-music-results" aria-label="Apple Music catalog search results">
+              {searchAlbums.length ? (
+                <>
+                  <div className="apple-music-result-heading">Albums</div>
+                  {searchAlbums.map((album, index) => {
+                    const id = String(album.album_id || '');
+                    const title = String(album.title || 'Untitled album');
+                    const artist = String(album.artist || 'Unknown artist');
+                    const artworkURL = String(album.artwork_url || '');
+                    const releaseYear = String(album.release_date || '').slice(0, 4);
+                    return (
+                      <a
+                        className="apple-music-result-row apple-music-search-result apple-music-album-search-result"
+                        aria-label={`Open ${title} by ${artist}`}
+                        href={routeToHash({
+                          view: 'album',
+                          id,
+                          provider: 'apple_music',
+                          storefront: String(album.storefront || storefront).trim()
+                        })}
+                        key={`${id}-${index}`}
+                      >
+                        <span className="apple-music-artwork" aria-hidden="true">
+                          {artworkURL ? (
+                            <img src={artworkURL} alt="" loading="lazy" />
+                          ) : (
+                            <Icon path="M4 6h16v12H4zM8 10h8M8 14h5" />
+                          )}
+                        </span>
+                        <span className="apple-music-result-copy">
+                          <strong>{title}</strong>
+                          <small>{[artist, releaseYear].filter(Boolean).join(' · ')}</small>
+                        </span>
+                        <span className="apple-music-album-result-open">
+                          Open album
+                          <Icon path="m9 18 6-6-6-6" />
+                        </span>
+                      </a>
+                    );
+                  })}
+                </>
+              ) : null}
               {searchSongs.length ? (
-                searchSongs.map((song, index) => {
-                  const songID = String(song.song_id || '');
-                  const title = String(song.title || 'Untitled');
-                  const artist = String(song.artist || 'Unknown artist');
-                  const album = String(song.album_title || '');
-                  const artworkURL = String(song.artwork_url || '');
-                  const description = `${title} by ${artist}${album ? ` from ${album}` : ''}`;
-                  const actionsDisabled = Boolean(busy) || !captureConfirmed || !localZoneSupported;
-                  return (
-                    <div
-                      className="apple-music-result-row apple-music-search-result"
-                      key={`${songID}-${index}`}
-                    >
-                      <span className="apple-music-artwork" aria-hidden="true">
-                        {artworkURL ? (
-                          <img src={artworkURL} alt="" loading="lazy" />
-                        ) : (
-                          <Icon path="M9 18V5l12-2v13M9 18a3 3 0 1 1-2-2.83M21 16a3 3 0 1 1-2-2.83M9 9l12-2" />
-                        )}
-                      </span>
-                      <span className="apple-music-result-copy">
-                        <strong>{title}</strong>
-                        <small>{[artist, album].filter(Boolean).join(' · ')}</small>
-                      </span>
-                      <span className="apple-music-result-actions">
-                        <button
-                          className="pill ghost apple-music-result-action"
-                          type="button"
-                          aria-label={`Play ${description} on ${activeZoneName}`}
-                          disabled={actionsDisabled}
-                          onClick={() => void playSearchResult(song)}
-                        >
-                          {busy === `play-search-${songID}` ? 'Starting…' : 'Play'}
-                        </button>
-                        <button
-                          className="pill ghost apple-music-result-action"
-                          type="button"
-                          aria-label={`Play ${description} next`}
-                          disabled={actionsDisabled}
-                          onClick={() => void queueSearchResult(song, 'next')}
-                        >
-                          {busy === `queue-next-${songID}` ? 'Adding…' : 'Play next'}
-                        </button>
-                        <button
-                          className="pill ghost apple-music-result-action"
-                          type="button"
-                          aria-label={`Add ${description} to the end of the queue`}
-                          disabled={actionsDisabled}
-                          onClick={() => void queueSearchResult(song, 'end')}
-                        >
-                          {busy === `queue-end-${songID}` ? 'Adding…' : 'Add to queue'}
-                        </button>
-                      </span>
-                    </div>
-                  );
-                })
-              ) : (
+                <>
+                  <div className="apple-music-result-heading">Songs</div>
+                  {searchSongs.map((song, index) => {
+                    const songID = String(song.song_id || '');
+                    const title = String(song.title || 'Untitled');
+                    const artist = String(song.artist || 'Unknown artist');
+                    const album = String(song.album_title || '');
+                    const artworkURL = String(song.artwork_url || '');
+                    const description = `${title} by ${artist}${album ? ` from ${album}` : ''}`;
+                    const actionsDisabled =
+                      Boolean(busy) || !captureConfirmed || !localZoneSupported;
+                    return (
+                      <div
+                        className="apple-music-result-row apple-music-search-result"
+                        key={`${songID}-${index}`}
+                      >
+                        <span className="apple-music-artwork" aria-hidden="true">
+                          {artworkURL ? (
+                            <img src={artworkURL} alt="" loading="lazy" />
+                          ) : (
+                            <Icon path="M9 18V5l12-2v13M9 18a3 3 0 1 1-2-2.83M21 16a3 3 0 1 1-2-2.83M9 9l12-2" />
+                          )}
+                        </span>
+                        <span className="apple-music-result-copy">
+                          <strong>{title}</strong>
+                          <small>{[artist, album].filter(Boolean).join(' · ')}</small>
+                        </span>
+                        <span className="apple-music-result-actions">
+                          <button
+                            className="pill ghost apple-music-result-action"
+                            type="button"
+                            aria-label={`Play ${description} on ${activeZoneName}`}
+                            disabled={actionsDisabled}
+                            onClick={() => void playSearchResult(song)}
+                          >
+                            {busy === `play-search-${songID}` ? 'Starting…' : 'Play'}
+                          </button>
+                          <button
+                            className="pill ghost apple-music-result-action"
+                            type="button"
+                            aria-label={`Play ${description} next`}
+                            disabled={actionsDisabled}
+                            onClick={() => void queueSearchResult(song, 'next')}
+                          >
+                            {busy === `queue-next-${songID}` ? 'Adding…' : 'Play next'}
+                          </button>
+                          <button
+                            className="pill ghost apple-music-result-action"
+                            type="button"
+                            aria-label={`Add ${description} to the end of the queue`}
+                            disabled={actionsDisabled}
+                            onClick={() => void queueSearchResult(song, 'end')}
+                          >
+                            {busy === `queue-end-${songID}` ? 'Adding…' : 'Add to queue'}
+                          </button>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </>
+              ) : null}
+              {!searchAlbums.length && !searchSongs.length ? (
                 <p className="apple-music-empty-state">
-                  No songs matched “{String(searchResult.term || searchTerm)}”.
+                  No albums or songs matched “{String(searchResult.term || searchTerm)}”.
                 </p>
-              )}
+              ) : null}
             </div>
           ) : (
             <p className="apple-music-empty-state">

@@ -418,9 +418,9 @@ static void fozmo_catalog_error(
     );
 }
 
-static AXUIElementRef fozmo_find_accessibility_identifier(
+static AXUIElementRef fozmo_find_accessibility_identifier_prefix(
     AXUIElementRef application,
-    CFStringRef target_identifier
+    CFStringRef target_identifier_prefix
 ) {
     NSMutableArray *queue = [NSMutableArray arrayWithObject:(__bridge id)application];
     NSUInteger cursor = 0;
@@ -436,7 +436,10 @@ static AXUIElementRef fozmo_find_accessibility_identifier(
             && identifier_value != NULL) {
             const bool matches =
                 CFGetTypeID(identifier_value) == CFStringGetTypeID()
-                && CFEqual(identifier_value, target_identifier);
+                && CFStringHasPrefix(
+                    (CFStringRef)identifier_value,
+                    target_identifier_prefix
+                );
             CFRelease(identifier_value);
             if (matches) {
                 return (AXUIElementRef)CFRetain(element);
@@ -524,8 +527,9 @@ static bool fozmo_post_double_click(CGPoint point) {
     }
     CGEventPost(kCGHIDEventTap, move_to_target);
     CFRelease(move_to_target);
-    usleep(20000);
+    usleep(30000);
 
+    bool posted = true;
     for (int64_t click_state = 1; click_state <= 2; click_state += 1) {
         CGEventRef down = CGEventCreateMouseEvent(
             source,
@@ -546,18 +550,28 @@ static bool fozmo_post_double_click(CGPoint point) {
             if (up != NULL) {
                 CFRelease(up);
             }
-            CFRelease(source);
-            return false;
+            posted = false;
+            break;
         }
-        CGEventSetIntegerValueField(down, kCGMouseEventClickState, click_state);
-        CGEventSetIntegerValueField(up, kCGMouseEventClickState, click_state);
-        CGEventSetIntegerValueField(down, kCGMouseEventNumber, click_state);
-        CGEventSetIntegerValueField(up, kCGMouseEventNumber, click_state);
+
+        // The click-state sequence is what AppKit uses to recognize a double
+        // click. Do not synthesize kCGMouseEventNumber: Music's web-backed
+        // album rows reject a pair whose two clicks have different event IDs.
+        CGEventSetIntegerValueField(
+            down,
+            kCGMouseEventClickState,
+            click_state
+        );
+        CGEventSetIntegerValueField(
+            up,
+            kCGMouseEventClickState,
+            click_state
+        );
         CGEventPost(kCGHIDEventTap, down);
         CGEventPost(kCGHIDEventTap, up);
         CFRelease(down);
         CFRelease(up);
-        usleep(70000);
+        usleep(90000);
     }
 
     CGEventRef move_to_original = CGEventCreateMouseEvent(
@@ -571,7 +585,7 @@ static bool fozmo_post_double_click(CGPoint point) {
         CFRelease(move_to_original);
     }
     CFRelease(source);
-    return true;
+    return posted;
 }
 
 static void fozmo_restore_frontmost(NSRunningApplication *previous_frontmost) {
@@ -705,11 +719,14 @@ int32_t fozmo_music_activate_catalog_track(
             return 0;
         }
 
-        NSString *target_identifier = [NSString stringWithFormat:
-            @"Music.shelfItem.AlbumTrackLockup[id=track-lockup-%@-%@,parentId=track-list-%@]",
+        // Music's parentId suffix is not stable across releases. macOS 26.5
+        // currently exposes `track-list-<album>-undefined`, while older builds
+        // used `track-list-<album>`. The album/song portion is stable and
+        // uniquely identifies the requested row, so match that prefix.
+        NSString *target_identifier_prefix = [NSString stringWithFormat:
+            @"Music.shelfItem.AlbumTrackLockup[id=track-lockup-%@-%@,",
             album_string,
-            song_string,
-            album_string
+            song_string
         ];
         AXUIElementRef target = NULL;
         pid_t music_pid = 0;
@@ -717,9 +734,9 @@ int32_t fozmo_music_activate_catalog_track(
             music_pid = (pid_t)fozmo_music_app_pid();
             if (music_pid > 0) {
                 AXUIElementRef application = AXUIElementCreateApplication(music_pid);
-                target = fozmo_find_accessibility_identifier(
+                target = fozmo_find_accessibility_identifier_prefix(
                     application,
-                    (__bridge CFStringRef)target_identifier
+                    (__bridge CFStringRef)target_identifier_prefix
                 );
                 CFRelease(application);
                 if (target != NULL) {
@@ -769,9 +786,9 @@ int32_t fozmo_music_activate_catalog_track(
             );
             return 0;
         }
-        // CGEventPostToPid is asynchronous; let Music consume the completed
+        // Quartz posting is asynchronous; let Music consume the completed
         // double-click before returning focus to the previous application.
-        usleep(120000);
+        usleep(150000);
         fozmo_restore_frontmost(previous_frontmost);
         return 1;
     }

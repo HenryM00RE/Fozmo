@@ -84,6 +84,8 @@ export interface RouteState {
   id?: string | number | null;
   title?: string | null;
   albumHint?: LibraryAlbum | null;
+  provider?: 'apple_music' | null;
+  storefront?: string | null;
 }
 
 export interface LibraryTrack extends JsonRecord {

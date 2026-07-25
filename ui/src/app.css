@@ -4293,6 +4293,18 @@ html[data-theme="dark"] .seek-slider {
   color: currentColor;
 }
 
+.react-app .album-source-icon.is-apple-music svg,
+.react-app .album-source-icon.is-apple-music path {
+  fill: currentColor;
+  stroke: none;
+}
+
+.react-app .album-quality-stamp .album-source-icon.is-apple-music {
+  width: 20px;
+  height: 20px;
+  transform: translateY(-1px);
+}
+
 @media (max-width: 1180px) {
   .react-app .artist-detail .album-grid {
     grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -9294,6 +9306,20 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
   display: grid;
 }
 
+.react-app .apple-music-result-heading {
+  margin-top: 12px;
+  padding: 10px 0 6px;
+  color: var(--ink-muted, #a8a297);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.react-app .apple-music-result-heading:first-child {
+  margin-top: 0;
+}
+
 .react-app .apple-music-result-row {
   min-width: 0;
   min-height: 68px;
@@ -9406,6 +9432,38 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
 .react-app .apple-music-search-result:hover {
   padding-inline: 10px;
   background: color-mix(in srgb, var(--accent, #59b6ff) 7%, transparent);
+}
+
+.react-app .apple-music-album-search-result {
+  appearance: none;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.react-app .apple-music-album-search-result:focus-visible {
+  outline: 2px solid var(--accent, #59b6ff);
+  outline-offset: 2px;
+}
+
+.react-app .apple-music-album-result-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  color: var(--accent, #59b6ff);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.react-app .apple-music-album-result-open svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
 }
 
 .react-app .apple-music-result-actions {
@@ -9567,6 +9625,11 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
     grid-column: 1 / -1;
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+
+  .react-app .apple-music-album-result-open {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
   }
 
   .react-app .apple-music-scenario-row label {
@@ -11623,6 +11686,11 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
 
   .react-app .album-quality-stamp.is-mobile-quality {
     display: inline-flex;
+  }
+
+  .react-app .album-quality-stamp .album-source-icon.is-apple-music {
+    width: 17px;
+    height: 17px;
   }
 
   .react-app .albums-view .album-grid {

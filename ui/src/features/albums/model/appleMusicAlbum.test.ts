@@ -1,0 +1,92 @@
+import { describe, expect, it } from 'vitest';
+import type { JsonRecord, LibraryTrack } from '../../../shared/types';
+import { appleMusicAlbumToLibraryDetail, appleMusicSourceFromAlbumTrack } from './appleMusicAlbum';
+
+describe('Apple Music album adapter', () => {
+  it('maps catalog albums and tracks into the shared album detail contract', () => {
+    const detail = appleMusicAlbumToLibraryDetail({
+      album_id: '1440880938',
+      storefront: 'nz',
+      title: 'Homogenic',
+      artist: 'Björk',
+      release_date: '1997-09-22T00:00:00Z',
+      artwork_url: 'https://example.test/homogenic.jpg',
+      audio_variants: ['lossless'],
+      tracks: [
+        {
+          song_id: '1440880976',
+          storefront: 'nz',
+          title: 'Jóga',
+          artist: 'Björk',
+          duration_secs: 312,
+          track_number: 2,
+          disc_number: 1,
+          audio_variants: ['lossless']
+        }
+      ]
+    });
+
+    expect(detail.quality_label).toBe('Lossless');
+    expect(detail.album).toMatchObject({
+      id: '1440880938',
+      provider: 'apple_music',
+      title: 'Homogenic',
+      album_artist: 'Björk',
+      year: 1997,
+      track_count: 1
+    });
+    expect(detail.versions).toEqual([
+      expect.objectContaining({
+        provider: 'apple_music',
+        source_label: 'Apple Music',
+        format: 'ALAC',
+        is_primary: true
+      })
+    ]);
+
+    const track = (detail.tracks as LibraryTrack[])[0];
+    expect(track).toMatchObject({
+      song_id: '1440880976',
+      title: 'Jóga',
+      album: 'Homogenic',
+      album_id: '1440880938',
+      image_url: 'https://example.test/homogenic.jpg',
+      format: 'ALAC'
+    });
+    expect(appleMusicSourceFromAlbumTrack(track)).toMatchObject({
+      kind: 'apple_music_track',
+      song_id: '1440880976',
+      storefront: 'nz',
+      album: 'Homogenic',
+      album_id: '1440880938'
+    });
+  });
+
+  it('drops catalog tracks that do not have a playable song id', () => {
+    const detail = appleMusicAlbumToLibraryDetail({
+      album_id: 'album-1',
+      storefront: 'nz',
+      title: 'Test Album',
+      artist: 'Test Artist',
+      tracks: [{ title: 'Unavailable item' }]
+    } as JsonRecord);
+
+    expect(detail.tracks).toEqual([]);
+    expect(detail.quality_label).toBe('Apple Music');
+  });
+
+  it('uses the Apple catalog label for Hi-Res Lossless albums', () => {
+    const detail = appleMusicAlbumToLibraryDetail({
+      album_id: 'album-1',
+      storefront: 'nz',
+      title: 'Test Album',
+      artist: 'Test Artist',
+      // MusicKit album payloads have historically included the enum's leading
+      // dot while track payloads use the bare protocol value.
+      audio_variants: ['.highResolutionLossless'],
+      tracks: []
+    });
+
+    expect(detail.quality_label).toBe('Hi-Res Lossless');
+  });
+});

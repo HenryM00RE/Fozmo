@@ -5,6 +5,7 @@
 //! the normal local Player/DSP/output selected for the zone.
 
 use crate::app::state::AppState;
+use crate::audio::player::Player;
 use crate::playback::error::PlaybackError;
 use crate::playback::intent::{PlaybackGuard, PlaybackIntent, PlaybackOutcome};
 use crate::playback::qobuz::qobuz_stream_queue_item_for_request;
@@ -23,6 +24,7 @@ use crate::services::apple_music_musickit::{
     pause_music_app, play_music_app, play_music_app_current_once, prepare_music_app,
     set_music_app_position,
 };
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tracing::{debug, info, warn};
 
@@ -61,10 +63,7 @@ pub(crate) async fn play_apple_music_source(
     if !guard.is_current(state) {
         return Err(PlaybackError::conflict("Playback changed"));
     }
-    let player = state
-        .zones()
-        .player_for_zone(zone_id)
-        .ok_or(PlaybackError::ZoneNotAvailable)?;
+    let player = native_local_player(state, zone_id).ok_or(PlaybackError::ZoneNotAvailable)?;
 
     let _playback_switch = state.apple_music().lock_playback_switch().await;
     ensure_guard_current(state, &guard)?;
@@ -224,7 +223,7 @@ pub(crate) fn active_snapshot(
     let snapshot = state
         .apple_music_capture()
         .playback_snapshot_for_zone(zone_id)?;
-    let player = state.zones().player_for_zone(zone_id)?;
+    let player = native_local_player(state, zone_id)?;
     (player.playback_epoch() == snapshot.player_epoch).then_some(snapshot)
 }
 
@@ -264,10 +263,8 @@ async fn arm_native_next_player_queue(
     snapshot: &NativeAppleMusicPlaybackSnapshot,
     revision: u64,
 ) -> Result<(), String> {
-    let player = state
-        .zones()
-        .player_for_zone(zone_id)
-        .ok_or_else(|| "Zone not available".to_string())?;
+    let player =
+        native_local_player(state, zone_id).ok_or_else(|| "Zone not available".to_string())?;
     if player.playback_epoch() != snapshot.player_epoch {
         return Err("Playback changed".to_string());
     }
@@ -346,7 +343,7 @@ fn native_prefetch_is_current(
 }
 
 fn clear_prefetched_player_queue(state: &AppState, snapshot: &NativeAppleMusicPlaybackSnapshot) {
-    if let Some(player) = state.zones().player_for_zone(&snapshot.zone_id) {
+    if let Some(player) = native_local_player(state, &snapshot.zone_id) {
         player.set_queue_if_epoch(Vec::new(), Some(snapshot.player_epoch));
     }
 }
@@ -376,10 +373,7 @@ pub(crate) async fn pause(state: &AppState, zone_id: &str) -> Result<bool, Playb
         return Ok(false);
     };
     pause_music_blocking().await?;
-    let player = state
-        .zones()
-        .player_for_zone(zone_id)
-        .ok_or(PlaybackError::ZoneNotAvailable)?;
+    let player = native_local_player(state, zone_id).ok_or(PlaybackError::ZoneNotAvailable)?;
     player.pause();
     state
         .apple_music_capture()
@@ -392,10 +386,7 @@ pub(crate) async fn resume(state: &AppState, zone_id: &str) -> Result<bool, Play
     let Some(snapshot) = active_snapshot(state, zone_id) else {
         return Ok(false);
     };
-    let player = state
-        .zones()
-        .player_for_zone(zone_id)
-        .ok_or(PlaybackError::ZoneNotAvailable)?;
+    let player = native_local_player(state, zone_id).ok_or(PlaybackError::ZoneNotAvailable)?;
     play_music_blocking().await?;
     wait_for_prefill_without_guard(
         state,
@@ -427,10 +418,7 @@ pub(crate) async fn seek(
     let Some(snapshot) = active_snapshot(state, zone_id) else {
         return Ok(false);
     };
-    let player = state
-        .zones()
-        .player_for_zone(zone_id)
-        .ok_or(PlaybackError::ZoneNotAvailable)?;
+    let player = native_local_player(state, zone_id).ok_or(PlaybackError::ZoneNotAvailable)?;
     pause_music_blocking().await?;
     player.pause();
     state.apple_music_capture().update_managed_playback(
@@ -493,7 +481,7 @@ pub(crate) async fn next(state: &AppState, zone_id: &str) -> Result<bool, Playba
         .stop_runtime(false)
         .unwrap_or(snapshot.player_epoch);
     let Some((next, rest)) = queue.split_first() else {
-        if let Some(player) = state.zones().player_for_zone(zone_id) {
+        if let Some(player) = native_local_player(state, zone_id) {
             player.stop();
         }
         state.listening().stop(state.library(), zone_id);
@@ -641,6 +629,13 @@ fn normalize_metadata(value: &str) -> String {
         .collect()
 }
 
+fn native_local_player(state: &AppState, zone_id: &str) -> Option<Arc<Player>> {
+    state
+        .zones()
+        .player_for_zone(zone_id)
+        .or_else(|| state.zones().player_for_enabled_local_zone(zone_id))
+}
+
 fn ensure_guard_current(state: &AppState, guard: &PlaybackGuard) -> Result<(), PlaybackError> {
     guard
         .is_current(state)
@@ -662,10 +657,8 @@ fn ensure_owned(
     else {
         return Err(PlaybackError::conflict("Playback changed"));
     };
-    let current_player_epoch = state
-        .zones()
-        .player_for_zone(&expected.zone_id)
-        .map(|player| player.playback_epoch());
+    let current_player_epoch =
+        native_local_player(state, &expected.zone_id).map(|player| player.playback_epoch());
     if current.generation != expected.generation
         || current_player_epoch != Some(current.player_epoch)
     {
@@ -1002,7 +995,7 @@ async fn finish_native_playback(
         .stop_runtime(false)
         .unwrap_or(snapshot.player_epoch);
     if !completed {
-        if let Some(player) = state.zones().player_for_zone(&zone_id) {
+        if let Some(player) = native_local_player(&state, &zone_id) {
             player.stop();
         }
         state.listening().stop(state.library(), &zone_id);
@@ -1117,7 +1110,7 @@ async fn wait_for_live_eof_drain(
     let deadline = tokio::time::Instant::now() + PLAYER_EOF_DRAIN_TIMEOUT;
     let mut stopped_since = None;
     loop {
-        let Some(player) = state.zones().player_for_zone(zone_id) else {
+        let Some(player) = native_local_player(state, zone_id) else {
             return None;
         };
         if player.playback_epoch() != expected_epoch {
@@ -1167,9 +1160,7 @@ async fn route_after_native_boundary(
     expected_epoch: u64,
     reason: &'static str,
 ) {
-    if state
-        .zones()
-        .player_for_zone(&zone_id)
+    if native_local_player(&state, &zone_id)
         .is_none_or(|player| player.playback_epoch() != expected_epoch)
     {
         return;
@@ -1196,7 +1187,7 @@ async fn route_after_native_boundary(
             error = %error,
             "Could not route the next mixed-provider queue entry"
         );
-        if let Some(player) = state.zones().player_for_zone(&zone_id)
+        if let Some(player) = native_local_player(&state, &zone_id)
             && player.playback_epoch() == expected_epoch
         {
             player.stop();

@@ -311,6 +311,7 @@ export function AlbumDetailPage({
   providedDetail,
   kind = 'local',
   showQobuzStamp,
+  onPlayAppleMusicTracks,
   onPlayQobuzTracks,
   selectedTrackKeys,
   selectionActive,
@@ -333,14 +334,15 @@ export function AlbumDetailPage({
   onOpenQobuzAlbum?: (id: string | number, albumHint?: LibraryAlbum) => void;
   addItemsToQueue: (items: QueueItem[], placement: 'next' | 'end') => void;
   providedDetail?: JsonRecord | null;
-  kind?: 'local' | 'qobuz';
+  kind?: 'local' | 'qobuz' | 'apple_music';
   showQobuzStamp?: boolean;
+  onPlayAppleMusicTracks?: (tracks: LibraryTrack[], startIndex?: number) => void;
   onPlayQobuzTracks?: (tracks: QobuzTrack[], startIndex?: number) => void;
   selectedTrackKeys: Set<string>;
   selectionActive: boolean;
   onSelectionItemsChange: (items: AlbumSelectionItem[]) => void;
   onToggleSelection: (key: string) => void;
-  openPlaylistPickerForItems: (items: QueueItem[], title?: string, onAdded?: () => void) => void;
+  openPlaylistPickerForItems?: (items: QueueItem[], title?: string, onAdded?: () => void) => void;
   remoteSurface?: boolean;
   playbackStatus: PlaybackStatus;
   customDisplayFont: CustomDisplayFontSettings | null;
@@ -417,7 +419,7 @@ export function AlbumDetailPage({
     if (providedDetail === undefined) {
       setLoadedDetail((current) => {
         const resolved = typeof next === 'function' ? next(current) : next;
-        if (kind !== 'qobuz') updateAlbumDetailCache(id, resolved);
+        if (kind === 'local') updateAlbumDetailCache(id, resolved);
         return resolved;
       });
       return;
@@ -425,20 +427,22 @@ export function AlbumDetailPage({
     setProvidedDetailOverride((current) => {
       const base = current !== undefined ? current : providedDetail;
       const resolved = typeof next === 'function' ? next(base) : next;
-      if (kind !== 'qobuz') updateAlbumDetailCache(id, resolved);
+      if (kind === 'local') updateAlbumDetailCache(id, resolved);
       return resolved;
     });
   };
+  const isLocal = kind === 'local';
   const isQobuz = kind === 'qobuz';
+  const isAppleMusic = kind === 'apple_music';
   const album = (detail?.album || detail) as LibraryAlbum | null;
   const canonicalAlbum = (
-    !isQobuz && detail?.canonical_album ? detail.canonical_album : null
+    isLocal && detail?.canonical_album ? detail.canonical_album : null
   ) as LibraryAlbum | null;
   useEffect(() => {
     const localAlbumId = album?.id;
     if (
       activeTab !== 'credits' ||
-      isQobuz ||
+      !isLocal ||
       localAlbumId === null ||
       localAlbumId === undefined ||
       album?.qobuz_match_status !== 'matched'
@@ -460,8 +464,8 @@ export function AlbumDetailPage({
     return () => {
       cancelled = true;
     };
-  }, [activeTab, album?.id, album?.qobuz_match_status, isQobuz]);
-  const linkedQobuzAlbumId = !isQobuz
+  }, [activeTab, album?.id, album?.qobuz_match_status, isLocal]);
+  const linkedQobuzAlbumId = isLocal
     ? idValue(
         canonicalAlbum?.qobuz_album_id,
         canonicalAlbum?.qobuz_id,
@@ -474,8 +478,8 @@ export function AlbumDetailPage({
     [detail, album]
   );
   const baseTracks = useMemo(
-    () => (isQobuz ? rawBaseTracks : localTracksWithLinkedQobuzMetadata(detail, rawBaseTracks)),
-    [detail, isQobuz, rawBaseTracks]
+    () => (isLocal ? localTracksWithLinkedQobuzMetadata(detail, rawBaseTracks) : rawBaseTracks),
+    [detail, isLocal, rawBaseTracks]
   );
   const versions = useMemo(() => safeArray<JsonRecord>(detail?.versions), [detail]);
   const viewingVersion = useMemo(
@@ -492,7 +496,7 @@ export function AlbumDetailPage({
   }, [baseTracks, detail, isQobuz, viewingVersion]);
   const art = albumArtworkForViewingVersion(album, viewingVersion);
   const albumViewArt = qobuzAlbumViewArt(art, remoteSurface);
-  const albumId = isQobuz ? (id ?? album?.id ?? '') : (album?.id ?? id ?? '');
+  const albumId = isLocal ? (album?.id ?? id ?? '') : (id ?? album?.id ?? '');
   const albumDate = formatAlbumDate(album);
   const artist = String(album?.album_artist || album?.artist || 'Unknown artist');
   const title = titleOf(album, 'Album');
@@ -507,6 +511,7 @@ export function AlbumDetailPage({
         : '';
   const favoriteAlbum = useMemo(() => {
     if (!album) return null;
+    if (isAppleMusic) return null;
     if (isQobuz) return album;
     return canonicalAlbum?.qobuz_album_id || canonicalAlbum?.qobuz_id
       ? {
@@ -520,7 +525,7 @@ export function AlbumDetailPage({
           year: canonicalAlbum.year ?? album.year
         }
       : album;
-  }, [album, canonicalAlbum, isQobuz]);
+  }, [album, canonicalAlbum, isAppleMusic, isQobuz]);
   const currentFavoriteKey = favoriteAlbumKey(favoriteAlbum);
   const isFavorite = Boolean(currentFavoriteKey && favoriteKeys.has(currentFavoriteKey));
   const tracksByDisc = tracks.reduce<Record<string, LibraryTrack[]>>((groups, track) => {
@@ -543,11 +548,16 @@ export function AlbumDetailPage({
     totalDuration ? ['Length', formatLongDuration(totalDuration)] : null,
     tracks.length ? ['Tracks', `${tracks.length} ${tracks.length === 1 ? 'song' : 'songs'}`] : null,
     albumDate ? ['Release', albumDate] : null,
-    ['Source', isQobuz ? 'Qobuz' : 'Local'],
+    ['Source', isAppleMusic ? 'Apple Music' : isQobuz ? 'Qobuz' : 'Local'],
     album?.label ? ['Label', String(album.label)] : null,
     genres ? ['Genre', String(genres)] : null
   ].filter(Boolean) as Array<[string, string]>;
   const playVisibleTracks = (startIndex = 0, shuffle = false) => {
+    if (isAppleMusic) {
+      if (!tracks.length) return;
+      onPlayAppleMusicTracks?.(shuffle ? shuffled(tracks) : tracks, shuffle ? 0 : startIndex);
+      return;
+    }
     if (isQobuz) {
       const qobuzTracks = tracks.map(qobuzTrackFromAlbumTrack).filter(Boolean) as QobuzTrack[];
       if (!qobuzTracks.length) return;
@@ -564,6 +574,11 @@ export function AlbumDetailPage({
         .filter(Boolean)
         .map((track) => qobuzTrackToQueueItem(track as QobuzTrack));
     }
+    if (isAppleMusic) {
+      return tracks
+        .map((track) => resolvedPlaySourceToQueueItem(track.play_source as ResolvedPlaySource))
+        .filter((item): item is QueueItem => item !== null);
+    }
     return tracks.map(
       (track) =>
         resolvedPlaySourceToQueueItem(track.play_source as ResolvedPlaySource) ||
@@ -571,7 +586,10 @@ export function AlbumDetailPage({
     );
   };
   const queueItemForAlbumTrack = (track: LibraryTrack) => {
-    if (!isQobuz)
+    if (isAppleMusic) {
+      return resolvedPlaySourceToQueueItem(track.play_source as ResolvedPlaySource);
+    }
+    if (isLocal)
       return (
         resolvedPlaySourceToQueueItem(track.play_source as ResolvedPlaySource) ||
         localTrackToQueueItem(track)
@@ -592,14 +610,14 @@ export function AlbumDetailPage({
           return item && key ? { key, item } : null;
         })
         .filter(Boolean) as AlbumSelectionItem[],
-    [isQobuz, tracks]
+    [isAppleMusic, isQobuz, tracks]
   );
   useEffect(() => {
     onSelectionItemsChange(selectionItems);
   }, [onSelectionItemsChange, selectionItems]);
   useEffect(() => {
     const hasCatalogVersions = versions.some((version) => idValue(version.open_album_id) !== '');
-    if (isQobuz || linkedQobuzAlbumId === '' || (hasCatalogVersions && detailDescription(detail)))
+    if (!isLocal || linkedQobuzAlbumId === '' || (hasCatalogVersions && detailDescription(detail)))
       return undefined;
     const enhancementKey = String(linkedQobuzAlbumId);
     if (qobuzEnhancementAttempts.current.has(enhancementKey)) return undefined;
@@ -630,8 +648,12 @@ export function AlbumDetailPage({
     return () => {
       cancelled = true;
     };
-  }, [isQobuz, linkedQobuzAlbumId, versions]);
+  }, [isLocal, linkedQobuzAlbumId, versions]);
   useEffect(() => {
+    if (isAppleMusic) {
+      setFavoriteKeys(new Set());
+      return undefined;
+    }
     let cancelled = false;
     loadFavoriteAlbumsCached()
       .then((favorites) => {
@@ -644,7 +666,7 @@ export function AlbumDetailPage({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isAppleMusic]);
   const queueAlbum = (placement: 'next' | 'end') => {
     const items = albumQueueItems();
     if (items.length) addItemsToQueue(items, placement);
@@ -652,7 +674,7 @@ export function AlbumDetailPage({
   };
   const setPrimaryVersion = async (versionId: string | number) => {
     const numericVersionId = Number(versionId);
-    if (!isQobuz && album?.id !== undefined && Number.isFinite(numericVersionId)) {
+    if (isLocal && album?.id !== undefined && Number.isFinite(numericVersionId)) {
       const nextDetail = await endpoints.albumVersionPrimary(album.id, numericVersionId);
       updateAlbumDetailCache(album.id, nextDetail);
       setCurrentDetail(nextDetail);
@@ -708,6 +730,11 @@ export function AlbumDetailPage({
           description={description}
           favoriteBusy={favoriteBusy || !currentFavoriteKey}
           isFavorite={isFavorite}
+          qualityLabel={
+            typeof detail?.quality_label === 'string' ? detail.quality_label : undefined
+          }
+          showFavorite={!isAppleMusic}
+          showAppleMusicStamp={isAppleMusic}
           showQobuzStamp={hasQobuzStamp}
           onOpenArtist={onOpenArtist}
           onOpenArtwork={() => {
@@ -832,7 +859,7 @@ export function AlbumDetailPage({
             onOpenLocalAlbum={onOpenLocalAlbum}
             onOpenQobuzAlbum={onOpenQobuzAlbum}
             onSetPrimary={setPrimaryVersion}
-            onEditLocalAlbum={() => setMetadataEditorOpen(true)}
+            onEditLocalAlbum={isLocal ? () => setMetadataEditorOpen(true) : undefined}
           />
         </div>
       </div>
@@ -896,20 +923,22 @@ export function AlbumDetailPage({
             <PlayNextIcon />
             <span>Add next</span>
           </button>
-          <button
-            className="track-action-item"
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              const track = tracks[trackMenu.index];
-              const item = queueItemForAlbumTrack(track);
-              if (item) openPlaylistPickerForItems([item], item.title || 'Track');
-              setTrackMenu(null);
-            }}
-          >
-            <Icon path="M4 7h12M4 12h9M4 17h7M18 15v6M15 18h6" />
-            <span>Add to playlist</span>
-          </button>
+          {openPlaylistPickerForItems ? (
+            <button
+              className="track-action-item"
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                const track = tracks[trackMenu.index];
+                const item = queueItemForAlbumTrack(track);
+                if (item) openPlaylistPickerForItems([item], item.title || 'Track');
+                setTrackMenu(null);
+              }}
+            >
+              <Icon path="M4 7h12M4 12h9M4 17h7M18 15v6M15 18h6" />
+              <span>Add to playlist</span>
+            </button>
+          ) : null}
           <button
             className="track-action-item"
             type="button"
@@ -938,7 +967,7 @@ export function AlbumDetailPage({
       {artworkOpen && albumViewArt ? (
         <AlbumArtLightbox art={albumViewArt} title={title} onClose={() => setArtworkOpen(false)} />
       ) : null}
-      {metadataEditorOpen && !isQobuz && album ? (
+      {metadataEditorOpen && isLocal && album ? (
         <AlbumMetadataEditorModal
           album={album}
           tracks={baseTracks}

@@ -21,6 +21,11 @@ const ZONE_CACHE_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 const HEGEL_SAVED_ZONE_MESSAGE: &str = "Hegel USB is not currently detected; enable standby visibility to wake it from the network link.";
 const HEGEL_STANDBY_ZONE_MESSAGE: &str =
     "Hegel network link is visible; USB will wake before playback starts.";
+#[cfg(feature = "apple_music_capture")]
+const APPLE_MUSIC_CAPTURE_OUTPUT_MESSAGE: &str =
+    "Configured Apple Music DSP output; CoreAudio availability is verified when playback starts.";
+#[cfg(feature = "apple_music_capture")]
+const APPLE_MUSIC_CAPTURE_OUTPUT_OFFLINE_MESSAGE: &str = "Configured Apple Music output is hidden; set it as the macOS default output to make it available.";
 
 #[derive(Default)]
 pub(crate) struct ZoneSettingsUpdate {
@@ -409,7 +414,8 @@ fn refresh_playback_zones_inner(state: &AppState) -> Vec<ZoneProfile> {
     // direct DoP AudioUnit owns it. Treat that as an unsafe time to refresh for
     // both background and interactive callers: marking the selected zone
     // offline here strands it as soon as playback reaches EOF.
-    let mut quiet_local_refresh = coreaudio_dop_output_owned(state);
+    let mut quiet_local_refresh =
+        coreaudio_dop_output_owned(state) || apple_music_capture_output_owned(state);
     let local_devices = if quiet_local_refresh {
         Vec::new()
     } else {
@@ -419,7 +425,7 @@ fn refresh_playback_zones_inner(state: &AppState) -> Vec<ZoneProfile> {
         let local_devices = output_device_names();
         // Close the race where playback acquires Hog Mode after the first
         // ownership check but before enumeration completes.
-        if coreaudio_dop_output_owned(state) {
+        if coreaudio_dop_output_owned(state) || apple_music_capture_output_owned(state) {
             quiet_local_refresh = true;
             Vec::new()
         } else {
@@ -473,6 +479,15 @@ fn refresh_playback_zones_inner(state: &AppState) -> Vec<ZoneProfile> {
         if let Ok(definitions) = state.library().zone_definitions() {
             sync_hegel_configured_zone(state, &definitions);
         }
+        #[cfg(feature = "apple_music_capture")]
+        if let Ok(definitions) = state.library().zone_definitions() {
+            sync_apple_music_capture_output_zone(
+                state,
+                &definitions,
+                &local_devices,
+                quiet_local_refresh,
+            );
+        }
         zones = state.zones().list_zones();
         persist_zone_definitions(state, &zones);
     }
@@ -486,6 +501,79 @@ fn refresh_playback_zones_inner(state: &AppState) -> Vec<ZoneProfile> {
 
 fn coreaudio_dop_output_owned(state: &AppState) -> bool {
     state.zones().coreaudio_dop_output_owned()
+}
+
+fn apple_music_capture_output_owned(state: &AppState) -> bool {
+    #[cfg(feature = "apple_music_capture")]
+    {
+        state.apple_music_capture().quiet_local_device_refresh()
+    }
+    #[cfg(not(feature = "apple_music_capture"))]
+    {
+        let _ = state;
+        false
+    }
+}
+
+#[cfg(feature = "apple_music_capture")]
+fn sync_apple_music_capture_output_zone(
+    state: &AppState,
+    definitions: &[ZoneDefinition],
+    local_devices: &[String],
+    capture_handoff_active: bool,
+) {
+    let settings = state.settings().apple_music_capture_settings();
+    if !settings.enabled {
+        return;
+    }
+    let Some(device_name) = settings
+        .output_device_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|device_name| !device_name.is_empty())
+    else {
+        return;
+    };
+
+    let expected_zone_id = crate::zones::local_device_zone_id(device_name);
+    let definition = definitions.iter().find(|definition| {
+        definition_is_local_output(definition)
+            && (definition.id == expected_zone_id
+                || definition.device_name.as_deref().map(str::trim) == Some(device_name))
+    });
+    let zone_id = definition
+        .map(|definition| definition.id.as_str())
+        .unwrap_or(expected_zone_id.as_str());
+    let zone_name = definition
+        .map(|definition| definition.name.as_str())
+        .unwrap_or(device_name);
+
+    let visible = local_devices
+        .iter()
+        .any(|candidate| candidate.trim() == device_name);
+    if visible || capture_handoff_active {
+        // During an owned handoff CoreAudio can omit the already-selected
+        // physical DAC. Keep it available until the default output is restored
+        // and discovery settles.
+        state.zones().sync_standby_local_zone(
+            zone_id,
+            zone_name,
+            device_name,
+            APPLE_MUSIC_CAPTURE_OUTPUT_MESSAGE,
+        );
+    } else {
+        // Outside capture, do not pretend an output hidden by the current
+        // macOS default can be opened. Startup recovery normally restores the
+        // configured device first; this is the actionable failure state.
+        state.zones().sync_saved_local_zone(
+            zone_id,
+            zone_name,
+            device_name,
+            true,
+            APPLE_MUSIC_CAPTURE_OUTPUT_OFFLINE_MESSAGE,
+        );
+    }
+    let _ = state.library().set_zone_enabled(zone_id, true);
 }
 
 fn persist_zone_definitions(state: &AppState, zones: &[ZoneProfile]) {
@@ -1266,6 +1354,91 @@ mod tests {
 
         assert_eq!(settings.device_type, None);
         assert!(settings.hegel.is_none());
+    }
+
+    #[cfg(feature = "apple_music_capture")]
+    #[test]
+    fn configured_apple_music_output_survives_owned_capture_handoff() {
+        let state = app_state("apple-music-configured-output-zone");
+        let device_name = "Hegel H390 USB";
+        let zone_id = local_device_zone_id(device_name);
+        state
+            .library()
+            .upsert_zone_definition(
+                &zone_id,
+                "Hegel H390",
+                "local_coreaudio",
+                Some(device_name),
+                true,
+            )
+            .unwrap();
+        state
+            .settings()
+            .update(|settings| {
+                settings.apple_music_capture.enabled = true;
+                settings.apple_music_capture.output_device_name = Some(device_name.to_string());
+            })
+            .unwrap();
+
+        let definitions = state.library().zone_definitions().unwrap();
+        sync_apple_music_capture_output_zone(&state, &definitions, &[], true);
+
+        let zone = state
+            .zones()
+            .list_zones()
+            .into_iter()
+            .find(|zone| zone.id == zone_id)
+            .expect("configured Apple Music output should be restored");
+        assert!(zone.enabled);
+        assert_eq!(zone.status, ZoneStatus::Available);
+        assert_eq!(zone.device_name.as_deref(), Some(device_name));
+        assert_eq!(
+            zone.status_message.as_deref(),
+            Some(APPLE_MUSIC_CAPTURE_OUTPUT_MESSAGE)
+        );
+        assert!(state.zones().player_for_zone(&zone_id).is_some());
+    }
+
+    #[cfg(feature = "apple_music_capture")]
+    #[test]
+    fn configured_apple_music_output_stays_offline_when_hidden_outside_capture() {
+        let state = app_state("apple-music-hidden-output-zone");
+        let device_name = "Hegel H390 USB";
+        let zone_id = local_device_zone_id(device_name);
+        state
+            .library()
+            .upsert_zone_definition(
+                &zone_id,
+                "Hegel H390",
+                "local_coreaudio",
+                Some(device_name),
+                true,
+            )
+            .unwrap();
+        state
+            .settings()
+            .update(|settings| {
+                settings.apple_music_capture.enabled = true;
+                settings.apple_music_capture.output_device_name = Some(device_name.to_string());
+            })
+            .unwrap();
+
+        let definitions = state.library().zone_definitions().unwrap();
+        sync_apple_music_capture_output_zone(&state, &definitions, &[], false);
+
+        let zone = state
+            .zones()
+            .list_zones()
+            .into_iter()
+            .find(|zone| zone.id == zone_id)
+            .expect("configured Apple Music output should remain visible");
+        assert!(zone.enabled);
+        assert_eq!(zone.status, ZoneStatus::Offline);
+        assert_eq!(
+            zone.status_message.as_deref(),
+            Some(APPLE_MUSIC_CAPTURE_OUTPUT_OFFLINE_MESSAGE)
+        );
+        assert!(state.zones().player_for_zone(&zone_id).is_none());
     }
 
     #[test]

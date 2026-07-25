@@ -154,7 +154,10 @@ impl AppleMusicService {
             connection: AsyncMutex::new(None),
             next_command_id: AtomicU64::new(1),
             next_queue_revision: AtomicU64::new(1),
-            system_audio_capture_confirmed: AtomicBool::new(false),
+            // Native Apple Music is a dedicated product path whose only
+            // supported route is Music.app -> Fozmo Capture -> local DSP.
+            // Keep the route armed across page reloads and server restarts.
+            system_audio_capture_confirmed: AtomicBool::new(true),
         }
     }
 
@@ -2068,6 +2071,13 @@ mod tests {
                         ..AppleCatalogSong::default()
                     })
                     .collect(),
+                albums: vec![AppleCatalogAlbum {
+                    album_id: "album-0".to_string(),
+                    storefront,
+                    title: "Fake album".to_string(),
+                    artist: "Fake artist".to_string(),
+                    ..AppleCatalogAlbum::default()
+                }],
             })
         }
 
@@ -2122,6 +2132,7 @@ mod tests {
             .unwrap();
         assert_eq!(search.term, "fake");
         assert_eq!(search.songs.len(), 3);
+        assert_eq!(search.albums.len(), 1);
         let song = fake
             .lookup_song("2037093408".to_string(), Some("nz".to_string()))
             .await

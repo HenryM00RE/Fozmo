@@ -451,6 +451,19 @@ struct CatalogSearchPayload: Codable, Equatable {
     let term: String
     let storefront: String
     let songs: [CatalogSongPayload]
+    let albums: [CatalogAlbumPayload]
+
+    init(
+        term: String,
+        storefront: String,
+        songs: [CatalogSongPayload],
+        albums: [CatalogAlbumPayload] = []
+    ) {
+        self.term = term
+        self.storefront = storefront
+        self.songs = songs
+        self.albums = albums
+    }
 }
 
 struct NowPlayingPayload: Codable, Equatable {

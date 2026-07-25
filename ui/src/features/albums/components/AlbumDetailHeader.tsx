@@ -2,6 +2,7 @@ import { artFallback, formatAlbumQualityStamp } from '../../../shared/lib/appSup
 import { displayTitleUsesFallbackFont } from '../../../shared/lib/displayTitle';
 import type { CustomDisplayFontSettings } from '../../../shared/lib/theme';
 import type { LibraryTrack } from '../../../shared/types';
+import { AppleMusicSourceIcon } from '../../../shared/ui/AppleMusicSourceIcon';
 import { Icon } from '../../../shared/ui/Icon';
 import { PlaybarPlayIcon } from '../../../shared/ui/PlaybarPlayIcon';
 import { QobuzSourceIcon } from '../../../shared/ui/QobuzSourceIcon';
@@ -14,6 +15,9 @@ export function AlbumDetailHeader({
   description,
   favoriteBusy,
   isFavorite,
+  qualityLabel,
+  showFavorite = true,
+  showAppleMusicStamp,
   showQobuzStamp,
   onOpenArtist,
   onOpenDescription,
@@ -33,6 +37,9 @@ export function AlbumDetailHeader({
   description: string;
   favoriteBusy: boolean;
   isFavorite: boolean;
+  qualityLabel?: string;
+  showFavorite?: boolean;
+  showAppleMusicStamp: boolean;
   showQobuzStamp: boolean;
   onOpenArtist: (artist: string) => void;
   onOpenDescription: () => void;
@@ -49,6 +56,7 @@ export function AlbumDetailHeader({
   const fallbackTitleClass = displayTitleUsesFallbackFont(title, customDisplayFont)
     ? ' uses-fallback-font'
     : '';
+  const quality = qualityLabel || formatAlbumQualityStamp(tracks);
   return (
     <div className="album-detail-header">
       <button
@@ -74,8 +82,12 @@ export function AlbumDetailHeader({
         <div className="album-detail-meta-row">
           {albumDate ? <span className="section-label">{albumDate}</span> : null}
           <span className="album-quality-stamp is-mobile-quality">
-            {showQobuzStamp ? <QobuzSourceIcon /> : null}
-            <span>{formatAlbumQualityStamp(tracks)}</span>
+            {showQobuzStamp ? (
+              <QobuzSourceIcon />
+            ) : showAppleMusicStamp ? (
+              <AppleMusicSourceIcon />
+            ) : null}
+            <span>{quality}</span>
           </span>
         </div>
         {description ? (
@@ -115,42 +127,48 @@ export function AlbumDetailHeader({
             <ShuffleIcon />
             Shuffle
           </button>
-          <button
-            className={`pill album-favorite${isFavorite ? ' is-favorited' : ''}`}
-            type="button"
-            aria-pressed={isFavorite}
-            title={isFavorite ? 'Favorited' : 'Favorite'}
-            disabled={favoriteBusy}
-            onClick={onToggleFavorite}
-          >
-            <svg
-              className="heart-outline"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-              width="14"
-              height="14"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          {showFavorite ? (
+            <button
+              className={`pill album-favorite${isFavorite ? ' is-favorited' : ''}`}
+              type="button"
+              aria-pressed={isFavorite}
+              title={isFavorite ? 'Favorited' : 'Favorite'}
+              disabled={favoriteBusy}
+              onClick={onToggleFavorite}
             >
-              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-            </svg>
-            <svg
-              className="heart-filled"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-              width="14"
-              height="14"
-              fill="currentColor"
-            >
-              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-            </svg>
-          </button>
+              <svg
+                className="heart-outline"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                width="14"
+                height="14"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+              </svg>
+              <svg
+                className="heart-filled"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                width="14"
+                height="14"
+                fill="currentColor"
+              >
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+              </svg>
+            </button>
+          ) : null}
           <span className="album-quality-stamp is-action-quality">
-            {showQobuzStamp ? <QobuzSourceIcon /> : null}
-            <span>{formatAlbumQualityStamp(tracks)}</span>
+            {showQobuzStamp ? (
+              <QobuzSourceIcon />
+            ) : showAppleMusicStamp ? (
+              <AppleMusicSourceIcon />
+            ) : null}
+            <span>{quality}</span>
           </span>
         </div>
       </div>

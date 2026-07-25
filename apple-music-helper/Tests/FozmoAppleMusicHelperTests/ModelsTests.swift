@@ -143,11 +143,26 @@ final class ModelsTests: XCTestCase {
             isrc: nil,
             artworkURL: "https://example.test/joga.jpg"
         )
+        let albumData = Data(
+            """
+            {
+              "album_id": "album-1",
+              "storefront": "nz",
+              "title": "Homogenic",
+              "artist": "Björk",
+              "artwork_url": "https://example.test/homogenic.jpg",
+              "audio_variants": [],
+              "tracks": []
+            }
+            """.utf8
+        )
+        let album = try JSONDecoder().decode(CatalogAlbumPayload.self, from: albumData)
         var event = HelperEvent(type: "catalog_search")
         event.catalogSearch = CatalogSearchPayload(
             term: "Björk Jóga",
             storefront: "nz",
-            songs: [song]
+            songs: [song],
+            albums: [album]
         )
         let object = try XCTUnwrap(
             JSONSerialization.jsonObject(with: JSONEncoder().encode(event)) as? [String: Any]
@@ -155,6 +170,10 @@ final class ModelsTests: XCTestCase {
         let search = try XCTUnwrap(object["catalog_search"] as? [String: Any])
         XCTAssertEqual(search["term"] as? String, "Björk Jóga")
         XCTAssertEqual((search["songs"] as? [[String: Any]])?.first?["song_id"] as? String, "song-1")
+        XCTAssertEqual(
+            (search["albums"] as? [[String: Any]])?.first?["album_id"] as? String,
+            "album-1"
+        )
     }
 
     func testQueuePlanValidationRejectsStaleAndMalformedPlans() {

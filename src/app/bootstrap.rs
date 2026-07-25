@@ -144,6 +144,21 @@ pub(crate) fn build_app_state(
     let lastfm = Arc::new(LastFmService::new().map_err(AppError::lastfm)?);
     #[cfg(feature = "apple_music_capture")]
     let apple_music_capture = Arc::new(AppleMusicCaptureService::new(Arc::clone(&player)));
+    #[cfg(feature = "apple_music_capture")]
+    match apple_music_capture
+        .restore_configured_output_if_idle(&settings.apple_music_capture_settings())
+    {
+        Ok(true) => tracing::info!(
+            event = "apple_music_capture_output_restored",
+            "Restored the configured physical output left behind by an interrupted capture session"
+        ),
+        Ok(false) => {}
+        Err(error) => tracing::warn!(
+            event = "apple_music_capture_output_restore_failed",
+            error,
+            "Could not restore the configured physical Apple Music output during startup"
+        ),
+    }
     #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
     let apple_music = Arc::new(AppleMusicService::new(
         &paths.resource_dir,
