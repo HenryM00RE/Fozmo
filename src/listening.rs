@@ -450,6 +450,17 @@ impl ListeningTracker {
     }
 
     pub fn next(&self, library: &Library, zone_id: &str) {
+        self.advance_to_next(library, zone_id, false);
+    }
+
+    /// Promote an engine-queued item after the previous source reached its
+    /// natural EOF. This is distinct from a user-initiated Next command so the
+    /// completed listen is recorded accurately.
+    pub fn completed_next(&self, library: &Library, zone_id: &str) {
+        self.advance_to_next(library, zone_id, true);
+    }
+
+    fn advance_to_next(&self, library: &Library, zone_id: &str, completed: bool) {
         self.transferred_sources.lock().unwrap().remove(zone_id);
         let mut active = self.active.lock().unwrap();
         let Some(mut current) = active.remove(zone_id) else {
@@ -491,7 +502,7 @@ impl ListeningTracker {
         }
         drop(active);
         let _ = library.set_zone_queue(zone_id, &remaining_sources);
-        finalize_listen(library, current, false);
+        finalize_listen(library, current, completed);
     }
 
     fn recover_active_listen(
@@ -1439,6 +1450,37 @@ mod tests {
 
         assert!(library.zone_queue(zone_id).unwrap().is_empty());
         assert_eq!(tracker.active_source(zone_id).unwrap().key(), second.key());
+    }
+
+    #[test]
+    fn completed_next_promotes_exactly_one_prefetched_item() {
+        let library = test_library("completed-next-prefetched-item");
+        let tracker = ListeningTracker::default();
+        let zone_id = "local-core";
+        let first = qobuz_test_source(1, "One");
+        let second = qobuz_test_source(2, "Two");
+        let third = qobuz_test_source(3, "Three");
+        library
+            .upsert_zone_definition(zone_id, "Local", "local_coreaudio", None, true)
+            .unwrap();
+        library
+            .set_zone_queue(zone_id, &[second.clone(), third.clone()])
+            .unwrap();
+        tracker.start(
+            &library,
+            zone_id.to_string(),
+            "Local".to_string(),
+            "default".to_string(),
+            first,
+            vec![second.clone(), third.clone()],
+        );
+
+        tracker.completed_next(&library, zone_id);
+
+        assert_eq!(tracker.active_source(zone_id).unwrap().key(), second.key());
+        let saved_queue = library.zone_queue(zone_id).unwrap();
+        assert_eq!(saved_queue.len(), 1);
+        assert_eq!(saved_queue[0].source.key(), third.key());
     }
 
     #[test]

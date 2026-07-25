@@ -25,6 +25,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 
 pub const CAPTURE_DEVICE_NAME: &str = "Fozmo Capture";
+pub(crate) const APPLE_MUSIC_LIVE_DISPLAY_NAME: &str = capture_session::LIVE_DISPLAY_NAME;
 const CAPTURE_DEVICE_UID: &str = "com.fozmo.audio.capture";
 const CAPTURE_DEVICE_ONLY_MESSAGE: &str =
     "Apple Music capture can only use the Fozmo Capture virtual device.";
@@ -240,6 +241,7 @@ struct CaptureRuntime {
     saved_default_output_uid: Option<String>,
     playback: Option<NativeAppleMusicPlaybackSnapshot>,
     next_playback_generation: u64,
+    next_prefetch_revision: u64,
 }
 
 impl Default for CaptureRuntime {
@@ -260,6 +262,7 @@ impl Default for CaptureRuntime {
             saved_default_output_uid: None,
             playback: None,
             next_playback_generation: 1,
+            next_prefetch_revision: 1,
         }
     }
 }
@@ -725,6 +728,32 @@ impl AppleMusicCaptureService {
 
     pub(crate) fn managed_playback_snapshot(&self) -> Option<NativeAppleMusicPlaybackSnapshot> {
         self.runtime.lock().unwrap().playback.clone()
+    }
+
+    /// Reserve ownership of the next background queue prefetch for this native
+    /// playback generation. A later queue edit supersedes the prior revision
+    /// before it can install a stale Player queue.
+    pub(crate) fn reserve_managed_prefetch(&self, generation: u64) -> Option<u64> {
+        let mut runtime = self.runtime.lock().unwrap();
+        if runtime
+            .playback
+            .as_ref()
+            .is_none_or(|playback| playback.generation != generation)
+        {
+            return None;
+        }
+        let revision = runtime.next_prefetch_revision.max(1);
+        runtime.next_prefetch_revision = revision.wrapping_add(1).max(1);
+        Some(revision)
+    }
+
+    pub(crate) fn managed_prefetch_is_current(&self, generation: u64, revision: u64) -> bool {
+        let runtime = self.runtime.lock().unwrap();
+        runtime
+            .playback
+            .as_ref()
+            .is_some_and(|playback| playback.generation == generation)
+            && runtime.next_prefetch_revision == revision.wrapping_add(1).max(1)
     }
 
     pub(crate) fn playback_snapshot_for_zone(

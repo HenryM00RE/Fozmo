@@ -413,7 +413,7 @@ pub(crate) async fn prefetch_qobuz_queue_track_into_player(
     Ok(())
 }
 
-async fn qobuz_stream_queue_item_for_request(
+pub(crate) async fn qobuz_stream_queue_item_for_request(
     state: &AppState,
     req: &QobuzPlayRequest,
 ) -> Result<StreamQueueItem, String> {

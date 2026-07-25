@@ -7,12 +7,17 @@
 use crate::app::state::AppState;
 use crate::playback::error::PlaybackError;
 use crate::playback::intent::{PlaybackGuard, PlaybackIntent, PlaybackOutcome};
+use crate::playback::qobuz::qobuz_stream_queue_item_for_request;
+use crate::playback::resolver::local_player_queue_items_from_sources;
 use crate::playback::router::PlaybackRouter;
 use crate::playback::service::{
     apply_playback_settings_for_zone, prepare_airplay_volume_for_zone, prepare_hegel_for_zone,
 };
+use crate::playback::source::qobuz_play_request_from_source_ref;
 use crate::protocol::SourceRef;
-use crate::services::apple_music::NativeAppleMusicPlaybackSnapshot;
+use crate::services::apple_music::{
+    APPLE_MUSIC_LIVE_DISPLAY_NAME, NativeAppleMusicPlaybackSnapshot,
+};
 use crate::services::apple_music_musickit::{
     AppleMusicMvpError, MusicAppSnapshot, activate_catalog_track, music_app_status,
     pause_music_app, play_music_app, play_music_app_current_once, prepare_music_app,
@@ -33,6 +38,7 @@ const MONITOR_INTERVAL: Duration = Duration::from_millis(350);
 const COMPLETION_TAIL_SECS: f64 = 4.0;
 const PLAYER_PAUSE_TIMEOUT: Duration = Duration::from_secs(4);
 const PLAYER_EOF_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
+const PLAYER_AUTO_ADVANCE_START_GRACE: Duration = Duration::from_millis(750);
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn play_apple_music_source(
@@ -62,6 +68,9 @@ pub(crate) async fn play_apple_music_source(
     let _playback_switch = state.apple_music().lock_playback_switch().await;
     ensure_guard_current(state, &guard)?;
     pause_music_blocking().await?;
+    if let Some(previous) = state.apple_music_capture().managed_playback_snapshot() {
+        clear_prefetched_player_queue(state, &previous);
+    }
     if state.apple_music_capture().capture_running() {
         state.apple_music_capture().stop_runtime(false);
     }
@@ -202,6 +211,7 @@ pub(crate) async fn play_apple_music_source(
         radio_auto,
     );
     spawn_music_app_monitor(state.clone(), zone_id.to_string(), playback.generation);
+    spawn_native_next_prefetch(state.clone(), zone_id.to_string());
     Ok(PlaybackOutcome::Completed)
 }
 
@@ -216,6 +226,129 @@ pub(crate) fn active_snapshot(
     (player.playback_epoch() == snapshot.player_epoch).then_some(snapshot)
 }
 
+/// Refresh the Player-owned item directly behind the native live capture.
+/// Local files and already-open Qobuz streams can then begin at live EOF
+/// without tearing down the DSP/output. A queued Apple entry intentionally
+/// leaves the engine queue empty because it must be selected and verified in
+/// Music.app at the provider boundary.
+pub(crate) fn spawn_native_next_prefetch(state: AppState, zone_id: String) {
+    let Some(snapshot) = active_snapshot(&state, &zone_id) else {
+        return;
+    };
+    let Some(revision) = state
+        .apple_music_capture()
+        .reserve_managed_prefetch(snapshot.generation)
+    else {
+        return;
+    };
+    tokio::spawn(async move {
+        if let Err(error) =
+            arm_native_next_player_queue(&state, &zone_id, &snapshot, revision).await
+        {
+            debug!(
+                event = "apple_music_native_next_prefetch_skipped",
+                zone_id,
+                generation = snapshot.generation,
+                error,
+                "Could not pre-arm the next mixed-provider queue entry"
+            );
+        }
+    });
+}
+
+async fn arm_native_next_player_queue(
+    state: &AppState,
+    zone_id: &str,
+    snapshot: &NativeAppleMusicPlaybackSnapshot,
+    revision: u64,
+) -> Result<(), String> {
+    let player = state
+        .zones()
+        .player_for_zone(zone_id)
+        .ok_or_else(|| "Zone not available".to_string())?;
+    if player.playback_epoch() != snapshot.player_epoch {
+        return Err("Playback changed".to_string());
+    }
+    let upcoming = zone_queue_sources(state, zone_id);
+    let Some(next) = upcoming.first().cloned() else {
+        if native_prefetch_is_current(state, zone_id, snapshot, revision, None) {
+            player.set_queue_if_epoch(Vec::new(), Some(snapshot.player_epoch));
+        }
+        return Ok(());
+    };
+    let next_key = next.key();
+    match &next {
+        SourceRef::LocalTrack { .. } => {
+            // Load the entire contiguous local prefix. Player can then retain
+            // the same output and DSP graph for Apple -> local -> local.
+            let queue = local_player_queue_items_from_sources(state, &upcoming);
+            if queue.is_empty() {
+                return Err(format!("Could not resolve queued local source {next_key}"));
+            }
+            if native_prefetch_is_current(state, zone_id, snapshot, revision, Some(&next_key)) {
+                player.set_queue_if_epoch(queue, Some(snapshot.player_epoch));
+                info!(
+                    event = "apple_music_native_next_prefetched",
+                    zone_id,
+                    next_source_key = next_key,
+                    provider = "local",
+                    "Armed a gapless Player handoff after native Apple Music"
+                );
+            }
+        }
+        SourceRef::QobuzTrack { .. } => {
+            let request = qobuz_play_request_from_source_ref(&next, &[], next.is_radio())
+                .ok_or_else(|| format!("Queued Qobuz source {next_key} was not playable"))?;
+            let item = qobuz_stream_queue_item_for_request(state, &request).await?;
+            if native_prefetch_is_current(state, zone_id, snapshot, revision, Some(&next_key)) {
+                player.set_stream_queue_if_epoch(
+                    vec![item],
+                    player.current_file_name(),
+                    Some(snapshot.player_epoch),
+                );
+                info!(
+                    event = "apple_music_native_next_prefetched",
+                    zone_id,
+                    next_source_key = next_key,
+                    provider = "qobuz",
+                    "Armed a gapless Player handoff after native Apple Music"
+                );
+            }
+        }
+        SourceRef::AppleMusicTrack { .. } => {
+            if native_prefetch_is_current(state, zone_id, snapshot, revision, Some(&next_key)) {
+                player.set_queue_if_epoch(Vec::new(), Some(snapshot.player_epoch));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn native_prefetch_is_current(
+    state: &AppState,
+    zone_id: &str,
+    snapshot: &NativeAppleMusicPlaybackSnapshot,
+    revision: u64,
+    expected_next_key: Option<&str>,
+) -> bool {
+    state
+        .apple_music_capture()
+        .managed_prefetch_is_current(snapshot.generation, revision)
+        && active_snapshot(state, zone_id)
+            .is_some_and(|active| active.player_epoch == snapshot.player_epoch)
+        && expected_next_key.is_none_or(|expected| {
+            zone_queue_sources(state, zone_id)
+                .first()
+                .is_some_and(|source| source.key() == expected)
+        })
+}
+
+fn clear_prefetched_player_queue(state: &AppState, snapshot: &NativeAppleMusicPlaybackSnapshot) {
+    if let Some(player) = state.zones().player_for_zone(&snapshot.zone_id) {
+        player.set_queue_if_epoch(Vec::new(), Some(snapshot.player_epoch));
+    }
+}
+
 pub(crate) async fn stop_replaced_session_if_current(
     state: &AppState,
     zone_id: &str,
@@ -223,7 +356,11 @@ pub(crate) async fn stop_replaced_session_if_current(
 ) -> Result<(), PlaybackError> {
     let _playback_switch = state.apple_music().lock_playback_switch().await;
     ensure_guard_current(state, guard)?;
-    if active_snapshot(state, zone_id).is_some() {
+    if let Some(snapshot) = active_snapshot(state, zone_id) {
+        // A natural EOF may have a Local/Qobuz item pre-armed in Player. An
+        // explicit provider switch owns the boundary instead, so remove that
+        // item before closing the live producer.
+        clear_prefetched_player_queue(state, &snapshot);
         let _ = pause_music_blocking().await;
         state.apple_music_capture().stop_runtime(false);
     }
@@ -323,6 +460,7 @@ pub(crate) async fn seek(
         Some(seconds),
         None,
     );
+    spawn_native_next_prefetch(state.clone(), zone_id.to_string());
     Ok(true)
 }
 
@@ -346,6 +484,7 @@ pub(crate) async fn next(state: &AppState, zone_id: &str) -> Result<bool, Playba
         .listening()
         .profile_id(zone_id)
         .unwrap_or_else(|| crate::settings::DEFAULT_PROFILE_ID.to_string());
+    clear_prefetched_player_queue(state, &snapshot);
     let _ = pause_music_blocking().await;
     let detached_epoch = state
         .apple_music_capture()
@@ -738,10 +877,17 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
                     } else {
                         snapshot.duration_secs
                     };
-                    let completed = duration > 0.0
-                        && last_position > 0.0
-                        && (last_position >= duration - COMPLETION_TAIL_SECS
-                            || last_position / duration >= 0.97);
+                    let completed = native_track_completed(last_position, duration);
+                    info!(
+                        event = "apple_music_native_terminal_state",
+                        zone_id,
+                        generation,
+                        last_position_secs = last_position,
+                        duration_secs = duration,
+                        completed,
+                        queued_count = zone_queue_sources(&state, &zone_id).len(),
+                        "Observed Music.app's terminal state"
+                    );
                     state.apple_music_capture().update_managed_playback(
                         generation,
                         "stopped",
@@ -766,6 +912,15 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
             }
         }
     });
+}
+
+fn native_track_completed(last_position_secs: f64, duration_secs: f64) -> bool {
+    duration_secs.is_finite()
+        && duration_secs > 0.0
+        && last_position_secs.is_finite()
+        && last_position_secs > 0.0
+        && (last_position_secs >= duration_secs - COMPLETION_TAIL_SECS
+            || last_position_secs / duration_secs >= 0.97)
 }
 
 async fn finish_native_playback(
@@ -811,7 +966,14 @@ async fn finish_native_playback(
     // the live source's ring intact. Let Player consume that final captured PCM,
     // flush the DSP/output, and reach EOF before replacing the provider.
     drop(playback_switch);
-    let Some(handoff_epoch) = wait_for_live_eof_drain(&state, &zone_id, detached_epoch).await
+    let expect_engine_handoff = next.as_ref().is_some_and(|(next, _)| {
+        matches!(
+            next,
+            SourceRef::LocalTrack { .. } | SourceRef::QobuzTrack { .. }
+        )
+    });
+    let Some(boundary) =
+        wait_for_live_eof_drain(&state, &zone_id, detached_epoch, expect_engine_handoff).await
     else {
         return;
     };
@@ -823,26 +985,82 @@ async fn finish_native_playback(
         );
         return;
     };
+    if matches!(boundary, LiveEofBoundary::AutoAdvanced(_)) && expect_engine_handoff {
+        promote_gapless_listening_boundary(&state, &zone_id, &snapshot.source, &next);
+        info!(
+            event = "apple_music_native_gapless_handoff",
+            zone_id,
+            next_source_key = next.key(),
+            player_epoch = boundary.epoch(),
+            "Player promoted the prefetched source without reopening the output"
+        );
+        return;
+    }
     route_after_native_boundary(
         state,
         zone_id,
         profile_id,
         next,
         rest,
-        handoff_epoch,
+        boundary.epoch(),
         reason,
     )
     .await;
+}
+
+fn promote_gapless_listening_boundary(
+    state: &AppState,
+    zone_id: &str,
+    previous: &SourceRef,
+    next: &SourceRef,
+) {
+    let previous_key = previous.key();
+    let next_key = next.key();
+    match state.listening().active_source(zone_id) {
+        Some(active) if active.key() == previous_key => {
+            state.listening().completed_next(state.library(), zone_id);
+        }
+        // The global status observer can see Player's new metadata in the few
+        // microseconds before this task runs. It already promotes the same
+        // queued source in that case; advancing again would skip a track.
+        Some(active) if active.key() == next_key => {}
+        active => {
+            warn!(
+                event = "apple_music_native_listening_handoff_mismatch",
+                zone_id,
+                previous_source_key = previous_key,
+                next_source_key = next_key,
+                active_source_key = active.map(|source| source.key()),
+                "Player advanced, but listening state no longer owned the expected queue boundary"
+            );
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LiveEofBoundary {
+    Stopped(u64),
+    AutoAdvanced(u64),
+}
+
+impl LiveEofBoundary {
+    fn epoch(self) -> u64 {
+        match self {
+            Self::Stopped(epoch) | Self::AutoAdvanced(epoch) => epoch,
+        }
+    }
 }
 
 async fn wait_for_live_eof_drain(
     state: &AppState,
     zone_id: &str,
     expected_epoch: u64,
-) -> Option<u64> {
+    expect_engine_handoff: bool,
+) -> Option<LiveEofBoundary> {
     use crate::audio::player::PlaybackState;
 
     let deadline = tokio::time::Instant::now() + PLAYER_EOF_DRAIN_TIMEOUT;
+    let mut stopped_since = None;
     loop {
         let Some(player) = state.zones().player_for_zone(zone_id) else {
             return None;
@@ -850,8 +1068,26 @@ async fn wait_for_live_eof_drain(
         if player.playback_epoch() != expected_epoch {
             return None;
         }
-        if player.playback_state() == PlaybackState::Stopped {
-            return Some(expected_epoch);
+        let playback_state = player.playback_state();
+        let auto_advanced = expect_engine_handoff
+            && playback_state != PlaybackState::Stopped
+            && player
+                .current_file_name()
+                .as_deref()
+                .is_some_and(|name| name != APPLE_MUSIC_LIVE_DISPLAY_NAME);
+        if auto_advanced {
+            return Some(LiveEofBoundary::AutoAdvanced(expected_epoch));
+        }
+        if playback_state == PlaybackState::Stopped {
+            if !expect_engine_handoff {
+                return Some(LiveEofBoundary::Stopped(expected_epoch));
+            }
+            let stopped_at = stopped_since.get_or_insert_with(tokio::time::Instant::now);
+            if stopped_at.elapsed() >= PLAYER_AUTO_ADVANCE_START_GRACE {
+                return Some(LiveEofBoundary::Stopped(expected_epoch));
+            }
+        } else {
+            stopped_since = None;
         }
         if tokio::time::Instant::now() >= deadline {
             warn!(
@@ -861,7 +1097,7 @@ async fn wait_for_live_eof_drain(
                 "Captured Apple Music tail did not finish draining before the next provider handoff"
             );
             player.stop();
-            return Some(player.playback_epoch());
+            return Some(LiveEofBoundary::Stopped(player.playback_epoch()));
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
@@ -1050,5 +1286,14 @@ mod tests {
             *album_id = None;
         }
         assert!(catalog_identity(&source).is_err());
+    }
+
+    #[test]
+    fn terminal_music_state_uses_retained_near_end_position_as_completion() {
+        assert!(native_track_completed(296.5, 300.0));
+        assert!(native_track_completed(291.0, 300.0));
+        assert!(!native_track_completed(280.0, 300.0));
+        assert!(!native_track_completed(0.0, 300.0));
+        assert!(!native_track_completed(296.5, 0.0));
     }
 }

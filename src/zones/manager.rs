@@ -19,6 +19,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
+const LOCAL_DEVICE_OFFLINE_MISS_THRESHOLD: u8 = 2;
+
 #[derive(Clone)]
 pub struct ZoneManager {
     inner: Arc<Mutex<ZoneRegistry>>,
@@ -45,6 +47,7 @@ impl ZoneManager {
                 player: local_player,
                 enabled: true,
                 online: true,
+                missed_device_scans: 0,
                 status_message: None,
             },
         );
@@ -111,7 +114,15 @@ impl ZoneManager {
                 // evidence than a transient device-enumeration miss. In
                 // particular, CoreAudio can omit a hogged USB DAC while the
                 // output is opening or draining at a track boundary.
-                zone.online = ActiveZonePolicy::local_zone_has_running_or_owned_output(zone);
+                if ActiveZonePolicy::local_zone_has_running_or_owned_output(zone) {
+                    zone.online = true;
+                    zone.missed_device_scans = 0;
+                } else {
+                    zone.missed_device_scans = zone.missed_device_scans.saturating_add(1);
+                    if zone.missed_device_scans >= LOCAL_DEVICE_OFFLINE_MISS_THRESHOLD {
+                        zone.online = false;
+                    }
+                }
                 zone.status_message = None;
             }
         }
@@ -126,10 +137,12 @@ impl ZoneManager {
                     player: Arc::new(Player::new()),
                     enabled: false,
                     online: true,
+                    missed_device_scans: 0,
                     status_message: None,
                 });
             if let Some(zone) = guard.local_zones.get_mut(&id) {
                 zone.online = true;
+                zone.missed_device_scans = 0;
                 zone.status_message = None;
             }
         }
@@ -159,12 +172,14 @@ impl ZoneManager {
                 player: Arc::new(Player::new()),
                 enabled: true,
                 online: false,
+                missed_device_scans: LOCAL_DEVICE_OFFLINE_MISS_THRESHOLD,
                 status_message: None,
             });
         let was_online = zone.online;
         zone.device_name = Some(device_name.to_string());
         zone.enabled = true;
         zone.online = true;
+        zone.missed_device_scans = 0;
         if !was_online {
             zone.status_message = Some(status_message.to_string());
         }
@@ -189,6 +204,7 @@ impl ZoneManager {
                 player: Arc::new(Player::new()),
                 enabled,
                 online: false,
+                missed_device_scans: LOCAL_DEVICE_OFFLINE_MISS_THRESHOLD,
                 status_message: Some(status_message.to_string()),
             });
         zone.name = name.to_string();
@@ -223,6 +239,7 @@ impl ZoneManager {
                     player: Arc::new(Player::new()),
                     enabled: false,
                     online: receiver.online,
+                    missed_device_scans: 0,
                     status_message: None,
                 });
             if let Some(zone) = guard.local_zones.get_mut(&id) {
@@ -257,6 +274,7 @@ impl ZoneManager {
                     player: Arc::new(Player::new()),
                     enabled: false,
                     online: speaker.online,
+                    missed_device_scans: 0,
                     status_message: None,
                 });
             if let Some(zone) = guard.local_zones.get_mut(&id) {
@@ -291,6 +309,7 @@ impl ZoneManager {
                     player: Arc::new(Player::new()),
                     enabled: false,
                     online: renderer.online,
+                    missed_device_scans: 0,
                     status_message: None,
                 });
             if let Some(zone) = guard.local_zones.get_mut(&id) {
@@ -817,6 +836,11 @@ mod tests {
         }]);
 
         assert_eq!(manager.active_zone_id(), hegel_zone_id);
+
+        manager.sync_local_devices(Vec::new());
+
+        assert_eq!(manager.active_zone_id(), hegel_zone_id);
+        assert!(manager.player_for_zone(&hegel_zone_id).is_some());
 
         manager.sync_local_devices(Vec::new());
 

@@ -27,6 +27,10 @@ pub(super) struct LocalZoneEntry {
     pub(super) player: Arc<Player>,
     pub(super) enabled: bool,
     pub(super) online: bool,
+    /// Consecutive CoreAudio scans that omitted this physical device while
+    /// Fozmo did not own or actively use its output. USB DACs can disappear
+    /// for one scan while Hog Mode is released at a provider boundary.
+    pub(super) missed_device_scans: u8,
     pub(super) status_message: Option<String>,
 }
 
