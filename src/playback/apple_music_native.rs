@@ -19,8 +19,8 @@ use crate::protocol::SourceRef;
 use crate::services::apple_music::{APPLE_MUSIC_LIVE_DISPLAY_NAME, AppleMusicPlaybackSnapshot};
 use crate::services::apple_music_musickit::{
     AppleMusicMvpError, MusicAppSnapshot, activate_catalog_track, music_app_status,
-    pause_music_app, play_music_app, play_music_app_current_once, prepare_music_app,
-    set_music_app_position,
+    pause_music_app, play_music_app, play_music_app_current_in_context,
+    play_music_app_current_once, prepare_music_app, set_music_app_position,
 };
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -92,6 +92,9 @@ pub(crate) async fn play_apple_music_source(
         initial_epoch,
         source.clone(),
     );
+    let use_contextual_transport = queue
+        .first()
+        .is_some_and(|next| native_apple_music_gapless_pair(&source, next));
 
     let start_result = async {
         hold_player_paused(&player, initial_epoch).await?;
@@ -147,7 +150,11 @@ pub(crate) async fn play_apple_music_source(
         // track is asynchronous: setting player position to zero in the same
         // AppleScript call is not enough, because the transport can restore
         // its previous global position a moment later.
-        play_current_once_blocking().await?;
+        if use_contextual_transport {
+            play_current_in_context_blocking().await?;
+        } else {
+            play_current_once_blocking().await?;
+        }
         wait_for_selected_track_transport(
             &source,
             "playing",
@@ -267,9 +274,10 @@ pub(crate) fn active_snapshot(
 
 /// Refresh the Player-owned item directly behind the native live capture.
 /// Local files and already-open Qobuz streams can then begin at live EOF
-/// without tearing down the DSP/output. A queued Apple entry intentionally
-/// leaves the engine queue empty because it must be selected and verified in
-/// Music.app at the provider boundary.
+/// without tearing down the DSP/output. Apple entries stay out of the engine
+/// queue: sequential tracks from the same catalog album advance inside
+/// Music.app's continuous transport, while other Apple boundaries are routed
+/// through the normal verified start path.
 pub(crate) fn spawn_native_next_prefetch(state: AppState, zone_id: String) {
     let Some(snapshot) = active_snapshot(&state, &zone_id) else {
         return;
@@ -686,6 +694,51 @@ fn track_position_is_at_start(snapshot: &MusicAppSnapshot, maximum_position_secs
         .is_some_and(|position| position <= maximum_position_secs)
 }
 
+fn native_apple_music_gapless_pair(current: &SourceRef, next: &SourceRef) -> bool {
+    let (
+        SourceRef::AppleMusicTrack {
+            storefront: current_storefront,
+            album_id: current_album_id,
+            track_number: current_track,
+            disc_number: current_disc,
+            ..
+        },
+        SourceRef::AppleMusicTrack {
+            storefront: next_storefront,
+            album_id: next_album_id,
+            track_number: next_track,
+            disc_number: next_disc,
+            ..
+        },
+    ) = (current, next)
+    else {
+        return false;
+    };
+    let same_album = current_album_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|album_id| !album_id.is_empty())
+        .is_some_and(|album_id| {
+            next_album_id
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|next_album_id| next_album_id == album_id)
+        });
+    let same_storefront = current_storefront
+        .as_deref()
+        .map(str::trim)
+        .zip(next_storefront.as_deref().map(str::trim))
+        .is_some_and(|(current, next)| current.eq_ignore_ascii_case(next));
+    let consecutive = match (current_disc, current_track, next_disc, next_track) {
+        (Some(current_disc), Some(current_track), Some(next_disc), Some(next_track)) => {
+            (current_disc == next_disc && current_track.checked_add(1) == Some(*next_track))
+                || (current_disc.checked_add(1) == Some(*next_disc) && *next_track == 1)
+        }
+        _ => false,
+    };
+    same_album && same_storefront && consecutive
+}
+
 fn music_track_matches_source(snapshot: &MusicAppSnapshot, source: &SourceRef) -> bool {
     let Some(actual_title) = snapshot.track.title.as_deref() else {
         return false;
@@ -1019,6 +1072,21 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
                     snapshot.duration_secs
                 };
                 let completed = native_track_completed(last_position, duration);
+                if completed
+                    && let Some(next) = promote_continuous_apple_music_boundary(
+                        &state, &zone_id, generation, &snapshot, &music,
+                    )
+                {
+                    last_position = music.track.position_secs.unwrap_or(0.0);
+                    last_duration = music
+                        .track
+                        .duration_secs
+                        .or_else(|| next.duration_secs())
+                        .unwrap_or(0.0);
+                    consecutive_stopped = 0;
+                    startup_recovery_attempted = false;
+                    continue;
+                }
                 warn!(
                     event = "apple_music_native_track_interrupted",
                     zone_id,
@@ -1163,6 +1231,56 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
             }
         }
     });
+}
+
+fn promote_continuous_apple_music_boundary(
+    state: &AppState,
+    zone_id: &str,
+    generation: u64,
+    previous: &AppleMusicPlaybackSnapshot,
+    music: &MusicAppSnapshot,
+) -> Option<SourceRef> {
+    let next = zone_queue_sources(state, zone_id).into_iter().next()?;
+    if !native_apple_music_gapless_pair(&previous.source, &next)
+        || !music_track_matches_source(music, &next)
+    {
+        return None;
+    }
+    let player = native_local_player(state, zone_id)?;
+    if player.playback_epoch() != previous.player_epoch {
+        return None;
+    }
+    let player_position_secs = native_player_position_secs(&player);
+    if !state.apple_music_playback().promote_continuous_playback(
+        generation,
+        next.clone(),
+        player_position_secs,
+        music.track.position_secs,
+        music.track.duration_secs,
+    ) {
+        return None;
+    }
+    state.listening().completed_next(state.library(), zone_id);
+    spawn_native_next_prefetch(state.clone(), zone_id.to_string());
+    info!(
+        event = "apple_music_native_gapless_album_transition",
+        zone_id,
+        previous_source_key = previous.source.key(),
+        next_source_key = next.key(),
+        player_epoch = previous.player_epoch,
+        "Music.app advanced to the queued album track without reopening capture or output"
+    );
+    Some(next)
+}
+
+fn native_player_position_secs(player: &Player) -> f64 {
+    let snapshot = player.snapshot_no_cover();
+    let target_rate = snapshot.signal_path.target_rate;
+    if target_rate == 0 {
+        0.0
+    } else {
+        snapshot.metrics.position_samples as f64 / f64::from(target_rate)
+    }
 }
 
 fn stopped_state_is_terminal(consecutive_stopped: u8, elapsed: Duration) -> bool {
@@ -1496,6 +1614,17 @@ async fn play_current_once_blocking() -> Result<(), PlaybackError> {
         .map_err(PlaybackError::integration)
 }
 
+async fn play_current_in_context_blocking() -> Result<(), PlaybackError> {
+    tokio::task::spawn_blocking(play_music_app_current_in_context)
+        .await
+        .map_err(|error| {
+            PlaybackError::internal_invariant(format!(
+                "Music.app contextual play task stopped: {error}"
+            ))
+        })?
+        .map_err(PlaybackError::integration)
+}
+
 async fn set_music_position_blocking(seconds: f64) -> Result<(), PlaybackError> {
     tokio::task::spawn_blocking(move || set_music_app_position(seconds))
         .await
@@ -1558,6 +1687,61 @@ mod tests {
             &snapshot,
             &apple_source(Some("New Kid in Town"), Some("EAGLES"))
         ));
+    }
+
+    #[test]
+    fn native_gapless_pair_requires_the_next_track_from_the_same_apple_album() {
+        let current = apple_source(Some("New Kid in Town"), Some("Eagles"));
+        let mut next = apple_source(Some("Life in the Fast Lane"), Some("Eagles"));
+        if let SourceRef::AppleMusicTrack {
+            song_id,
+            track_number,
+            ..
+        } = &mut next
+        {
+            *song_id = "635770204".to_string();
+            *track_number = Some(3);
+        }
+        assert!(native_apple_music_gapless_pair(&current, &next));
+
+        let mut skipped = next.clone();
+        if let SourceRef::AppleMusicTrack { track_number, .. } = &mut skipped {
+            *track_number = Some(4);
+        }
+        assert!(!native_apple_music_gapless_pair(&current, &skipped));
+
+        let mut other_album = next.clone();
+        if let SourceRef::AppleMusicTrack { album_id, .. } = &mut other_album {
+            *album_id = Some("different-album".to_string());
+        }
+        assert!(!native_apple_music_gapless_pair(&current, &other_album));
+    }
+
+    #[test]
+    fn native_gapless_pair_accepts_the_first_track_of_the_next_disc() {
+        let mut current = apple_source(Some("Disc One Finale"), Some("Artist"));
+        let mut next = apple_source(Some("Disc Two Opener"), Some("Artist"));
+        if let SourceRef::AppleMusicTrack {
+            track_number,
+            disc_number,
+            ..
+        } = &mut current
+        {
+            *track_number = Some(10);
+            *disc_number = Some(1);
+        }
+        if let SourceRef::AppleMusicTrack {
+            song_id,
+            track_number,
+            disc_number,
+            ..
+        } = &mut next
+        {
+            *song_id = "635770204".to_string();
+            *track_number = Some(1);
+            *disc_number = Some(2);
+        }
+        assert!(native_apple_music_gapless_pair(&current, &next));
     }
 
     #[test]

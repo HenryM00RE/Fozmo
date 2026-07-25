@@ -647,7 +647,8 @@ fn apply_native_apple_music_status_overlay(
     // output. Report the Player-consumed timeline—the audio the user is
     // actually hearing—rather than the decoder head. A seek establishes a
     // new source-position origin for the fresh live Player session.
-    let audible_position_secs = snapshot.timeline_origin_secs + response.position_secs;
+    let audible_position_secs = snapshot.timeline_origin_secs
+        + (response.position_secs - snapshot.player_position_origin_secs).max(0.0);
     response.position_secs = if response.duration_secs > 0.0 {
         audible_position_secs.min(response.duration_secs)
     } else {

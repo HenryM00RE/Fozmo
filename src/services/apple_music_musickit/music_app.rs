@@ -43,6 +43,15 @@ const MUSIC_PLAY_CURRENT_ONCE_FROM_START_SCRIPT: &[&str] = &[
     "end tell",
 ];
 
+const MUSIC_PLAY_CURRENT_IN_CONTEXT_FROM_START_SCRIPT: &[&str] = &[
+    "tell application \"Music\"",
+    "pause",
+    "set player position to 0",
+    "play current track once false",
+    "set player position to 0",
+    "end tell",
+];
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct MusicAppSnapshot {
     pub running: bool,
@@ -90,6 +99,14 @@ pub(crate) fn play() -> Result<(), String> {
 /// provider boundary.
 pub(crate) fn play_current_once() -> Result<(), String> {
     run_music_script_with_retry(MUSIC_PLAY_CURRENT_ONCE_FROM_START_SCRIPT).map(|_| ())
+}
+
+/// Restart the selected track at zero while retaining Music.app's album
+/// context. When Fozmo's next queued source is the following track from the
+/// same catalog album, Music.app can decode the boundary continuously into the
+/// existing capture stream instead of requiring another catalog activation.
+pub(crate) fn play_current_in_context() -> Result<(), String> {
+    run_music_script_with_retry(MUSIC_PLAY_CURRENT_IN_CONTEXT_FROM_START_SCRIPT).map(|_| ())
 }
 
 pub(crate) fn pause() -> Result<(), String> {
@@ -325,6 +342,21 @@ mod tests {
                 "pause",
                 "set player position to 0",
                 "play current track once true",
+                "set player position to 0",
+                "end tell",
+            ]
+        );
+    }
+
+    #[test]
+    fn contextual_restart_preserves_music_app_album_advance() {
+        assert_eq!(
+            MUSIC_PLAY_CURRENT_IN_CONTEXT_FROM_START_SCRIPT,
+            &[
+                "tell application \"Music\"",
+                "pause",
+                "set player position to 0",
+                "play current track once false",
                 "set player position to 0",
                 "end tell",
             ]

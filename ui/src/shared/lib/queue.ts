@@ -177,6 +177,28 @@ export function resolvedPlaySourceToQueueItem(source: ResolvedPlaySource): Queue
       format_id: source.format_id ?? null
     });
   }
+  if (source.kind === 'apple_music' || source.kind === 'apple_music_track') {
+    const songId = text(source.song_id);
+    if (!songId) return null;
+    return sourceRefToQueueItem({
+      kind: 'apple_music_track',
+      song_id: songId,
+      storefront: text(source.storefront) || null,
+      title: source.title ?? null,
+      artist: source.artist ?? null,
+      album: source.album ?? null,
+      album_artist: source.album_artist ?? source.artist ?? null,
+      album_id: text(source.album_id) || null,
+      artwork_url: source.artwork_url ?? source.image_url ?? null,
+      duration_secs: source.duration_secs ?? null,
+      track_number: source.track_number ?? null,
+      disc_number: source.disc_number ?? null,
+      isrc: source.isrc ?? null,
+      radio: Boolean(source.radio),
+      radio_context: source.radio_context ?? null,
+      playlist_context: playlistContext(source.playlist_context)
+    });
+  }
   return sourceRefToQueueItem(source as SourceRef);
 }
 

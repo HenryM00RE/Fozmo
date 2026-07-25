@@ -38,6 +38,10 @@ pub(crate) struct AppleMusicPlaybackSnapshot {
     /// Source position represented by Player position zero. This is non-zero
     /// after a seek because reopening the live capture resets Player metrics.
     pub(crate) timeline_origin_secs: f64,
+    /// Player timeline position at which the current Apple Music track begins.
+    /// This advances across native Music.app album transitions while the live
+    /// capture and physical output remain open.
+    pub(crate) player_position_origin_secs: f64,
     pub(crate) position_secs: f64,
     pub(crate) duration_secs: f64,
 }
@@ -295,6 +299,7 @@ impl AppleMusicPlaybackService {
             source,
             playback_state: "preparing".to_string(),
             timeline_origin_secs: 0.0,
+            player_position_origin_secs: 0.0,
             position_secs: 0.0,
         };
         runtime.playback = Some(snapshot.clone());
@@ -374,6 +379,42 @@ impl AppleMusicPlaybackService {
         true
     }
 
+    /// Promote Music.app's native next-album-track transition without
+    /// restarting the capture session or local Player output.
+    pub(crate) fn promote_continuous_playback(
+        &self,
+        generation: u64,
+        source: SourceRef,
+        fallback_player_position_secs: f64,
+        position_secs: Option<f64>,
+        duration_secs: Option<f64>,
+    ) -> bool {
+        let mut runtime = self.runtime.lock().unwrap();
+        let Some(snapshot) = runtime
+            .playback
+            .as_mut()
+            .filter(|snapshot| snapshot.generation == generation)
+        else {
+            return false;
+        };
+        snapshot.player_position_origin_secs = next_player_position_origin(
+            snapshot.player_position_origin_secs,
+            snapshot.duration_secs,
+            fallback_player_position_secs,
+        );
+        snapshot.source = source;
+        snapshot.playback_state = "playing".to_string();
+        snapshot.timeline_origin_secs = 0.0;
+        snapshot.position_secs = position_secs
+            .filter(|value| value.is_finite() && *value >= 0.0)
+            .unwrap_or(0.0);
+        snapshot.duration_secs = duration_secs
+            .filter(|value| value.is_finite() && *value > 0.0)
+            .or_else(|| snapshot.source.duration_secs())
+            .unwrap_or(0.0);
+        true
+    }
+
     pub(crate) fn set_timeline_origin(&self, generation: u64, position_secs: f64) -> bool {
         if !position_secs.is_finite() || position_secs < 0.0 {
             return false;
@@ -387,6 +428,7 @@ impl AppleMusicPlaybackService {
             return false;
         };
         snapshot.timeline_origin_secs = position_secs;
+        snapshot.player_position_origin_secs = 0.0;
         true
     }
 
@@ -532,6 +574,21 @@ fn normalized_buffer_ms(buffer_ms: u32) -> u32 {
     }
 }
 
+fn next_player_position_origin(
+    current_origin_secs: f64,
+    completed_duration_secs: f64,
+    fallback_player_position_secs: f64,
+) -> f64 {
+    if current_origin_secs.is_finite()
+        && current_origin_secs >= 0.0
+        && completed_duration_secs.is_finite()
+        && completed_duration_secs > 0.0
+    {
+        return current_origin_secs + completed_duration_secs;
+    }
+    fallback_player_position_secs.max(0.0)
+}
+
 fn now_unix_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -543,6 +600,26 @@ fn now_unix_ms() -> u64 {
 mod tests {
     use super::*;
 
+    fn apple_source(song_id: &str, title: &str, track_number: u32) -> SourceRef {
+        SourceRef::AppleMusicTrack {
+            song_id: song_id.to_string(),
+            storefront: Some("nz".to_string()),
+            title: Some(title.to_string()),
+            artist: Some("Radiohead".to_string()),
+            album: Some("In Rainbows".to_string()),
+            album_artist: Some("Radiohead".to_string()),
+            album_id: Some("1109714933".to_string()),
+            artwork_url: None,
+            duration_secs: Some(240.0),
+            track_number: Some(track_number),
+            disc_number: Some(1),
+            isrc: None,
+            radio: false,
+            radio_context: None,
+            playlist_context: None,
+        }
+    }
+
     #[test]
     fn playback_capture_buffer_can_cover_slow_coreaudio_startup() {
         assert_eq!(
@@ -553,5 +630,38 @@ mod tests {
             normalized_buffer_ms(u32::MAX),
             MAX_PLAYBACK_CAPTURE_BUFFER_MS
         );
+    }
+
+    #[test]
+    fn continuous_track_origin_advances_by_the_completed_track_duration() {
+        assert_eq!(next_player_position_origin(0.0, 237.5, 236.9), 237.5);
+        assert_eq!(next_player_position_origin(237.5, 242.0, 478.8), 479.5);
+        assert_eq!(next_player_position_origin(0.0, 0.0, 17.25), 17.25);
+    }
+
+    #[test]
+    fn continuous_playback_promotion_reuses_generation_and_resets_track_timeline() {
+        let service = AppleMusicPlaybackService::new(Arc::new(Player::new()));
+        let first = apple_source("1109715066", "15 Step", 1);
+        let next = apple_source("1109715161", "Bodysnatchers", 2);
+        let snapshot = service.activate_playback("local-core".to_string(), 7, first);
+        service.update_playback(snapshot.generation, "playing", Some(237.0), Some(237.5));
+
+        assert!(service.promote_continuous_playback(
+            snapshot.generation,
+            next.clone(),
+            237.0,
+            Some(0.08),
+            Some(242.0),
+        ));
+
+        let promoted = service.playback_snapshot().unwrap();
+        assert_eq!(promoted.generation, snapshot.generation);
+        assert_eq!(promoted.player_epoch, 7);
+        assert_eq!(promoted.source, next);
+        assert_eq!(promoted.player_position_origin_secs, 237.5);
+        assert_eq!(promoted.timeline_origin_secs, 0.0);
+        assert_eq!(promoted.position_secs, 0.08);
+        assert_eq!(promoted.duration_secs, 242.0);
     }
 }

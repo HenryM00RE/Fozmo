@@ -13,6 +13,7 @@ pub(crate) use model::{
 };
 pub(crate) use music_app::{
     MusicAppSnapshot, activate_catalog_track, pause as pause_music_app, play as play_music_app,
+    play_current_in_context as play_music_app_current_in_context,
     play_current_once as play_music_app_current_once, prepare_bit_perfect as prepare_music_app,
     set_position as set_music_app_position, status as music_app_status,
 };
