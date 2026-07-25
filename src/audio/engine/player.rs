@@ -1047,6 +1047,58 @@ impl Player {
         fallback_tags: Option<TrackTags>,
         queue: Vec<StreamQueueItem>,
     ) -> bool {
+        self.play_stream_with_initial_state_if_epoch(
+            expected_epoch,
+            source,
+            ext_hint,
+            display_name,
+            fallback_cover,
+            fallback_tags,
+            queue,
+            false,
+        )
+    }
+
+    /// Epoch-guarded live stream start that is installed atomically as paused.
+    ///
+    /// Sending `PlayStream` followed by `Pause` is not equivalent for a live
+    /// source: the audio worker can enter a blocking read between the two
+    /// commands when the external producer has not started yet.
+    #[allow(clippy::too_many_arguments)]
+    pub fn play_stream_paused_if_epoch(
+        &self,
+        expected_epoch: u64,
+        source: Box<dyn MediaSource>,
+        ext_hint: Option<String>,
+        display_name: String,
+        fallback_cover: Option<TrackCover>,
+        fallback_tags: Option<TrackTags>,
+        queue: Vec<StreamQueueItem>,
+    ) -> bool {
+        self.play_stream_with_initial_state_if_epoch(
+            expected_epoch,
+            source,
+            ext_hint,
+            display_name,
+            fallback_cover,
+            fallback_tags,
+            queue,
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn play_stream_with_initial_state_if_epoch(
+        &self,
+        expected_epoch: u64,
+        source: Box<dyn MediaSource>,
+        ext_hint: Option<String>,
+        display_name: String,
+        fallback_cover: Option<TrackCover>,
+        fallback_tags: Option<TrackTags>,
+        queue: Vec<StreamQueueItem>,
+        start_paused: bool,
+    ) -> bool {
         if self
             .playback_epoch
             .compare_exchange(
@@ -1067,6 +1119,7 @@ impl Player {
             fallback_cover,
             fallback_tags,
             queue,
+            start_paused,
         });
         true
     }

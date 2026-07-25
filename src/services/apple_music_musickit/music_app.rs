@@ -58,6 +58,13 @@ const MUSIC_PAUSE_AND_STATUS_SCRIPT: &[&str] = &[
     "end tell",
 ];
 
+const MUSIC_PLAY_CURRENT_ONCE_FROM_START_SCRIPT: &[&str] = &[
+    "tell application \"Music\"",
+    "set player position to 0",
+    "play current track once true",
+    "end tell",
+];
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct MusicAppSnapshot {
     pub running: bool,
@@ -97,7 +104,7 @@ pub(crate) fn play() -> Result<(), String> {
 /// to that one track. Fozmo, rather than Music.app's album queue, owns the next
 /// provider boundary.
 pub(crate) fn play_current_once() -> Result<(), String> {
-    run_music_command("play current track once true")
+    run_osascript(MUSIC_PLAY_CURRENT_ONCE_FROM_START_SCRIPT.iter().copied()).map(|_| ())
 }
 
 pub(crate) fn pause() -> Result<(), String> {
@@ -304,5 +311,18 @@ mod tests {
         assert!(validate_catalog_component("album ID", "../../bad").is_err());
         assert!(validate_catalog_component("song ID", "1?i=2").is_err());
         assert!(validate_catalog_component("storefront", "").is_err());
+    }
+
+    #[test]
+    fn single_track_restart_resets_timeline_before_playing() {
+        assert_eq!(
+            MUSIC_PLAY_CURRENT_ONCE_FROM_START_SCRIPT,
+            &[
+                "tell application \"Music\"",
+                "set player position to 0",
+                "play current track once true",
+                "end tell",
+            ]
+        );
     }
 }

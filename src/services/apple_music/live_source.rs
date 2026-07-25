@@ -465,6 +465,46 @@ mod tests {
     }
 
     #[test]
+    fn empty_live_source_can_be_installed_paused_without_blocking_player() {
+        use crate::audio::player::{PlaybackState, Player};
+
+        let (_producer, consumer) = live_capture_ring(4096);
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let source = LiveCaptureSource::new(44_100, consumer, Arc::clone(&shutdown));
+        let player = Player::new();
+        let epoch = player.reserve_playback_change();
+        assert!(player.play_stream_paused_if_epoch(
+            epoch,
+            Box::new(source),
+            Some("wav".to_string()),
+            "empty live source".to_string(),
+            None,
+            None,
+            Vec::new(),
+        ));
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let installed = loop {
+            if player.playback_state() == PlaybackState::Paused {
+                break true;
+            }
+            if std::time::Instant::now() >= deadline {
+                break false;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        };
+
+        // Always unblock the source before asserting so a regression cannot
+        // strand the Player worker while the test unwinds.
+        shutdown.store(true, Ordering::Release);
+        assert!(
+            installed,
+            "the worker tried to read live payload before installing the paused session"
+        );
+        player.stop();
+    }
+
+    #[test]
     fn shutdown_with_drained_ring_reaches_eof() {
         let (mut producer, consumer) = live_capture_ring(1024);
         let samples = ramp(8);

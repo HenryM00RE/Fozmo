@@ -15,6 +15,7 @@ pub(super) enum PendingStart {
     Stream {
         item: StreamQueueItem,
         epoch: u64,
+        start_paused: bool,
     },
     PreparedStream {
         prepared: Box<PreparedStream>,
@@ -32,6 +33,16 @@ impl PendingStart {
             | Self::Stream { epoch, .. }
             | Self::PreparedStream { epoch, .. } => *epoch,
         }
+    }
+
+    pub(super) fn start_paused(&self) -> bool {
+        matches!(
+            self,
+            Self::Stream {
+                start_paused: true,
+                ..
+            }
+        )
     }
 }
 
@@ -72,12 +83,17 @@ impl WorkerQueues {
         item: StreamQueueItem,
         new_queue: Vec<StreamQueueItem>,
         epoch: u64,
+        start_paused: bool,
     ) -> PendingStart {
         self.file_queue.clear();
         self.stream_queue = new_queue.into();
         self.publish_stream_queue_len();
         self.clear_stream_auto_advance_pending();
-        PendingStart::Stream { item, epoch }
+        PendingStart::Stream {
+            item,
+            epoch,
+            start_paused,
+        }
     }
 
     pub(super) fn replace_for_prepared_stream_start(
@@ -119,7 +135,11 @@ impl WorkerQueues {
             self.publish_stream_queue_len();
             self.stream_auto_advance_pending
                 .store(true, Ordering::Relaxed);
-            Some(PendingStart::Stream { item, epoch })
+            Some(PendingStart::Stream {
+                item,
+                epoch,
+                start_paused: false,
+            })
         } else if let Some(item) = self.file_queue.pop_front() {
             self.clear_stream_auto_advance_pending();
             Some(PendingStart::File { item, epoch })
@@ -233,7 +253,12 @@ mod tests {
     fn file_start_replaces_stream_queue_and_resets_stream_flags() {
         let (mut queues, stream_queue_len, stream_auto_advance_pending) = queues();
 
-        queues.replace_for_stream_start(stream_item("current"), vec![stream_item("next")], 1);
+        queues.replace_for_stream_start(
+            stream_item("current"),
+            vec![stream_item("next")],
+            1,
+            false,
+        );
         assert_eq!(stream_queue_len.load(Ordering::Relaxed), 1);
 
         queues.replace_for_file_start(queue_item("current.flac"), vec![queue_item("next.flac")], 2);
@@ -257,12 +282,18 @@ mod tests {
             stream_item("current"),
             vec![stream_item("next-1"), stream_item("next-2")],
             7,
+            false,
         );
 
         match queues.pop_next_start(8) {
-            Some(PendingStart::Stream { item, epoch }) => {
+            Some(PendingStart::Stream {
+                item,
+                epoch,
+                start_paused,
+            }) => {
                 assert_eq!(item.display_name, "next-1");
                 assert_eq!(epoch, 8);
+                assert!(!start_paused);
             }
             _ => panic!("expected next stream item"),
         }
@@ -272,6 +303,26 @@ mod tests {
         queues.clear_all();
         assert_eq!(stream_queue_len.load(Ordering::Relaxed), 0);
         assert!(!stream_auto_advance_pending.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn paused_stream_start_is_atomic_and_does_not_pause_its_queue() {
+        let (mut queues, _stream_queue_len, _stream_auto_advance_pending) = queues();
+
+        let initial = queues.replace_for_stream_start(
+            stream_item("live"),
+            vec![stream_item("next")],
+            9,
+            true,
+        );
+
+        assert!(initial.start_paused());
+        assert!(
+            !queues
+                .pop_next_start(10)
+                .expect("queued stream")
+                .start_paused()
+        );
     }
 
     #[test]
@@ -312,9 +363,14 @@ mod tests {
         queues.replace_stream_queue(vec![stream_item("next-stream")]);
 
         match queues.eof_next_start(true, true, None, None, None, 13) {
-            Some(PendingStart::Stream { item, epoch }) => {
+            Some(PendingStart::Stream {
+                item,
+                epoch,
+                start_paused,
+            }) => {
                 assert_eq!(item.display_name, "next-stream");
                 assert_eq!(epoch, 13);
+                assert!(!start_paused);
             }
             _ => panic!("expected queued stream item"),
         }
@@ -330,6 +386,7 @@ mod tests {
             stream_item("current"),
             vec![stream_item("next-stream")],
             3,
+            false,
         );
         assert_eq!(stream_queue_len.load(Ordering::Relaxed), 1);
 

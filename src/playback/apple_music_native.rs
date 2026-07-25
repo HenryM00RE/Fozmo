@@ -37,6 +37,7 @@ const RESUME_PREFILL_TIMEOUT: Duration = Duration::from_millis(1_000);
 const MONITOR_INTERVAL: Duration = Duration::from_millis(350);
 const COMPLETION_TAIL_SECS: f64 = 4.0;
 const PLAYER_PAUSE_TIMEOUT: Duration = Duration::from_secs(4);
+const PLAYER_OUTPUT_START_TIMEOUT: Duration = Duration::from_secs(12);
 const PLAYER_EOF_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 const PLAYER_AUTO_ADVANCE_START_GRACE: Duration = Duration::from_millis(750);
 
@@ -169,6 +170,7 @@ pub(crate) async fn play_apple_music_source(
         ensure_owned(state, &guard, &playback)?;
         prepare_hegel_for_zone(state, zone_id).await?;
         player.resume();
+        wait_for_player_output_ready(state, &guard, &playback, &player, verified_epoch).await?;
         state.apple_music_capture().update_managed_playback(
             playback.generation,
             "playing",
@@ -692,6 +694,59 @@ async fn hold_player_paused(
             return Err(PlaybackError::integration(
                 "Fozmo's local Player did not enter its paused prebuffer state in time.",
             ));
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+async fn wait_for_player_output_ready(
+    state: &AppState,
+    guard: &PlaybackGuard,
+    playback: &NativeAppleMusicPlaybackSnapshot,
+    player: &std::sync::Arc<crate::audio::player::Player>,
+    expected_epoch: u64,
+) -> Result<(), PlaybackError> {
+    use crate::audio::player::{OutputTransport, PlaybackState};
+
+    let deadline = tokio::time::Instant::now() + PLAYER_OUTPUT_START_TIMEOUT;
+    loop {
+        ensure_owned(state, guard, playback)?;
+        if player.playback_epoch() != expected_epoch {
+            return Err(PlaybackError::conflict("Playback changed"));
+        }
+        let snapshot = player.snapshot_no_cover();
+        if snapshot.state == PlaybackState::Playing
+            && snapshot.signal_path.output_transport != OutputTransport::None
+        {
+            debug!(
+                event = "apple_music_native_output_ready",
+                output_mode = snapshot.signal_path.active_output_mode.as_name(),
+                output_transport = snapshot.signal_path.output_transport.as_name(),
+                "The local output path is ready for native Apple Music playback"
+            );
+            return Ok(());
+        }
+        if snapshot.state == PlaybackState::Stopped {
+            return Err(PlaybackError::integration(
+                snapshot.output_notice.unwrap_or_else(|| {
+                    "Fozmo's local Player stopped while opening the Apple Music output path."
+                        .to_string()
+                }),
+            ));
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(PlaybackError::integration(format!(
+                "Fozmo's local Player did not open the Apple Music output path in time (state={}, requested={}, active={}, transport={}{}).",
+                snapshot.state.as_name(),
+                snapshot.signal_path.output_mode.as_name(),
+                snapshot.signal_path.active_output_mode.as_name(),
+                snapshot.signal_path.output_transport.as_name(),
+                snapshot
+                    .output_notice
+                    .as_deref()
+                    .map(|notice| format!(", notice={notice}"))
+                    .unwrap_or_default(),
+            )));
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }

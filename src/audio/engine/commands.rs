@@ -79,6 +79,10 @@ pub enum PlayerCommand {
         fallback_cover: Option<TrackCover>,
         fallback_tags: Option<TrackTags>,
         queue: Vec<StreamQueueItem>,
+        /// Install the stream directly in the paused state. Live sources use
+        /// this to avoid racing a follow-up Pause command against a blocking
+        /// source read before their external producer has started.
+        start_paused: bool,
     },
     /// Install an already-probed stream. `preserve_output` requests a
     /// continuous handoff through the current output ring; incompatible output

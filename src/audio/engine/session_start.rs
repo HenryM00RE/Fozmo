@@ -12,7 +12,9 @@ use super::output_stream::{ActiveOutput, drop_active_stream_for_reopen};
 use super::render::{eq_processing_rate, output_headroom_gain, render_pcm_dsp_path_eof_tail};
 use super::session::{init_pending_start_session, publish_started_session_metadata};
 use super::signal_path::{OutputMode, dsd_policy_for_source, effective_dsd_target_rate};
-use super::state::{FLUSH_REASON_PENDING_START, PLAYBACK_STARTING, REOPEN_REASON_PENDING_START};
+use super::state::{
+    FLUSH_REASON_PENDING_START, PLAYBACK_PAUSED, PLAYBACK_STARTING, REOPEN_REASON_PENDING_START,
+};
 use super::worker_state::WorkerRuntime;
 use super::worker_status::{
     publish_start_failure, reset_dsd_buffer_watermark, stop_after_failed_start,
@@ -61,6 +63,7 @@ pub(super) fn install_pending_start(runtime: &mut WorkerRuntime) -> PendingStart
     };
 
     let start_epoch = start.epoch();
+    let start_paused = start.start_paused();
     if start_epoch != shared.playback_epoch.load(Ordering::Relaxed) {
         // The dropped start may have been a stream item popped at EOF, which
         // set the auto-advance-in-flight flag; leaving it set would block the
@@ -346,6 +349,8 @@ pub(super) fn install_pending_start(runtime: &mut WorkerRuntime) -> PendingStart
                         "AudioWorker DEBUG: installed continuous session without draining output"
                     );
                 }
+            } else if start_paused {
+                shared.state.state.store(PLAYBACK_PAUSED, Ordering::Relaxed);
             } else {
                 shared
                     .state

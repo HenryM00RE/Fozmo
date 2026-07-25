@@ -469,7 +469,7 @@ impl AppleMusicCaptureService {
         }
         #[cfg(target_os = "macos")]
         {
-            self.start_macos(player, settings, request, true)?;
+            self.start_macos(player, settings, request, true, false)?;
             Ok(self.status(settings))
         }
         #[cfg(not(target_os = "macos"))]
@@ -486,6 +486,7 @@ impl AppleMusicCaptureService {
         settings: &AppleMusicCaptureSettings,
         request: StartAppleMusicCaptureRequest,
         spawn_music_poller: bool,
+        start_paused: bool,
     ) -> Result<(), String> {
         let devices = device_snapshot();
         let capture_device_name = resolve_capture_device_name(
@@ -538,8 +539,13 @@ impl AppleMusicCaptureService {
             buffer_ms: normalized_buffer_ms(settings.buffer_ms),
             source_bit_depth: None,
         };
-        let session = capture_session::start_live_session(&player, &params, Arc::clone(&metrics))
-            .inspect_err(|_| restore_on_error(&saved_default_output_uid))?;
+        let session = capture_session::start_live_session(
+            &player,
+            &params,
+            Arc::clone(&metrics),
+            start_paused,
+        )
+        .inspect_err(|_| restore_on_error(&saved_default_output_uid))?;
 
         let control = Arc::new(SessionControl::new_unknown());
         let poller = spawn_music_poller.then(|| self.spawn_music_poller(Arc::clone(&control)));
@@ -604,6 +610,7 @@ impl AppleMusicCaptureService {
                 confirm_system_audio_capture: true,
             },
             false,
+            true,
         )?;
         self.session_player_epoch()
             .ok_or_else(|| "Apple Music capture started without a Player session.".to_string())
@@ -926,12 +933,13 @@ impl AppleMusicCaptureService {
                 ..params
             };
             let metrics = Arc::new(DiagnosticMetrics::default());
-            let session =
-                capture_session::start_live_session(&player, &params, Arc::clone(&metrics))?;
+            let session = capture_session::start_live_session(
+                &player,
+                &params,
+                Arc::clone(&metrics),
+                hold_paused,
+            )?;
             let player_epoch = session.player_epoch();
-            if hold_paused {
-                player.pause();
-            }
             let mut runtime = self.runtime.lock().unwrap();
             if !runtime.running {
                 return Err("Apple Music capture stopped during the rate switch.".to_string());

@@ -177,6 +177,7 @@ pub(super) fn start_live_session(
     player: &Arc<Player>,
     params: &LiveSessionParams,
     metrics: Arc<DiagnosticMetrics>,
+    start_paused: bool,
 ) -> Result<LiveSession, String> {
     let capacity = ring_capacity_samples(params.rate_hz, params.buffer_ms);
     let (producer, consumer) = live_capture_ring(capacity);
@@ -207,15 +208,27 @@ pub(super) fn start_live_session(
         ..TrackTags::default()
     };
     let epoch = player.reserve_playback_change();
-    let started = player.play_stream_if_epoch(
-        epoch,
-        Box::new(source),
-        Some("wav".to_string()),
-        LIVE_DISPLAY_NAME.to_string(),
-        None,
-        Some(tags),
-        Vec::new(),
-    );
+    let started = if start_paused {
+        player.play_stream_paused_if_epoch(
+            epoch,
+            Box::new(source),
+            Some("wav".to_string()),
+            LIVE_DISPLAY_NAME.to_string(),
+            None,
+            Some(tags),
+            Vec::new(),
+        )
+    } else {
+        player.play_stream_if_epoch(
+            epoch,
+            Box::new(source),
+            Some("wav".to_string()),
+            LIVE_DISPLAY_NAME.to_string(),
+            None,
+            Some(tags),
+            Vec::new(),
+        )
+    };
     if !started {
         shutdown.store(true, Ordering::Release);
         return Err("Playback changed while starting Apple Music capture.".to_string());

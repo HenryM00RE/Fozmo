@@ -210,6 +210,7 @@ pub(super) fn handle_worker_command(cmd: PlayerCommand, runtime: &mut WorkerRunt
             fallback_cover,
             fallback_tags,
             queue: new_queue,
+            start_paused,
         } => {
             // Streams replace the file queue and publish their own follow-up stream queue.
             if epoch != shared.playback_epoch.load(Ordering::Relaxed) {
@@ -226,6 +227,7 @@ pub(super) fn handle_worker_command(cmd: PlayerCommand, runtime: &mut WorkerRunt
                 },
                 new_queue,
                 epoch,
+                start_paused,
             ));
             *reopen_output_for_pending_start = true;
             *pending_start_gapless = false;
