@@ -360,9 +360,19 @@ impl<'a> PlaybackRouter<'a> {
                 "apple_music_local_output_required",
             ));
         }
-        #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+        if !guard.is_current(self.state) {
+            return Err(PlaybackError::conflict("Playback changed"));
+        }
+        #[cfg(all(
+            target_os = "macos",
+            feature = "apple_music_musickit",
+            feature = "apple_music_capture"
+        ))]
         if source.apple_music_song_id().is_none() {
-            crate::playback::apple_music::stop_replaced_session(self.state, zone_id).await;
+            crate::playback::apple_music_native::stop_replaced_session_if_current(
+                self.state, zone_id, &guard,
+            )
+            .await?;
         }
         info!(
             event = "zone_route",
@@ -431,14 +441,22 @@ impl<'a> PlaybackRouter<'a> {
                     .await
                 }
                 SourceRef::AppleMusicTrack { .. } => {
-                    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+                    #[cfg(all(
+                        target_os = "macos",
+                        feature = "apple_music_musickit",
+                        feature = "apple_music_capture"
+                    ))]
                     {
-                        return crate::playback::apple_music::play_apple_music_source(
+                        return crate::playback::apple_music_native::play_apple_music_source(
                             self.state, zone_id, profile_id, source, queue, radio_auto, guard,
                         )
                         .await;
                     }
-                    #[cfg(not(all(target_os = "macos", feature = "apple_music_musickit")))]
+                    #[cfg(not(all(
+                        target_os = "macos",
+                        feature = "apple_music_musickit",
+                        feature = "apple_music_capture"
+                    )))]
                     {
                         Err(PlaybackError::bad_request(
                             "apple_music_musickit_unavailable",
@@ -455,6 +473,14 @@ impl<'a> PlaybackRouter<'a> {
             .listening()
             .profile_id(zone_id)
             .unwrap_or_else(|| crate::settings::DEFAULT_PROFILE_ID.to_string());
+        #[cfg(all(
+            target_os = "macos",
+            feature = "apple_music_musickit",
+            feature = "apple_music_capture"
+        ))]
+        if crate::playback::apple_music_native::next(self.state, zone_id).await? {
+            return Ok(PlaybackOutcome::Completed);
+        }
         #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
         if crate::playback::apple_music::active_snapshot(self.state, zone_id).is_some() {
             if crate::playback::apple_music::skip_next_if_internal(self.state, zone_id).await? {
@@ -787,6 +813,14 @@ impl<'a> PlaybackRouter<'a> {
                 result?;
             }
             ZoneSink::Local => {
+                #[cfg(all(
+                    target_os = "macos",
+                    feature = "apple_music_musickit",
+                    feature = "apple_music_capture"
+                ))]
+                if crate::playback::apple_music_native::pause(self.state, zone_id).await? {
+                    return Ok(PlaybackOutcome::Completed);
+                }
                 #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
                 if crate::playback::apple_music::pause(self.state, zone_id).await? {
                     return Ok(PlaybackOutcome::Completed);
@@ -828,6 +862,14 @@ impl<'a> PlaybackRouter<'a> {
                 result?;
             }
             ZoneSink::Local => {
+                #[cfg(all(
+                    target_os = "macos",
+                    feature = "apple_music_musickit",
+                    feature = "apple_music_capture"
+                ))]
+                if crate::playback::apple_music_native::resume(self.state, zone_id).await? {
+                    return Ok(PlaybackOutcome::Completed);
+                }
                 #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
                 if crate::playback::apple_music::resume(self.state, zone_id).await? {
                     return Ok(PlaybackOutcome::Completed);
@@ -870,6 +912,15 @@ impl<'a> PlaybackRouter<'a> {
                 result?;
             }
             ZoneSink::Local => {
+                #[cfg(all(
+                    target_os = "macos",
+                    feature = "apple_music_musickit",
+                    feature = "apple_music_capture"
+                ))]
+                if crate::playback::apple_music_native::stop(self.state, zone_id).await? {
+                    self.state.listening().stop(self.state.library(), zone_id);
+                    return Ok(PlaybackOutcome::Completed);
+                }
                 #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
                 if crate::playback::apple_music::stop(self.state, zone_id).await? {
                     self.state.listening().stop(self.state.library(), zone_id);
@@ -914,6 +965,14 @@ impl<'a> PlaybackRouter<'a> {
                 result?;
             }
             ZoneSink::Local => {
+                #[cfg(all(
+                    target_os = "macos",
+                    feature = "apple_music_musickit",
+                    feature = "apple_music_capture"
+                ))]
+                if crate::playback::apple_music_native::seek(self.state, zone_id, seconds).await? {
+                    return Ok(PlaybackOutcome::Completed);
+                }
                 #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
                 if crate::playback::apple_music::seek(self.state, zone_id, seconds).await? {
                     return Ok(PlaybackOutcome::Completed);

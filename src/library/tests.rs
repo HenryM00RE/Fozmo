@@ -5139,6 +5139,7 @@ fn apple_music_album_version_links_recordings_and_resolves_playback() {
             disc_number: Some(1),
             isrc: Some(format!("GBAQT940000{track_number}")),
             artwork_url: None,
+            audio_variants: vec!["lossless".to_string()],
         };
     let apple_album = AppleCatalogAlbum {
         album_id: "apple-album-1".to_string(),

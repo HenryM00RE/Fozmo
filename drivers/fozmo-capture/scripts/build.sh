@@ -34,7 +34,7 @@ codesign_identity="${CODESIGN_IDENTITY:-}"
 if [[ -z "${codesign_identity}" ]]; then
   codesign_identity="$(
     security find-identity -v -p codesigning 2>/dev/null \
-      | awk -F '"' '/Apple Development|Developer ID Application|Mac Developer/ { print $2; exit }'
+      | awk '/Apple Development|Developer ID Application|Mac Developer/ { identity = $2 } END { print identity }'
   )"
 fi
 

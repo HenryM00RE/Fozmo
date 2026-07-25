@@ -57,12 +57,139 @@ enum QueueIndexTransition {
     }
 }
 
+enum QueueEntrySegmentResolver {
+    /// MusicKit may replace a queue entry object while advancing, so its
+    /// identifier is not always one of the identifiers captured immediately
+    /// after `prepareToPlay()`. Resolve an unknown entry by catalog song ID,
+    /// preferring the next matching segment so repeated songs still advance.
+    static func resolve(
+        mappedSegment: Int?,
+        songID: String?,
+        currentSegment: Int?,
+        items: [QueueItem]
+    ) -> Int? {
+        if let mappedSegment {
+            return mappedSegment
+        }
+        guard let songID else {
+            return currentSegment
+        }
+        let matchingSegments = items
+            .filter { $0.songID == songID }
+            .map(\.segmentIndex)
+        guard !matchingSegments.isEmpty else {
+            return currentSegment
+        }
+        if let currentSegment {
+            return matchingSegments.first(where: { $0 > currentSegment })
+                ?? matchingSegments.first(where: { $0 == currentSegment })
+                ?? currentSegment
+        }
+        return matchingSegments.first
+    }
+}
+
 enum QueueFinishReason {
     static func forPlaybackTransition(previous: String, current: String) -> String? {
         guard current == "stopped", previous == "playing" || previous == "paused" else {
             return nil
         }
         return "completed"
+    }
+}
+
+enum ActiveAudioVariantDisposition: Equatable {
+    case confirmedLossless
+    case requiresDecoderProof
+    case reject
+}
+
+enum AudioVariantPolicy {
+    static func permitsLosslessPlayback(_ variant: AudioVariant?) -> Bool {
+        variant == .lossless || variant == .highResolutionLossless
+    }
+
+    /// `ApplicationMusicPlayer` can begin rendering before its observable
+    /// `audioVariant` is populated. A missing value is not evidence of AAC, so
+    /// let the server's fresh, PID-scoped Apple Lossless decoder probe make the
+    /// final decision. Any explicit non-lossless variant still fails here.
+    static func activePlaybackDisposition(
+        _ variant: AudioVariant?
+    ) -> ActiveAudioVariantDisposition {
+        guard let variant else {
+            return .requiresDecoderProof
+        }
+        return permitsLosslessPlayback(variant) ? .confirmedLossless : .reject
+    }
+
+    static func catalogOffersLosslessPlayback(_ variants: [AudioVariant]?) -> Bool {
+        variants?.contains(where: permitsLosslessPlayback) == true
+    }
+
+    static func label(for variant: AudioVariant?) -> String? {
+        variant.map {
+            let raw = String(describing: $0)
+            return raw.hasPrefix(".") ? String(raw.dropFirst()) : raw
+        }
+    }
+}
+
+struct QueueCompletionWatchdog {
+    private var previousPosition: Double?
+    private var stalledNearEndTicks = 0
+
+    mutating func reset() {
+        previousPosition = nil
+        stalledNearEndTicks = 0
+    }
+
+    /// ApplicationMusicPlayer does not consistently report `.stopped` when a
+    /// final catalog entry reaches EOF. Some macOS releases remain `.playing`
+    /// at the duration, while others settle on `.paused`. Confirm the terminal
+    /// position before treating either state as natural completion.
+    mutating func observe(
+        playbackState: String,
+        position: Double,
+        duration: Double?,
+        isFinalEntry: Bool,
+        explicitPause: Bool
+    ) -> Bool {
+        defer { previousPosition = position }
+        guard
+            isFinalEntry,
+            !explicitPause,
+            position.isFinite,
+            position >= 0,
+            let duration,
+            duration.isFinite,
+            duration > 0
+        else {
+            stalledNearEndTicks = 0
+            return false
+        }
+
+        let tolerance = min(2.0, max(0.75, duration * 0.005))
+        let nearEnd = position >= max(0, duration - tolerance)
+        let previousNearEnd =
+            previousPosition.map { $0 >= max(0, duration - tolerance) } ?? false
+        guard nearEnd || previousNearEnd else {
+            stalledNearEndTicks = 0
+            return false
+        }
+
+        if playbackState == "paused" || playbackState == "stopped" {
+            return true
+        }
+        guard playbackState == "playing", nearEnd else {
+            stalledNearEndTicks = 0
+            return false
+        }
+        if let previousPosition, abs(previousPosition - position) < 0.025 {
+            stalledNearEndTicks += 1
+        } else {
+            stalledNearEndTicks = 0
+        }
+        return stalledNearEndTicks >= 2
     }
 }
 
@@ -202,6 +329,7 @@ struct CatalogSongPayload: Codable, Equatable {
     let discNumber: Int?
     let isrc: String?
     let artworkURL: String?
+    let audioVariants: [String]
 
     enum CodingKeys: String, CodingKey {
         case songID = "song_id"
@@ -216,6 +344,7 @@ struct CatalogSongPayload: Codable, Equatable {
         case discNumber = "disc_number"
         case isrc
         case artworkURL = "artwork_url"
+        case audioVariants = "audio_variants"
     }
 
     init(
@@ -230,7 +359,8 @@ struct CatalogSongPayload: Codable, Equatable {
         trackNumber: Int?,
         discNumber: Int?,
         isrc: String?,
-        artworkURL: String?
+        artworkURL: String?,
+        audioVariants: [String] = []
     ) {
         self.songID = songID
         self.storefront = storefront
@@ -244,6 +374,7 @@ struct CatalogSongPayload: Codable, Equatable {
         self.discNumber = discNumber
         self.isrc = isrc
         self.artworkURL = artworkURL
+        self.audioVariants = audioVariants
     }
 
     init(
@@ -264,7 +395,8 @@ struct CatalogSongPayload: Codable, Equatable {
             trackNumber: song.trackNumber,
             discNumber: song.discNumber,
             isrc: song.isrc,
-            artworkURL: song.artwork?.url(width: 1200, height: 1200)?.absoluteString
+            artworkURL: song.artwork?.url(width: 1200, height: 1200)?.absoluteString,
+            audioVariants: (song.audioVariants ?? []).compactMap(AudioVariantPolicy.label)
         )
     }
 }
@@ -361,6 +493,7 @@ struct HelperEvent: Encodable, Equatable {
     var authorization: String?
     var canPlayCatalogContent: Bool?
     var playbackState: String?
+    var audioVariant: String?
     var playbackTimeSecs: Double?
     var queueRevision: UInt64?
     var segmentIndex: Int?
@@ -392,6 +525,7 @@ struct HelperEvent: Encodable, Equatable {
         case authorization
         case canPlayCatalogContent = "can_play_catalog_content"
         case playbackState = "playback_state"
+        case audioVariant = "audio_variant"
         case playbackTimeSecs = "playback_time_secs"
         case queueRevision = "queue_revision"
         case segmentIndex = "segment_index"

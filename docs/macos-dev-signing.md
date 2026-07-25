@@ -33,10 +33,12 @@ prompt fail-closed the remote listener until restart.
 
 ## One-time dev machine setup
 
-To make *Always Allow* stick across rebuilds, dev binaries are re-signed with
-a stable local identity by the cargo runner in `.cargo/config.toml`
-(`scripts/macos-sign-and-run.sh`). Without the identity the runner is a
-transparent pass-through, so nothing breaks on machines that skip this.
+To make *Always Allow* and Privacy & Security permissions stick across
+rebuilds, dev binaries are re-signed with a stable identity by the cargo
+runner in `.cargo/config.toml` (`scripts/macos-sign-and-run.sh`). The runner
+uses `fozmo-dev` when present, otherwise it uses the first installed Apple
+Development identity. Without either identity it is a transparent
+pass-through, so nothing breaks on machines that skip this.
 
 Run once, in a local terminal on the dev machine:
 
@@ -46,14 +48,19 @@ scripts/setup-macos-dev-signing.sh
 
 This creates a self-signed `fozmo-dev` code-signing certificate in the login
 keychain, trusts it for code signing, and authorizes `codesign` to use it
-without per-build prompts. The next `cargo run` signs the binary with a
-stable identifier (`com.fozmo.dev`); answer *Always Allow* on the final
-keychain prompt and rebuilds (and test binaries) never prompt again.
+without per-build prompts. If Xcode has already installed an Apple
+Development identity, this setup step is optional. The next `cargo run`
+signs the binary with the stable `com.fozmo.server` identifier; answer
+*Always Allow* on the final keychain prompt and rebuilds (and test binaries)
+keep the same identity.
 
 Notes:
 
 - Override the identity name with `FOZMO_DEV_SIGN_IDENTITY` (both scripts
   honor it).
+- Accessibility permission must be granted to the signed **Fozmo Server**
+  executable itself. Enabling Terminal alone does not grant permission to a
+  child process that posts UI events.
 - The runner path in `.cargo/config.toml` is relative, so run cargo from the
   repository root.
 - If the setup script fails on a newer macOS, create the certificate via

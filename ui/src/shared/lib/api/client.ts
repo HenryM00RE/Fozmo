@@ -695,6 +695,10 @@ export const endpoints = {
   launchAppleMusicHelper: () => api.post<JsonRecord>('/api/apple-music/launch'),
   authorizeAppleMusic: () =>
     api.post<JsonRecord>('/api/apple-music/authorize', { present_ui: true }),
+  confirmAppleMusicCapture: () =>
+    api.post<JsonRecord>('/api/apple-music/capture/confirm', {
+      confirm_system_audio_capture: true
+    }),
   appleMusicCatalogSearch: (term: string, storefront?: string, limit = 10) =>
     api.get<JsonRecord>(
       '/api/apple-music/catalog/search',

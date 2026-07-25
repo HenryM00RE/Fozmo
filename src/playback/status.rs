@@ -604,6 +604,12 @@ pub fn build_status_response_for_zone(
     };
     #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
     apply_apple_music_status_overlay(state, zone_id, &mut response);
+    #[cfg(all(
+        target_os = "macos",
+        feature = "apple_music_musickit",
+        feature = "apple_music_capture"
+    ))]
+    apply_native_apple_music_status_overlay(state, zone_id, &mut response);
     Ok(response)
 }
 
@@ -640,6 +646,49 @@ fn apply_apple_music_status_overlay(
     response.track_album = source.album().map(str::to_string);
     response.position_secs = snapshot.position_secs;
     response.duration_secs = source.duration_secs().unwrap_or(0.0);
+}
+
+#[cfg(all(
+    target_os = "macos",
+    feature = "apple_music_musickit",
+    feature = "apple_music_capture"
+))]
+fn apply_native_apple_music_status_overlay(
+    state: &AppState,
+    zone_id: &str,
+    response: &mut StatusResponse,
+) {
+    let Some(snapshot) = state
+        .apple_music_capture()
+        .playback_snapshot_for_zone(zone_id)
+    else {
+        return;
+    };
+    let Some(player) = state.zones().player_for_zone(zone_id) else {
+        return;
+    };
+    if player.playback_epoch() != snapshot.player_epoch {
+        return;
+    }
+    response.state = match snapshot.playback_state.as_str() {
+        "playing" => "Playing",
+        "paused" => "Paused",
+        "preparing" => "Starting",
+        "failed" | "stopped" => "Stopped",
+        _ => response.state.as_str(),
+    }
+    .to_string();
+    response.file_name = Some(snapshot.source.key());
+    response.current_source = Some(snapshot.source.clone());
+    response.track_title = snapshot.source.title().map(str::to_string);
+    response.track_artist = snapshot.source.artist().map(str::to_string);
+    response.track_album = snapshot.source.album().map(str::to_string);
+    response.position_secs = snapshot.position_secs;
+    response.duration_secs = if snapshot.duration_secs > 0.0 {
+        snapshot.duration_secs
+    } else {
+        snapshot.source.duration_secs().unwrap_or(0.0)
+    };
 }
 
 fn build_status_response_for_sonos(
@@ -872,6 +921,54 @@ mod tests {
         assert_eq!(status.output_mode, baseline.output_mode);
         assert_eq!(status.filter_type, baseline.filter_type);
         assert_eq!(status.headroom_db, baseline.headroom_db);
+    }
+
+    #[cfg(all(
+        target_os = "macos",
+        feature = "apple_music_musickit",
+        feature = "apple_music_capture"
+    ))]
+    #[test]
+    fn native_apple_music_snapshot_exposes_catalog_artwork_and_timeline() {
+        let state = app_state("native-apple-music-status-overlay");
+        let zone_id = state.zones().active_zone_id();
+        let player = state.zones().player_for_zone(&zone_id).unwrap();
+        let source = SourceRef::AppleMusicTrack {
+            song_id: "635770203".to_string(),
+            storefront: Some("nz".to_string()),
+            title: Some("New Kid In Town".to_string()),
+            artist: Some("Eagles".to_string()),
+            album: Some("Hotel California".to_string()),
+            album_artist: Some("Eagles".to_string()),
+            album_id: Some("635770200".to_string()),
+            artwork_url: Some("https://example.test/cover.jpg".to_string()),
+            duration_secs: Some(305.0),
+            track_number: Some(2),
+            disc_number: Some(1),
+            isrc: None,
+            radio: false,
+            radio_context: None,
+            playlist_context: None,
+        };
+        let snapshot = state.apple_music_capture().activate_managed_playback(
+            zone_id.clone(),
+            player.playback_epoch(),
+            source.clone(),
+        );
+        state.apple_music_capture().update_managed_playback(
+            snapshot.generation,
+            "playing",
+            Some(42.5),
+            Some(305.0),
+        );
+
+        let status = build_status_response_for_zone(&state, &zone_id).unwrap();
+
+        assert_eq!(status.state, "Playing");
+        assert_eq!(status.current_source, Some(source));
+        assert_eq!(status.track_title.as_deref(), Some("New Kid In Town"));
+        assert_eq!(status.position_secs, 42.5);
+        assert_eq!(status.duration_secs, 305.0);
     }
 
     #[cfg(feature = "hegel")]

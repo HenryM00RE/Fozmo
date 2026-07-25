@@ -224,6 +224,33 @@ final class ModelsTests: XCTestCase {
         )
     }
 
+    func testUnknownMusicKitEntryFallsBackToTheNextMatchingSongSegment() {
+        let items = [
+            QueueItem(songID: "same", storefront: "nz", segmentIndex: 3),
+            QueueItem(songID: "other", storefront: "nz", segmentIndex: 4),
+            QueueItem(songID: "same", storefront: "nz", segmentIndex: 5),
+        ]
+
+        XCTAssertEqual(
+            QueueEntrySegmentResolver.resolve(
+                mappedSegment: nil,
+                songID: "same",
+                currentSegment: 3,
+                items: items
+            ),
+            5
+        )
+        XCTAssertEqual(
+            QueueEntrySegmentResolver.resolve(
+                mappedSegment: 4,
+                songID: "same",
+                currentSegment: 3,
+                items: items
+            ),
+            4
+        )
+    }
+
     func testObservedStopSelectsCompletedReasonOnlyAfterActivePlayback() {
         XCTAssertEqual(
             QueueFinishReason.forPlaybackTransition(previous: "playing", current: "stopped"),
@@ -238,6 +265,100 @@ final class ModelsTests: XCTestCase {
         )
         XCTAssertNil(
             QueueFinishReason.forPlaybackTransition(previous: "playing", current: "paused")
+        )
+    }
+
+    func testAudioVariantPolicyAllowsOnlyLosslessVariants() {
+        XCTAssertTrue(AudioVariantPolicy.permitsLosslessPlayback(.lossless))
+        XCTAssertTrue(AudioVariantPolicy.permitsLosslessPlayback(.highResolutionLossless))
+        XCTAssertFalse(AudioVariantPolicy.permitsLosslessPlayback(.lossyStereo))
+        XCTAssertFalse(AudioVariantPolicy.permitsLosslessPlayback(.dolbyAtmos))
+        XCTAssertFalse(AudioVariantPolicy.permitsLosslessPlayback(nil))
+        XCTAssertTrue(
+            AudioVariantPolicy.catalogOffersLosslessPlayback([.lossyStereo, .lossless])
+        )
+        XCTAssertFalse(AudioVariantPolicy.catalogOffersLosslessPlayback([.lossyStereo]))
+        XCTAssertFalse(AudioVariantPolicy.catalogOffersLosslessPlayback(nil))
+        XCTAssertEqual(AudioVariantPolicy.label(for: .lossyStereo), "lossyStereo")
+    }
+
+    func testActiveAudioVariantGateDefersMissingMetadataButRejectsExplicitLossyPlayback() {
+        XCTAssertEqual(
+            AudioVariantPolicy.activePlaybackDisposition(nil),
+            .requiresDecoderProof
+        )
+        XCTAssertEqual(
+            AudioVariantPolicy.activePlaybackDisposition(.lossless),
+            .confirmedLossless
+        )
+        XCTAssertEqual(
+            AudioVariantPolicy.activePlaybackDisposition(.highResolutionLossless),
+            .confirmedLossless
+        )
+        XCTAssertEqual(
+            AudioVariantPolicy.activePlaybackDisposition(.lossyStereo),
+            .reject
+        )
+        XCTAssertEqual(
+            AudioVariantPolicy.activePlaybackDisposition(.dolbyAtmos),
+            .reject
+        )
+    }
+
+    func testCompletionWatchdogAcceptsNaturalPausedEndButNotExplicitPause() {
+        var watchdog = QueueCompletionWatchdog()
+        XCTAssertFalse(
+            watchdog.observe(
+                playbackState: "playing",
+                position: 99.5,
+                duration: 100,
+                isFinalEntry: true,
+                explicitPause: false
+            )
+        )
+        XCTAssertTrue(
+            watchdog.observe(
+                playbackState: "paused",
+                position: 100,
+                duration: 100,
+                isFinalEntry: true,
+                explicitPause: false
+            )
+        )
+
+        watchdog.reset()
+        XCTAssertFalse(
+            watchdog.observe(
+                playbackState: "paused",
+                position: 100,
+                duration: 100,
+                isFinalEntry: true,
+                explicitPause: true
+            )
+        )
+    }
+
+    func testCompletionWatchdogAcceptsAStuckPlayingTerminalPosition() {
+        var watchdog = QueueCompletionWatchdog()
+        for _ in 0..<2 {
+            XCTAssertFalse(
+                watchdog.observe(
+                    playbackState: "playing",
+                    position: 100,
+                    duration: 100,
+                    isFinalEntry: true,
+                    explicitPause: false
+                )
+            )
+        }
+        XCTAssertTrue(
+            watchdog.observe(
+                playbackState: "playing",
+                position: 100,
+                duration: 100,
+                isFinalEntry: true,
+                explicitPause: false
+            )
         )
     }
 
@@ -306,7 +427,8 @@ final class ModelsTests: XCTestCase {
             trackNumber: 2,
             discNumber: 1,
             isrc: "NZABC2600001",
-            artworkURL: "https://example.test/art.jpg"
+            artworkURL: "https://example.test/art.jpg",
+            audioVariants: ["lossless"]
         )
         let object = try XCTUnwrap(
             JSONSerialization.jsonObject(with: JSONEncoder().encode(payload)) as? [String: Any]
@@ -320,5 +442,6 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(object["track_number"] as? Int, 2)
         XCTAssertEqual(object["disc_number"] as? Int, 1)
         XCTAssertEqual(object["artwork_url"] as? String, "https://example.test/art.jpg")
+        XCTAssertEqual(object["audio_variants"] as? [String], ["lossless"])
     }
 }

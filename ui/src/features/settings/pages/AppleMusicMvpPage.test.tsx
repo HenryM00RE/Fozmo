@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppleMusicMvpPage } from './AppleMusicMvpPage';
 
 const mocks = vi.hoisted(() => ({
+  addItemsToQueue: vi.fn(),
   appleMusicStatus: vi.fn(),
   status: vi.fn(),
   zoneStatus: vi.fn(),
@@ -18,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   albumPlaySources: vi.fn(),
   launchAppleMusicHelper: vi.fn(),
   authorizeAppleMusic: vi.fn(),
+  confirmAppleMusicCapture: vi.fn(),
   pause: vi.fn(),
   pauseZone: vi.fn(),
   resume: vi.fn(),
@@ -46,6 +48,7 @@ const defaultActiveZoneStatus = {
 
 beforeEach(() => {
   for (const mock of Object.values(mocks)) mock.mockReset();
+  mocks.addItemsToQueue.mockResolvedValue(true);
   mocks.appleMusicStatus.mockResolvedValue({
     helper_present: true,
     helper_version: '0.2.0',
@@ -103,6 +106,7 @@ beforeEach(() => {
   for (const name of [
     'launchAppleMusicHelper',
     'authorizeAppleMusic',
+    'confirmAppleMusicCapture',
     'pause',
     'pauseZone',
     'resume',
@@ -135,7 +139,9 @@ describe('AppleMusicMvpPage backend integration harness', () => {
     };
     mocks.zoneStatus.mockResolvedValue(hegelStatus);
 
-    render(<AppleMusicMvpPage activeZoneStatus={hegelStatus} />);
+    render(
+      <AppleMusicMvpPage activeZoneStatus={hegelStatus} addItemsToQueue={mocks.addItemsToQueue} />
+    );
     await screen.findByText('2 · Search and play');
 
     fireEvent.change(screen.getByLabelText('Search Apple Music songs'), {
@@ -151,9 +157,7 @@ describe('AppleMusicMvpPage backend integration harness', () => {
     });
     expect(result).toBeDisabled();
 
-    fireEvent.click(
-      screen.getByLabelText(/Allow Fozmo to capture MusicKit's isolated audio renderer/i)
-    );
+    fireEvent.click(screen.getByLabelText(/Allow Fozmo to route native Music\.app playback/i));
     expect(result).toBeEnabled();
     fireEvent.click(result);
 
@@ -174,8 +178,65 @@ describe('AppleMusicMvpPage backend integration harness', () => {
     );
   });
 
+  it('adds Apple Music search results to the shared mixed-provider queue', async () => {
+    const hegelStatus = {
+      active_zone_id: 'local-U_107GUN3uT4',
+      active_zone_name: 'Hegel H390',
+      zone_protocol: 'local_core_audio',
+      current_source: null
+    };
+    mocks.zoneStatus.mockResolvedValue(hegelStatus);
+
+    render(
+      <AppleMusicMvpPage activeZoneStatus={hegelStatus} addItemsToQueue={mocks.addItemsToQueue} />
+    );
+    await screen.findByText('2 · Search and play');
+    fireEvent.change(screen.getByLabelText('Search Apple Music songs'), {
+      target: { value: 'joga bjork' }
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await screen.findByText('Jóga');
+    fireEvent.click(screen.getByLabelText(/Allow Fozmo to route native Music\.app playback/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Play Jóga by Björk from Homogenic next' }));
+
+    await waitFor(() => expect(mocks.confirmAppleMusicCapture).toHaveBeenCalledTimes(1));
+    expect(mocks.addItemsToQueue).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          title: 'Jóga',
+          artist: 'Björk',
+          album: 'Homogenic',
+          imageUrl: 'https://example.test/joga.jpg',
+          resolvedSource: expect.objectContaining({
+            kind: 'apple_music_track',
+            song_id: '1440880976',
+            storefront: 'nz'
+          })
+        })
+      ],
+      'next'
+    );
+
+    await screen.findByText('Jóga added to play next.');
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Add Jóga by Björk from Homogenic to the end of the queue'
+      })
+    );
+    await waitFor(() => expect(mocks.confirmAppleMusicCapture).toHaveBeenCalledTimes(2));
+    expect(mocks.addItemsToQueue).toHaveBeenLastCalledWith(
+      [expect.objectContaining({ title: 'Jóga' })],
+      'end'
+    );
+  });
+
   it('looks up a song, adds it to a scenario, and submits through the router endpoint', async () => {
-    render(<AppleMusicMvpPage activeZoneStatus={defaultActiveZoneStatus} />);
+    render(
+      <AppleMusicMvpPage
+        activeZoneStatus={defaultActiveZoneStatus}
+        addItemsToQueue={mocks.addItemsToQueue}
+      />
+    );
     await screen.findByText('awaiting provisioned signing', { exact: false });
 
     fireEvent.change(screen.getByLabelText('Song ID'), {
@@ -186,9 +247,7 @@ describe('AppleMusicMvpPage backend integration harness', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add song to scenario' }));
 
     expect(screen.getByText(/apple music · Test Artist · Test Song/i)).toBeInTheDocument();
-    fireEvent.click(
-      screen.getByLabelText(/Allow Fozmo to capture MusicKit's isolated audio renderer/i)
-    );
+    fireEvent.click(screen.getByLabelText(/Allow Fozmo to route native Music\.app playback/i));
     fireEvent.click(screen.getByRole('button', { name: 'Play from selected row' }));
 
     await waitFor(() =>
@@ -205,7 +264,12 @@ describe('AppleMusicMvpPage backend integration harness', () => {
   });
 
   it('uses normal playback transport instead of the raw helper controls', async () => {
-    render(<AppleMusicMvpPage activeZoneStatus={defaultActiveZoneStatus} />);
+    render(
+      <AppleMusicMvpPage
+        activeZoneStatus={defaultActiveZoneStatus}
+        addItemsToQueue={mocks.addItemsToQueue}
+      />
+    );
     await screen.findByText('4 · Normal transport');
 
     fireEvent.click(screen.getByRole('button', { name: 'Pause', hidden: false }));
@@ -215,7 +279,12 @@ describe('AppleMusicMvpPage backend integration harness', () => {
   });
 
   it('submits a canned Local, Apple, Apple, Qobuz queue from the selected row', async () => {
-    render(<AppleMusicMvpPage activeZoneStatus={defaultActiveZoneStatus} />);
+    render(
+      <AppleMusicMvpPage
+        activeZoneStatus={defaultActiveZoneStatus}
+        addItemsToQueue={mocks.addItemsToQueue}
+      />
+    );
     await screen.findByText('3 · Mixed queue scenario');
 
     fireEvent.change(screen.getByLabelText('Local track ID'), {
@@ -231,9 +300,7 @@ describe('AppleMusicMvpPage backend integration harness', () => {
       target: { value: 'mixed_run' }
     });
     fireEvent.click(screen.getByRole('button', { name: 'Load canned scenario' }));
-    fireEvent.click(
-      screen.getByLabelText(/Allow Fozmo to capture MusicKit's isolated audio renderer/i)
-    );
+    fireEvent.click(screen.getByLabelText(/Allow Fozmo to route native Music\.app playback/i));
     fireEvent.click(screen.getByRole('button', { name: 'Play from selected row' }));
 
     await waitFor(() =>
@@ -259,12 +326,12 @@ describe('AppleMusicMvpPage backend integration harness', () => {
     };
     mocks.zoneStatus.mockResolvedValue(remoteStatus);
 
-    render(<AppleMusicMvpPage activeZoneStatus={remoteStatus} />);
+    render(
+      <AppleMusicMvpPage activeZoneStatus={remoteStatus} addItemsToQueue={mocks.addItemsToQueue} />
+    );
     await screen.findByText(/Remote Mac · local output required/);
     fireEvent.click(screen.getByRole('button', { name: 'Load canned scenario' }));
-    fireEvent.click(
-      screen.getByLabelText(/Allow Fozmo to capture MusicKit's isolated audio renderer/i)
-    );
+    fireEvent.click(screen.getByLabelText(/Allow Fozmo to route native Music\.app playback/i));
 
     expect(screen.getByRole('button', { name: 'Play from selected row' })).toBeDisabled();
     expect(mocks.playAppleMusicScenario).not.toHaveBeenCalled();
@@ -278,6 +345,7 @@ describe('AppleMusicMvpPage backend integration harness', () => {
       authorization: 'authorized',
       can_play_catalog_content: true,
       playback_state: 'paused',
+      active_audio_variant: 'highResolutionLossless',
       state: 'paused',
       process_tap: { state: 'running', metrics: { ring_overruns: 0 } },
       playback_session: {
@@ -292,18 +360,29 @@ describe('AppleMusicMvpPage backend integration harness', () => {
       }
     });
 
-    render(<AppleMusicMvpPage activeZoneStatus={defaultActiveZoneStatus} />);
+    render(
+      <AppleMusicMvpPage
+        activeZoneStatus={defaultActiveZoneStatus}
+        addItemsToQueue={mocks.addItemsToQueue}
+      />
+    );
 
     await screen.findByText('provisioned and enabled');
     expect(screen.getByText('authorized')).toBeInTheDocument();
     expect(screen.getByText('available')).toBeInTheDocument();
+    expect(screen.getByText('Hi-Res Lossless')).toBeInTheDocument();
     expect(screen.getAllByText(/"queue_revision": 12/)).toHaveLength(2);
     expect(screen.getByText(/"event_type": "entry_changed"/)).toBeInTheDocument();
     expect(screen.getByText(/Authorization revoked during playback/)).toBeInTheDocument();
   });
 
   it('previews and links an Apple Music album version', async () => {
-    render(<AppleMusicMvpPage activeZoneStatus={defaultActiveZoneStatus} />);
+    render(
+      <AppleMusicMvpPage
+        activeZoneStatus={defaultActiveZoneStatus}
+        addItemsToQueue={mocks.addItemsToQueue}
+      />
+    );
     await screen.findByText('6 · Album-version harness');
 
     fireEvent.change(screen.getByLabelText('Local Fozmo album ID'), {

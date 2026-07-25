@@ -11,8 +11,7 @@ experiment.
 ## Implemented architecture
 
 Fozmo owns the complete provider-neutral queue, listening state, history, and
-album versions. The helper owns only the currently loaded contiguous Apple
-Music segment:
+album versions. The helper owns only the currently loaded Apple Music item:
 
 ```text
 Settings / future product UI
@@ -42,7 +41,8 @@ The current implementation includes:
 - protocol-v2 song search, song/album lookups, and revisioned queue events;
 - duplicate Apple song occurrences distinguished by segment index;
 - active MusicKit renderer discovery and a guarded PCM/DSP handoff;
-- contiguous Apple runs without rebuilding the tap between adjacent songs;
+- per-track Apple handoffs so every queued song is independently verified as
+  lossless before its renderer can reach the DSP;
 - normal pause, resume, seek, next, stop, status, listening, and history paths;
 - stale session/revision/duplicate-event rejection;
 - provider-boundary auto-advance;
@@ -51,10 +51,32 @@ The current implementation includes:
   unlink, recording identity, and playback resolution;
 - a Settings integration console and in-memory fake-helper tests.
 
-MusicKit's rendered process audio is Float32 PCM. Fozmo preserves those sample
-values and uses the tap's actual format; catalog metadata is not treated as
-proof of the rendered asset's sample rate or bit depth. Apple album versions
-therefore intentionally leave sample rate and bit depth unset.
+MusicKit's rendered process audio is Float32 PCM. The tap format is not treated
+as proof of the decoded catalog asset's native sample rate or bit depth. Before
+playback, the helper requires catalog lossless availability and rejects an
+explicit active AAC/lossy, Dolby, or Spatial Audio variant. MusicKit can leave
+its observable active variant unset while rendering begins, so a missing value
+is deferred to the stricter PID-scoped decoder check below instead of being
+mislabelled as lossy.
+
+For lossless playback, Fozmo can separately read a fresh
+`ACAppleLosslessDecoder` format event scoped to the exact
+`RemotePlayerService` PID. A supported 44.1/48 kHz-family rate can stage a
+rate-specific replacement tap before the normal prefill/DSP commit. When Core
+Audio fixes the tap at 48 kHz, Fozmo can rate-bridge that PCM down to a verified
+44.1 kHz-family source rate. It refuses to upsample a lower-bandwidth tap and
+present it as native high-resolution audio. Missing/stale lossless decoder
+events, an unreadable Unified Log, or an unsafe rate transition fail playback
+instead of guessing. Each play has a wall-clock boundary captured before it can
+start decoding; the bounded probe accepts only PID-scoped ALAC decoder records
+strictly newer than that boundary. A fresh AAC decoder record produces an
+explicit fail-closed error before DSP handoff. Catalog `audioVariants` only
+describe available renditions; they do not guarantee that macOS selected one.
+The public macOS `ApplicationMusicPlayer` API exposes the active variant as a
+read-only property and offers no lossless-quality selector, so playback remains
+blocked whenever its renderer chooses AAC. Tap status reports the measured PCM
+rate, verified source rate/depth, and whether sample values were bridged
+separately.
 
 On macOS, `ApplicationMusicPlayer` delegates audio rendering to
 `com.apple.MediaPlayer.RemotePlayerService`; the signed helper remains the
@@ -234,9 +256,10 @@ Run these in order from Settings:
     its playback plan, play it, restart Fozmo while stopped, and confirm the
     version and remaining queue persist without auto-resuming.
 
-For adjacent Apple tracks, the helper PID, MusicKit renderer PID, process-tap
-object, and Player live stream should remain stable while only the segment
-index, current source, listening entry, and persisted queue advance.
+For adjacent Apple tracks, Fozmo completes the current single-item helper
+session, advances the provider-neutral queue, then repeats the lossless
+variant/rate verification and prebuffered process-tap handoff for the next
+track.
 
 ## Settings integration console
 

@@ -107,6 +107,7 @@ export function buildPlaylistRoute({
 
 type BuildSettingsRouteParams = {
   activeProfileId: string;
+  addItemsToQueue: (items: QueueItem[], placement: 'next' | 'end') => Promise<boolean>;
   applyProfilesResponse: ApplyProfilesResponse;
   profiles: JsonRecord[];
   qobuzStatus: JsonRecord | null;
@@ -119,6 +120,7 @@ type BuildSettingsRouteParams = {
 
 export function buildSettingsRoute({
   activeProfileId,
+  addItemsToQueue,
   applyProfilesResponse,
   profiles,
   qobuzStatus,
@@ -130,6 +132,7 @@ export function buildSettingsRoute({
 }: BuildSettingsRouteParams): SettingsRouteState {
   return {
     activeProfileId,
+    addItemsToQueue,
     applyProfilesResponse,
     onRefresh: refreshCore,
     onProfileScopedRefresh: refreshProfileScopedData,

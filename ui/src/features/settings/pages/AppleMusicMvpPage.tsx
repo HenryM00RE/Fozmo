@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { endpoints } from '../../../shared/lib/api';
-import type { JsonRecord, ResolvedPlaySource, SourceRef } from '../../../shared/types';
+import { sourceRefToQueueItem } from '../../../shared/lib/queue';
+import type { JsonRecord, QueueItem, ResolvedPlaySource, SourceRef } from '../../../shared/types';
 import { Icon } from '../../../shared/ui/Icon';
 
 type ScenarioName =
@@ -11,7 +12,13 @@ type ScenarioName =
   | 'apple_qobuz'
   | 'mixed_run';
 
-export function AppleMusicMvpPage({ activeZoneStatus }: { activeZoneStatus: JsonRecord }) {
+export function AppleMusicMvpPage({
+  activeZoneStatus,
+  addItemsToQueue
+}: {
+  activeZoneStatus: JsonRecord;
+  addItemsToQueue: (items: QueueItem[], placement: 'next' | 'end') => Promise<boolean>;
+}) {
   const [appleStatus, setAppleStatus] = useState<JsonRecord | null>(null);
   const [fozmoStatus, setFozmoStatus] = useState<JsonRecord | null>(activeZoneStatus);
   const [zoneQueue, setZoneQueue] = useState<JsonRecord | null>(null);
@@ -144,6 +151,27 @@ export function AppleMusicMvpPage({ activeZoneStatus }: { activeZoneStatus: Json
       `play-search-${String(song.song_id || '')}`,
       () => endpoints.playAppleMusicScenario(activeZoneID, source, [], captureConfirmed),
       `${String(song.title || 'Apple Music song')} started on ${activeZoneName}.`
+    );
+  };
+
+  const queueSearchResult = (song: JsonRecord, placement: 'next' | 'end') => {
+    const source = catalogSongSource(song);
+    const item = sourceRefToQueueItem(source);
+    if (!item) {
+      setMessage('This Apple Music result could not be converted into a queue item.');
+      return;
+    }
+    return run(
+      `queue-${placement}-${String(song.song_id || '')}`,
+      async () => {
+        await endpoints.confirmAppleMusicCapture();
+        if (!(await addItemsToQueue([item], placement))) {
+          throw new Error('Could not update the playback queue.');
+        }
+      },
+      `${String(song.title || 'Apple Music song')} added ${
+        placement === 'next' ? 'to play next' : 'to the end of the queue'
+      }.`
     );
   };
 
@@ -338,6 +366,14 @@ export function AppleMusicMvpPage({ activeZoneStatus }: { activeZoneStatus: Json
               }
             />
             <StatusRow
+              label="Active stream variant"
+              value={
+                appleStatus?.active_audio_variant
+                  ? formatAudioVariant(appleStatus.active_audio_variant)
+                  : 'not playing'
+              }
+            />
+            <StatusRow
               label="Tap target"
               value={
                 processTap?.target_pid
@@ -445,10 +481,19 @@ export function AppleMusicMvpPage({ activeZoneStatus }: { activeZoneStatus: Json
               onChange={(event) => setCaptureConfirmed(event.target.checked)}
             />
             <span>
-              Allow Fozmo to capture MusicKit&apos;s isolated audio renderer and feed its PCM
-              through the selected local DSP/output path.
+              Allow Fozmo to route native Music.app playback through the Fozmo Capture virtual
+              driver and feed it through the selected local DSP/output path.
             </span>
           </label>
+
+          <div className="apple-music-routing-callout">
+            <strong>Lossless-only playback</strong>
+            <span>
+              Each selected track is restarted in Music.app at its decoder-log-verified ALAC rate,
+              prebuffered, then released to the active local output. AAC, Dolby, Spatial Audio, and
+              unknown formats are stopped before DSP handoff.
+            </span>
+          </div>
 
           {searchResult ? (
             <div className="apple-music-results" aria-label="Apple Music song search results">
@@ -459,14 +504,12 @@ export function AppleMusicMvpPage({ activeZoneStatus }: { activeZoneStatus: Json
                   const artist = String(song.artist || 'Unknown artist');
                   const album = String(song.album_title || '');
                   const artworkURL = String(song.artwork_url || '');
+                  const description = `${title} by ${artist}${album ? ` from ${album}` : ''}`;
+                  const actionsDisabled = Boolean(busy) || !captureConfirmed || !localZoneSupported;
                   return (
-                    <button
+                    <div
                       className="apple-music-result-row apple-music-search-result"
-                      type="button"
                       key={`${songID}-${index}`}
-                      aria-label={`Play ${title} by ${artist}${album ? ` from ${album}` : ''} on ${activeZoneName}`}
-                      disabled={Boolean(busy) || !captureConfirmed || !localZoneSupported}
-                      onClick={() => void playSearchResult(song)}
                     >
                       <span className="apple-music-artwork" aria-hidden="true">
                         {artworkURL ? (
@@ -479,10 +522,36 @@ export function AppleMusicMvpPage({ activeZoneStatus }: { activeZoneStatus: Json
                         <strong>{title}</strong>
                         <small>{[artist, album].filter(Boolean).join(' · ')}</small>
                       </span>
-                      <span className="apple-music-result-play">
-                        {busy === `play-search-${songID}` ? 'Starting…' : 'Play'}
+                      <span className="apple-music-result-actions">
+                        <button
+                          className="pill ghost apple-music-result-action"
+                          type="button"
+                          aria-label={`Play ${description} on ${activeZoneName}`}
+                          disabled={actionsDisabled}
+                          onClick={() => void playSearchResult(song)}
+                        >
+                          {busy === `play-search-${songID}` ? 'Starting…' : 'Play'}
+                        </button>
+                        <button
+                          className="pill ghost apple-music-result-action"
+                          type="button"
+                          aria-label={`Play ${description} next`}
+                          disabled={actionsDisabled}
+                          onClick={() => void queueSearchResult(song, 'next')}
+                        >
+                          {busy === `queue-next-${songID}` ? 'Adding…' : 'Play next'}
+                        </button>
+                        <button
+                          className="pill ghost apple-music-result-action"
+                          type="button"
+                          aria-label={`Add ${description} to the end of the queue`}
+                          disabled={actionsDisabled}
+                          onClick={() => void queueSearchResult(song, 'end')}
+                        >
+                          {busy === `queue-end-${songID}` ? 'Adding…' : 'Add to queue'}
+                        </button>
                       </span>
-                    </button>
+                    </div>
                   );
                 })
               ) : (
@@ -1128,6 +1197,25 @@ function appleMusicErrorMessage(error: unknown) {
 
 function formatProtocolLabel(value: unknown) {
   return String(value || 'not available').replaceAll('_', ' ');
+}
+
+function formatAudioVariant(value: unknown) {
+  switch (String(value || '')) {
+    case 'lossless':
+      return 'Lossless';
+    case 'highResolutionLossless':
+      return 'Hi-Res Lossless';
+    case 'lossyStereo':
+      return 'Lossy Stereo (AAC)';
+    case 'dolbyAtmos':
+      return 'Dolby Atmos';
+    case 'dolbyAudio':
+      return 'Dolby Audio';
+    case 'spatialAudio':
+      return 'Spatial Audio';
+    default:
+      return formatProtocolLabel(value);
+  }
 }
 
 function recordValue(value: unknown): JsonRecord | null {

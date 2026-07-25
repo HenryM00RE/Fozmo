@@ -5,17 +5,31 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONFIGURATION="${FOZMO_APPLE_MUSIC_BUILD_CONFIGURATION:-release}"
 OUTPUT_ROOT="${FOZMO_APPLE_MUSIC_OUTPUT_DIR:-$ROOT_DIR/target/apple-music-helper}"
-APP_PATH="$OUTPUT_ROOT/FozmoAppleMusicHelper.app"
-CONTENTS="$APP_PATH/Contents"
-MACOS="$CONTENTS/MacOS"
+PUBLISHED_APP_PATH="$OUTPUT_ROOT/FozmoAppleMusicHelper.app"
+STAGING_ROOT=""
+APP_PATH=""
+CONTENTS=""
+MACOS=""
 PROFILE_PLIST=""
 SIGNING_ENTITLEMENTS=""
 SIGNER_CERT_DIR=""
+PREVIOUS_APP_PATH=""
+PUBLISHED_APP_DISPLACED=false
+PUBLISH_COMPLETE=false
 
 cleanup() {
+  if [[
+    "$PUBLISHED_APP_DISPLACED" == "true"
+    && "$PUBLISH_COMPLETE" != "true"
+    && ! -e "$PUBLISHED_APP_PATH"
+    && -e "$PREVIOUS_APP_PATH"
+  ]]; then
+    mv "$PREVIOUS_APP_PATH" "$PUBLISHED_APP_PATH" || true
+  fi
   [[ -z "$PROFILE_PLIST" ]] || rm -f "$PROFILE_PLIST"
   [[ -z "$SIGNING_ENTITLEMENTS" ]] || rm -f "$SIGNING_ENTITLEMENTS"
   [[ -z "$SIGNER_CERT_DIR" ]] || rm -rf "$SIGNER_CERT_DIR"
+  [[ -z "$STAGING_ROOT" ]] || rm -rf "$STAGING_ROOT"
 }
 trap cleanup EXIT
 
@@ -40,8 +54,12 @@ HELPER_BIN="$BIN_DIR/FozmoAppleMusicHelper"
   exit 1
 }
 
+mkdir -p "$OUTPUT_ROOT"
+STAGING_ROOT="$(mktemp -d "$OUTPUT_ROOT/.FozmoAppleMusicHelper.stage.XXXXXX")"
+APP_PATH="$STAGING_ROOT/FozmoAppleMusicHelper.app"
+CONTENTS="$APP_PATH/Contents"
+MACOS="$CONTENTS/MacOS"
 mkdir -p "$MACOS"
-rm -f "$CONTENTS/embedded.provisionprofile"
 cp "$HELPER_BIN" "$MACOS/FozmoAppleMusicHelper"
 cp "$SCRIPT_DIR/Resources/Info.plist" "$CONTENTS/Info.plist"
 
@@ -210,4 +228,28 @@ if [[ "$SIGN_IDENTITY" == "-" ]]; then
   echo "warning: built ad hoc; launch/IPC can be tested, but MusicKit authorization and playback require a provisioned build" >&2
 fi
 
-echo "$APP_PATH"
+# Never overwrite the executable inside a running signed app bundle. macOS
+# validates lazily paged executable data, so mutating that file in place can
+# terminate the helper later with CODESIGNING / Invalid Page. Publish a
+# completely signed staged bundle by renaming directories instead, with EXIT
+# rollback while the old bundle is displaced.
+PREVIOUS_APP_PATH="$OUTPUT_ROOT/.FozmoAppleMusicHelper.previous.$$"
+HAD_PREVIOUS_APP=false
+if [[ -e "$PUBLISHED_APP_PATH" ]]; then
+  mv "$PUBLISHED_APP_PATH" "$PREVIOUS_APP_PATH"
+  HAD_PREVIOUS_APP=true
+  PUBLISHED_APP_DISPLACED=true
+fi
+if ! mv "$APP_PATH" "$PUBLISHED_APP_PATH"; then
+  if [[ "$HAD_PREVIOUS_APP" == "true" && ! -e "$PUBLISHED_APP_PATH" ]]; then
+    mv "$PREVIOUS_APP_PATH" "$PUBLISHED_APP_PATH"
+  fi
+  echo "error: could not publish the signed Apple Music helper" >&2
+  exit 1
+fi
+PUBLISH_COMPLETE=true
+if [[ "$HAD_PREVIOUS_APP" == "true" ]]; then
+  rm -rf "$PREVIOUS_APP_PATH"
+fi
+
+echo "$PUBLISHED_APP_PATH"

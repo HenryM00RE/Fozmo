@@ -25,6 +25,10 @@ final class MusicSessionController {
     private var catalogWatchdogTicks = 0
     private var catalogWatchdogInFlight = false
     private var terminalCatalogFailureEmitted = false
+    private var queuePreparationTask: Task<Void, Never>?
+    private var playbackCommandGeneration: UInt64 = 0
+    private var explicitPauseActive = false
+    private var completionWatchdog = QueueCompletionWatchdog()
 
     init(sessionID: String, sendEvent: @escaping (HelperEvent) -> Void) {
         self.sessionID = sessionID
@@ -133,6 +137,9 @@ final class MusicSessionController {
         case "play", "resume":
             play(commandID: command.id)
         case "pause":
+            invalidatePendingPlaybackCommand()
+            explicitPauseActive = true
+            completionWatchdog.reset()
             player.pause()
             sendPlaybackState(commandID: command.id)
         case "seek":
@@ -142,6 +149,8 @@ final class MusicSessionController {
         case "stop":
             stop(commandID: command.id, reason: "user_stopped")
         case "shutdown":
+            cancelPendingQueuePreparation()
+            invalidatePendingPlaybackCommand()
             player.stop()
             sendQueueFinished(reason: "user_stopped", commandID: nil)
             statusTimer?.invalidate()
@@ -163,6 +172,8 @@ final class MusicSessionController {
     }
 
     func connectionClosed() {
+        cancelPendingQueuePreparation()
+        invalidatePendingPlaybackCommand()
         player.stop()
         NSApp.terminate(nil)
     }
@@ -235,7 +246,7 @@ final class MusicSessionController {
                     equalTo: MusicItemID(songID)
                 )
                 request.limit = 1
-                request.properties = [.albums]
+                request.properties = [.albums, .audioVariants]
                 let response = try await request.response()
                 guard let song = response.items.first else {
                     throw HelperMusicError.songNotFound
@@ -368,8 +379,18 @@ final class MusicSessionController {
         let items = plan.items
         let startIndex = plan.startIndex
         latestAcceptedQueueRevision = revision
-        Task { @MainActor in
+        invalidatePendingPlaybackCommand()
+        let previousPreparation = queuePreparationTask
+        previousPreparation?.cancel()
+        queuePreparationTask = Task { @MainActor in
+            if let previousPreparation {
+                await previousPreparation.value
+            }
             do {
+                try Task.checkCancellation()
+                guard revision == latestAcceptedQueueRevision else {
+                    throw HelperMusicError.queueSuperseded
+                }
                 var songs: [Song] = []
                 songs.reserveCapacity(items.count)
                 for item in items {
@@ -378,9 +399,19 @@ final class MusicSessionController {
                         equalTo: MusicItemID(item.songID)
                     )
                     request.limit = 1
+                    request.properties = [.audioVariants]
                     let response = try await request.response()
+                    try Task.checkCancellation()
+                    guard revision == latestAcceptedQueueRevision else {
+                        throw HelperMusicError.queueSuperseded
+                    }
                     guard let song = response.items.first else {
                         throw HelperMusicError.songNotFound
+                    }
+                    guard
+                        AudioVariantPolicy.catalogOffersLosslessPlayback(song.audioVariants)
+                    else {
+                        throw HelperMusicError.losslessCatalogUnavailable(song.id.rawValue)
                     }
                     songs.append(song)
                 }
@@ -392,6 +423,10 @@ final class MusicSessionController {
                     startingAt: songs[startIndex]
                 )
                 try await player.prepareToPlay()
+                try Task.checkCancellation()
+                guard revision == latestAcceptedQueueRevision else {
+                    throw HelperMusicError.queueSuperseded
+                }
                 queueRevision = revision
                 queueItems = items
                 queueEntrySegments.removeAll(keepingCapacity: true)
@@ -403,6 +438,8 @@ final class MusicSessionController {
                 currentSegmentIndex = items[startIndex].segmentIndex
                 lastQueueEntryID = player.queue.currentEntry?.id
                 queueFinishedEmitted = false
+                explicitPauseActive = false
+                completionWatchdog.reset()
                 catalogWatchdogTicks = 0
                 terminalCatalogFailureEmitted = false
                 var event = statusEvent(type: "queue_prepared", commandID: command.id)
@@ -412,11 +449,23 @@ final class MusicSessionController {
                     song: songs[startIndex]
                 )
                 sendAndCache(event, commandID: command.id)
+            } catch is CancellationError {
+                sendQueueSuperseded(commandID: command.id)
+            } catch HelperMusicError.queueSuperseded {
+                sendQueueSuperseded(commandID: command.id)
             } catch HelperMusicError.songNotFound {
                 sendError(
                     commandID: command.id,
                     code: "song_not_found",
                     message: "Apple Music could not find one of the requested songs.",
+                    retryable: false
+                )
+            } catch HelperMusicError.losslessCatalogUnavailable(let songID) {
+                sendError(
+                    commandID: command.id,
+                    code: "lossless_catalog_unavailable",
+                    message:
+                        "Apple Music does not advertise a Lossless or Hi-Res Lossless version for song \(songID).",
                     retryable: false
                 )
             } catch {
@@ -431,11 +480,65 @@ final class MusicSessionController {
     }
 
     private func play(commandID: String) {
+        let generation = beginPlaybackCommand()
+        let expectedRevision = queueRevision
+        explicitPauseActive = false
+        completionWatchdog.reset()
+        let expectedSongID = queueItems.first {
+            $0.segmentIndex == currentSegmentIndex
+        }?.songID
         Task { @MainActor in
             do {
-                try await player.play()
-                queueFinishedEmitted = false
-                sendPlaybackState(commandID: commandID)
+                // `prepareToPlay()` can expose the selected variant before
+                // playback. Reject a known lossy selection before asking the
+                // renderer to emit any audio. A missing value is deferred to
+                // Fozmo's PID-scoped Apple Lossless decoder proof after start.
+                let preparedSongMatches =
+                    expectedSongID == nil || currentSong()?.id.rawValue == expectedSongID
+                if preparedSongMatches,
+                    AudioVariantPolicy.activePlaybackDisposition(player.state.audioVariant)
+                        == .reject
+                {
+                    let activeVariant =
+                        AudioVariantPolicy.label(for: player.state.audioVariant)
+                        ?? "an unsupported audio variant"
+                    throw HelperMusicError.losslessPlaybackUnavailable(
+                        activeVariant
+                    )
+                }
+                for attempt in 0..<2 {
+                    try await player.play()
+                    guard playbackCommandIsCurrent(generation, queueRevision: expectedRevision) else {
+                        throw HelperMusicError.commandSuperseded
+                    }
+                    if try await waitForConfirmedPlayback(
+                        generation: generation,
+                        queueRevision: expectedRevision,
+                        expectedSongID: expectedSongID
+                    ) {
+                        queueFinishedEmitted = false
+                        sendPlaybackState(commandID: commandID)
+                        return
+                    }
+                    if attempt == 0 {
+                        continue
+                    }
+                }
+                throw HelperMusicError.playbackDidNotStart
+            } catch is CancellationError {
+                sendPlaybackSuperseded(commandID: commandID)
+            } catch HelperMusicError.commandSuperseded {
+                sendPlaybackSuperseded(commandID: commandID)
+            } catch HelperMusicError.losslessPlaybackUnavailable(let activeVariant) {
+                player.stop()
+                sendError(
+                    commandID: commandID,
+                    code: "lossless_playback_unavailable",
+                    message:
+                        "MusicKit selected \(activeVariant) for this track. Fozmo requires Lossless or Hi-Res Lossless and will not send lossy audio to the DSP.",
+                    retryable: false,
+                    audioVariant: activeVariant
+                )
             } catch {
                 sendError(
                     commandID: commandID,
@@ -457,6 +560,7 @@ final class MusicSessionController {
             )
             return
         }
+        completionWatchdog.reset()
         player.playbackTime = position
         var event = statusEvent(type: "playback_time", commandID: command.id)
         attachCurrentQueueContext(to: &event)
@@ -464,10 +568,24 @@ final class MusicSessionController {
     }
 
     private func skipNext(commandID: String) {
+        let generation = beginPlaybackCommand()
+        let expectedRevision = queueRevision
+        explicitPauseActive = false
+        completionWatchdog.reset()
         Task { @MainActor in
             do {
                 try await player.skipToNextEntry()
-                if let song = currentSong(), let segmentIndex = currentSegment(),
+                guard playbackCommandIsCurrent(generation, queueRevision: expectedRevision) else {
+                    throw HelperMusicError.commandSuperseded
+                }
+                let entryID = player.queue.currentEntry?.id
+                if let song = currentSong(),
+                    let segmentIndex = QueueEntrySegmentResolver.resolve(
+                        mappedSegment: entryID.flatMap { queueEntrySegments[$0] },
+                        songID: song.id.rawValue,
+                        currentSegment: currentSegmentIndex,
+                        items: queueItems
+                    ),
                     QueueIndexTransition.shouldEmit(
                         previous: currentSegmentIndex,
                         next: segmentIndex,
@@ -475,13 +593,18 @@ final class MusicSessionController {
                     )
                 {
                     currentSegmentIndex = segmentIndex
-                    lastQueueEntryID = player.queue.currentEntry?.id
+                    lastQueueEntryID = entryID
+                    if let entryID {
+                        queueEntrySegments[entryID] = segmentIndex
+                    }
                     var event = statusEvent(type: "entry_changed", commandID: commandID)
                     attachQueueContext(to: &event, segmentIndex: segmentIndex, song: song)
                     sendAndCache(event, commandID: commandID)
                 } else {
                     sendQueueFinished(reason: "completed", commandID: commandID)
                 }
+            } catch HelperMusicError.commandSuperseded {
+                sendPlaybackSuperseded(commandID: commandID)
             } catch {
                 sendError(
                     commandID: commandID,
@@ -494,9 +617,82 @@ final class MusicSessionController {
     }
 
     private func stop(commandID: String, reason: String) {
+        cancelPendingQueuePreparation()
+        invalidatePendingPlaybackCommand()
+        explicitPauseActive = false
+        completionWatchdog.reset()
         player.stop()
         sendPlaybackState(commandID: commandID, clearNowPlaying: true)
         sendQueueFinished(reason: reason, commandID: nil)
+    }
+
+    private func beginPlaybackCommand() -> UInt64 {
+        playbackCommandGeneration &+= 1
+        return playbackCommandGeneration
+    }
+
+    private func invalidatePendingPlaybackCommand() {
+        playbackCommandGeneration &+= 1
+    }
+
+    private func playbackCommandIsCurrent(_ generation: UInt64, queueRevision: UInt64) -> Bool {
+        generation == playbackCommandGeneration && queueRevision == self.queueRevision
+    }
+
+    private func cancelPendingQueuePreparation() {
+        queuePreparationTask?.cancel()
+        queuePreparationTask = nil
+    }
+
+    private func waitForConfirmedPlayback(
+        generation: UInt64,
+        queueRevision: UInt64,
+        expectedSongID: String?
+    ) async throws -> Bool {
+        for _ in 0..<30 {
+            try Task.checkCancellation()
+            guard playbackCommandIsCurrent(generation, queueRevision: queueRevision) else {
+                throw HelperMusicError.commandSuperseded
+            }
+            let isExpectedSong =
+                expectedSongID == nil || currentSong()?.id.rawValue == expectedSongID
+            if player.state.playbackStatus == .playing, isExpectedSong {
+                switch AudioVariantPolicy.activePlaybackDisposition(player.state.audioVariant) {
+                case .confirmedLossless, .requiresDecoderProof:
+                    // `nil` commonly persists throughout startup on macOS.
+                    // Returning here only confirms that the requested item is
+                    // rendering. The server still refuses the DSP handoff
+                    // unless it observes a fresh ACAppleLosslessDecoder format
+                    // event from this exact renderer process.
+                    return true
+                case .reject:
+                    throw HelperMusicError.losslessPlaybackUnavailable(
+                        AudioVariantPolicy.label(for: player.state.audioVariant)
+                            ?? "an unsupported audio variant"
+                    )
+                }
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return false
+    }
+
+    private func sendQueueSuperseded(commandID: String) {
+        sendError(
+            commandID: commandID,
+            code: "queue_prepare_superseded",
+            message: "A newer Apple Music queue replaced this request.",
+            retryable: true
+        )
+    }
+
+    private func sendPlaybackSuperseded(commandID: String) {
+        sendError(
+            commandID: commandID,
+            code: "playback_command_superseded",
+            message: "A newer Apple Music playback command replaced this request.",
+            retryable: true
+        )
     }
 
     private func sendStatus(type: String, commandID: String?) {
@@ -512,6 +708,7 @@ final class MusicSessionController {
         event.authorization = AuthorizationLabel.string(for: MusicAuthorization.currentStatus)
         event.canPlayCatalogContent = subscriptionCanPlay
         event.playbackState = PlaybackLabel.string(for: player.state.playbackStatus)
+        event.audioVariant = AudioVariantPolicy.label(for: player.state.audioVariant)
         event.playbackTimeSecs = player.playbackTime
         event.playbackPosition = player.playbackTime
         event.queueRevision = queueRevision
@@ -574,7 +771,13 @@ final class MusicSessionController {
         let entryID = player.queue.currentEntry?.id
         if entryID != lastQueueEntryID {
             lastQueueEntryID = entryID
-            if let song = currentSong(), let segmentIndex = currentSegment(),
+            if let song = currentSong(),
+                let segmentIndex = QueueEntrySegmentResolver.resolve(
+                    mappedSegment: entryID.flatMap { queueEntrySegments[$0] },
+                    songID: song.id.rawValue,
+                    currentSegment: currentSegmentIndex,
+                    items: queueItems
+                ),
                 QueueIndexTransition.shouldEmit(
                     previous: currentSegmentIndex,
                     next: segmentIndex,
@@ -582,10 +785,29 @@ final class MusicSessionController {
                 )
             {
                 currentSegmentIndex = segmentIndex
+                if let entryID {
+                    queueEntrySegments[entryID] = segmentIndex
+                }
+                completionWatchdog.reset()
                 var event = statusEvent(type: "entry_changed", commandID: nil)
                 attachQueueContext(to: &event, segmentIndex: segmentIndex, song: song)
                 sendEvent(event)
             }
+        }
+
+        let isFinalEntry =
+            currentSegmentIndex != nil
+            && currentSegmentIndex == queueItems.last?.segmentIndex
+        if !queueFinishedEmitted,
+            completionWatchdog.observe(
+                playbackState: playbackState,
+                position: player.playbackTime,
+                duration: currentSong()?.duration,
+                isFinalEntry: isFinalEntry,
+                explicitPause: explicitPauseActive
+            )
+        {
+            sendQueueFinished(reason: "completed", commandID: nil)
         }
 
         var timeEvent = statusEvent(type: "playback_time", commandID: nil)
@@ -700,7 +922,8 @@ final class MusicSessionController {
         commandID: String?,
         code: String,
         message: String,
-        retryable: Bool
+        retryable: Bool,
+        audioVariant: String? = nil
     ) {
         var event = HelperEvent(type: "helper_error")
         event.commandID = commandID
@@ -708,6 +931,9 @@ final class MusicSessionController {
         event.code = code
         event.message = message
         event.retryable = retryable
+        event.playbackState = PlaybackLabel.string(for: player.state.playbackStatus)
+        event.audioVariant =
+            audioVariant ?? AudioVariantPolicy.label(for: player.state.audioVariant)
         attachCurrentQueueContext(to: &event)
         sendAndCache(event, commandID: commandID)
     }
@@ -723,4 +949,9 @@ final class MusicSessionController {
 private enum HelperMusicError: Error {
     case songNotFound
     case albumNotFound
+    case queueSuperseded
+    case commandSuperseded
+    case playbackDidNotStart
+    case losslessCatalogUnavailable(String)
+    case losslessPlaybackUnavailable(String)
 }

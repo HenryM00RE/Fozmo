@@ -389,6 +389,7 @@ pub(super) fn handle_worker_command(cmd: PlayerCommand, runtime: &mut WorkerRunt
                 shared.state.state.store(PLAYBACK_PAUSED, Ordering::Relaxed);
                 if dsd_state.is_some()
                     && let Some(sess) = session
+                    && sess.seekable
                 {
                     let seconds = current_playback_seconds(&shared.state, *target_rate);
                     if apply_seek_to_session(

@@ -6,7 +6,12 @@ use super::model::{
     HelperQueueItem, PROTOCOL_VERSION, SetQueueCommand,
 };
 use super::process_tap::{
-    ProcessTapController, active_musickit_renderer_pids as discover_active_musickit_renderers,
+    ProcessTapController, ProcessTapRateTransition,
+    active_musickit_renderer_pids as discover_active_musickit_renderers, music_app_pid,
+};
+use super::source_format::{
+    MusicKitDecoderDetection, MusicKitSourceFormat, SourceFormatProbeState,
+    query_recent_renderer_source_format,
 };
 use crate::audio::player::Player;
 use crate::protocol::SourceRef;
@@ -17,7 +22,7 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tokio::net::UnixListener;
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::process::{Child, Command};
@@ -28,15 +33,29 @@ const HELPER_EXECUTABLE: &str = "FozmoAppleMusicHelper";
 const HELPER_APP: &str = "FozmoAppleMusicHelper.app";
 const HELPER_CONNECT_TIMEOUT: Duration = Duration::from_secs(12);
 const HELPER_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
+// `log show` routinely needs around a second even for an empty, tightly
+// filtered query. Keep enough total budget for a retry, but never launch a
+// query with a leftover sliver that cannot reasonably finish.
+const SOURCE_FORMAT_PROBE_TIMEOUT: Duration = Duration::from_secs(6);
+const SOURCE_FORMAT_QUERY_TIMEOUT: Duration = Duration::from_secs(3);
+const SOURCE_FORMAT_MIN_QUERY_TIMEOUT: Duration = Duration::from_millis(1_500);
+const SOURCE_FORMAT_PROBE_RETRY_INTERVAL: Duration = Duration::from_millis(75);
+
+fn source_format_query_budget(remaining: Duration) -> Option<Duration> {
+    (remaining >= SOURCE_FORMAT_MIN_QUERY_TIMEOUT)
+        .then_some(remaining.min(SOURCE_FORMAT_QUERY_TIMEOUT))
+}
 
 pub(crate) struct AppleMusicService {
     helper_path: PathBuf,
     runtime_root: PathBuf,
     status: Arc<Mutex<AppleMusicMvpStatus>>,
     process_tap: Mutex<ProcessTapController>,
+    source_format_probe: Mutex<SourceFormatProbeState>,
     comparison: Mutex<ComparisonSession>,
     playback: Arc<Mutex<Option<ApplePlaybackSnapshot>>>,
     comparison_switch: AsyncMutex<()>,
+    playback_switch: AsyncMutex<()>,
     connection: AsyncMutex<Option<HelperConnection>>,
     next_command_id: AtomicU64,
     next_queue_revision: AtomicU64,
@@ -113,6 +132,7 @@ struct HelperConnection {
     child: Child,
     writer: OwnedWriteHalf,
     events: broadcast::Sender<HelperMessage>,
+    alive: Arc<AtomicBool>,
     session_id: String,
     socket_path: PathBuf,
 }
@@ -126,9 +146,11 @@ impl AppleMusicService {
             runtime_root: cache_dir.join("apple-music"),
             status: Arc::new(Mutex::new(AppleMusicMvpStatus::new(helper_present))),
             process_tap: Mutex::new(ProcessTapController::default()),
+            source_format_probe: Mutex::new(SourceFormatProbeState::default()),
             comparison: Mutex::new(ComparisonSession::default()),
             playback: Arc::new(Mutex::new(None)),
             comparison_switch: AsyncMutex::new(()),
+            playback_switch: AsyncMutex::new(()),
             connection: AsyncMutex::new(None),
             next_command_id: AtomicU64::new(1),
             next_queue_revision: AtomicU64::new(1),
@@ -196,6 +218,10 @@ impl AppleMusicService {
         }
     }
 
+    pub(crate) fn system_audio_capture_confirmed(&self) -> bool {
+        self.system_audio_capture_confirmed.load(Ordering::Acquire)
+    }
+
     pub(crate) fn prepare_musickit_process_tap(
         &self,
         player: Arc<Player>,
@@ -239,6 +265,157 @@ impl AppleMusicService {
         self.process_tap.lock().unwrap().buffered_audio_secs()
     }
 
+    /// Capture the wall-clock boundary before a MusicKit entry can begin
+    /// decoding. A later source-format probe will never accept a decoder log
+    /// at or before this instant.
+    pub(crate) fn source_format_probe_boundary(&self) -> SystemTime {
+        SystemTime::now()
+    }
+
+    /// Probe a fresh native decoder rate for the active MusicKit renderer.
+    ///
+    /// The query is scoped to the exact renderer PID, rejects every record at
+    /// or before the per-entry boundary, and briefly polls for decoder events
+    /// that land after playback starts. `Ok(None)` means no fresh authoritative
+    /// lossless-decoder event; strict callers must fail rather than claim the
+    /// measured tap mix rate is the catalog source rate.
+    pub(crate) async fn probe_process_tap_source_format(
+        &self,
+        boundary: SystemTime,
+    ) -> Result<Option<MusicKitSourceFormat>, AppleMusicMvpError> {
+        let renderer_pid = self
+            .process_tap
+            .lock()
+            .unwrap()
+            .renderer_pid()
+            .ok_or_else(|| {
+                error(
+                    "process_tap_not_running",
+                    "Prepare the MusicKit process tap before probing its native source rate.",
+                    true,
+                    "source_format",
+                    true,
+                )
+            })?;
+        self.probe_source_format_for_pid(renderer_pid, boundary, "MusicKit's macOS renderer")
+            .await
+    }
+
+    /// Probe the decoder owned by the native Music.app process. This uses the
+    /// same strict per-track wall-clock boundary and ALAC/AAC gate as the
+    /// MusicKit renderer path, but targets Music.app's exact PID.
+    pub(crate) async fn probe_music_app_source_format(
+        &self,
+        boundary: SystemTime,
+    ) -> Result<Option<MusicKitSourceFormat>, AppleMusicMvpError> {
+        let pid = music_app_pid().ok_or_else(|| {
+            error(
+                "music_app_not_running",
+                "The Music app is not running or is not visible to Core Audio.",
+                true,
+                "source_format",
+                true,
+            )
+        })?;
+        self.probe_source_format_for_pid(pid, boundary, "Music.app")
+            .await
+    }
+
+    async fn probe_source_format_for_pid(
+        &self,
+        renderer_pid: u32,
+        boundary: SystemTime,
+        renderer_name: &str,
+    ) -> Result<Option<MusicKitSourceFormat>, AppleMusicMvpError> {
+        let deadline = Instant::now() + SOURCE_FORMAT_PROBE_TIMEOUT;
+        let mut successful_query = false;
+        let mut last_error = None;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let Some(query_timeout) = source_format_query_budget(remaining) else {
+                break;
+            };
+            let query = tokio::task::spawn_blocking(move || {
+                query_recent_renderer_source_format(renderer_pid, boundary, query_timeout)
+            })
+            .await;
+            match query {
+                Ok(Ok(detection)) => {
+                    successful_query = true;
+                    if let Some(detection) = self.source_format_probe.lock().unwrap().accept_new(
+                        renderer_pid,
+                        boundary,
+                        detection,
+                    ) {
+                        match detection {
+                            MusicKitDecoderDetection::Lossless(source_format) => {
+                                return Ok(Some(source_format));
+                            }
+                            MusicKitDecoderDetection::Lossy {
+                                codec,
+                                sample_rate_hz,
+                                ..
+                            } => {
+                                return Err(error(
+                                    "lossy_source_format_selected",
+                                    format!(
+                                        "{renderer_name} selected {codec} at {sample_rate_hz} Hz. Fozmo requires Apple Lossless (ALAC) and did not connect this stream to the DSP."
+                                    ),
+                                    false,
+                                    "source_format",
+                                    false,
+                                ));
+                            }
+                        }
+                    }
+                }
+                Ok(Err(message)) => last_error = Some(message),
+                Err(join_error) => {
+                    last_error = Some(format!(
+                        "The MusicKit source-format probe stopped unexpectedly: {join_error}"
+                    ));
+                }
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            tokio::time::sleep(remaining.min(SOURCE_FORMAT_PROBE_RETRY_INTERVAL)).await;
+        }
+        if successful_query {
+            Ok(None)
+        } else {
+            Err(error(
+                "process_tap_source_format_probe_failed",
+                last_error.unwrap_or_else(|| {
+                    format!(
+                        "The {renderer_name} source-format probe timed out before reading Unified Log."
+                    )
+                }),
+                true,
+                "source_format",
+                true,
+            ))
+        }
+    }
+
+    /// Stage a rate-specific replacement tap. The current tap remains active
+    /// until the caller uses the existing prepare/prefill/commit sequence.
+    pub(crate) fn prepare_process_tap_rate_transition(
+        &self,
+        player: Arc<Player>,
+        source_format: MusicKitSourceFormat,
+    ) -> Result<ProcessTapRateTransition, AppleMusicMvpError> {
+        self.process_tap
+            .lock()
+            .unwrap()
+            .prepare_rate_transition(player, source_format)
+    }
+
+    pub(crate) fn cancel_process_tap_rate_transition(&self) -> bool {
+        self.process_tap.lock().unwrap().cancel_rate_transition()
+    }
+
     pub(crate) fn prepare_process_tap_stream(&self) -> Result<(), AppleMusicMvpError> {
         self.process_tap.lock().unwrap().prepare_player_stream()
     }
@@ -254,6 +431,10 @@ impl AppleMusicService {
 
     pub(crate) fn stop_process_tap(&self) -> AppleMusicMvpStatus {
         self.process_tap.lock().unwrap().stop();
+        // Deliberately keep the last decoder-log marker across replacements:
+        // MusicKit often reuses the same renderer PID, and clearing the marker
+        // could make the next probe mistake the previous song's recent event
+        // for the new song's format. `accept_new` resets it when the PID changes.
         let mut comparison = self.comparison.lock().unwrap();
         if comparison.status.active_side == "apple_music" {
             comparison.status.active_side = "idle".to_string();
@@ -264,6 +445,22 @@ impl AppleMusicService {
 
     pub(crate) fn process_tap_playback_epoch(&self) -> Option<u64> {
         self.process_tap.lock().unwrap().playback_epoch()
+    }
+
+    pub(crate) fn replace_playback_player_epoch(
+        &self,
+        zone_id: &str,
+        expected_epoch: u64,
+        replacement_epoch: u64,
+    ) -> bool {
+        let mut playback = self.playback.lock().unwrap();
+        let Some(snapshot) = playback.as_mut().filter(|snapshot| {
+            snapshot.zone_id == zone_id && snapshot.player_epoch == expected_epoch
+        }) else {
+            return false;
+        };
+        snapshot.player_epoch = replacement_epoch;
+        true
     }
 
     pub(crate) fn activate_playback(
@@ -418,6 +615,15 @@ impl AppleMusicService {
 
     pub(crate) async fn lock_comparison_switch(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.comparison_switch.lock().await
+    }
+
+    /// Serialize the complete stop → queue → play → process-tap handoff.
+    ///
+    /// IPC writes are serialized separately, but MusicKit queue preparation
+    /// continues asynchronously inside the helper. This guard prevents two
+    /// track selections from interleaving those higher-level operations.
+    pub(crate) async fn lock_playback_switch(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.playback_switch.lock().await
     }
 
     pub(crate) fn comparison_reference(&self) -> Option<AppleMusicComparisonReferenceState> {
@@ -748,11 +954,16 @@ impl AppleMusicService {
         {
             let mut guard = self.connection.lock().await;
             if let Some(connection) = guard.as_mut() {
-                match connection.child.try_wait() {
-                    Ok(None) => return Ok(()),
-                    Ok(Some(_)) | Err(_) => {
-                        cleanup_socket(&connection.socket_path);
-                        *guard = None;
+                if !connection.alive.load(Ordering::Acquire) {
+                    cleanup_socket(&connection.socket_path);
+                    *guard = None;
+                } else {
+                    match connection.child.try_wait() {
+                        Ok(None) => return Ok(()),
+                        Ok(Some(_)) | Err(_) => {
+                            cleanup_socket(&connection.socket_path);
+                            *guard = None;
+                        }
                     }
                 }
             }
@@ -912,6 +1123,8 @@ impl AppleMusicService {
         let event_sender = events.clone();
         let shared_status = Arc::clone(&self.status);
         let shared_playback = Arc::clone(&self.playback);
+        let connection_alive = Arc::new(AtomicBool::new(true));
+        let reader_alive = Arc::clone(&connection_alive);
         let reader_session_id = session_id.clone();
         tokio::spawn(async move {
             loop {
@@ -970,12 +1183,14 @@ impl AppleMusicService {
                     }
                 }
             }
+            reader_alive.store(false, Ordering::Release);
         });
 
         *self.connection.lock().await = Some(HelperConnection {
             child,
             writer,
             events,
+            alive: connection_alive,
             session_id,
             socket_path,
         });
@@ -1042,6 +1257,7 @@ impl AppleMusicService {
             status.helper_pid = None;
             status.session_id = None;
             status.playback_state = "stopped".to_string();
+            status.active_audio_variant = None;
             status.playback_time_secs = None;
             status.now_playing = None;
             status.state = if self.helper_path.is_file() {
@@ -1133,17 +1349,19 @@ impl AppleMusicService {
                 ));
             }
             let receiver = connection.events.subscribe();
-            write_json_frame(&mut connection.writer, command)
+            if write_json_frame(&mut connection.writer, command)
                 .await
-                .map_err(|_| {
-                    error(
-                        "helper_exited",
-                        "Fozmo could not send a command to the Apple Music helper.",
-                        true,
-                        "helper_connection",
-                        false,
-                    )
-                })?;
+                .is_err()
+            {
+                connection.alive.store(false, Ordering::Release);
+                return Err(error(
+                    "helper_exited",
+                    "Fozmo could not send a command to the Apple Music helper.",
+                    true,
+                    "helper_connection",
+                    false,
+                ));
+            }
             receiver
         };
 
@@ -1354,6 +1572,9 @@ fn apply_helper_event(status: &Arc<Mutex<AppleMusicMvpStatus>>, event: &HelperMe
     if let Some(playback_state) = &event.playback_state {
         status.playback_state = playback_state.clone();
     }
+    if let Some(audio_variant) = &event.audio_variant {
+        status.active_audio_variant = Some(audio_variant.clone());
+    }
     if let Some(playback_time) = event.playback_time_secs {
         status.playback_time_secs = Some(playback_time);
     }
@@ -1385,6 +1606,7 @@ fn apply_helper_event(status: &Arc<Mutex<AppleMusicMvpStatus>>, event: &HelperMe
             };
             if status.playback_state == "stopped" {
                 status.now_playing = None;
+                status.active_audio_variant = None;
                 status.playback_time_secs = None;
             }
         }
@@ -1610,6 +1832,26 @@ fn error(
 mod tests {
     use super::*;
     use crate::protocol::SourceRef;
+
+    #[test]
+    fn source_format_query_budget_rejects_tiny_deadline_remainders() {
+        assert_eq!(
+            source_format_query_budget(Duration::from_millis(1_499)),
+            None
+        );
+        assert_eq!(
+            source_format_query_budget(Duration::from_millis(1_500)),
+            Some(Duration::from_millis(1_500))
+        );
+        assert_eq!(
+            source_format_query_budget(Duration::from_secs(2)),
+            Some(Duration::from_secs(2))
+        );
+        assert_eq!(
+            source_format_query_budget(Duration::from_secs(4)),
+            Some(Duration::from_secs(3))
+        );
+    }
 
     #[test]
     fn source_checkout_helper_path_targets_a_real_app_bundle() {

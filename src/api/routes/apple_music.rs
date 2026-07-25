@@ -1,5 +1,7 @@
+use super::playback_sequence::playback_request_sequence_from_headers;
 use crate::app::state::AppState;
 use crate::library::{AlbumVersionSummary, AppleMusicAlbumMatchPreview};
+use crate::playback::commands::accept_playback_request_sequence;
 use crate::playback::intent::{PlaybackGuard, PlaybackIntent};
 use crate::playback::queue::now_playing_queue_for_zone;
 use crate::playback::resolver::{QueueRequestItem, source_ref_from_queue_request};
@@ -8,17 +10,18 @@ use crate::playback::status::build_status_response_for_zone;
 use crate::protocol::{SinkProtocol, SourceRef};
 use crate::services::apple_music_musickit::{
     AppleCatalogAlbum, AppleCatalogSearchResult, AppleCatalogSong, AppleMusicAlbumVersionRequest,
-    AppleMusicAuthorizeRequest, AppleMusicCatalogQuery, AppleMusicCatalogSearchQuery,
-    AppleMusicComparisonReferenceState, AppleMusicComparisonSwitchRequest,
-    AppleMusicDevPlaySongRequest, AppleMusicMvpError, AppleMusicMvpStatus, AppleMusicPlayRequest,
-    AppleMusicProcessTapStartRequest, AppleMusicTransportRequest, MusicAppSnapshot,
-    music_app_status, pause_music_app, pause_music_app_and_status, play_music_app,
-    set_music_app_position, set_music_app_position_and_play,
+    AppleMusicAuthorizeRequest, AppleMusicCaptureConfirmationRequest, AppleMusicCatalogQuery,
+    AppleMusicCatalogSearchQuery, AppleMusicComparisonReferenceState,
+    AppleMusicComparisonSwitchRequest, AppleMusicDevPlaySongRequest, AppleMusicMvpError,
+    AppleMusicMvpStatus, AppleMusicPlayRequest, AppleMusicProcessTapStartRequest,
+    AppleMusicTransportRequest, MusicAppSnapshot, music_app_status, pause_music_app,
+    pause_music_app_and_status, play_music_app, set_music_app_position,
+    set_music_app_position_and_play,
 };
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
 };
 use std::time::Duration;
@@ -37,6 +40,10 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/api/apple-music/status", get(status))
         .route("/api/apple-music/launch", post(launch))
         .route("/api/apple-music/authorize", post(authorize))
+        .route(
+            "/api/apple-music/capture/confirm",
+            post(confirm_system_audio_capture),
+        )
         .route("/api/apple-music/play", post(play))
         .route("/api/apple-music/catalog/search", get(search_catalog))
         .route("/api/apple-music/catalog/songs/:id", get(lookup_song))
@@ -96,6 +103,23 @@ async fn authorize(
         .await
         .map(Json)
         .map_err(api_error)
+}
+
+async fn confirm_system_audio_capture(
+    State(state): State<AppState>,
+    Json(request): Json<AppleMusicCaptureConfirmationRequest>,
+) -> AppleMusicApiResult {
+    if !request.confirm_system_audio_capture {
+        return Err(api_error(comparison_error(
+            "process_tap_confirmation_required",
+            "Confirm macOS system-audio capture before queueing Apple Music playback.",
+            false,
+            "permission",
+            true,
+        )));
+    }
+    state.apple_music().confirm_system_audio_capture(true);
+    Ok(Json(state.apple_music().status()))
 }
 
 async fn play_song(
@@ -203,8 +227,15 @@ async fn unlink_album_version(
 
 async fn play(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<AppleMusicPlayRequest>,
 ) -> AppleMusicApiResult {
+    let sequence = playback_request_sequence_from_headers(&headers);
+    if !accept_playback_request_sequence(&state, sequence.as_ref()) {
+        return Err(playback_api_error(
+            crate::playback::error::PlaybackError::conflict("Playback changed"),
+        ));
+    }
     let zone_id = request
         .zone_id
         .as_deref()
@@ -254,7 +285,7 @@ async fn play(
                 source,
                 queue,
                 radio_auto: false,
-                guard: PlaybackGuard::none(),
+                guard: PlaybackGuard::from_expected_sequence(sequence),
                 qobuz_request: None,
             },
         )
@@ -268,15 +299,11 @@ async fn resolve_scenario_source(
     source: SourceRef,
 ) -> Result<SourceRef, AppleMusicMvpError> {
     match source {
-        SourceRef::AppleMusicTrack {
-            song_id,
-            storefront,
-            ..
-        } => state
-            .apple_music()
-            .lookup_song(song_id, storefront)
-            .await
-            .map(|song| song.source_ref()),
+        // Catalog search results already carry a canonical MusicKit source.
+        // The helper validates and resolves each ID while preparing its queue,
+        // so looking it up again here only doubles startup latency and adds
+        // another network failure point.
+        source @ SourceRef::AppleMusicTrack { .. } => Ok(source),
         source => source_ref_from_queue_request(state, &QueueRequestItem::Source(source))
             .map_err(|error| {
                 comparison_error(

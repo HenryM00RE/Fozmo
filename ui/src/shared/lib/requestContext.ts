@@ -42,6 +42,7 @@ function nextPlaybackRequestSequence() {
 function isPlaybackIntent(path: string) {
   return (
     path === '/api/play' ||
+    path === '/api/apple-music/play' ||
     path === '/api/artist-radio/play' ||
     path === '/api/qobuz/play' ||
     path === '/api/qobuz/prefetch' ||

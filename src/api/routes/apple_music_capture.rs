@@ -1,5 +1,6 @@
 use crate::api::error::ApiError;
 use crate::app::state::AppState;
+use crate::protocol::SinkProtocol;
 use crate::services::apple_music::{
     AppleMusicAppControlRequest, AppleMusicCaptureRateRequest, AppleMusicCaptureSettingsUpdate,
     StartAppleMusicCaptureRequest, apply_settings_update, sanitize_settings,
@@ -46,7 +47,7 @@ async fn update_settings(
     State(state): State<AppState>,
     Json(update): Json<AppleMusicCaptureSettingsUpdate>,
 ) -> impl IntoResponse {
-    state.settings().update(move |settings| {
+    let _ = state.settings().update(move |settings| {
         apply_settings_update(&mut settings.apple_music_capture, update);
     });
     let settings = state.settings().apple_music_capture_settings();
@@ -61,13 +62,32 @@ async fn start(
     State(state): State<AppState>,
     Json(request): Json<StartAppleMusicCaptureRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.settings().update(|settings| {
+    let _ = state.settings().update(|settings| {
         sanitize_settings(&mut settings.apple_music_capture);
     });
+    let zone_id = request
+        .zone_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|zone_id| !zone_id.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| state.zones().active_zone_id());
+    if state.zones().zone_protocol(&zone_id) != Some(SinkProtocol::LocalCoreAudio) {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "Apple Music lossless capture requires a local CoreAudio zone.".to_string(),
+        ));
+    }
+    let player = state.zones().player_for_zone(&zone_id).ok_or_else(|| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            format!("The selected local zone '{zone_id}' is not available."),
+        )
+    })?;
     let settings = sanitized_capture_settings(&state);
     state
         .apple_music_capture()
-        .start(&settings, request)
+        .start(player, &settings, request)
         .map(Json)
         .map_err(|message| ApiError::new(StatusCode::BAD_REQUEST, message))
 }

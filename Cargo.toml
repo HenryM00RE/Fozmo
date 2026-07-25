@@ -26,9 +26,10 @@ airplay_helper = []
 # See README for setup details.
 asio = ["dep:ndsd-asio-sys"]
 apple_music_capture = []
-# Native MusicKit helper proof. This is intentionally separate from the
-# legacy virtual-device capture feature while the PID-tap path is developed.
-apple_music_musickit = []
+# MusicKit provides authorization/catalog access. Catalog playback on macOS
+# uses the Fozmo Capture virtual device so Music.app can deliver its native
+# Lossless/Hi-Res Lossless stream through the selected local DSP/output path.
+apple_music_musickit = ["apple_music_capture"]
 sonos = []
 hegel = []
 upnp = []

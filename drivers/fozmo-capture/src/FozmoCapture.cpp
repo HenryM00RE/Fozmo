@@ -3,6 +3,7 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <dispatch/dispatch.h>
 #include <mach/mach_time.h>
+#include <os/log.h>
 #include <time.h>
 
 #include <atomic>
@@ -333,6 +334,7 @@ Boolean driverHasProperty(AudioObjectID objectID, const AudioObjectPropertyAddre
                 case kAudioObjectPropertyManufacturer:
                 case kAudioObjectPropertyOwnedObjects:
                 case kAudioPlugInPropertyBundleID:
+                case kAudioPlugInPropertyResourceBundle:
                 case kAudioPlugInPropertyDeviceList:
                 case kAudioPlugInPropertyTranslateUIDToDevice:
                     return true;
@@ -346,6 +348,7 @@ Boolean driverHasProperty(AudioObjectID objectID, const AudioObjectPropertyAddre
                 case kAudioObjectPropertyName:
                 case kAudioObjectPropertyManufacturer:
                 case kAudioObjectPropertyOwnedObjects:
+                case kAudioObjectPropertyControlList:
                 case kAudioObjectPropertyCustomPropertyInfoList:
                 case kAudioDevicePropertyDeviceUID:
                 case kAudioDevicePropertyModelUID:
@@ -401,11 +404,14 @@ Boolean driverHasProperty(AudioObjectID objectID, const AudioObjectPropertyAddre
     return false;
 }
 
-UInt32 propertyDataSize(AudioObjectID objectID, const AudioObjectPropertyAddress* address, UInt32 qualifierSize) {
+UInt32 propertyDataSize(AudioObjectID objectID,
+                        const AudioObjectPropertyAddress* address,
+                        UInt32 /* qualifierSize */) {
     switch (address->mSelector) {
         case kAudioObjectPropertyName:
         case kAudioObjectPropertyManufacturer:
         case kAudioPlugInPropertyBundleID:
+        case kAudioPlugInPropertyResourceBundle:
         case kAudioDevicePropertyDeviceUID:
         case kAudioDevicePropertyModelUID:
         case kPropVersion:
@@ -452,6 +458,10 @@ UInt32 propertyDataSize(AudioObjectID objectID, const AudioObjectPropertyAddress
             return sizeof(AudioStreamRangedDescription) * kSupportedRateCount;
         case kAudioObjectPropertyCustomPropertyInfoList:
             return sizeof(AudioServerPlugInCustomPropertyInfo);
+        case kAudioObjectPropertyControlList:
+            // Intentionally empty. Exposing no software volume or mute controls
+            // keeps the virtual device's PCM path unity-gain.
+            return 0;
         case kAudioDevicePropertyPreferredChannelsForStereo:
             return sizeof(UInt32) * 2;
         case kAudioObjectPropertyOwnedObjects:
@@ -476,7 +486,7 @@ UInt32 propertyDataSize(AudioObjectID objectID, const AudioObjectPropertyAddress
         case kAudioPlugInPropertyDeviceList:
             return sizeof(AudioObjectID);
         case kAudioPlugInPropertyTranslateUIDToDevice:
-            return qualifierSize >= sizeof(CFStringRef) ? sizeof(AudioObjectID) : 0;
+            return sizeof(AudioObjectID);
         default:
             return 0;
     }
@@ -525,6 +535,8 @@ OSStatus getPropertyData(AudioObjectID objectID,
             return writeCFString(inDataSize, outDataSize, outData, "Fozmo");
         case kAudioPlugInPropertyBundleID:
             return writeCFString(inDataSize, outDataSize, outData, "com.fozmo.audio.capture.driver");
+        case kAudioPlugInPropertyResourceBundle:
+            return writeCFString(inDataSize, outDataSize, outData, "");
         case kAudioPlugInPropertyDeviceList:
         case kAudioObjectPropertyOwnedObjects:
             if (objectID == kObjectPlugIn) {
@@ -556,6 +568,9 @@ OSStatus getPropertyData(AudioObjectID objectID,
             *outDataSize = sizeof(AudioServerPlugInCustomPropertyInfo);
             return kAudioHardwareNoError;
         }
+        case kAudioObjectPropertyControlList:
+            *outDataSize = 0;
+            return kAudioHardwareNoError;
         case kAudioPlugInPropertyTranslateUIDToDevice:
             if (qualifierSize >= sizeof(CFStringRef) && qualifierData != nullptr) {
                 CFStringRef uid = *reinterpret_cast<CFStringRef const*>(qualifierData);
@@ -862,9 +877,17 @@ OSStatus STDMETHODCALLTYPE IsPropertySettable(AudioServerPlugInDriverRef, AudioO
 
 OSStatus STDMETHODCALLTYPE GetPropertyDataSize(AudioServerPlugInDriverRef, AudioObjectID objectID, pid_t, const AudioObjectPropertyAddress* address, UInt32 qualifierSize, const void*, UInt32* outDataSize) {
     if (outDataSize == nullptr || address == nullptr) return kAudioHardwareIllegalOperationError;
-    if (!driverHasProperty(objectID, address)) return kAudioHardwareUnknownPropertyError;
+    if (!driverHasProperty(objectID, address)) {
+        os_log_error(OS_LOG_DEFAULT,
+                     "FozmoCapture missing property size: object=%u selector=%{public}.4s scope=%{public}.4s element=%u",
+                     objectID,
+                     reinterpret_cast<const char*>(&address->mSelector),
+                     reinterpret_cast<const char*>(&address->mScope),
+                     address->mElement);
+        return kAudioHardwareUnknownPropertyError;
+    }
     *outDataSize = propertyDataSize(objectID, address, qualifierSize);
-    return *outDataSize == 0 ? kAudioHardwareUnknownPropertyError : kAudioHardwareNoError;
+    return kAudioHardwareNoError;
 }
 
 OSStatus STDMETHODCALLTYPE GetPropertyData(AudioServerPlugInDriverRef,
@@ -876,7 +899,10 @@ OSStatus STDMETHODCALLTYPE GetPropertyData(AudioServerPlugInDriverRef,
                                            UInt32 inDataSize,
                                            UInt32* outDataSize,
                                            void* outData) {
-    if (address == nullptr || outDataSize == nullptr || outData == nullptr) return kAudioHardwareIllegalOperationError;
+    if (address == nullptr || outDataSize == nullptr) return kAudioHardwareIllegalOperationError;
+    if (outData == nullptr && propertyDataSize(objectID, address, qualifierSize) != 0) {
+        return kAudioHardwareIllegalOperationError;
+    }
     return getPropertyData(objectID, address, qualifierSize, qualifierData, inDataSize, outDataSize, outData);
 }
 

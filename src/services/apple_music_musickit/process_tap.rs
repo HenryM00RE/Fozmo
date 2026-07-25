@@ -11,6 +11,7 @@ use super::live_source::{
     ring_capacity_samples,
 };
 use super::model::{AppleMusicMvpError, AppleMusicProcessTapMetrics, AppleMusicProcessTapStatus};
+use super::source_format::{MusicKitSourceFormat, is_native_apple_music_rate};
 use crate::audio::player::{Player, PreparedStream, TrackTags};
 use std::ffi::c_void;
 use std::ptr::NonNull;
@@ -25,6 +26,8 @@ const PROCESS_TAP_BUFFER_MS: u32 = 4_000;
 const MAX_MUSICKIT_RENDERERS: usize = 16;
 const LAYOUT_INTERLEAVED: u32 = 0;
 const LAYOUT_PLANAR: u32 = 1;
+const STATUS_FORMAT_NOT_SETTABLE: i32 = 0x6673_743f; // fst?
+const STATUS_FORMAT_RATE_MISMATCH: i32 = 0x7261_7465; // rate
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProcessTapProcessKind {
@@ -88,6 +91,7 @@ unsafe extern "C" {
     fn fozmo_process_tap_create(
         pid: i32,
         mute_original: u32,
+        requested_sample_rate_hz: f64,
         out_info: *mut NativeTapInfo,
         out_status: *mut i32,
         out_stage: *mut u32,
@@ -141,7 +145,11 @@ struct NativeTap(NonNull<c_void>);
 unsafe impl Send for NativeTap {}
 
 impl NativeTap {
-    fn create(pid: i32, mute_original: bool) -> Result<(Self, NativeTapInfo), TapFailure> {
+    fn create(
+        pid: i32,
+        mute_original: bool,
+        requested_sample_rate_hz: Option<u32>,
+    ) -> Result<(Self, NativeTapInfo), TapFailure> {
         let mut info = NativeTapInfo::default();
         let mut status = 0;
         let mut stage = 0;
@@ -149,6 +157,7 @@ impl NativeTap {
             fozmo_process_tap_create(
                 pid,
                 u32::from(mute_original),
+                requested_sample_rate_hz.map_or(0.0, f64::from),
                 &mut info,
                 &mut status,
                 &mut stage,
@@ -205,6 +214,11 @@ struct ProcessTapSession {
     expected_epoch: u64,
     mute_original: bool,
     target: ProcessTapTarget,
+    /// Rate advertised by the live WAV source and consumed by Fozmo's DSP.
+    /// This can differ from Core Audio's fixed process-mix tap rate.
+    stream_sample_rate_hz: u32,
+    source_sample_rate_hz: Option<u32>,
+    source_bit_depth_bits: Option<u32>,
 }
 
 impl ProcessTapSession {
@@ -212,6 +226,7 @@ impl ProcessTapSession {
         player: Arc<Player>,
         target: ProcessTapTarget,
         mute_original: bool,
+        requested_sample_rate_hz: Option<u32>,
     ) -> Result<Self, AppleMusicMvpError> {
         let pid = i32::try_from(target.pid).map_err(|_| {
             mvp_error(
@@ -222,9 +237,39 @@ impl ProcessTapSession {
                 true,
             )
         })?;
-        let (native, info) = NativeTap::create(pid, mute_original)
-            .map_err(|failure| process_tap_error(failure, &target))?;
+        let (native, info) = match NativeTap::create(pid, mute_original, requested_sample_rate_hz) {
+            Ok(created) => created,
+            Err(failure)
+                if requested_sample_rate_hz.is_some() && rate_bridge_can_recover(failure) =>
+            {
+                // kAudioTapPropertyFormat is read-only on current macOS
+                // MusicKit renderers. Keep the measured tap and perform a
+                // high-quality PCM rate bridge before the normal DSP path.
+                NativeTap::create(pid, mute_original, None)
+                    .map_err(|fallback| process_tap_error(fallback, &target, None))?
+            }
+            Err(failure) => {
+                return Err(process_tap_error(
+                    failure,
+                    &target,
+                    requested_sample_rate_hz,
+                ));
+            }
+        };
         let rate_hz = validated_rate(info.sample_rate_hz)?;
+        let stream_sample_rate_hz = requested_sample_rate_hz.unwrap_or(rate_hz);
+        if stream_sample_rate_hz > rate_hz {
+            return Err(mvp_error(
+                "process_tap_source_bandwidth_unavailable",
+                format!(
+                    "{} decoded at {} Hz, but macOS exposes only a {} Hz process-tap mix. Fozmo will not upsample that mix and present it as native high-resolution audio.",
+                    target.display_name, stream_sample_rate_hz, rate_hz
+                ),
+                false,
+                "source_format",
+                true,
+            ));
+        }
         if info.channels != u32::from(LIVE_CHANNELS) {
             return Err(mvp_error(
                 "process_tap_format_unsupported",
@@ -249,7 +294,7 @@ impl ProcessTapSession {
         });
         native
             .start(callback_context.as_mut())
-            .map_err(|failure| process_tap_error(failure, &target))?;
+            .map_err(|failure| process_tap_error(failure, &target, requested_sample_rate_hz))?;
 
         let shutdown = Arc::new(AtomicBool::new(false));
         let expected_epoch = player.playback_epoch();
@@ -267,6 +312,9 @@ impl ProcessTapSession {
             expected_epoch,
             mute_original,
             target,
+            stream_sample_rate_hz,
+            source_sample_rate_hz: requested_sample_rate_hz,
+            source_bit_depth_bits: None,
         })
     }
 
@@ -283,13 +331,23 @@ impl ProcessTapSession {
                 false,
             )
         })?;
-        let rate_hz = validated_rate(self.info.sample_rate_hz)?;
-        let source = LiveCaptureSource::new_with_flow(
-            rate_hz,
-            consumer,
-            Arc::clone(&self.shutdown),
-            Arc::clone(&self.flow),
-        );
+        let tap_rate_hz = validated_rate(self.info.sample_rate_hz)?;
+        let source = if tap_rate_hz == self.stream_sample_rate_hz {
+            LiveCaptureSource::new_with_flow(
+                tap_rate_hz,
+                consumer,
+                Arc::clone(&self.shutdown),
+                Arc::clone(&self.flow),
+            )
+        } else {
+            LiveCaptureSource::new_rate_bridged_with_flow(
+                tap_rate_hz,
+                self.stream_sample_rate_hz,
+                consumer,
+                Arc::clone(&self.shutdown),
+                Arc::clone(&self.flow),
+            )
+        };
         self.prepared_stream = Some(
             self.player
                 .prepare_stream(Box::new(source), Some("wav".to_string()), None)
@@ -342,15 +400,17 @@ impl ProcessTapSession {
             )
         })?;
         let live_display_name = self.target.process_kind.live_display_name();
-        let rate_hz = validated_rate(self.info.sample_rate_hz)?;
         let tags = TrackTags {
             title: Some(live_display_name.to_string()),
             artist: Some("Apple Music".to_string()),
-            sample_rate: Some(rate_hz),
+            sample_rate: Some(self.stream_sample_rate_hz),
             channels: Some(LIVE_CHANNELS),
-            // This describes the native tap container. Core Audio does not
-            // expose the Apple Music asset's original integer bit depth.
-            bits_per_sample: Some(LIVE_SAMPLE_CONTAINER_BITS),
+            // Prefer the independently verified ALAC source depth for the
+            // now-playing badge. Tap telemetry separately reports its Float32
+            // container width and numerical precision.
+            bits_per_sample: self
+                .source_bit_depth_bits
+                .or(Some(LIVE_SAMPLE_CONTAINER_BITS)),
             ..TrackTags::default()
         };
         let epoch = self.player.reserve_playback_change();
@@ -410,10 +470,12 @@ impl ProcessTapSession {
             sample_format: Some("pcm_f32".to_string()),
             sample_container_bits: Some(self.info.bits_per_channel),
             sample_precision_bits: Some(LIVE_SAMPLE_PRECISION_BITS),
-            source_bit_depth_bits: None,
+            source_sample_rate_hz: self.source_sample_rate_hz,
+            source_bit_depth_bits: self.source_bit_depth_bits,
             format_settable: (self.info.format_settable_known != 0)
                 .then_some(self.info.format_settable != 0),
-            sample_values_preserved: true,
+            sample_values_preserved: validated_rate(self.info.sample_rate_hz)
+                .is_ok_and(|tap_rate_hz| tap_rate_hz == self.stream_sample_rate_hz),
             original_audio_muted_while_tapped: self.mute_original,
             dsp_handoff_active: self.owns_player_session(),
             output_device: self.player.selected_device_name(),
@@ -435,7 +497,25 @@ impl Drop for ProcessTapSession {
 #[derive(Default)]
 pub(super) struct ProcessTapController {
     session: Option<ProcessTapSession>,
+    /// The previous live tap remains active until a rate-specific replacement
+    /// commits, so probing/prefilling a new rate cannot starve current output.
+    retiring_session: Option<ProcessTapSession>,
     last_error: Option<AppleMusicMvpError>,
+    /// MusicKit commonly keeps the same remote-renderer process alive across
+    /// `stop` followed by a new queue. Remembering the process we previously
+    /// proved ownership of lets a later track reuse it safely.
+    last_musickit_renderer_pid: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProcessTapRateTransition {
+    Unchanged {
+        sample_rate_hz: u32,
+    },
+    Prepared {
+        previous_stream_rate_hz: u32,
+        source_sample_rate_hz: u32,
+    },
 }
 
 impl ProcessTapController {
@@ -545,9 +625,12 @@ impl ProcessTapController {
         if self.session.is_some() {
             return Ok(self.status());
         }
-        let result = ProcessTapSession::prepare(player, target, mute_original);
+        let result = ProcessTapSession::prepare(player, target, mute_original, None);
         match result {
             Ok(session) => {
+                if session.target.process_kind == ProcessTapProcessKind::MusicKitRenderer {
+                    self.last_musickit_renderer_pid = Some(session.target.pid);
+                }
                 self.session = Some(session);
                 self.last_error = None;
                 Ok(self.status())
@@ -572,6 +655,7 @@ impl ProcessTapController {
         let pid = select_new_musickit_renderer_pid(
             &active_renderer_pids,
             preexisting_renderer_pids,
+            self.last_musickit_renderer_pid,
         )
         .map_err(|()| {
             mvp_error(
@@ -600,6 +684,97 @@ impl ProcessTapController {
             },
             mute_original,
         )
+    }
+
+    pub(super) fn renderer_pid(&self) -> Option<u32> {
+        self.session
+            .as_ref()
+            .filter(|session| {
+                session.target.process_kind == ProcessTapProcessKind::MusicKitRenderer
+            })
+            .map(|session| session.target.pid)
+    }
+
+    /// Prepare a replacement live source whose tap PCM rate matches an exact,
+    /// independently detected MusicKit decoder rate.
+    ///
+    /// The old tap/player stream remains alive in `retiring_session` until the
+    /// caller fills and commits the replacement through the normal
+    /// prepare/prefill/commit path.
+    pub(super) fn prepare_rate_transition(
+        &mut self,
+        player: Arc<Player>,
+        source_format: MusicKitSourceFormat,
+    ) -> Result<ProcessTapRateTransition, AppleMusicMvpError> {
+        if !is_native_apple_music_rate(source_format.sample_rate_hz) {
+            return Err(mvp_error(
+                "process_tap_source_rate_unsupported",
+                format!(
+                    "Apple Music reported an unsupported native source rate ({} Hz).",
+                    source_format.sample_rate_hz
+                ),
+                false,
+                "source_format",
+                true,
+            ));
+        }
+        let session = self.session.as_mut().ok_or_else(|| {
+            mvp_error(
+                "process_tap_not_running",
+                "Prepare the MusicKit process tap before applying a source-rate transition.",
+                true,
+                "source_format",
+                true,
+            )
+        })?;
+        if session.target.process_kind != ProcessTapProcessKind::MusicKitRenderer {
+            return Err(mvp_error(
+                "process_tap_rate_transition_unsupported",
+                "Native source-rate switching is only available for the MusicKit renderer tap.",
+                false,
+                "source_format",
+                true,
+            ));
+        }
+        let previous_stream_rate_hz = session.stream_sample_rate_hz;
+        if previous_stream_rate_hz == source_format.sample_rate_hz {
+            session.source_sample_rate_hz = Some(source_format.sample_rate_hz);
+            session.source_bit_depth_bits = source_format.source_bit_depth_bits;
+            return Ok(ProcessTapRateTransition::Unchanged {
+                sample_rate_hz: previous_stream_rate_hz,
+            });
+        }
+
+        let mut replacement = ProcessTapSession::prepare(
+            player,
+            session.target.clone(),
+            session.mute_original,
+            Some(source_format.sample_rate_hz),
+        )?;
+        replacement.source_sample_rate_hz = Some(source_format.sample_rate_hz);
+        replacement.source_bit_depth_bits = source_format.source_bit_depth_bits;
+
+        let previous = self.session.replace(replacement);
+        if self.retiring_session.is_none() {
+            self.retiring_session = previous;
+        }
+        self.last_error = None;
+        Ok(ProcessTapRateTransition::Prepared {
+            previous_stream_rate_hz,
+            source_sample_rate_hz: source_format.sample_rate_hz,
+        })
+    }
+
+    /// Abandon a staged rate replacement and restore the still-live committed
+    /// tap. Returns false when no replacement was pending.
+    pub(super) fn cancel_rate_transition(&mut self) -> bool {
+        let Some(previous) = self.retiring_session.take() else {
+            return false;
+        };
+        self.session.take();
+        self.session = Some(previous);
+        self.last_error = None;
+        true
     }
 
     pub(super) fn discard_buffered_audio(&mut self) -> Result<u64, AppleMusicMvpError> {
@@ -665,11 +840,24 @@ impl ProcessTapController {
             .commit_player_stream(preserve_output);
         match result {
             Ok(()) => {
+                self.retiring_session.take();
                 self.last_error = None;
                 Ok(self.status())
             }
             Err(failure) => {
                 self.session.take();
+                if self.retiring_session.as_ref().is_some_and(|session| {
+                    should_restore_retiring_session(
+                        session.is_committed(),
+                        session.owns_player_session(),
+                        session.player.playback_epoch(),
+                        session.expected_epoch,
+                    )
+                }) {
+                    self.session = self.retiring_session.take();
+                } else {
+                    self.retiring_session.take();
+                }
                 self.last_error = Some(failure.clone());
                 Err(failure)
             }
@@ -678,6 +866,7 @@ impl ProcessTapController {
 
     pub(super) fn stop(&mut self) -> AppleMusicProcessTapStatus {
         self.session.take();
+        self.retiring_session.take();
         self.last_error = None;
         self.status()
     }
@@ -687,6 +876,12 @@ impl ProcessTapController {
             .as_ref()
             .filter(|session| session.owns_player_session())
             .and_then(|session| session.playback_epoch)
+            .or_else(|| {
+                self.retiring_session
+                    .as_ref()
+                    .filter(|session| session.owns_player_session())
+                    .and_then(|session| session.playback_epoch)
+            })
     }
 }
 
@@ -734,6 +929,7 @@ pub(super) fn active_musickit_renderer_pids() -> Result<Vec<u32>, AppleMusicMvpE
 fn select_new_musickit_renderer_pid(
     active_renderer_pids: &[u32],
     preexisting_renderer_pids: &[u32],
+    last_owned_renderer_pid: Option<u32>,
 ) -> Result<Option<u32>, ()> {
     let mut selected = None;
     for pid in active_renderer_pids
@@ -747,14 +943,15 @@ fn select_new_musickit_renderer_pid(
             Some(_) => return Err(()),
         }
     }
-    Ok(selected)
+    Ok(selected
+        .or_else(|| last_owned_renderer_pid.filter(|pid| active_renderer_pids.contains(pid))))
 }
 
 fn process_tap_supported() -> bool {
     unsafe { fozmo_process_tap_supported() != 0 }
 }
 
-fn music_app_pid() -> Option<u32> {
+pub(super) fn music_app_pid() -> Option<u32> {
     u32::try_from(unsafe { fozmo_music_app_pid() })
         .ok()
         .filter(|pid| *pid != 0)
@@ -779,19 +976,31 @@ fn validated_rate(rate_hz: f64) -> Result<u32, AppleMusicMvpError> {
     Ok(rounded as u32)
 }
 
-fn process_tap_error(failure: TapFailure, target: &ProcessTapTarget) -> AppleMusicMvpError {
+fn process_tap_error(
+    failure: TapFailure,
+    target: &ProcessTapTarget,
+    requested_sample_rate_hz: Option<u32>,
+) -> AppleMusicMvpError {
     let stage = stage_name(failure.stage);
-    let message = match failure.stage {
-        2 => format!(
+    let message = match (failure.stage, failure.status, requested_sample_rate_hz) {
+        (4, STATUS_FORMAT_NOT_SETTABLE, Some(rate_hz)) => format!(
+            "{} cannot expose a {rate_hz} Hz process-tap format on this macOS/audio configuration.",
+            target.display_name
+        ),
+        (4, STATUS_FORMAT_RATE_MISMATCH, Some(rate_hz)) => format!(
+            "{} did not apply the requested {rate_hz} Hz process-tap format.",
+            target.display_name
+        ),
+        (2, _, _) => format!(
             "{} is running but is not currently visible as a Core Audio process. Start playback, then retry.",
             target.display_name
         ),
-        3 | 6 | 7 | 8 | 9 => format!(
+        (3 | 6 | 7 | 8 | 9, _, _) => format!(
             "macOS could not tap {} at {stage} (OSStatus {}). Check System Settings → Privacy & Security → Screen & System Audio Recording, then retry.",
             target.display_name,
             display_os_status(failure.status)
         ),
-        4 => format!(
+        (4, _, _) => format!(
             "{} exposed a PCM format Fozmo does not support (OSStatus {}).",
             target.display_name,
             display_os_status(failure.status)
@@ -803,6 +1012,14 @@ fn process_tap_error(failure: TapFailure, target: &ProcessTapTarget) -> AppleMus
         ),
     };
     mvp_error("process_tap_start_failed", message, true, stage, true)
+}
+
+fn rate_bridge_can_recover(failure: TapFailure) -> bool {
+    failure.stage == 4
+        && matches!(
+            failure.status,
+            STATUS_FORMAT_NOT_SETTABLE | STATUS_FORMAT_RATE_MISMATCH
+        )
 }
 
 fn stage_name(stage: u32) -> &'static str {
@@ -850,6 +1067,15 @@ fn mvp_error(
 
 fn nonzero(value: u32) -> Option<u32> {
     (value != 0).then_some(value)
+}
+
+fn should_restore_retiring_session(
+    committed: bool,
+    owns_player_session: bool,
+    current_player_epoch: u64,
+    expected_player_epoch: u64,
+) -> bool {
+    owns_player_session || (!committed && current_player_epoch == expected_player_epoch)
 }
 
 fn host_time_age_ms(last_host_time: u64) -> Option<u64> {
@@ -958,12 +1184,94 @@ mod tests {
     }
 
     #[test]
+    fn a_read_only_or_ignored_tap_rate_can_fall_back_to_the_pcm_bridge() {
+        assert!(rate_bridge_can_recover(TapFailure {
+            status: STATUS_FORMAT_NOT_SETTABLE,
+            stage: 4,
+        }));
+        assert!(rate_bridge_can_recover(TapFailure {
+            status: STATUS_FORMAT_RATE_MISMATCH,
+            stage: 4,
+        }));
+        assert!(!rate_bridge_can_recover(TapFailure {
+            status: STATUS_FORMAT_NOT_SETTABLE,
+            stage: 3,
+        }));
+    }
+
+    #[test]
     fn renderer_selection_uses_only_a_single_new_active_process() {
         assert_eq!(
-            select_new_musickit_renderer_pid(&[10, 20], &[10]),
+            select_new_musickit_renderer_pid(&[10, 20], &[10], None),
             Ok(Some(20))
         );
-        assert_eq!(select_new_musickit_renderer_pid(&[10], &[10]), Ok(None));
-        assert_eq!(select_new_musickit_renderer_pid(&[20, 30], &[10]), Err(()));
+        assert_eq!(
+            select_new_musickit_renderer_pid(&[10], &[10], None),
+            Ok(None)
+        );
+        assert_eq!(
+            select_new_musickit_renderer_pid(&[20, 30], &[10], None),
+            Err(())
+        );
+    }
+
+    #[test]
+    fn renderer_selection_reuses_the_last_owned_persistent_process() {
+        assert_eq!(
+            select_new_musickit_renderer_pid(&[10], &[10], Some(10)),
+            Ok(Some(10))
+        );
+        assert_eq!(
+            select_new_musickit_renderer_pid(&[20], &[20], Some(10)),
+            Ok(None)
+        );
+        assert_eq!(
+            select_new_musickit_renderer_pid(&[10, 20], &[10], Some(10)),
+            Ok(Some(20)),
+            "a newly started renderer wins over a remembered process that may be winding down"
+        );
+    }
+
+    #[test]
+    fn requested_rate_failures_are_specific_and_recoverable() {
+        let target = ProcessTapTarget {
+            pid: 42,
+            process_kind: ProcessTapProcessKind::MusicKitRenderer,
+            display_name: "MusicKit renderer".to_string(),
+        };
+        let not_settable = process_tap_error(
+            TapFailure {
+                status: STATUS_FORMAT_NOT_SETTABLE,
+                stage: 4,
+            },
+            &target,
+            Some(192_000),
+        );
+        assert_eq!(not_settable.code, "process_tap_start_failed");
+        assert!(not_settable.retryable);
+        assert!(not_settable.cleanup_complete);
+        assert!(not_settable.message.contains("192000 Hz"));
+
+        let mismatch = process_tap_error(
+            TapFailure {
+                status: STATUS_FORMAT_RATE_MISMATCH,
+                stage: 4,
+            },
+            &target,
+            Some(44_100),
+        );
+        assert!(mismatch.message.contains("44100 Hz"));
+        assert!(mismatch.message.contains("did not apply"));
+    }
+
+    #[test]
+    fn failed_initial_rate_commit_restores_the_uncommitted_measured_tap() {
+        assert!(should_restore_retiring_session(false, false, 7, 7));
+        assert!(
+            !should_restore_retiring_session(false, false, 8, 7),
+            "a different Player epoch makes an uncommitted fallback stale"
+        );
+        assert!(should_restore_retiring_session(true, true, 8, 7));
+        assert!(!should_restore_retiring_session(true, false, 8, 7));
     }
 }

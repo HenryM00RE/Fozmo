@@ -16,6 +16,7 @@ import {
   warmImage
 } from '../../../shared/lib/appSupport';
 import {
+  itemKey,
   localTrackToQueueItem,
   normalizeQueueItem,
   normalizeQueueState,
@@ -66,8 +67,55 @@ type PendingPlaybackIntent = {
   artist: string;
   fileName: string;
   requestedAt: number;
+  sourceKey: string;
   title: string;
 };
+
+type QueueItemLocator = {
+  key: string;
+  occurrence: number;
+};
+
+type QueueMutation = (current: QueueState) => QueueState | null;
+
+function queueItemLocator(items: QueueItem[], index: number): QueueItemLocator | null {
+  const item = items[index];
+  if (!item) return null;
+  const key = itemKey(item);
+  let occurrence = 0;
+  for (let itemIndex = 0; itemIndex < index; itemIndex += 1) {
+    if (itemKey(items[itemIndex]) === key) occurrence += 1;
+  }
+  return { key, occurrence };
+}
+
+function queueItemIndexForLocator(items: QueueItem[], locator: QueueItemLocator) {
+  let occurrence = 0;
+  for (let index = 0; index < items.length; index += 1) {
+    if (itemKey(items[index]) !== locator.key) continue;
+    if (occurrence === locator.occurrence) return index;
+    occurrence += 1;
+  }
+  return -1;
+}
+
+function reorderIntent(
+  state: QueueState,
+  from: number,
+  to: number
+): { moved: QueueItemLocator; before: QueueItemLocator | null } | null {
+  if (from < 0 || from >= state.items.length) return null;
+  if (state.cursor >= 0 && (from <= state.cursor || to <= state.cursor)) return null;
+  const moved = queueItemLocator(state.items, from);
+  if (!moved) return null;
+  const remainingIndices = state.items.map((_, index) => index).filter((index) => index !== from);
+  const target = Math.max(0, Math.min(remainingIndices.length, from < to ? to - 1 : to));
+  const beforeIndex = remainingIndices[target];
+  return {
+    moved,
+    before: beforeIndex === undefined ? null : queueItemLocator(state.items, beforeIndex)
+  };
+}
 
 function queueItemPlaybackFileName(item: QueueItem | null | undefined) {
   if (!item) return '';
@@ -84,6 +132,9 @@ function normalizedPlaybackText(value: unknown) {
 }
 
 function statusMatchesPendingIntent(status: JsonRecord, pendingIntent: PendingPlaybackIntent) {
+  const statusSourceKey = sourceRefKey(statusCurrentSource(status));
+  if (pendingIntent.sourceKey && statusSourceKey === pendingIntent.sourceKey) return true;
+
   const fileName = normalizedPlaybackText(status.file_name);
   const trackTitle = normalizedPlaybackText(status.track_title);
   const trackArtist = normalizedPlaybackText(status.track_artist);
@@ -212,6 +263,7 @@ export function usePlaybackQueue({
     id: 0,
     controller: null
   });
+  const queueMutationTailRef = useRef<Promise<void>>(Promise.resolve());
 
   const clearPendingPlaybackIntent = useCallback((intentId?: number) => {
     const pendingIntent = pendingPlaybackIntentRef.current;
@@ -270,9 +322,27 @@ export function usePlaybackQueue({
         queue: sourceRefsForBackendQueue(normalized),
         ...(expectedCurrent ? { expected_current: expectedCurrent } : {})
       });
+      latestQueueRef.current = normalized;
       setAndPersistQueue(normalized);
     },
     [activeZoneId, setAndPersistQueue]
+  );
+
+  const enqueueQueueMutation = useCallback(
+    (mutation: QueueMutation) => {
+      const operation = queueMutationTailRef.current.then(async () => {
+        const next = mutation(latestQueueRef.current);
+        if (!next) return false;
+        await commitBackendQueue(next);
+        return true;
+      });
+      queueMutationTailRef.current = operation.then(
+        () => undefined,
+        () => undefined
+      );
+      return operation;
+    },
+    [commitBackendQueue]
   );
 
   const markManualPlaybackChange = useCallback(() => {
@@ -291,17 +361,19 @@ export function usePlaybackQueue({
       };
       const item = sourceTrack(nextQueue.items[index]);
       const expectedFileName = queueItemPlaybackFileName(item);
-      const expectedSourceKey = sourceRefKey(queueItemToSourceRef(item));
+      const itemSource = queueItemToSourceRef(item);
+      const expectedSourceKey = sourceRefKey(itemSource);
       const expectedCurrent = expectedSourceKey || expectedFileName || null;
       const pendingArtSrc = queueItemArt(item);
       const intentId = playbackIntentSeqRef.current + 1;
       playbackIntentSeqRef.current = intentId;
-      if (expectedFileName) {
+      if (expectedFileName || expectedSourceKey) {
         setPendingPlaybackIntent({
           artist: String(item.artist || ''),
           id: intentId,
           fileName: expectedFileName,
           requestedAt: Date.now(),
+          sourceKey: expectedSourceKey,
           title: String(item.title || '')
         });
       }
@@ -317,10 +389,21 @@ export function usePlaybackQueue({
           warmImage(pendingArtSrc);
           setPendingPlaybackArt(pendingArtSrc);
           await playbackRequest;
+          if (playbackIntentSeqRef.current !== intentId) return;
           await endpoints.zoneQueue(activeZoneId, {
             queue: sourceRefsForPlayback(nextQueue, index),
             ...(expectedCurrent ? { expected_current: expectedCurrent } : {})
           });
+        } else if (itemSource && String(itemSource.kind || '').includes('apple_music')) {
+          playbackRequest = endpoints.playAppleMusicScenario(
+            activeZoneId,
+            itemSource,
+            sourceRefsForPlayback(nextQueue, index),
+            false
+          );
+          warmImage(pendingArtSrc);
+          setPendingPlaybackArt(pendingArtSrc);
+          await playbackRequest;
         } else if (item.ref) {
           const playlistContext =
             item.playlistContext || item.resolvedSource?.playlist_context || null;
@@ -333,8 +416,10 @@ export function usePlaybackQueue({
           setPendingPlaybackArt(pendingArtSrc);
           await playbackRequest;
         }
+        if (playbackIntentSeqRef.current !== intentId) return;
         persistQueue(nextQueue);
       } catch (error) {
+        if (playbackIntentSeqRef.current !== intentId) return;
         clearPendingPlaybackIntent(intentId);
         setQueue(previousQueue);
         refreshQueueRef.current().catch(() => undefined);
@@ -470,28 +555,30 @@ export function usePlaybackQueue({
   );
 
   const addItemsToQueue = useCallback(
-    (items: QueueItem[], placement: 'next' | 'end') => {
+    async (items: QueueItem[], placement: 'next' | 'end') => {
       const normalized = items.map(normalizeQueueItem).filter(Boolean) as QueueItem[];
-      if (!normalized.length) return;
-      const next = normalizeQueueState({
-        ...queue,
-        kind: queueKindForItems([...queue.items, ...normalized]),
-        items: [
-          ...queue.items.slice(
-            0,
-            placement === 'next' && queue.cursor >= 0 ? queue.cursor + 1 : queue.items.length
-          ),
-          ...normalized,
-          ...queue.items.slice(
-            placement === 'next' && queue.cursor >= 0 ? queue.cursor + 1 : queue.items.length
-          )
-        ]
-      });
-      commitBackendQueue(next).catch((error) => {
+      if (!normalized.length) return false;
+      try {
+        return await enqueueQueueMutation((current) => {
+          const insertionIndex =
+            placement === 'next' && current.cursor >= 0 ? current.cursor + 1 : current.items.length;
+          const nextItems = [
+            ...current.items.slice(0, insertionIndex),
+            ...normalized,
+            ...current.items.slice(insertionIndex)
+          ];
+          return normalizeQueueState({
+            ...current,
+            kind: queueKindForItems(nextItems),
+            items: nextItems
+          });
+        });
+      } catch (error) {
         setNotice(error instanceof Error ? error.message : 'Could not update queue');
-      });
+        return false;
+      }
     },
-    [commitBackendQueue, queue, setNotice]
+    [enqueueQueueMutation, setNotice]
   );
 
   const refreshQueue = useCallback(async () => {
@@ -575,17 +662,19 @@ export function usePlaybackQueue({
   refreshQueueRef.current = refreshQueue;
 
   const clearQueue = useCallback(() => {
-    const items = queue.cursor >= 0 ? queue.items.slice(0, queue.cursor + 1) : [];
-    commitBackendQueue(normalizeQueueState({ ...queue, items })).catch((error) => {
+    enqueueQueueMutation((current) => {
+      const items = current.cursor >= 0 ? current.items.slice(0, current.cursor + 1) : [];
+      return normalizeQueueState({ ...current, items });
+    }).catch((error) => {
       setNotice(error instanceof Error ? error.message : 'Could not update queue');
     });
-  }, [commitBackendQueue, queue, setNotice]);
+  }, [enqueueQueueMutation, setNotice]);
 
   const shuffleQueue = useCallback(() => {
-    commitBackendQueue(shuffleUpcomingQueue(queue)).catch((error) => {
+    enqueueQueueMutation((current) => shuffleUpcomingQueue(current)).catch((error) => {
       setNotice(error instanceof Error ? error.message : 'Could not update queue');
     });
-  }, [commitBackendQueue, queue, setNotice]);
+  }, [enqueueQueueMutation, setNotice]);
 
   const toggleLoop = useCallback(() => {
     const mode = queue.loopMode === 'off' ? 'loop' : 'off';
@@ -796,33 +885,47 @@ export function usePlaybackQueue({
       },
       removeIndex: (index) => {
         if (queue.cursor >= 0 && index <= queue.cursor) return;
-        const next = normalizeQueueState({
-          ...queue,
-          cursor: index < queue.cursor ? queue.cursor - 1 : queue.cursor,
-          items: queue.items.filter((_, itemIndex) => itemIndex !== index)
-        });
-        commitBackendQueue(next).catch((error) => {
+        const locator = queueItemLocator(queue.items, index);
+        if (!locator) return;
+        enqueueQueueMutation((current) => {
+          const currentIndex = queueItemIndexForLocator(current.items, locator);
+          if (currentIndex < 0 || (current.cursor >= 0 && currentIndex <= current.cursor)) {
+            return null;
+          }
+          return normalizeQueueState({
+            ...current,
+            cursor: currentIndex < current.cursor ? current.cursor - 1 : current.cursor,
+            items: current.items.filter((_, itemIndex) => itemIndex !== currentIndex)
+          });
+        }).catch((error) => {
           setNotice(error instanceof Error ? error.message : 'Could not update queue');
         });
       },
       reorderQueue: (from, to) => {
-        if (from < 0 || from >= queue.items.length) return;
-        if (queue.cursor >= 0 && (from <= queue.cursor || to <= queue.cursor)) return;
-        const items = queue.items.slice();
-        const [moved] = items.splice(from, 1);
-        const target = from < to ? to - 1 : to;
-        items.splice(Math.max(0, Math.min(items.length, target)), 0, moved);
-        let cursor = queue.cursor;
-        if (from === queue.cursor) cursor = Math.max(0, Math.min(items.length - 1, target));
-        else if (from < queue.cursor && target >= queue.cursor) cursor -= 1;
-        else if (from > queue.cursor && target <= queue.cursor) cursor += 1;
-        commitBackendQueue(normalizeQueueState({ ...queue, cursor, items })).catch((error) => {
+        const intent = reorderIntent(queue, from, to);
+        if (!intent) return;
+        enqueueQueueMutation((current) => {
+          const currentFrom = queueItemIndexForLocator(current.items, intent.moved);
+          if (currentFrom < 0 || (current.cursor >= 0 && currentFrom <= current.cursor)) {
+            return null;
+          }
+          let currentTarget = intent.before
+            ? queueItemIndexForLocator(current.items, intent.before)
+            : current.items.length;
+          if (currentTarget < 0) return null;
+          if (current.cursor >= 0 && currentTarget <= current.cursor) return null;
+          const items = current.items.slice();
+          const [moved] = items.splice(currentFrom, 1);
+          if (currentFrom < currentTarget) currentTarget -= 1;
+          items.splice(Math.max(0, Math.min(items.length, currentTarget)), 0, moved);
+          return normalizeQueueState({ ...current, items });
+        }).catch((error) => {
           setNotice(error instanceof Error ? error.message : 'Could not update queue');
         });
       },
       requestSnapshot: () => undefined
     });
-  }, [commitBackendQueue, playQueueIndex, queue, setNotice]);
+  }, [enqueueQueueMutation, playQueueIndex, queue, setNotice]);
 
   useEffect(() => {
     setPlaybackControlActions({

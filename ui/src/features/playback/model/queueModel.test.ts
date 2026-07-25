@@ -42,6 +42,27 @@ function localItem(id: number): QueueItem {
   };
 }
 
+function appleMusicItem(id: string): QueueItem {
+  return {
+    title: `Apple ${id}`,
+    artist: 'Apple Artist',
+    album: 'Apple Album',
+    durationSecs: 210,
+    filename: `apple_music:${id}`,
+    imageUrl: `https://example.test/${id}.jpg`,
+    resolvedSource: {
+      kind: 'apple_music_track',
+      song_id: id,
+      storefront: 'nz',
+      title: `Apple ${id}`,
+      artist: 'Apple Artist',
+      album: 'Apple Album',
+      artwork_url: `https://example.test/${id}.jpg`,
+      duration_secs: 210
+    }
+  };
+}
+
 function queueState(items: QueueItem[], cursor = -1): QueueState {
   return {
     kind: 'mixed',
@@ -77,6 +98,21 @@ describe('queueModel playback queues', () => {
       { kind: 'qobuz_track', track_id: 4 }
     ]);
     expect(qobuzQueueForPlayback(state, 1).map((track) => track.id)).toEqual([3]);
+  });
+
+  it('keeps Apple Music metadata in a mixed Qobuz queue tail', () => {
+    const state = queueState([qobuzItem(1), appleMusicItem('apple-2'), qobuzItem(3)], 0);
+
+    expect(sourceRefsForBackendQueue(state)).toMatchObject([
+      {
+        kind: 'apple_music_track',
+        song_id: 'apple-2',
+        storefront: 'nz',
+        artwork_url: 'https://example.test/apple-2.jpg'
+      },
+      { kind: 'qobuz_track', track_id: 3 }
+    ]);
+    expect(qobuzQueueForPlayback(state, 0)).toEqual([]);
   });
 
   it('shuffles only upcoming queue items and keeps paused current fixed', () => {

@@ -36,6 +36,10 @@ pub(crate) struct AppleCatalogSong {
     pub isrc: Option<String>,
     #[serde(default)]
     pub artwork_url: Option<String>,
+    /// Variants Apple advertises for this catalog item. Playback still gates
+    /// on MusicKit's active variant because availability is not selection.
+    #[serde(default)]
+    pub audio_variants: Vec<String>,
 }
 
 impl AppleCatalogSong {
@@ -179,6 +183,7 @@ pub(crate) struct AppleMusicProcessTapStatus {
     pub audio_process_object_id: Option<u32>,
     pub tap_object_id: Option<u32>,
     pub aggregate_device_id: Option<u32>,
+    /// PCM mix rate currently delivered by the Core Audio process tap.
     pub sample_rate_hz: Option<u32>,
     pub channels: Option<u32>,
     pub interleaved: Option<bool>,
@@ -188,6 +193,9 @@ pub(crate) struct AppleMusicProcessTapStatus {
     pub sample_container_bits: Option<u32>,
     /// Numerical precision of the tap representation (24 bits for IEEE F32).
     pub sample_precision_bits: Option<u32>,
+    /// Decoded asset rate from a fresh, PID-scoped Apple lossless-decoder event.
+    /// This remains unset when no authoritative source-rate signal is available.
+    pub source_sample_rate_hz: Option<u32>,
     /// Original decoded asset depth, when a provider can authoritatively report it.
     pub source_bit_depth_bits: Option<u32>,
     /// Whether Core Audio reports the tap format property as writable.
@@ -221,6 +229,7 @@ impl Default for AppleMusicProcessTapStatus {
             sample_format: None,
             sample_container_bits: None,
             sample_precision_bits: None,
+            source_sample_rate_hz: None,
             source_bit_depth_bits: None,
             format_settable: None,
             sample_values_preserved: false,
@@ -248,6 +257,9 @@ pub(crate) struct AppleMusicMvpStatus {
     pub authorization: String,
     pub can_play_catalog_content: Option<bool>,
     pub playback_state: String,
+    /// The quality variant MusicKit actually selected for the active entry.
+    /// Fozmo accepts only `lossless` and `highResolutionLossless`.
+    pub active_audio_variant: Option<String>,
     pub playback_time_secs: Option<f64>,
     pub queue_revision: u64,
     pub now_playing: Option<AppleMusicNowPlaying>,
@@ -280,6 +292,7 @@ impl AppleMusicMvpStatus {
             authorization: "not_determined".to_string(),
             can_play_catalog_content: None,
             playback_state: "stopped".to_string(),
+            active_audio_variant: None,
             playback_time_secs: None,
             queue_revision: 0,
             now_playing: None,
@@ -400,6 +413,12 @@ pub(crate) struct AppleMusicProcessTapStartRequest {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub(crate) struct AppleMusicCaptureConfirmationRequest {
+    #[serde(default)]
+    pub confirm_system_audio_capture: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct AppleMusicComparisonSwitchRequest {
     pub target: String,
     #[serde(default)]
@@ -453,6 +472,8 @@ pub(crate) struct HelperMessage {
     pub can_play_catalog_content: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub playback_state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio_variant: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub playback_time_secs: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -510,6 +531,7 @@ impl HelperMessage {
             authorization: None,
             can_play_catalog_content: None,
             playback_state: None,
+            audio_variant: None,
             playback_time_secs: None,
             queue_revision: None,
             segment_index: None,

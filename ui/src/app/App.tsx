@@ -207,6 +207,7 @@ function AuthenticatedApp({
   });
   const settingsRoute = buildSettingsRoute({
     activeProfileId,
+    addItemsToQueue,
     applyProfilesResponse,
     profiles,
     qobuzStatus,

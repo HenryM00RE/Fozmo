@@ -94,6 +94,7 @@ fn build_apple_music_process_tap(manifest_dir: &Path) {
         .compile("fozmo_process_tap_bridge");
 
     println!("cargo:rustc-link-lib=framework=AppKit");
+    println!("cargo:rustc-link-lib=framework=ApplicationServices");
     println!("cargo:rustc-link-lib=framework=CoreAudio");
     println!("cargo:rustc-link-lib=framework=Foundation");
     println!(

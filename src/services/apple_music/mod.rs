@@ -14,12 +14,13 @@ mod live_source;
 mod rate_control;
 
 use crate::audio::player::Player;
+use crate::protocol::SourceRef;
 use crate::settings::AppleMusicCaptureSettings;
 use capture_session::{
     CaptureWorker, DiagnosticMetrics, LiveSessionParams, SessionControl, now_unix_ms,
 };
 use serde::{Deserialize, Serialize};
-use std::process::Command as ProcessCommand;
+use std::process::{Command as ProcessCommand, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 
@@ -37,6 +38,7 @@ const PROP_LAST_RATE_CHANGE_MS: u32 = 0x7472_7263; // trrc
 const PROP_LAST_START_MS: u32 = 0x7472_7374; // trst
 const PROP_LAST_STOP_MS: u32 = 0x7472_7370; // trsp
 const PROP_VERSION: u32 = 0x7472_7672; // trvr
+const MANAGED_CAPTURE_BUFFER_MS: u32 = 1_500;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AppleMusicCaptureStatus {
@@ -142,6 +144,8 @@ pub struct AudioDeviceSummary {
 #[derive(Debug, Clone, Deserialize)]
 pub struct StartAppleMusicCaptureRequest {
     #[serde(default)]
+    pub zone_id: Option<String>,
+    #[serde(default)]
     pub capture_device_name: Option<String>,
     #[serde(default)]
     pub output_device_name: Option<String>,
@@ -173,6 +177,19 @@ pub struct AppleMusicAppStatus {
     pub track_artist: Option<String>,
     pub track_album: Option<String>,
     pub message: Option<String>,
+}
+
+/// Fozmo-owned identity and timeline for a catalog track playing through the
+/// native Music.app -> virtual capture device -> local Player path.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct NativeAppleMusicPlaybackSnapshot {
+    pub(crate) zone_id: String,
+    pub(crate) player_epoch: u64,
+    pub(crate) generation: u64,
+    pub(crate) source: SourceRef,
+    pub(crate) playback_state: String,
+    pub(crate) position_secs: f64,
+    pub(crate) duration_secs: f64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -209,6 +226,7 @@ impl Drop for MusicPoller {
 
 struct CaptureRuntime {
     running: bool,
+    player: Option<Arc<Player>>,
     capture_device_name: Option<String>,
     output_device_name: Option<String>,
     started_unix_ms: Option<u64>,
@@ -220,12 +238,15 @@ struct CaptureRuntime {
     metrics: Arc<DiagnosticMetrics>,
     control: Arc<SessionControl>,
     saved_default_output_uid: Option<String>,
+    playback: Option<NativeAppleMusicPlaybackSnapshot>,
+    next_playback_generation: u64,
 }
 
 impl Default for CaptureRuntime {
     fn default() -> Self {
         Self {
             running: false,
+            player: None,
             capture_device_name: None,
             output_device_name: None,
             started_unix_ms: None,
@@ -237,6 +258,8 @@ impl Default for CaptureRuntime {
             metrics: Arc::new(DiagnosticMetrics::default()),
             control: Arc::new(SessionControl::new_unknown()),
             saved_default_output_uid: None,
+            playback: None,
+            next_playback_generation: 1,
         }
     }
 }
@@ -425,6 +448,7 @@ impl AppleMusicCaptureService {
 
     pub fn start(
         self: &Arc<Self>,
+        player: Arc<Player>,
         settings: &AppleMusicCaptureSettings,
         request: StartAppleMusicCaptureRequest,
     ) -> Result<AppleMusicCaptureStatus, String> {
@@ -442,7 +466,7 @@ impl AppleMusicCaptureService {
         }
         #[cfg(target_os = "macos")]
         {
-            self.start_macos(settings, request)?;
+            self.start_macos(player, settings, request, true)?;
             Ok(self.status(settings))
         }
         #[cfg(not(target_os = "macos"))]
@@ -455,8 +479,10 @@ impl AppleMusicCaptureService {
     #[cfg(target_os = "macos")]
     fn start_macos(
         self: &Arc<Self>,
+        player: Arc<Player>,
         settings: &AppleMusicCaptureSettings,
         request: StartAppleMusicCaptureRequest,
+        spawn_music_poller: bool,
     ) -> Result<(), String> {
         let devices = device_snapshot();
         let capture_device_name = resolve_capture_device_name(
@@ -464,7 +490,7 @@ impl AppleMusicCaptureService {
             request.capture_device_name.as_deref(),
             settings.capture_device_name.as_deref(),
         )?;
-        self.guard_against_feedback_loop()?;
+        self.guard_against_feedback_loop(&player)?;
 
         let device_id = coreaudio::device_id_for_uid(CAPTURE_DEVICE_UID).ok_or_else(|| {
             "Fozmo Capture HAL driver is not visible to CoreAudio. Install the driver first."
@@ -507,22 +533,24 @@ impl AppleMusicCaptureService {
             device_name: capture_device_name.clone(),
             rate_hz,
             buffer_ms: normalized_buffer_ms(settings.buffer_ms),
+            source_bit_depth: None,
         };
-        let session =
-            capture_session::start_live_session(&self.player, &params, Arc::clone(&metrics))
-                .inspect_err(|_| restore_on_error(&saved_default_output_uid))?;
+        let session = capture_session::start_live_session(&player, &params, Arc::clone(&metrics))
+            .inspect_err(|_| restore_on_error(&saved_default_output_uid))?;
 
         let control = Arc::new(SessionControl::new_unknown());
-        let poller = self.spawn_music_poller(Arc::clone(&control));
+        let poller = spawn_music_poller.then(|| self.spawn_music_poller(Arc::clone(&control)));
 
         let previous = {
             let mut runtime = self.runtime.lock().unwrap();
             runtime.running = true;
+            runtime.player = Some(Arc::clone(&player));
             runtime.capture_device_name = Some(capture_device_name);
             runtime.output_device_name = request
                 .output_device_name
                 .and_then(|name| normalize_optional(Some(&name)))
-                .or_else(|| normalize_optional(settings.output_device_name.as_deref()));
+                .or_else(|| normalize_optional(settings.output_device_name.as_deref()))
+                .or_else(|| player.selected_device_name());
             runtime.started_unix_ms = Some(now_unix_ms());
             runtime.metrics = metrics;
             runtime.control = control;
@@ -530,7 +558,7 @@ impl AppleMusicCaptureService {
             runtime.saved_default_output_uid = saved_default_output_uid;
             (
                 runtime.session.replace(session),
-                runtime.poller.replace(poller),
+                std::mem::replace(&mut runtime.poller, poller),
                 runtime.diagnostic.take(),
             )
         };
@@ -540,11 +568,49 @@ impl AppleMusicCaptureService {
         Ok(())
     }
 
+    /// Start the capture backend for Fozmo-managed catalog playback. Unlike the
+    /// diagnostics page, this always routes Music.app into Fozmo Capture and
+    /// reserves enough ring capacity for the verified-rate restart/prefill.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn start_managed_playback(
+        self: &Arc<Self>,
+        player: Arc<Player>,
+        settings: &AppleMusicCaptureSettings,
+        zone_id: &str,
+        confirmed: bool,
+    ) -> Result<u64, String> {
+        if !confirmed {
+            return Err(
+                "Confirm macOS system-audio capture in Apple Music settings before playback."
+                    .to_string(),
+            );
+        }
+        let mut managed = settings.clone();
+        managed.enabled = true;
+        managed.capture_device_name = Some(CAPTURE_DEVICE_NAME.to_string());
+        managed.output_device_name = player.selected_device_name();
+        managed.buffer_ms = normalized_buffer_ms(managed.buffer_ms.max(MANAGED_CAPTURE_BUFFER_MS));
+        managed.auto_route_system_output = true;
+        self.start_macos(
+            player,
+            &managed,
+            StartAppleMusicCaptureRequest {
+                zone_id: Some(zone_id.to_string()),
+                capture_device_name: Some(CAPTURE_DEVICE_NAME.to_string()),
+                output_device_name: managed.output_device_name.clone(),
+                confirm_system_audio_capture: true,
+            },
+            false,
+        )?;
+        self.session_player_epoch()
+            .ok_or_else(|| "Apple Music capture started without a Player session.".to_string())
+    }
+
     /// Hard capture-output guard: the local zone must use a local physical
     /// CoreAudio output. This prevents feedback through the capture device and
     /// prevents live system audio from being routed to a network sink.
-    fn guard_against_feedback_loop(&self) -> Result<(), String> {
-        match self.player.selected_device_name() {
+    fn guard_against_feedback_loop(&self, player: &Player) -> Result<(), String> {
+        match player.selected_device_name() {
             None => Err(
                 "The local Fozmo zone is set to the system-default output. Select an explicit physical output device for the local zone before starting Apple Music capture."
                     .to_string(),
@@ -565,16 +631,23 @@ impl AppleMusicCaptureService {
         }
     }
 
-    pub fn stop(&self, settings: &AppleMusicCaptureSettings) -> AppleMusicCaptureStatus {
-        let (session, poller, diagnostic, saved_default_output_uid) = {
+    /// Tear down capture and restore the user's previous macOS default output.
+    ///
+    /// `stop_player` is false at a provider handoff so the destination command
+    /// can replace the live source under the same epoch guard. Explicit Stop
+    /// uses true and clears the local Player immediately.
+    pub(crate) fn stop_runtime(&self, stop_player: bool) -> Option<u64> {
+        let (session, poller, diagnostic, player, saved_default_output_uid) = {
             let mut runtime = self.runtime.lock().unwrap();
             runtime.running = false;
             runtime.stopped_unix_ms = Some(now_unix_ms());
             runtime.session_params = None;
+            runtime.playback = None;
             (
                 runtime.session.take(),
                 runtime.poller.take(),
                 runtime.diagnostic.take(),
+                runtime.player.take(),
                 runtime.saved_default_output_uid.take(),
             )
         };
@@ -582,9 +655,136 @@ impl AppleMusicCaptureService {
         drop(poller);
         drop(session);
         drop(diagnostic);
-        self.player.stop();
+        let player = player.unwrap_or_else(|| Arc::clone(&self.player));
+        if stop_player {
+            player.stop();
+        }
         restore_default_output(saved_default_output_uid);
+        Some(player.playback_epoch())
+    }
+
+    pub fn stop(&self, settings: &AppleMusicCaptureSettings) -> AppleMusicCaptureStatus {
+        self.stop_runtime(true);
         self.status(settings)
+    }
+
+    pub(crate) fn capture_running(&self) -> bool {
+        self.runtime.lock().unwrap().running
+    }
+
+    pub(crate) fn session_player_epoch(&self) -> Option<u64> {
+        self.runtime
+            .lock()
+            .unwrap()
+            .session
+            .as_ref()
+            .map(capture_session::LiveSession::player_epoch)
+    }
+
+    pub(crate) fn buffered_audio_secs(&self) -> Result<f64, String> {
+        self.runtime
+            .lock()
+            .unwrap()
+            .session
+            .as_ref()
+            .map(capture_session::LiveSession::buffered_audio_secs)
+            .ok_or_else(|| "Apple Music capture is not running.".to_string())
+    }
+
+    pub(crate) fn discard_buffered_audio(&self) -> Result<u64, String> {
+        self.runtime
+            .lock()
+            .unwrap()
+            .session
+            .as_ref()
+            .map(capture_session::LiveSession::discard_buffered_audio)
+            .ok_or_else(|| "Apple Music capture is not running.".to_string())
+    }
+
+    pub(crate) fn activate_managed_playback(
+        &self,
+        zone_id: String,
+        player_epoch: u64,
+        source: SourceRef,
+    ) -> NativeAppleMusicPlaybackSnapshot {
+        let mut runtime = self.runtime.lock().unwrap();
+        let generation = runtime.next_playback_generation.max(1);
+        runtime.next_playback_generation = generation.wrapping_add(1).max(1);
+        let snapshot = NativeAppleMusicPlaybackSnapshot {
+            zone_id,
+            player_epoch,
+            generation,
+            duration_secs: source.duration_secs().unwrap_or(0.0),
+            source,
+            playback_state: "preparing".to_string(),
+            position_secs: 0.0,
+        };
+        runtime.playback = Some(snapshot.clone());
+        snapshot
+    }
+
+    pub(crate) fn managed_playback_snapshot(&self) -> Option<NativeAppleMusicPlaybackSnapshot> {
+        self.runtime.lock().unwrap().playback.clone()
+    }
+
+    pub(crate) fn playback_snapshot_for_zone(
+        &self,
+        zone_id: &str,
+    ) -> Option<NativeAppleMusicPlaybackSnapshot> {
+        self.managed_playback_snapshot()
+            .filter(|snapshot| snapshot.zone_id == zone_id)
+    }
+
+    pub(crate) fn replace_managed_player_epoch(&self, generation: u64, player_epoch: u64) -> bool {
+        let mut runtime = self.runtime.lock().unwrap();
+        let Some(snapshot) = runtime
+            .playback
+            .as_mut()
+            .filter(|snapshot| snapshot.generation == generation)
+        else {
+            return false;
+        };
+        snapshot.player_epoch = player_epoch;
+        true
+    }
+
+    pub(crate) fn update_managed_playback(
+        &self,
+        generation: u64,
+        playback_state: &str,
+        position_secs: Option<f64>,
+        duration_secs: Option<f64>,
+    ) -> bool {
+        let mut runtime = self.runtime.lock().unwrap();
+        let Some(snapshot) = runtime
+            .playback
+            .as_mut()
+            .filter(|snapshot| snapshot.generation == generation)
+        else {
+            return false;
+        };
+        snapshot.playback_state = playback_state.to_string();
+        if let Some(position) = position_secs.filter(|value| value.is_finite() && *value >= 0.0) {
+            snapshot.position_secs = position;
+        }
+        if let Some(duration) = duration_secs.filter(|value| value.is_finite() && *value > 0.0) {
+            snapshot.duration_secs = duration;
+        }
+        true
+    }
+
+    pub(crate) fn clear_managed_playback(&self, generation: u64) -> bool {
+        let mut runtime = self.runtime.lock().unwrap();
+        if runtime
+            .playback
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.generation == generation)
+        {
+            runtime.playback = None;
+            true
+        } else {
+            false
+        }
     }
 
     /// Manual rate override for streams where Apple Music does not report a
@@ -607,7 +807,7 @@ impl AppleMusicCaptureService {
                 (runtime.running, Arc::clone(&runtime.control))
             };
             if running {
-                self.perform_rate_switch(rate_hz).inspect(|_| {
+                self.perform_format_switch(rate_hz, None).inspect(|_| {
                     control.observe_source_format(
                         &rate_control::SourceFormatDetection::from_manual_override(rate_hz),
                     );
@@ -633,8 +833,24 @@ impl AppleMusicCaptureService {
     /// Debounced rate switch: end the live session, apply the driver rate via
     /// the config-change handshake, then reopen capture and a fresh session.
     #[cfg(target_os = "macos")]
-    fn perform_rate_switch(self: &Arc<Self>, rate_hz: u32) -> Result<(), String> {
-        let (params, control) = {
+    fn perform_format_switch(
+        self: &Arc<Self>,
+        rate_hz: u32,
+        source_bit_depth: Option<u32>,
+    ) -> Result<(), String> {
+        self.perform_format_switch_inner(rate_hz, source_bit_depth, false)
+            .map(|_| ())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn perform_format_switch_inner(
+        self: &Arc<Self>,
+        rate_hz: u32,
+        source_bit_depth: Option<u32>,
+        force_restart: bool,
+    ) -> Result<u64, String> {
+        let source_bit_depth = source_bit_depth.filter(|bits| matches!(bits, 16 | 24 | 32));
+        let (params, control, player, hold_paused) = {
             let runtime = self.runtime.lock().unwrap();
             if !runtime.running {
                 return Err("Apple Music capture is not running.".to_string());
@@ -642,30 +858,62 @@ impl AppleMusicCaptureService {
             let Some(params) = runtime.session_params.clone() else {
                 return Err("Apple Music capture has no active session.".to_string());
             };
-            (params, Arc::clone(&runtime.control))
+            (
+                params,
+                Arc::clone(&runtime.control),
+                runtime
+                    .player
+                    .clone()
+                    .unwrap_or_else(|| Arc::clone(&self.player)),
+                runtime
+                    .playback
+                    .as_ref()
+                    .is_some_and(|snapshot| snapshot.playback_state != "playing"),
+            )
         };
-        if params.rate_hz == rate_hz {
-            return Ok(());
+        if !force_restart
+            && params.rate_hz == rate_hz
+            && params.source_bit_depth == source_bit_depth
+        {
+            return self
+                .session_player_epoch()
+                .ok_or_else(|| "Apple Music capture has no active Player session.".to_string());
         }
         control.set_rate_switch_pending(true);
         let result = (|| {
             let old_session = self.runtime.lock().unwrap().session.take();
             drop(old_session);
-            self.player.stop();
-            let device_id = coreaudio::device_id_for_uid(CAPTURE_DEVICE_UID)
-                .ok_or_else(|| "Fozmo Capture disappeared during the rate switch.".to_string())?;
-            rate_control::set_nominal_rate(device_id, rate_hz)?;
-            let params = LiveSessionParams { rate_hz, ..params };
+            player.stop();
+            if params.rate_hz != rate_hz {
+                let device_id =
+                    coreaudio::device_id_for_uid(CAPTURE_DEVICE_UID).ok_or_else(|| {
+                        "Fozmo Capture disappeared during the rate switch.".to_string()
+                    })?;
+                rate_control::set_nominal_rate(device_id, rate_hz)?;
+            }
+            let params = LiveSessionParams {
+                rate_hz,
+                source_bit_depth,
+                ..params
+            };
             let metrics = Arc::new(DiagnosticMetrics::default());
             let session =
-                capture_session::start_live_session(&self.player, &params, Arc::clone(&metrics))?;
-            let mut runtime = self.runtime.lock().unwrap();
-            if runtime.running {
-                runtime.session = Some(session);
-                runtime.session_params = Some(params);
-                runtime.metrics = metrics;
+                capture_session::start_live_session(&player, &params, Arc::clone(&metrics))?;
+            let player_epoch = session.player_epoch();
+            if hold_paused {
+                player.pause();
             }
-            Ok(())
+            let mut runtime = self.runtime.lock().unwrap();
+            if !runtime.running {
+                return Err("Apple Music capture stopped during the rate switch.".to_string());
+            }
+            runtime.session = Some(session);
+            runtime.session_params = Some(params);
+            runtime.metrics = metrics;
+            if let Some(snapshot) = runtime.playback.as_mut() {
+                snapshot.player_epoch = player_epoch;
+            }
+            Ok(player_epoch)
         })();
         control.set_rate_switch_pending(false);
         if let Err(err) = &result {
@@ -676,6 +924,52 @@ impl AppleMusicCaptureService {
         result
     }
 
+    /// Apply a decoder-log-verified native ALAC format and force a fresh empty
+    /// capture/Player session even when the rate is unchanged. The caller can
+    /// then restart Music.app at zero and fill the ring without stale samples.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn restart_at_verified_source_format(
+        self: &Arc<Self>,
+        rate_hz: u32,
+        source_bit_depth: Option<u32>,
+    ) -> Result<u64, String> {
+        if !rate_control::is_supported_capture_rate(rate_hz) {
+            return Err(format!(
+                "Apple Music selected unsupported native rate {rate_hz} Hz."
+            ));
+        }
+        let control = {
+            let runtime = self.runtime.lock().unwrap();
+            Arc::clone(&runtime.control)
+        };
+        let detection = rate_control::SourceFormatDetection {
+            sample_rate_hz: rate_hz,
+            source_bit_depth,
+            source: rate_control::FormatDetectionSource::AppleDecoderLog,
+            log_marker: None,
+        };
+        let player_epoch = self.perform_format_switch_inner(rate_hz, source_bit_depth, true)?;
+        control.observe_source_format(&detection);
+        control.set_manual_rate_override_active(false);
+        control.set_format_detection_error(None);
+        Ok(player_epoch)
+    }
+
+    /// Reopen the managed capture/Player session at its already-verified
+    /// format. Used for seeks so no pre-seek PCM can survive into the new
+    /// timeline.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn restart_current_managed_session(self: &Arc<Self>) -> Result<u64, String> {
+        let params = self
+            .runtime
+            .lock()
+            .unwrap()
+            .session_params
+            .clone()
+            .ok_or_else(|| "Apple Music capture has no active session.".to_string())?;
+        self.perform_format_switch_inner(params.rate_hz, params.source_bit_depth, true)
+    }
+
     #[cfg(target_os = "macos")]
     fn accept_source_format(
         self: &Arc<Self>,
@@ -683,19 +977,16 @@ impl AppleMusicCaptureService {
         detection: rate_control::SourceFormatDetection,
     ) -> Result<(), String> {
         let desired = rate_control::desired_capture_rate(detection.sample_rate_hz);
+        let source_bit_depth = detection.source_bit_depth;
         control.observe_source_format(&detection);
-        let current = self
-            .runtime
-            .lock()
-            .unwrap()
-            .session
-            .as_ref()
-            .map(|session| session.rate_hz())
-            .ok_or_else(|| "Apple Music capture has no active session.".to_string())?;
-        if current == desired {
+        let current = self.runtime.lock().unwrap().session_params.clone();
+        let Some(current) = current else {
+            return Err("Apple Music capture has no active session.".to_string());
+        };
+        if current.rate_hz == desired && current.source_bit_depth == source_bit_depth {
             Ok(())
         } else {
-            self.perform_rate_switch(desired)
+            self.perform_format_switch(desired, source_bit_depth)
         }
     }
 
@@ -1023,14 +1314,16 @@ fn music_app_status() -> AppleMusicAppStatus {
 }
 
 fn music_app_running() -> bool {
-    ProcessCommand::new("pgrep")
+    ProcessCommand::new("/usr/bin/pgrep")
         .args(["-x", "Music"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .is_ok_and(|status| status.success())
 }
 
 fn open_music_app() -> Result<(), String> {
-    ProcessCommand::new("open")
+    ProcessCommand::new("/usr/bin/open")
         .args(["-a", "Music"])
         .status()
         .map_err(|err| format!("Failed to open Apple Music app: {err}"))
@@ -1048,7 +1341,7 @@ fn run_music_app_script(command: &str) -> Result<(), String> {
 }
 
 fn run_osascript(lines: &[&str]) -> Result<String, String> {
-    let mut command = ProcessCommand::new("osascript");
+    let mut command = ProcessCommand::new("/usr/bin/osascript");
     for line in lines {
         command.arg("-e").arg(line);
     }
@@ -1466,10 +1759,12 @@ mod tests {
         assert!(!unconfirmed.confirm_system_audio_capture);
 
         let confirmed: StartAppleMusicCaptureRequest = serde_json::from_value(serde_json::json!({
+            "zone_id": "local-hegel",
             "confirm_system_audio_capture": true
         }))
         .unwrap();
         assert!(confirmed.confirm_system_audio_capture);
+        assert_eq!(confirmed.zone_id.as_deref(), Some("local-hegel"));
     }
 
     #[test]

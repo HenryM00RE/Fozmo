@@ -37,6 +37,7 @@ pub(super) struct PlaybackSession {
     pub(super) format: Box<dyn FormatReader>,
     pub(super) decoder: Box<dyn Decoder>,
     pub(super) track_id: u32,
+    pub(super) seekable: bool,
     pub(super) dsp_path: DspPath,
     pub(super) seek_request: Option<f64>,
     pub(super) output_buffer: Vec<f64>,
@@ -693,6 +694,7 @@ pub(super) fn init_session_from_source(
     upsampling_enabled: bool,
     device_name: Option<&str>,
 ) -> Result<(PlaybackSession, TrackTags, Option<TrackCover>), Box<dyn std::error::Error>> {
+    let seekable = source.is_seekable();
     let (mut format, mut probed_metadata) = open_format_from_source(source, ext_hint)?;
 
     let (mut tags, cover) =
@@ -723,6 +725,7 @@ pub(super) fn init_session_from_source(
         format,
         decoder,
         track_id,
+        seekable,
         dsp_path,
         seek_request: None,
         output_buffer: Vec::with_capacity(16384),

@@ -41,6 +41,7 @@ pub(crate) enum PlaybackOutcome {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct PlaybackGuard {
     expected_sequence: Option<PlaybackRequestSequence>,
+    expected_player_epoch: Option<(String, u64)>,
 }
 
 impl PlaybackGuard {
@@ -51,10 +52,40 @@ impl PlaybackGuard {
     pub(crate) fn from_expected_sequence(
         expected_sequence: Option<PlaybackRequestSequence>,
     ) -> Self {
-        Self { expected_sequence }
+        Self {
+            expected_sequence,
+            expected_player_epoch: None,
+        }
+    }
+
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    pub(crate) fn from_expected_player_epoch(zone_id: String, player_epoch: u64) -> Self {
+        Self {
+            expected_sequence: None,
+            expected_player_epoch: Some((zone_id, player_epoch)),
+        }
     }
 
     pub(crate) fn is_current(&self, state: &crate::app::state::AppState) -> bool {
+        let sequence_current = self
+            .expected_sequence
+            .as_ref()
+            .is_none_or(|expected| state.playback_sequencer().is_current(expected));
+        let epoch_current =
+            self.expected_player_epoch
+                .as_ref()
+                .is_none_or(|(zone_id, expected_epoch)| {
+                    state
+                        .zones()
+                        .player_for_zone(zone_id)
+                        .is_some_and(|player| player.playback_epoch() == *expected_epoch)
+                });
+        sequence_current && epoch_current
+    }
+
+    /// Once a command has deliberately replaced the Player epoch, only its
+    /// request-sequence ownership remains meaningful.
+    pub(crate) fn sequence_is_current(&self, state: &crate::app::state::AppState) -> bool {
         self.expected_sequence
             .as_ref()
             .is_none_or(|expected| state.playback_sequencer().is_current(expected))

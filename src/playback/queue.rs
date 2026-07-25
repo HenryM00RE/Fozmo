@@ -600,6 +600,18 @@ pub(crate) async fn apply_zone_queue_sources(
         return Ok(());
     }
     if let Some(player) = player {
+        #[cfg(all(
+            target_os = "macos",
+            feature = "apple_music_musickit",
+            feature = "apple_music_capture"
+        ))]
+        if crate::playback::apple_music_native::active_snapshot(state, zone_id).is_some() {
+            // The live-capture Player must reach EOF with no engine-owned queue.
+            // Native Apple Music owns the provider boundary so it can drain the
+            // captured tail before routing Local/Qobuz/Apple through the router.
+            player.set_queue_if_epoch(Vec::new(), expected_epoch);
+            return Ok(());
+        }
         let active_source = state.listening().active_source(zone_id);
         if matches!(active_source, Some(SourceRef::QobuzTrack { .. })) {
             if let Some(first_track) = qobuz_prefetch_track_for_queue_update(

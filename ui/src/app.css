@@ -9395,39 +9395,30 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
 
 .react-app .apple-music-search-result {
   width: 100%;
-  border-top: 0;
-  border-right: 0;
-  border-left: 0;
   background: transparent;
   color: inherit;
-  font: inherit;
   text-align: left;
-  cursor: pointer;
   transition:
     background 140ms ease,
     padding 140ms ease;
 }
 
-.react-app .apple-music-search-result:not(:disabled):hover {
+.react-app .apple-music-search-result:hover {
   padding-inline: 10px;
   background: color-mix(in srgb, var(--accent, #59b6ff) 7%, transparent);
 }
 
-.react-app .apple-music-search-result:focus-visible {
-  border-radius: 9px;
-  outline: 2px solid var(--accent, #59b6ff);
-  outline-offset: 2px;
+.react-app .apple-music-result-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
 }
 
-.react-app .apple-music-search-result:disabled {
-  cursor: not-allowed;
-  opacity: 0.52;
-}
-
-.react-app .apple-music-result-play {
-  color: var(--blue-ink, #7fb4ff);
-  font-size: 12px;
-  font-weight: 750;
+.react-app .apple-music-result-action {
+  min-height: 30px;
+  padding: 6px 10px;
+  white-space: nowrap;
 }
 
 .react-app .apple-music-console-divider {
@@ -9566,6 +9557,16 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
   .react-app .apple-music-scenario-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .react-app .apple-music-result-row {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
+  .react-app .apple-music-result-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .react-app .apple-music-scenario-row label {

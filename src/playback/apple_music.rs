@@ -7,9 +7,9 @@ use crate::playback::service::{
 };
 use crate::protocol::SourceRef;
 use crate::services::apple_music_musickit::{
-    AppleMusicMvpError, ApplePlaybackSnapshot, HelperMessage,
+    AppleMusicMvpError, ApplePlaybackSnapshot, HelperMessage, ProcessTapRateTransition,
 };
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tokio::sync::broadcast;
 use tracing::{debug, warn};
 
@@ -74,19 +74,32 @@ pub(crate) async fn play_apple_music_source(
     let Some(player) = state.zones().player_for_zone(zone_id) else {
         return Err(PlaybackError::ZoneNotAvailable);
     };
+    let _playback_switch = state.apple_music().lock_playback_switch().await;
+    ensure_current(state, &guard)?;
 
     apply_playback_settings_for_zone(state, zone_id);
     prepare_airplay_volume_for_zone(state, zone_id, &player);
     prepare_hegel_for_zone(state, zone_id).await?;
 
-    stop_replaced_session(state, zone_id).await;
+    stop_replaced_session_locked(state, zone_id).await;
+    ensure_current(state, &guard)?;
     let run = provider_run(source.clone(), &queue);
+    // Keep the helper queue to exactly one item. Every Apple Music track must
+    // independently pass the catalog + active AudioVariant lossless gates
+    // before a process tap can reach Fozmo's DSP. Letting MusicKit advance a
+    // multi-item internal queue could switch the live tap to AAC before Fozmo
+    // has a chance to validate the new entry.
+    let helper_segment = vec![run.current.clone()];
     let starting_epoch = player.playback_epoch();
     let queue_revision = state
         .apple_music()
-        .prepare_queue(&run.contiguous, 0)
+        .prepare_queue(&helper_segment, 0)
         .await
         .map_err(playback_error)?;
+    if let Err(stale) = ensure_current(state, &guard) {
+        let _ = state.apple_music().transport("stop").await;
+        return Err(stale);
+    }
     let helper_session_id = state
         .apple_music()
         .helper_session_id()
@@ -103,44 +116,23 @@ pub(crate) async fn play_apple_music_source(
             .apple_music()
             .active_musickit_renderer_pids()
             .map_err(playback_error)?;
+        ensure_current(state, &guard)?;
+        let source_format_boundary = state.apple_music().source_format_probe_boundary();
         state
             .apple_music()
             .play_prepared()
             .await
             .map_err(playback_error)?;
+        ensure_current(state, &guard)?;
         prepare_musickit_process_tap_after_playback(
             state,
             player.clone(),
             &preexisting_renderer_pids,
+            &guard,
         )
-        .await
-        .map_err(playback_error)?;
-        state
-            .apple_music()
-            .discard_process_tap_buffer()
-            .map_err(playback_error)?;
-        state
-            .apple_music()
-            .prepare_process_tap_stream()
-            .map_err(playback_error)?;
-        // Preparing the decoder can consume capture-ring data while probing
-        // the live WAV. Measure the cushion afterwards so commit never starts
-        // with a nominal prefill that probing has already drained.
-        wait_for_prefill(
-            state,
-            APPLE_START_PREFILL_SECS,
-            APPLE_START_PREFILL_MIN_SECS,
-            APPLE_START_PREFILL_TIMEOUT,
-        )
-        .await
-        .map_err(playback_error)?;
-        if !guard.is_current(state) || player.playback_epoch() != starting_epoch {
-            return Err(PlaybackError::conflict("Playback changed"));
-        }
-        state
-            .apple_music()
-            .commit_process_tap(false)
-            .map_err(playback_error)?;
+        .await?;
+        prepare_initial_source_rate(state, &player, &guard, source_format_boundary).await?;
+        commit_initial_process_tap(state, &player, starting_epoch, &guard).await?;
         Ok::<(), PlaybackError>(())
     }
     .await;
@@ -176,9 +168,19 @@ pub(crate) async fn play_apple_music_source(
         player_epoch,
         helper_session_id,
         queue_revision,
-        run.contiguous,
+        helper_segment,
     );
-    spawn_event_monitor(state.clone(), receiver, zone_id.to_string(), player_epoch);
+    // Arm the next entry after the current decoder/tap handoff has settled.
+    // This predates any normal automatic queue transition, unlike the helper's
+    // observed `entry_changed` event, which can arrive after decoding begins.
+    let next_source_format_boundary = state.apple_music().source_format_probe_boundary();
+    spawn_event_monitor(
+        state.clone(),
+        receiver,
+        zone_id.to_string(),
+        player_epoch,
+        next_source_format_boundary,
+    );
     Ok(PlaybackOutcome::Completed)
 }
 
@@ -189,6 +191,7 @@ pub(crate) fn active_snapshot(state: &AppState, zone_id: &str) -> Option<ApplePl
 }
 
 pub(crate) async fn pause(state: &AppState, zone_id: &str) -> Result<bool, PlaybackError> {
+    let _playback_switch = state.apple_music().lock_playback_switch().await;
     if active_snapshot(state, zone_id).is_none() {
         return Ok(false);
     }
@@ -207,6 +210,7 @@ pub(crate) async fn pause(state: &AppState, zone_id: &str) -> Result<bool, Playb
 }
 
 pub(crate) async fn resume(state: &AppState, zone_id: &str) -> Result<bool, PlaybackError> {
+    let _playback_switch = state.apple_music().lock_playback_switch().await;
     if active_snapshot(state, zone_id).is_none() {
         return Ok(false);
     }
@@ -229,6 +233,7 @@ pub(crate) async fn resume(state: &AppState, zone_id: &str) -> Result<bool, Play
         APPLE_RESUME_PREFILL_SECS,
         APPLE_RESUME_PREFILL_MIN_SECS,
         APPLE_RESUME_PREFILL_TIMEOUT,
+        None,
     )
     .await
     .map_err(playback_error)?;
@@ -245,6 +250,7 @@ pub(crate) async fn seek(
     zone_id: &str,
     seconds: f64,
 ) -> Result<bool, PlaybackError> {
+    let _playback_switch = state.apple_music().lock_playback_switch().await;
     if active_snapshot(state, zone_id).is_none() {
         return Ok(false);
     }
@@ -278,6 +284,7 @@ pub(crate) async fn seek(
         APPLE_RESUME_PREFILL_SECS,
         APPLE_RESUME_PREFILL_MIN_SECS,
         APPLE_RESUME_PREFILL_TIMEOUT,
+        None,
     )
     .await
     .map_err(playback_error)?;
@@ -289,7 +296,10 @@ pub(crate) async fn seek(
 }
 
 pub(crate) async fn stop(state: &AppState, zone_id: &str) -> Result<bool, PlaybackError> {
+    let _playback_switch = state.apple_music().lock_playback_switch().await;
     let Some(snapshot) = active_snapshot(state, zone_id) else {
+        let _ = state.apple_music().transport("stop").await;
+        state.apple_music().stop_process_tap();
         return Ok(false);
     };
     let helper_result = state.apple_music().transport("stop").await;
@@ -310,6 +320,7 @@ pub(crate) async fn skip_next_if_internal(
     state: &AppState,
     zone_id: &str,
 ) -> Result<bool, PlaybackError> {
+    let _playback_switch = state.apple_music().lock_playback_switch().await;
     let Some(snapshot) = active_snapshot(state, zone_id) else {
         return Ok(false);
     };
@@ -328,9 +339,11 @@ async fn prepare_musickit_process_tap_after_playback(
     state: &AppState,
     player: std::sync::Arc<crate::audio::player::Player>,
     preexisting_renderer_pids: &[u32],
-) -> Result<(), AppleMusicMvpError> {
+    guard: &PlaybackGuard,
+) -> Result<(), PlaybackError> {
     let deadline = tokio::time::Instant::now() + APPLE_AUDIO_PROCESS_TIMEOUT;
     loop {
+        ensure_current(state, guard)?;
         match state
             .apple_music()
             .prepare_musickit_process_tap(player.clone(), preexisting_renderer_pids)
@@ -342,9 +355,133 @@ async fn prepare_musickit_process_tap_after_playback(
             {
                 tokio::time::sleep(APPLE_AUDIO_PROCESS_RETRY_INTERVAL).await;
             }
-            Err(error) => return Err(error),
+            Err(error) => return Err(playback_error(error)),
         }
     }
+}
+
+async fn prepare_initial_source_rate(
+    state: &AppState,
+    player: &std::sync::Arc<crate::audio::player::Player>,
+    guard: &PlaybackGuard,
+    source_format_boundary: SystemTime,
+) -> Result<(), PlaybackError> {
+    // MusicKit has to begin decoding before macOS exposes both its renderer
+    // process and the exact lossless decoder format. Pause immediately after
+    // attaching the tap so probing cannot consume the start of the song.
+    state
+        .apple_music()
+        .transport("pause")
+        .await
+        .map_err(playback_error)?;
+    ensure_current(state, guard)?;
+
+    let source_format = match state
+        .apple_music()
+        .probe_process_tap_source_format(source_format_boundary)
+        .await
+    {
+        Ok(Some(source_format)) => source_format,
+        Ok(None) => {
+            return Err(playback_error(AppleMusicMvpError {
+                code: "lossless_source_format_unverified".to_string(),
+                message:
+                    "MusicKit reported Lossless playback, but macOS did not expose a fresh Apple Lossless decoder format. Fozmo will not label the fixed process-tap mix as the source rate."
+                        .to_string(),
+                retryable: true,
+                stage: "source_format".to_string(),
+                cleanup_complete: false,
+            }));
+        }
+        Err(error) => return Err(playback_error(error)),
+    };
+    let sample_rate_hz = source_format.sample_rate_hz;
+    match state
+        .apple_music()
+        .prepare_process_tap_rate_transition(player.clone(), source_format)
+        .map_err(playback_error)?
+    {
+        ProcessTapRateTransition::Unchanged { .. } => {
+            debug!(
+                event = "apple_music_source_rate_unchanged",
+                sample_rate_hz, "MusicKit tap already matches the verified lossless source rate"
+            );
+        }
+        ProcessTapRateTransition::Prepared {
+            previous_stream_rate_hz,
+            source_sample_rate_hz,
+        } => {
+            debug!(
+                event = "apple_music_source_rate_prepared",
+                previous_stream_rate_hz,
+                source_sample_rate_hz,
+                "Prepared MusicKit PCM at the verified lossless source rate"
+            );
+        }
+    }
+    ensure_current(state, guard)?;
+
+    restart_captured_song_from_start(state, guard).await?;
+    Ok(())
+}
+
+async fn restart_captured_song_from_start(
+    state: &AppState,
+    guard: &PlaybackGuard,
+) -> Result<(), PlaybackError> {
+    state
+        .apple_music()
+        .transport("pause")
+        .await
+        .map_err(playback_error)?;
+    ensure_current(state, guard)?;
+    state
+        .apple_music()
+        .seek_helper(0.0)
+        .await
+        .map_err(playback_error)?;
+    state
+        .apple_music()
+        .discard_process_tap_buffer()
+        .map_err(playback_error)?;
+    state
+        .apple_music()
+        .transport("resume")
+        .await
+        .map_err(playback_error)?;
+    ensure_current(state, guard)
+}
+
+async fn commit_initial_process_tap(
+    state: &AppState,
+    player: &std::sync::Arc<crate::audio::player::Player>,
+    starting_epoch: u64,
+    guard: &PlaybackGuard,
+) -> Result<(), PlaybackError> {
+    state
+        .apple_music()
+        .prepare_process_tap_stream()
+        .map_err(playback_error)?;
+    // Preparing the decoder can consume capture-ring data while probing the
+    // live WAV. Measure the cushion afterwards so commit never starts with a
+    // nominal prefill that probing has already drained.
+    wait_for_prefill(
+        state,
+        APPLE_START_PREFILL_SECS,
+        APPLE_START_PREFILL_MIN_SECS,
+        APPLE_START_PREFILL_TIMEOUT,
+        Some(guard),
+    )
+    .await
+    .map_err(playback_error)?;
+    if !guard.is_current(state) || player.playback_epoch() != starting_epoch {
+        return Err(PlaybackError::conflict("Playback changed"));
+    }
+    state
+        .apple_music()
+        .commit_process_tap(false)
+        .map_err(playback_error)?;
+    Ok(())
 }
 
 fn should_retry_audio_process_visibility(error: &AppleMusicMvpError) -> bool {
@@ -352,6 +489,22 @@ fn should_retry_audio_process_visibility(error: &AppleMusicMvpError) -> bool {
 }
 
 pub(crate) async fn stop_replaced_session(state: &AppState, zone_id: &str) {
+    let _playback_switch = state.apple_music().lock_playback_switch().await;
+    stop_replaced_session_locked(state, zone_id).await;
+}
+
+pub(crate) async fn stop_replaced_session_if_current(
+    state: &AppState,
+    zone_id: &str,
+    guard: &PlaybackGuard,
+) -> Result<(), PlaybackError> {
+    let _playback_switch = state.apple_music().lock_playback_switch().await;
+    ensure_current(state, guard)?;
+    stop_replaced_session_locked(state, zone_id).await;
+    Ok(())
+}
+
+pub(crate) async fn stop_replaced_session_locked(state: &AppState, zone_id: &str) {
     let Some(snapshot) = state.apple_music().playback_snapshot_for_zone(zone_id) else {
         return;
     };
@@ -367,9 +520,19 @@ async fn wait_for_prefill(
     target_secs: f64,
     minimum_secs: f64,
     timeout: Duration,
+    guard: Option<&PlaybackGuard>,
 ) -> Result<(), AppleMusicMvpError> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
+        if guard.is_some_and(|guard| !guard.is_current(state)) {
+            return Err(AppleMusicMvpError {
+                code: "process_tap_playback_changed".to_string(),
+                message: "Playback changed while Apple Music was preparing.".to_string(),
+                retryable: true,
+                stage: "preparing_dsp_handoff".to_string(),
+                cleanup_complete: false,
+            });
+        }
         let buffered = state.apple_music().process_tap_buffered_audio_secs()?;
         if buffered >= target_secs {
             debug!(
@@ -408,6 +571,13 @@ async fn wait_for_prefill(
     }
 }
 
+fn ensure_current(state: &AppState, guard: &PlaybackGuard) -> Result<(), PlaybackError> {
+    guard
+        .is_current(state)
+        .then_some(())
+        .ok_or_else(|| PlaybackError::conflict("Playback changed"))
+}
+
 async fn cleanup_failed_start(
     state: &AppState,
     player: &std::sync::Arc<crate::audio::player::Player>,
@@ -425,7 +595,8 @@ fn spawn_event_monitor(
     state: AppState,
     mut receiver: broadcast::Receiver<HelperMessage>,
     zone_id: String,
-    player_epoch: u64,
+    mut player_epoch: u64,
+    mut next_source_format_boundary: SystemTime,
 ) {
     tokio::spawn(async move {
         let mut tap_watchdog = tokio::time::interval(Duration::from_secs(1));
@@ -498,6 +669,54 @@ fn spawn_event_monitor(
             for _ in 0..effect.advance_by {
                 state.listening().next(state.library(), &zone_id);
             }
+            if event.message_type == "entry_changed" && effect.advance_by > 0 {
+                match reconfigure_for_entry_change(
+                    &state,
+                    &zone_id,
+                    player_epoch,
+                    next_source_format_boundary,
+                )
+                .await
+                {
+                    Ok(Some(replacement_epoch)) => {
+                        player_epoch = replacement_epoch;
+                        next_source_format_boundary =
+                            state.apple_music().source_format_probe_boundary();
+                    }
+                    Ok(None) => {
+                        next_source_format_boundary =
+                            state.apple_music().source_format_probe_boundary();
+                    }
+                    Err(failure) => {
+                        warn!(
+                            event = "apple_music_entry_reconfigure_failed",
+                            zone_id,
+                            player_epoch,
+                            error = %failure,
+                            "Apple Music could not safely restart the new queue entry"
+                        );
+                        state.apple_music().mark_playback_failed(
+                            &zone_id,
+                            player_epoch,
+                            AppleMusicMvpError {
+                                code: "apple_music_entry_reconfigure_failed".to_string(),
+                                message: failure.to_string(),
+                                retryable: true,
+                                stage: "source_format".to_string(),
+                                cleanup_complete: false,
+                            },
+                        );
+                        handle_finished(
+                            state.clone(),
+                            zone_id.clone(),
+                            player_epoch,
+                            "failed".to_string(),
+                        )
+                        .await;
+                        break;
+                    }
+                }
+            }
             if let Some(reason) = effect.finished_reason {
                 handle_finished(state.clone(), zone_id.clone(), player_epoch, reason).await;
                 break;
@@ -506,7 +725,187 @@ fn spawn_event_monitor(
     });
 }
 
+async fn reconfigure_for_entry_change(
+    state: &AppState,
+    zone_id: &str,
+    player_epoch: u64,
+    source_format_boundary: SystemTime,
+) -> Result<Option<u64>, PlaybackError> {
+    let _playback_switch = state.apple_music().lock_playback_switch().await;
+    let Some(snapshot) = state.apple_music().playback_snapshot_for_zone(zone_id) else {
+        return Ok(None);
+    };
+    if snapshot.player_epoch != player_epoch {
+        return Ok(None);
+    }
+    let player = state
+        .zones()
+        .player_for_zone(zone_id)
+        .ok_or(PlaybackError::ZoneNotAvailable)?;
+
+    state
+        .apple_music()
+        .transport("pause")
+        .await
+        .map_err(playback_error)?;
+    player.pause();
+    player.flush_live_output();
+
+    let mut rate_transition_prepared = false;
+    match state
+        .apple_music()
+        .probe_process_tap_source_format(source_format_boundary)
+        .await
+    {
+        Ok(Some(source_format)) => {
+            let sample_rate_hz = source_format.sample_rate_hz;
+            match state
+                .apple_music()
+                .prepare_process_tap_rate_transition(player.clone(), source_format)
+            {
+                Ok(ProcessTapRateTransition::Prepared {
+                    previous_stream_rate_hz,
+                    source_sample_rate_hz,
+                }) => {
+                    rate_transition_prepared = true;
+                    debug!(
+                        event = "apple_music_entry_source_rate_prepared",
+                        previous_stream_rate_hz,
+                        source_sample_rate_hz,
+                        "Prepared the next MusicKit entry at its native rate"
+                    );
+                }
+                Ok(ProcessTapRateTransition::Unchanged { .. }) => {}
+                Err(error) => {
+                    warn!(
+                        event = "apple_music_entry_source_rate_transition_skipped",
+                        sample_rate_hz,
+                        error = %error.message,
+                        "Retaining the current tap rate for the next MusicKit entry"
+                    );
+                }
+            }
+        }
+        Ok(None) => {}
+        Err(error) => {
+            warn!(
+                event = "apple_music_entry_source_rate_probe_failed",
+                error = %error.message,
+                "Retaining the current tap rate for the next MusicKit entry"
+            );
+        }
+    }
+
+    state
+        .apple_music()
+        .seek_helper(0.0)
+        .await
+        .map_err(playback_error)?;
+    state
+        .apple_music()
+        .discard_process_tap_buffer()
+        .map_err(playback_error)?;
+    state
+        .apple_music()
+        .transport("resume")
+        .await
+        .map_err(playback_error)?;
+
+    if !rate_transition_prepared {
+        wait_for_prefill(
+            state,
+            APPLE_RESUME_PREFILL_SECS,
+            APPLE_RESUME_PREFILL_MIN_SECS,
+            APPLE_RESUME_PREFILL_TIMEOUT,
+            None,
+        )
+        .await
+        .map_err(playback_error)?;
+        player.resume();
+        return Ok(None);
+    }
+
+    let replacement_result = async {
+        state
+            .apple_music()
+            .prepare_process_tap_stream()
+            .map_err(playback_error)?;
+        wait_for_prefill(
+            state,
+            APPLE_START_PREFILL_SECS,
+            APPLE_START_PREFILL_MIN_SECS,
+            APPLE_START_PREFILL_TIMEOUT,
+            None,
+        )
+        .await
+        .map_err(playback_error)?;
+        state
+            .apple_music()
+            .commit_process_tap(true)
+            .map_err(playback_error)?;
+        state
+            .apple_music()
+            .process_tap_playback_epoch()
+            .ok_or_else(|| {
+                PlaybackError::internal_invariant(
+                    "Apple Music rate replacement committed without a Player epoch",
+                )
+            })
+    }
+    .await;
+
+    let replacement_epoch = match replacement_result {
+        Ok(epoch) => epoch,
+        Err(first_failure) => {
+            state.apple_music().cancel_process_tap_rate_transition();
+            warn!(
+                event = "apple_music_entry_source_rate_fallback",
+                error = %first_failure,
+                "Exact-rate entry handoff failed; resuming the existing MusicKit tap"
+            );
+            state
+                .apple_music()
+                .transport("pause")
+                .await
+                .map_err(playback_error)?;
+            state
+                .apple_music()
+                .seek_helper(0.0)
+                .await
+                .map_err(playback_error)?;
+            state
+                .apple_music()
+                .discard_process_tap_buffer()
+                .map_err(playback_error)?;
+            state
+                .apple_music()
+                .transport("resume")
+                .await
+                .map_err(playback_error)?;
+            wait_for_prefill(
+                state,
+                APPLE_RESUME_PREFILL_SECS,
+                APPLE_RESUME_PREFILL_MIN_SECS,
+                APPLE_RESUME_PREFILL_TIMEOUT,
+                None,
+            )
+            .await
+            .map_err(playback_error)?;
+            player.resume();
+            return Ok(None);
+        }
+    };
+    if !state
+        .apple_music()
+        .replace_playback_player_epoch(zone_id, player_epoch, replacement_epoch)
+    {
+        return Err(PlaybackError::conflict("Playback changed"));
+    }
+    Ok(Some(replacement_epoch))
+}
+
 async fn handle_finished(state: AppState, zone_id: String, player_epoch: u64, reason: String) {
+    let playback_switch = state.apple_music().lock_playback_switch().await;
     let Some(snapshot) = state.apple_music().playback_snapshot_for_zone(&zone_id) else {
         return;
     };
@@ -555,6 +954,16 @@ async fn handle_finished(state: AppState, zone_id: String, player_epoch: u64, re
         .unwrap_or_else(|| crate::settings::DEFAULT_PROFILE_ID.to_string());
     let next = next.clone();
     let rest = rest.to_vec();
+    // `PlaybackRouter` may acquire the same switch while stopping the old
+    // provider, so release it after atomically validating/clearing this epoch.
+    drop(playback_switch);
+    if state
+        .zones()
+        .player_for_zone(&zone_id)
+        .is_some_and(|player| player.playback_epoch() != player_epoch)
+    {
+        return;
+    }
     if let Err(error) = PlaybackRouter::new(&state)
         .execute(
             &zone_id,
@@ -563,7 +972,7 @@ async fn handle_finished(state: AppState, zone_id: String, player_epoch: u64, re
                 source: next,
                 queue: rest,
                 radio_auto: false,
-                guard: PlaybackGuard::none(),
+                guard: PlaybackGuard::from_expected_player_epoch(zone_id.clone(), player_epoch),
                 qobuz_request: None,
             },
         )

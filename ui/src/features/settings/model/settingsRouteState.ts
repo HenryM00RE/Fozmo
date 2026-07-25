@@ -1,8 +1,9 @@
-import type { JsonRecord, ZoneProfile } from '../../../shared/types';
+import type { JsonRecord, QueueItem, ZoneProfile } from '../../../shared/types';
 import type { ApplyProfilesResponse, ProfilesResponse } from '../settingsModel';
 
 export type SettingsRouteState = {
   activeProfileId: string;
+  addItemsToQueue: (items: QueueItem[], placement: 'next' | 'end') => Promise<boolean>;
   applyProfilesResponse: ApplyProfilesResponse;
   onRefresh: () => Promise<void>;
   onProfileScopedRefresh: () => Promise<void>;

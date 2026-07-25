@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { capabilityEnabled } from '../../shared/lib/capabilities';
-import type { JsonRecord, ZoneProfile } from '../../shared/types';
+import type { JsonRecord, QueueItem, ZoneProfile } from '../../shared/types';
 import {
   loadDspTargetZoneId,
   resolveSettingsTargetZoneId,
@@ -36,6 +36,7 @@ import {
 } from './settingsModel';
 
 export function SettingsView({
+  addItemsToQueue,
   status,
   qobuzStatus,
   zones,
@@ -47,6 +48,7 @@ export function SettingsView({
   onProfileScopedRefresh,
   selectActiveProfile
 }: {
+  addItemsToQueue: (items: QueueItem[], placement: 'next' | 'end') => Promise<boolean>;
   status: JsonRecord;
   qobuzStatus: JsonRecord | null;
   zones: ZoneProfile[];
@@ -320,7 +322,10 @@ export function SettingsView({
 
       {activeTab === 'apple-music' ? (
         capabilityEnabled(status, 'apple_music_musickit') ? (
-          <AppleMusicMvpPage activeZoneStatus={status} />
+          <>
+            <AppleMusicMvpPage activeZoneStatus={status} addItemsToQueue={addItemsToQueue} />
+            {capabilityEnabled(status, 'apple_music_capture') ? <AppleMusicCapturePage /> : null}
+          </>
         ) : (
           <AppleMusicCapturePage />
         )

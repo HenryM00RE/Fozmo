@@ -8,7 +8,8 @@
 //!   configuration and errors instead of coercing formats.
 
 use super::live_source::{
-    CaptureProducer, LIVE_CHANNELS, LiveCaptureSource, live_capture_ring, ring_capacity_samples,
+    CaptureFlow, CaptureProducer, LIVE_CHANNELS, LiveCaptureSource, live_capture_ring,
+    ring_capacity_samples,
 };
 use super::rate_control::{FormatDetectionSource, SourceFormatDetection};
 use crate::audio::player::{Player, TrackTags};
@@ -132,6 +133,9 @@ pub(super) struct LiveSessionParams {
     pub device_name: String,
     pub rate_hz: u32,
     pub buffer_ms: u32,
+    /// Original decoded source precision, when Apple exposes it. The CoreAudio
+    /// transport remains F32; this value is metadata for the DSP/UI.
+    pub source_bit_depth: Option<u32>,
 }
 
 /// A running live capture: CPAL stream on a worker thread plus the player
@@ -141,11 +145,25 @@ pub(super) struct LiveSession {
     shutdown: Arc<AtomicBool>,
     _worker: CaptureWorker,
     rate_hz: u32,
+    flow: Arc<CaptureFlow>,
+    player_epoch: u64,
 }
 
 impl LiveSession {
     pub(super) fn rate_hz(&self) -> u32 {
         self.rate_hz
+    }
+
+    pub(super) fn player_epoch(&self) -> u64 {
+        self.player_epoch
+    }
+
+    pub(super) fn buffered_audio_secs(&self) -> f64 {
+        self.flow.buffered_frames() as f64 / f64::from(self.rate_hz.max(1))
+    }
+
+    pub(super) fn discard_buffered_audio(&self) -> u64 {
+        self.flow.request_discard()
     }
 }
 
@@ -163,21 +181,29 @@ pub(super) fn start_live_session(
     let capacity = ring_capacity_samples(params.rate_hz, params.buffer_ms);
     let (producer, consumer) = live_capture_ring(capacity);
     let shutdown = Arc::new(AtomicBool::new(false));
+    let flow = Arc::new(CaptureFlow::default());
 
     let device_name = params.device_name.clone();
     let rate_hz = params.rate_hz;
     let worker_metrics = Arc::clone(&metrics);
+    let worker_flow = Arc::clone(&flow);
     let worker = spawn_capture_worker("fozmo-capture-live", move || {
-        open_fozmo_capture_stream(&device_name, rate_hz, worker_metrics, producer)
+        open_fozmo_capture_stream(&device_name, rate_hz, worker_metrics, producer, worker_flow)
     })?;
 
-    let source = LiveCaptureSource::new(params.rate_hz, consumer, Arc::clone(&shutdown));
+    let source = LiveCaptureSource::new_with_flow(
+        params.rate_hz,
+        consumer,
+        Arc::clone(&shutdown),
+        Arc::clone(&flow),
+    );
+    let source_bit_depth = source_bit_depth_for_tags(params.source_bit_depth);
     let tags = TrackTags {
         title: Some(LIVE_DISPLAY_NAME.to_string()),
         artist: Some("Apple Music".to_string()),
         sample_rate: Some(params.rate_hz),
         channels: Some(LIVE_CHANNELS),
-        bits_per_sample: Some(32),
+        bits_per_sample: Some(source_bit_depth),
         ..TrackTags::default()
     };
     let epoch = player.reserve_playback_change();
@@ -198,7 +224,15 @@ pub(super) fn start_live_session(
         shutdown,
         _worker: worker,
         rate_hz: params.rate_hz,
+        flow,
+        player_epoch: player.playback_epoch(),
     })
+}
+
+fn source_bit_depth_for_tags(source_bit_depth: Option<u32>) -> u32 {
+    source_bit_depth
+        .filter(|bits| matches!(bits, 16 | 24 | 32))
+        .unwrap_or(32)
 }
 
 /// Real capture path: the stream must match the driver exactly — F32, stereo,
@@ -209,6 +243,7 @@ pub(super) fn open_fozmo_capture_stream(
     rate_hz: u32,
     metrics: Arc<DiagnosticMetrics>,
     mut producer: CaptureProducer,
+    flow: Arc<CaptureFlow>,
 ) -> Result<cpal::Stream, String> {
     let device = find_input_device(device_name)?;
     let supported = device
@@ -237,6 +272,7 @@ pub(super) fn open_fozmo_capture_stream(
             &config,
             move |data: &[f32], _| {
                 let pushed = producer.push_slice(data);
+                flow.record_enqueued(pushed / channels);
                 if pushed < data.len() {
                     // Drop-on-full: the consumer is behind; never block the callback.
                     metrics.ring_overruns.fetch_add(1, Ordering::Relaxed);
@@ -480,6 +516,19 @@ fn nonzero_u32(value: u32) -> Option<u32> {
 
 fn nonzero_u64(value: u64) -> Option<u64> {
     (value != 0).then_some(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::source_bit_depth_for_tags;
+
+    #[test]
+    fn live_source_reports_detected_precision_not_float_container_width() {
+        assert_eq!(source_bit_depth_for_tags(Some(24)), 24);
+        assert_eq!(source_bit_depth_for_tags(Some(16)), 16);
+        assert_eq!(source_bit_depth_for_tags(None), 32);
+        assert_eq!(source_bit_depth_for_tags(Some(20)), 32);
+    }
 }
 
 // Session control state shared between the service, the Music poller, and
