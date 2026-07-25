@@ -112,9 +112,12 @@ pub(crate) async fn play_apple_music_source(
         .map_err(PlaybackError::integration)?;
 
         let selected = wait_for_selected_track(state, &guard, &playback).await?;
-        pause_music_blocking().await?;
-        ensure_owned(state, &guard, &playback)?;
-
+        // Music must still be decoding while we inspect its fresh decoder-log
+        // event. Pausing here can make the app briefly disappear from Core
+        // Audio and can prevent the ALAC event from being emitted at all. The
+        // local Player remains paused, so these probe samples stay private;
+        // the verified-rate restart below destroys them before playback is
+        // restarted from zero.
         let source_format = state
             .apple_music()
             .probe_music_app_source_format(format_boundary)
@@ -125,6 +128,8 @@ pub(crate) async fn play_apple_music_source(
                     "Music.app did not expose a fresh Apple Lossless decoder format. Fozmo kept the Hegel muted and did not release unverified audio to the DSP.",
                 )
             })?;
+        pause_music_blocking().await?;
+        ensure_owned(state, &guard, &playback)?;
         let source_rate_hz = source_format.sample_rate_hz;
         let source_bits = source_format.source_bit_depth_bits;
         let verified_epoch = state

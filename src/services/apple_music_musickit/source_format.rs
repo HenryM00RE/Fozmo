@@ -170,7 +170,7 @@ fn parse_renderer_log_output(
     output: &str,
     boundary: SystemTime,
 ) -> Option<MusicKitDecoderDetection> {
-    output
+    let detections = output
         .lines()
         .filter_map(|line| {
             let value = serde_json::from_str::<Value>(line).ok()?;
@@ -187,7 +187,27 @@ fn parse_renderer_log_output(
                 .map(MusicKitDecoderDetection::Lossless)
                 .or_else(|| parse_aac_decoder_message(message, logged_at, marker))
         })
-        .max_by_key(MusicKitDecoderDetection::logged_at)
+        .collect::<Vec<_>>();
+
+    // Music.app may create secondary/transitional AAC decoders around the
+    // authoritative ALAC decoder for one selected track. Prefer the newest
+    // fresh ALAC event anywhere in the snapshot; only report AAC when the
+    // snapshot contains no ALAC at all. The caller keeps polling until its
+    // deadline before treating that AAC observation as final.
+    detections
+        .iter()
+        .filter_map(|detection| match detection {
+            MusicKitDecoderDetection::Lossless(format) => Some(format),
+            MusicKitDecoderDetection::Lossy { .. } => None,
+        })
+        .max_by_key(|format| format.logged_at)
+        .cloned()
+        .map(MusicKitDecoderDetection::Lossless)
+        .or_else(|| {
+            detections
+                .into_iter()
+                .max_by_key(MusicKitDecoderDetection::logged_at)
+        })
 }
 
 fn parse_apple_lossless_decoder_message(
@@ -396,6 +416,32 @@ mod tests {
                 ),
             }
         );
+    }
+
+    #[test]
+    fn fresh_lossless_decoder_wins_over_transitional_aac_decoders() {
+        let initial_aac = record(
+            "2026-07-25 19:46:17.145083+1200",
+            "ACMP4AACBaseDecoder.cpp:310 (0x945e35c00) Input format: 2 ch, 48000 Hz, aac (0x00000000) 0 bits/channel, 0 bytes/packet, 1024 frames/packet, 0 bytes/frame",
+        );
+        let lossless = record(
+            "2026-07-25 19:46:18.078480+1200",
+            "ACAppleLosslessDecoder.cpp:680 (0x928566d00) Input format: 2 ch, 96000 Hz, alac (0x00000003) from 24-bit source, 4096 frames/packet",
+        );
+        let later_aac = record(
+            "2026-07-25 19:46:18.905879+1200",
+            "ACMP4AACBaseDecoder.cpp:310 (0x943a5ea00) Input format: 2 ch, 48000 Hz, aac (0x00000000) 0 bits/channel, 0 bytes/packet, 1024 frames/packet, 0 bytes/frame",
+        );
+        let detection = parse_renderer_log_output(
+            &format!("{initial_aac}\n{lossless}\n{later_aac}\n"),
+            timestamp("2026-07-25 19:46:17.000000+1200"),
+        )
+        .expect("lossless decoder detection");
+        let MusicKitDecoderDetection::Lossless(format) = detection else {
+            panic!("expected Apple Lossless to win over transitional AAC");
+        };
+        assert_eq!(format.sample_rate_hz, 96_000);
+        assert_eq!(format.source_bit_depth_bits, Some(24));
     }
 
     #[test]

@@ -117,8 +117,9 @@ pub(crate) fn prepare_bit_perfect() -> Result<(), String> {
 }
 
 /// Navigate Music.app to the catalog album and activate the exact row by its
-/// stable accessibility identifier. The native bridge posts the double-click
-/// directly to Music.app's PID, so it does not depend on the global pointer.
+/// stable accessibility identifier. The native bridge briefly foregrounds
+/// Music, delivers a HID-level double-click at that row, restores the pointer
+/// and previous foreground app, then returns.
 pub(crate) fn activate_catalog_track(
     storefront: &str,
     album_id: &str,

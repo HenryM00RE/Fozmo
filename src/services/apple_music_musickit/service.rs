@@ -308,16 +308,24 @@ impl AppleMusicService {
         &self,
         boundary: SystemTime,
     ) -> Result<Option<MusicKitSourceFormat>, AppleMusicMvpError> {
-        let pid = music_app_pid().ok_or_else(|| {
-            error(
-                "music_app_not_running",
-                "The Music app is not running or is not visible to Core Audio.",
-                true,
-                "source_format",
-                true,
-            )
-        })?;
-        self.probe_source_format_for_pid(pid, boundary, "Music.app")
+        let deadline = Instant::now() + SOURCE_FORMAT_PROBE_TIMEOUT;
+        let pid = loop {
+            if let Some(pid) = music_app_pid() {
+                break pid;
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(error(
+                    "music_app_not_running",
+                    "Music.app did not become available for lossless-format verification.",
+                    true,
+                    "source_format",
+                    true,
+                ));
+            }
+            tokio::time::sleep(remaining.min(SOURCE_FORMAT_PROBE_RETRY_INTERVAL)).await;
+        };
+        self.probe_source_format_for_pid_until(pid, boundary, "Music.app", deadline)
             .await
     }
 
@@ -328,8 +336,20 @@ impl AppleMusicService {
         renderer_name: &str,
     ) -> Result<Option<MusicKitSourceFormat>, AppleMusicMvpError> {
         let deadline = Instant::now() + SOURCE_FORMAT_PROBE_TIMEOUT;
+        self.probe_source_format_for_pid_until(renderer_pid, boundary, renderer_name, deadline)
+            .await
+    }
+
+    async fn probe_source_format_for_pid_until(
+        &self,
+        renderer_pid: u32,
+        boundary: SystemTime,
+        renderer_name: &str,
+        deadline: Instant,
+    ) -> Result<Option<MusicKitSourceFormat>, AppleMusicMvpError> {
         let mut successful_query = false;
         let mut last_error = None;
+        let mut latest_lossy = None;
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
             let Some(query_timeout) = source_format_query_budget(remaining) else {
@@ -349,6 +369,14 @@ impl AppleMusicService {
                     ) {
                         match detection {
                             MusicKitDecoderDetection::Lossless(source_format) => {
+                                tracing::info!(
+                                    event = "apple_music_lossless_format_verified",
+                                    renderer = renderer_name,
+                                    source_rate_hz = source_format.sample_rate_hz,
+                                    source_bits =
+                                        source_format.source_bit_depth_bits.unwrap_or_default(),
+                                    "Verified a fresh Apple Lossless decoder"
+                                );
                                 return Ok(Some(source_format));
                             }
                             MusicKitDecoderDetection::Lossy {
@@ -356,15 +384,21 @@ impl AppleMusicService {
                                 sample_rate_hz,
                                 ..
                             } => {
-                                return Err(error(
-                                    "lossy_source_format_selected",
-                                    format!(
-                                        "{renderer_name} selected {codec} at {sample_rate_hz} Hz. Fozmo requires Apple Lossless (ALAC) and did not connect this stream to the DSP."
-                                    ),
-                                    false,
-                                    "source_format",
-                                    false,
-                                ));
+                                // Music commonly opens a short-lived AAC
+                                // decoder while changing catalog tracks, then
+                                // opens the authoritative ALAC decoder roughly
+                                // a second later. Keep the local Player muted
+                                // and poll for ALAC through the full deadline.
+                                // If none arrives, the remembered AAC event
+                                // still makes this a strict lossy rejection.
+                                tracing::info!(
+                                    event = "apple_music_transitional_lossy_decoder",
+                                    renderer = renderer_name,
+                                    codec,
+                                    sample_rate_hz,
+                                    "Holding output while waiting for Apple Lossless"
+                                );
+                                latest_lossy = Some((codec, sample_rate_hz));
                             }
                         }
                     }
@@ -381,6 +415,17 @@ impl AppleMusicService {
                 break;
             }
             tokio::time::sleep(remaining.min(SOURCE_FORMAT_PROBE_RETRY_INTERVAL)).await;
+        }
+        if let Some((codec, sample_rate_hz)) = latest_lossy {
+            return Err(error(
+                "lossy_source_format_selected",
+                format!(
+                    "{renderer_name} selected {codec} at {sample_rate_hz} Hz and did not expose an Apple Lossless decoder before the verification deadline. Fozmo did not connect this stream to the DSP."
+                ),
+                false,
+                "source_format",
+                false,
+            ));
         }
         if successful_query {
             Ok(None)
