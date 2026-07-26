@@ -5,25 +5,74 @@ on macOS.
 
 ## Architecture
 
-MusicKit is the authorization and catalog plane. It does not render audio:
+MusicKit is the authorization, catalog, and queue-building plane. It does not
+render audio:
 
 ```text
 Apple Music catalog
         |
         v
-signed MusicKit helper (authorization and catalog only)
+signed MusicKit helper (authorization, catalog, queue playlist)
         |
         v
 SourceRef::AppleMusicTrack -> PlaybackRouter
         |
         v
-Music.app -> Fozmo Capture -> Player -> DSP -> selected local output
+Music.app "Fozmo" playlist -> Fozmo Capture -> Player -> DSP -> local output
 ```
 
-Fozmo activates the exact catalog track in Music.app, verifies the fresh
-Music.app decoder format, configures Fozmo Capture to that supported rate, and
-starts the normal local Player path. Pause, resume, seek, next, stop, queue
-advance, listening history, and status remain owned by Fozmo.
+Fozmo rebuilds a dedicated Music.app playlist named `Fozmo` so it holds exactly
+the upcoming Apple Music run, starts it with `play playlist "Fozmo"`, verifies
+the fresh Music.app decoder format, configures Fozmo Capture to that supported
+rate, and starts the normal local Player path. Pause, resume, seek, next, stop,
+listening history, and status remain owned by Fozmo.
+
+### Why a playlist
+
+Two Music.app behaviours force this design.
+
+Its AppleScript `current track` does not report Apple Music catalog tracks that
+are not in the user's library, so Fozmo could not tell whether a track it asked
+for had actually started. Promoting each queued song to a library item inside
+the playlist makes `database ID` readable, which is the identity the
+verification loops match against.
+
+Music.app also only advances a queue gaplessly when playback started from a
+container it owns. `play track N of playlist` starts a single-track transport
+that stops at the end of that track, so Fozmo keeps the playlist equal to the
+upcoming run and always enters it at the top. Everything Music.app can then
+reach on its own is a track Fozmo queued, which is what makes arbitrary
+Apple-to-Apple boundaries gapless rather than only same-album ones.
+
+The run stops at the first non-Apple source, and at a sample-rate change, since
+neither can be crossed inside one capture session.
+
+### Rejected alternatives
+
+- **`ApplicationMusicPlayer`** (MusicKit's own player) was measured rendering
+  AAC rather than Apple Lossless. That breaks the bit-perfect guarantee, so
+  MusicKit is not used as a renderer. Measurements are in the spike section
+  below.
+- **Accessibility automation.** Fozmo used to open a `music://` album URL and
+  post a synthetic double-click at the track row. It required Accessibility
+  permission, forced Music.app to the foreground, moved the user's pointer, and
+  cost several seconds per track. The queue playlist replaced it entirely.
+- **`MusicLibrary`** (MusicKit's library write API) is
+  `@available(macOS, unavailable)` in every form — `add`, `add(_:to:)`,
+  `createPlaylist`, `edit`. The helper therefore builds the playlist through the
+  Apple Music Web API using `MusicDataRequest`, which is available on macOS and
+  signs requests with the provisioned app's tokens.
+
+### Requirements
+
+Adding subscription tracks to a library needs **Sync Library** enabled in
+Music → Settings → General. The helper's `library_status` command reports when
+Apple refuses library writes so Fozmo can name that setting rather than failing
+opaquely.
+
+Because Fozmo rewrites the `Fozmo` playlist, edits made to it by hand are lost,
+and queued tracks are added to the user's Apple Music library and sync to their
+other devices.
 
 The Apple Music source is restricted to an explicit local physical Core Audio
 output. Fozmo rejects the system-default output, Fozmo Capture itself, virtual
@@ -34,6 +83,7 @@ The helper protocol exposes only:
 - authorization and subscription status;
 - song and album lookup;
 - song and album search;
+- library-write status and queue-playlist sync;
 - lifecycle commands.
 
 It has no MusicKit player, renderer queue, or playback transport.

@@ -93,8 +93,10 @@ fn build_apple_music_app_bridge(manifest_dir: &Path) {
         .flag("-mmacosx-version-min=11.0")
         .compile("fozmo_music_app_bridge");
 
-    println!("cargo:rustc-link-lib=framework=AppKit");
-    println!("cargo:rustc-link-lib=framework=ApplicationServices");
+    // The bridge drives Music.app through Apple Events and listens for its
+    // player notifications; both live in Foundation. AppKit and
+    // ApplicationServices were only needed by the Accessibility and
+    // synthetic-click path that the queue playlist replaced.
     println!("cargo:rustc-link-lib=framework=Foundation");
     println!(
         "cargo:rustc-link-arg-bin=fozmo=-Wl,-sectcreate,__TEXT,__info_plist,{}",

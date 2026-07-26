@@ -2,8 +2,19 @@ use crate::protocol::SourceRef;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-pub(super) const PROTOCOL_VERSION: u32 = 2;
+pub(super) const PROTOCOL_VERSION: u32 = 3;
 pub(super) const EXPECTED_HELPER_BUNDLE_ID: &str = "com.fozmo.apple-music-helper";
+
+/// Music.app playlist Fozmo owns outright.
+///
+/// Music.app only advances a queue gaplessly when playback started from a
+/// container it owns, and its AppleScript `current track` cannot see catalog
+/// tracks that are not in the library. Fozmo therefore keeps this one playlist
+/// equal to the upcoming Apple Music run and always starts it from the top.
+///
+/// The AppleScript in `music_app.rs` embeds this name via a macro; a test there
+/// pins the two spellings together.
+pub(crate) const QUEUE_PLAYLIST_NAME: &str = "Fozmo";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub(crate) struct AppleCatalogSong {
@@ -45,6 +56,44 @@ pub(crate) struct AppleVerifiedFormat {
     pub sample_rate: i64,
     #[serde(default)]
     pub bit_depth: Option<i64>,
+}
+
+/// Result of rebuilding the Fozmo queue playlist.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub(crate) struct AppleQueueSync {
+    pub playlist_name: String,
+    pub playlist_id: String,
+    /// The order Music.app will play, which Fozmo's own queue must mirror.
+    #[serde(default)]
+    pub entries: Vec<AppleQueueEntry>,
+    /// Songs the catalog could not resolve, so Fozmo can stop expecting them.
+    #[serde(default)]
+    pub rejected: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub(crate) struct AppleQueueEntry {
+    pub song_id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub artist: String,
+    #[serde(default)]
+    pub duration_secs: Option<f64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub(crate) struct AppleLibraryStatus {
+    #[serde(default)]
+    pub can_play_catalog_content: bool,
+    /// False when Apple refuses library writes, which is what Sync Library
+    /// being off looks like from here.
+    #[serde(default)]
+    pub can_write_library: bool,
+    #[serde(default)]
+    pub playlist_name: String,
+    #[serde(default)]
+    pub blocked_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -274,6 +323,12 @@ pub(crate) struct HelperMessage {
     pub catalog_album: Option<AppleCatalogAlbum>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub catalog_search: Option<AppleCatalogSearchResult>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub song_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub queue_sync: Option<AppleQueueSync>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub library_status: Option<AppleLibraryStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -308,6 +363,9 @@ impl HelperMessage {
             catalog_song: None,
             catalog_album: None,
             catalog_search: None,
+            song_ids: Vec::new(),
+            queue_sync: None,
+            library_status: None,
             code: None,
             message: None,
             retryable: None,

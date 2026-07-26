@@ -36,21 +36,30 @@ const MUSIC_STATUS_SCRIPT: &[&str] = &[
     "end tell",
 ];
 
-const MUSIC_PLAY_CURRENT_ONCE_FROM_START_SCRIPT: &[&str] = &[
-    "tell application \"Music\"",
-    "pause",
-    "play current track once true",
-    "set player position to 0",
-    "end tell",
-];
+/// The queue playlist name as an AppleScript-embeddable literal.
+///
+/// `concat!` only accepts literals, so the name lives here and
+/// [`model::QUEUE_PLAYLIST_NAME`] is derived from it. A test pins the two
+/// together.
+macro_rules! queue_playlist_name {
+    () => {
+        "Fozmo"
+    };
+}
 
-const MUSIC_PLAY_CURRENT_IN_CONTEXT_FROM_START_SCRIPT: &[&str] = &[
-    "tell application \"Music\"",
-    "pause",
-    "play current track once false",
-    "set player position to 0",
-    "end tell",
-];
+/// AppleScript reference to the Fozmo playlist.
+///
+/// Addressed directly rather than by scanning `every user playlist`: with a
+/// realistic library the scan costs about 0.65 s per call against 0.13 s here,
+/// and the readiness poll runs it repeatedly. Callers wrap the reference in
+/// `try` because it raises when the playlist does not exist.
+const QUEUE_PLAYLIST_REFERENCE: &str =
+    concat!("user playlist \"", queue_playlist_name!(), "\"");
+
+const PLAY_QUEUE_PLAYLIST_STATEMENT: &str =
+    concat!("play playlist \"", queue_playlist_name!(), "\"");
+
+
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct MusicAppSnapshot {
@@ -61,13 +70,6 @@ pub(crate) struct MusicAppSnapshot {
 
 unsafe extern "C" {
     fn fozmo_music_app_pid() -> i32;
-    fn fozmo_music_activate_catalog_track(
-        storefront: *const c_char,
-        album_id: *const c_char,
-        song_id: *const c_char,
-        error_buffer: *mut c_char,
-        error_capacity: usize,
-    ) -> i32;
     fn fozmo_music_execute_script(
         source: *const c_char,
         timeout_seconds: f64,
@@ -103,23 +105,111 @@ pub(crate) fn play() -> Result<(), String> {
     run_music_command("play")
 }
 
-/// Restart the selected native Music.app track at zero and constrain playback
-/// to that one track. Fozmo, rather than Music.app's album queue, owns the next
-/// provider boundary.
-pub(crate) fn play_current_once() -> Result<(), String> {
-    run_music_script_with_retry(MUSIC_PLAY_CURRENT_ONCE_FROM_START_SCRIPT).map(|_| ())
-}
 
-/// Restart the selected track at zero while retaining Music.app's album
-/// context. When Fozmo's next queued source is the following track from the
-/// same catalog album, Music.app can decode the boundary continuously into the
-/// existing capture stream instead of requiring another catalog activation.
-pub(crate) fn play_current_in_context() -> Result<(), String> {
-    run_music_script_with_retry(MUSIC_PLAY_CURRENT_IN_CONTEXT_FROM_START_SCRIPT).map(|_| ())
-}
 
 pub(crate) fn pause() -> Result<(), String> {
     run_music_command("pause")
+}
+
+/// Start the Fozmo queue playlist from its first track.
+///
+/// Music.app only advances a queue gaplessly when playback started from a
+/// container it owns. `play track N of playlist` starts a single-track
+/// transport that stops at the end of that track, so Fozmo keeps the playlist
+/// equal to the upcoming run and always enters it at the top. Shuffle and
+/// repeat are cleared because either one would make Music.app's next track
+/// disagree with Fozmo's queue.
+pub(crate) fn play_queue_playlist() -> Result<(), String> {
+    run_music_script_with_retry(&[
+        "tell application \"Music\"",
+        "pause",
+        "try",
+        "set shuffle enabled to false",
+        "end try",
+        "try",
+        "set song repeat to off",
+        "end try",
+        PLAY_QUEUE_PLAYLIST_STATEMENT,
+        "set player position to 0",
+        "end tell",
+    ])
+    .map(|_| ())
+}
+
+/// `database ID` of every queue-playlist track, in playback order.
+///
+/// These are the identities Fozmo matches `current track` against. Music.app
+/// assigns them when the catalog songs land in the library, so they cannot be
+/// known before the sync.
+pub(crate) fn queue_playlist_track_keys() -> Result<Vec<String>, String> {
+    let read_keys = format!(
+        "repeat with t in (tracks of {QUEUE_PLAYLIST_REFERENCE})\n\
+         set out to out & (database ID of t) & linefeed\n\
+         end repeat"
+    );
+    let output = run_music_script_with_retry(&[
+        "tell application \"Music\"",
+        "set out to \"\"",
+        "try",
+        read_keys.as_str(),
+        "end try",
+        "return out",
+        "end tell",
+    ])?;
+    Ok(output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+/// Track count of the queue playlist, or `None` when it does not exist.
+///
+/// Apple documents that "there may be a delay before a new resource appears in
+/// a user's library", so Fozmo polls this after a sync rather than assuming the
+/// playlist is playable the moment the Web API returns.
+pub(crate) fn queue_playlist_track_count() -> Result<Option<usize>, String> {
+    let read_count = format!("set c to (count of tracks of {QUEUE_PLAYLIST_REFERENCE})");
+    let output = run_music_script_with_retry(&[
+        "tell application \"Music\"",
+        "set c to -1",
+        "try",
+        read_count.as_str(),
+        "end try",
+        "return c as string",
+        "end tell",
+    ])?;
+    let count: i64 = output
+        .trim()
+        .parse()
+        .map_err(|_| format!("Music.app returned an unreadable playlist count: {output:?}"))?;
+    Ok(usize::try_from(count).ok())
+}
+
+/// Remove every playlist named `Fozmo`.
+///
+/// The Apple Music Web API can only append to a library playlist, so a queue
+/// change is applied by deleting the playlist and creating it afresh. The loop
+/// is bounded because deleting inside an AppleScript iteration invalidates the
+/// collection, and a duplicate name is possible after an interrupted sync.
+pub(crate) fn delete_queue_playlist() -> Result<(), String> {
+    // Deleting by direct reference raises once the last one is gone, which is
+    // the loop's exit condition. Bounded because an interrupted sync can leave
+    // more than one playlist sharing the name.
+    let delete_one = format!("delete {QUEUE_PLAYLIST_REFERENCE}");
+    run_music_script_with_retry(&[
+        "tell application \"Music\"",
+        "repeat 8 times",
+        "try",
+        delete_one.as_str(),
+        "on error",
+        "exit repeat",
+        "end try",
+        "end repeat",
+        "end tell",
+    ])
+    .map(|_| ())
 }
 
 pub(crate) fn prepare_bit_perfect() -> Result<(), String> {
@@ -134,47 +224,6 @@ pub(crate) fn prepare_bit_perfect() -> Result<(), String> {
     .map(|_| ())
 }
 
-/// Navigate Music.app to the catalog album and activate the exact row by its
-/// stable accessibility identifier. The native bridge briefly foregrounds
-/// Music, delivers a HID-level double-click at that row, restores the pointer
-/// and previous foreground app, then returns.
-pub(crate) fn activate_catalog_track(
-    storefront: &str,
-    album_id: &str,
-    song_id: &str,
-) -> Result<(), String> {
-    validate_catalog_component("storefront", storefront)?;
-    validate_catalog_component("album ID", album_id)?;
-    validate_catalog_component("song ID", song_id)?;
-    let storefront = CString::new(storefront)
-        .map_err(|_| "Apple Music storefront contains an invalid NUL byte.".to_string())?;
-    let album_id = CString::new(album_id)
-        .map_err(|_| "Apple Music album ID contains an invalid NUL byte.".to_string())?;
-    let song_id = CString::new(song_id)
-        .map_err(|_| "Apple Music song ID contains an invalid NUL byte.".to_string())?;
-    let mut error = vec![0_i8; 1_024];
-    let result = unsafe {
-        fozmo_music_activate_catalog_track(
-            storefront.as_ptr(),
-            album_id.as_ptr(),
-            song_id.as_ptr(),
-            error.as_mut_ptr(),
-            error.len(),
-        )
-    };
-    if result == 1 {
-        return Ok(());
-    }
-    let message = unsafe { CStr::from_ptr(error.as_ptr()) }
-        .to_string_lossy()
-        .trim()
-        .to_string();
-    Err(if message.is_empty() {
-        "Music.app could not activate the requested Apple Music catalog track.".to_string()
-    } else {
-        message
-    })
-}
 
 pub(crate) fn set_position(seconds: f64) -> Result<(), String> {
     if !seconds.is_finite() || seconds < 0.0 {
@@ -196,18 +245,6 @@ fn run_music_command(command: &str) -> Result<(), String> {
     run_music_script_with_retry(&["tell application \"Music\"", command, "end tell"]).map(|_| ())
 }
 
-fn validate_catalog_component(label: &str, value: &str) -> Result<(), String> {
-    let value = value.trim();
-    if value.is_empty()
-        || value.len() > 128
-        || !value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
-    {
-        return Err(format!("Apple Music {label} is invalid."));
-    }
-    Ok(())
-}
 
 /// Answer from the kernel's process table. Playback start and the transport
 /// monitor both query `status` on latency-sensitive paths, so this must not
@@ -369,41 +406,27 @@ mod tests {
         assert_eq!(snapshot.track.position_secs, None);
     }
 
+    
+    
+    
+    /// The AppleScript embeds the playlist name as a literal while the helper
+    /// protocol carries it as a constant. If they drift, Fozmo builds one
+    /// playlist and plays another.
     #[test]
-    fn catalog_components_reject_url_and_accessibility_injection() {
-        assert!(validate_catalog_component("song ID", "635770203").is_ok());
-        assert!(validate_catalog_component("storefront", "nz").is_ok());
-        assert!(validate_catalog_component("album ID", "../../bad").is_err());
-        assert!(validate_catalog_component("song ID", "1?i=2").is_err());
-        assert!(validate_catalog_component("storefront", "").is_err());
+    fn queue_playlist_scripts_use_the_protocol_playlist_name() {
+        let name = super::super::model::QUEUE_PLAYLIST_NAME;
+        assert_eq!(queue_playlist_name!(), name);
+        assert_eq!(QUEUE_PLAYLIST_REFERENCE, format!("user playlist \"{name}\""));
+        assert_eq!(PLAY_QUEUE_PLAYLIST_STATEMENT, format!("play playlist \"{name}\""));
     }
 
+    /// `play track N of playlist` starts a single-track transport that stops at
+    /// the end of that track. Only entering the container advances the queue,
+    /// which is the whole reason the playlist exists.
     #[test]
-    fn single_track_restart_resets_timeline_after_starting_transport() {
-        assert_eq!(
-            MUSIC_PLAY_CURRENT_ONCE_FROM_START_SCRIPT,
-            &[
-                "tell application \"Music\"",
-                "pause",
-                "play current track once true",
-                "set player position to 0",
-                "end tell",
-            ]
-        );
-    }
-
-    #[test]
-    fn contextual_restart_preserves_music_app_album_advance() {
-        assert_eq!(
-            MUSIC_PLAY_CURRENT_IN_CONTEXT_FROM_START_SCRIPT,
-            &[
-                "tell application \"Music\"",
-                "pause",
-                "play current track once false",
-                "set player position to 0",
-                "end tell",
-            ]
-        );
+    fn queue_playlist_playback_enters_the_container_rather_than_a_track() {
+        assert!(!PLAY_QUEUE_PLAYLIST_STATEMENT.contains("play track"));
+        assert!(PLAY_QUEUE_PLAYLIST_STATEMENT.starts_with("play playlist"));
     }
 
     #[test]

@@ -24,6 +24,23 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(command.storefront, "nz")
     }
 
+    func testQueueCommandDecodesSongIDList() throws {
+        let data = Data(
+            """
+            {
+              "v": \(helperProtocolVersion),
+              "id": "cmd-10",
+              "type": "sync_queue",
+              "session_id": "am-test",
+              "song_ids": ["1726654449", "1726654450"]
+            }
+            """.utf8
+        )
+        let command = try JSONDecoder().decode(IncomingCommand.self, from: data)
+        XCTAssertEqual(command.type, "sync_queue")
+        XCTAssertEqual(command.songIDs, ["1726654449", "1726654450"])
+    }
+
     func testAuthorizationLabelsAreStableProtocolValues() {
         XCTAssertEqual(AuthorizationLabel.string(for: .notDetermined), "not_determined")
         XCTAssertEqual(AuthorizationLabel.string(for: .denied), "denied")
@@ -38,11 +55,74 @@ final class ModelsTests: XCTestCase {
         let object = try XCTUnwrap(
             JSONSerialization.jsonObject(with: JSONEncoder().encode(event)) as? [String: Any]
         )
-        XCTAssertEqual(object["v"] as? Int, 2)
+        XCTAssertEqual(object["v"] as? Int, helperProtocolVersion)
         XCTAssertNil(object["token"])
         XCTAssertNil(object["playback_state"])
         XCTAssertNil(object["now_playing"])
         XCTAssertNil(object["queue_revision"])
+        XCTAssertNil(object["queue_sync"])
+        XCTAssertNil(object["library_status"])
+    }
+
+    func testQueueSyncPayloadUsesStableWireFields() throws {
+        var event = HelperEvent(type: "queue_synced")
+        event.queueSync = QueueSyncPayload(
+            playlistName: fozmoQueuePlaylistName,
+            playlistID: "p.ABC123",
+            entries: [
+                QueueEntryPayload(
+                    songID: "1726654449",
+                    title: "Jóga",
+                    artist: "Björk",
+                    durationSecs: 312
+                )
+            ],
+            rejected: ["9999"]
+        )
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(event)) as? [String: Any]
+        )
+        let sync = try XCTUnwrap(object["queue_sync"] as? [String: Any])
+        XCTAssertEqual(sync["playlist_name"] as? String, "Fozmo")
+        XCTAssertEqual(sync["playlist_id"] as? String, "p.ABC123")
+        XCTAssertEqual(sync["rejected"] as? [String], ["9999"])
+        let entry = try XCTUnwrap((sync["entries"] as? [[String: Any]])?.first)
+        XCTAssertEqual(entry["song_id"] as? String, "1726654449")
+        XCTAssertEqual(entry["duration_secs"] as? Double, 312)
+    }
+
+    /// The playlist is the playback order, so a sync must preserve the caller's
+    /// ordering and reject anything Music.app could not represent.
+    func testQueueSongIDNormalizationPreservesOrderAndDropsDuplicates() {
+        XCTAssertEqual(
+            CatalogInput.normalizedQueueSongIDs(["  b ", "a", "b", "c"]),
+            ["b", "a", "c"]
+        )
+        XCTAssertNil(CatalogInput.normalizedQueueSongIDs(nil))
+        XCTAssertNil(CatalogInput.normalizedQueueSongIDs([]))
+        XCTAssertNil(CatalogInput.normalizedQueueSongIDs(["ok", "   "]))
+        XCTAssertNil(
+            CatalogInput.normalizedQueueSongIDs(
+                (0...CatalogInput.maximumQueueLength).map(String.init)
+            )
+        )
+    }
+
+    func testLibraryStatusPayloadUsesStableWireFields() throws {
+        var event = HelperEvent(type: "library_status")
+        event.libraryStatus = LibraryStatusPayload(
+            canPlayCatalogContent: true,
+            canWriteLibrary: false,
+            playlistName: fozmoQueuePlaylistName,
+            blockedReason: "Sync Library is off."
+        )
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(event)) as? [String: Any]
+        )
+        let status = try XCTUnwrap(object["library_status"] as? [String: Any])
+        XCTAssertEqual(status["can_play_catalog_content"] as? Bool, true)
+        XCTAssertEqual(status["can_write_library"] as? Bool, false)
+        XCTAssertEqual(status["blocked_reason"] as? String, "Sync Library is off.")
     }
 
     func testCatalogSearchPayloadUsesStableWireFields() throws {

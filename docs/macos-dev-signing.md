@@ -58,9 +58,10 @@ Notes:
 
 - Override the identity name with `FOZMO_DEV_SIGN_IDENTITY` (both scripts
   honor it).
-- Accessibility permission must be granted to the signed **Fozmo Server**
-  executable itself. Enabling Terminal alone does not grant permission to a
-  child process that posts UI events.
+- Apple Music playback no longer needs Accessibility permission. Fozmo drives
+  Music.app through Apple Events and its own queue playlist instead of posting
+  synthetic clicks, so the only prompt is the standard Automation one for
+  controlling Music.
 - The runner path in `.cargo/config.toml` is relative, so run cargo from the
   repository root.
 - If the setup script fails on a newer macOS, create the certificate via

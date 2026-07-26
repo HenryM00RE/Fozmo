@@ -1,8 +1,19 @@
 import Foundation
 import MusicKit
 
-let helperProtocolVersion = 2
+let helperProtocolVersion = 3
 let helperBundleIdentifier = "com.fozmo.apple-music-helper"
+
+/// Name of the Music.app playlist Fozmo owns outright.
+///
+/// Music.app only advances a queue gaplessly when playback started from a
+/// container. `play track N of playlist` plays a single track and stops at its
+/// end, so Fozmo keeps this playlist equal to the upcoming queue and always
+/// starts it from the top.
+let fozmoQueuePlaylistName = "Fozmo"
+
+let fozmoQueuePlaylistDescription =
+    "Fozmo's playback queue. Fozmo rewrites this playlist, so edits made here are lost."
 
 struct HelperResponseCache {
     private let limit: Int
@@ -88,6 +99,27 @@ enum CatalogInput {
         let value = value ?? 10
         return (1...25).contains(value) ? value : nil
     }
+
+    /// Song IDs for a queue sync, in Fozmo's order and free of duplicates.
+    ///
+    /// Music.app cannot distinguish two playlist entries that share a song, and
+    /// a bounded list keeps one runaway queue from rewriting the whole library.
+    static func normalizedQueueSongIDs(_ value: [String]?) -> [String]? {
+        guard let value, !value.isEmpty, value.count <= maximumQueueLength else {
+            return nil
+        }
+        var seen = Set<String>()
+        var ordered: [String] = []
+        for raw in value {
+            guard let songID = normalizedID(raw) else { return nil }
+            if seen.insert(songID).inserted {
+                ordered.append(songID)
+            }
+        }
+        return ordered
+    }
+
+    static let maximumQueueLength = 100
 }
 
 struct IncomingCommand: Decodable, Equatable {
@@ -102,6 +134,7 @@ struct IncomingCommand: Decodable, Equatable {
     let term: String?
     let limit: Int?
     let storefront: String?
+    let songIDs: [String]?
 
     enum CodingKeys: String, CodingKey {
         case version = "v"
@@ -115,6 +148,7 @@ struct IncomingCommand: Decodable, Equatable {
         case term
         case limit
         case storefront
+        case songIDs = "song_ids"
     }
 }
 
@@ -264,6 +298,54 @@ struct CatalogSearchPayload: Codable, Equatable {
     let albums: [CatalogAlbumPayload]
 }
 
+/// Outcome of a queue sync, as Fozmo needs to see it.
+///
+/// `entries` is the order Fozmo must expect Music.app to play. `rejected` names
+/// songs the catalog could not resolve, so Fozmo can drop them from its own
+/// queue instead of waiting for a playlist entry that will never arrive.
+struct QueueSyncPayload: Codable, Equatable {
+    let playlistName: String
+    let playlistID: String
+    let entries: [QueueEntryPayload]
+    let rejected: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case playlistName = "playlist_name"
+        case playlistID = "playlist_id"
+        case entries
+        case rejected
+    }
+}
+
+struct QueueEntryPayload: Codable, Equatable {
+    let songID: String
+    let title: String
+    let artist: String
+    let durationSecs: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case songID = "song_id"
+        case title
+        case artist
+        case durationSecs = "duration_secs"
+    }
+}
+
+struct LibraryStatusPayload: Codable, Equatable {
+    let canPlayCatalogContent: Bool
+    let canWriteLibrary: Bool
+    let playlistName: String
+    /// Present when `canWriteLibrary` is false, naming what the user must change.
+    let blockedReason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case canPlayCatalogContent = "can_play_catalog_content"
+        case canWriteLibrary = "can_write_library"
+        case playlistName = "playlist_name"
+        case blockedReason = "blocked_reason"
+    }
+}
+
 struct HelperEvent: Encodable, Equatable {
     let version: Int
     let type: String
@@ -282,6 +364,8 @@ struct HelperEvent: Encodable, Equatable {
     var catalogSong: CatalogSongPayload?
     var catalogAlbum: CatalogAlbumPayload?
     var catalogSearch: CatalogSearchPayload?
+    var queueSync: QueueSyncPayload?
+    var libraryStatus: LibraryStatusPayload?
     var code: String?
     var message: String?
     var retryable: Bool?
@@ -304,6 +388,8 @@ struct HelperEvent: Encodable, Equatable {
         case catalogSong = "catalog_song"
         case catalogAlbum = "catalog_album"
         case catalogSearch = "catalog_search"
+        case queueSync = "queue_sync"
+        case libraryStatus = "library_status"
         case code
         case message
         case retryable

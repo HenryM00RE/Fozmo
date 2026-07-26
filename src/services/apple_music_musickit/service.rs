@@ -1,8 +1,8 @@
 use super::ipc::{read_json_frame, write_json_frame};
 use super::model::{
-    AppleCatalogAlbum, AppleCatalogSearchResult, AppleCatalogSong, AppleMusicMvpError,
-    AppleMusicMvpState, AppleMusicMvpStatus, EXPECTED_HELPER_BUNDLE_ID, HelperMessage,
-    PROTOCOL_VERSION,
+    AppleCatalogAlbum, AppleCatalogSearchResult, AppleCatalogSong, AppleLibraryStatus,
+    AppleMusicMvpError, AppleMusicMvpState, AppleMusicMvpStatus, AppleQueueSync,
+    EXPECTED_HELPER_BUNDLE_ID, HelperMessage, PROTOCOL_VERSION,
 };
 use super::music_app::pid as music_app_pid;
 use super::source_format::{
@@ -30,6 +30,9 @@ const HELPER_EXECUTABLE: &str = "FozmoAppleMusicHelper";
 const HELPER_APP: &str = "FozmoAppleMusicHelper.app";
 const HELPER_CONNECT_TIMEOUT: Duration = Duration::from_secs(12);
 const HELPER_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
+/// Apple builds the queue playlist in one request, so the whole upcoming run
+/// travels in a single call. Cap it so a long queue cannot stall a start.
+const MAX_QUEUE_PLAYLIST_LENGTH: usize = 100;
 // `log show` routinely needs around a second even for an empty, tightly
 // filtered query. Keep enough total budget for a retry, but never launch a
 // query with a leftover sliver that cannot reasonably finish.
@@ -295,6 +298,64 @@ impl AppleMusicService {
                 "The Apple Music helper returned an empty song response.",
                 false,
                 "catalog_lookup",
+                true,
+            )
+        })
+    }
+
+    /// Rebuild the Fozmo queue playlist so it holds exactly `song_ids`, in order.
+    ///
+    /// The first entry is the track to play; the rest are the queue behind it.
+    /// Fozmo starts the playlist from the top rather than at an index, because
+    /// `play track N of playlist` plays one track and stops instead of
+    /// advancing, which would give up the gapless boundary this exists for.
+    pub(crate) async fn sync_queue_playlist(
+        &self,
+        song_ids: Vec<String>,
+    ) -> Result<AppleQueueSync, AppleMusicMvpError> {
+        if song_ids.is_empty() || song_ids.len() > MAX_QUEUE_PLAYLIST_LENGTH {
+            return Err(error(
+                "queue_sync_invalid",
+                "Fozmo needs between 1 and 100 Apple Music tracks to build its queue playlist.",
+                false,
+                "validating_request",
+                true,
+            ));
+        }
+        let song_ids = song_ids
+            .into_iter()
+            .map(|song_id| validate_catalog_id(song_id, "song_not_found"))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.ensure_ready().await?;
+        let mut command = self.next_command("sync_queue").await?;
+        command.song_ids = song_ids;
+        let event = self.send_and_wait(command, &["queue_synced"]).await?;
+        event.queue_sync.ok_or_else(|| {
+            error(
+                "helper_protocol_mismatch",
+                "The Apple Music helper returned an empty queue-sync response.",
+                false,
+                "queue_sync",
+                true,
+            )
+        })
+    }
+
+    /// Whether Apple will accept the library writes the queue playlist needs.
+    ///
+    /// Adding subscription tracks to a library requires Sync Library, and
+    /// neither MusicKit nor AppleScript exposes that setting, so the only
+    /// honest check is asking Apple to list the user's playlists.
+    pub(crate) async fn library_status(&self) -> Result<AppleLibraryStatus, AppleMusicMvpError> {
+        self.ensure_ready().await?;
+        let command = self.next_command("library_status").await?;
+        let event = self.send_and_wait(command, &["library_status"]).await?;
+        event.library_status.ok_or_else(|| {
+            error(
+                "helper_protocol_mismatch",
+                "The Apple Music helper returned an empty library-status response.",
+                false,
+                "library_status",
                 true,
             )
         })

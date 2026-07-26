@@ -2,10 +2,18 @@ import AppKit
 import Foundation
 import MusicKit
 
-/// MusicKit authorization and catalog bridge.
+/// MusicKit authorization, catalog, and queue-playlist bridge.
 ///
 /// Audio playback deliberately belongs to Music.app and Fozmo Capture. This
-/// helper never creates a MusicKit player or renderer queue.
+/// helper never creates a MusicKit player or renderer queue: an
+/// `ApplicationMusicPlayer` was measured rendering AAC rather than Apple
+/// Lossless, which breaks Fozmo's bit-perfect guarantee.
+///
+/// What it does own is the Fozmo queue playlist. Music.app's AppleScript
+/// `current track` cannot see catalog tracks that are not in the library, so
+/// Fozmo promotes each queued catalog song to a library item inside one
+/// dedicated playlist. That makes `database ID` a usable identity and lets
+/// Music.app advance the queue internally, which is gapless.
 @MainActor
 final class MusicSessionController {
     private let sessionID: String
@@ -32,7 +40,14 @@ final class MusicSessionController {
             Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
             ?? "0.2.0"
         event.musicKitEntitled = musicKitProvisioned
-        event.capabilities = ["authorize", "lookup_song", "lookup_album", "search_songs"]
+        event.capabilities = [
+            "authorize",
+            "lookup_song",
+            "lookup_album",
+            "search_songs",
+            "library_status",
+            "sync_queue",
+        ]
         sendEvent(event)
     }
 
@@ -103,6 +118,10 @@ final class MusicSessionController {
             lookupAlbum(command)
         case "search_songs":
             searchSongs(command)
+        case "library_status":
+            reportLibraryStatus(command)
+        case "sync_queue":
+            syncQueue(command)
         case "shutdown":
             var event = HelperEvent(type: "will_exit")
             event.commandID = command.id
@@ -295,6 +314,125 @@ final class MusicSessionController {
                 )
             }
         }
+    }
+
+    private func reportLibraryStatus(_ command: IncomingCommand) {
+        guard validateCatalogAccess(commandID: command.id) else { return }
+        Task { @MainActor in
+            var canWrite = true
+            var blockedReason: String?
+            do {
+                // Listing playlists is the cheapest call that still exercises
+                // the music-user token the writes depend on.
+                _ = try await AppleMusicWebAPI.playlists()
+            } catch {
+                canWrite = false
+                blockedReason = Self.libraryWriteFailureReason(error)
+            }
+            var event = statusEvent(type: "library_status", commandID: command.id)
+            event.libraryStatus = LibraryStatusPayload(
+                canPlayCatalogContent: subscriptionCanPlay == true,
+                canWriteLibrary: canWrite,
+                playlistName: fozmoQueuePlaylistName,
+                blockedReason: blockedReason
+            )
+            sendAndCache(event, commandID: command.id)
+        }
+    }
+
+    /// Rebuild the Fozmo playlist so it holds exactly `song_ids`, in order.
+    ///
+    /// Fozmo always starts this playlist from the top, so the first entry is the
+    /// track to play and the rest are the queue behind it. The Web API can only
+    /// append to a library playlist, so a sync deletes the old playlist and
+    /// creates a fresh one with the tracks attached — one round trip, and no
+    /// window where Fozmo could observe a half-built queue.
+    private func syncQueue(_ command: IncomingCommand) {
+        guard validateCatalogAccess(commandID: command.id) else { return }
+        guard let songIDs = CatalogInput.normalizedQueueSongIDs(command.songIDs) else {
+            sendError(
+                commandID: command.id,
+                code: "queue_sync_invalid",
+                message:
+                    "Provide between 1 and \(CatalogInput.maximumQueueLength) Apple Music song IDs to queue.",
+                retryable: false
+            )
+            return
+        }
+        Task { @MainActor in
+            do {
+                let songs = try await catalogSongs(for: songIDs)
+                guard !songs.isEmpty else { throw HelperMusicError.songNotFound }
+                let playlistID = try await AppleMusicWebAPI.createPlaylist(
+                    name: fozmoQueuePlaylistName,
+                    description: fozmoQueuePlaylistDescription,
+                    catalogSongIDs: songs.map(\.id.rawValue)
+                )
+                let resolved = Set(songs.map(\.id.rawValue))
+                var event = statusEvent(type: "queue_synced", commandID: command.id)
+                event.queueSync = QueueSyncPayload(
+                    playlistName: fozmoQueuePlaylistName,
+                    playlistID: playlistID,
+                    entries: songs.map { song in
+                        QueueEntryPayload(
+                            songID: song.id.rawValue,
+                            title: song.title,
+                            artist: song.artistName,
+                            durationSecs: song.duration
+                        )
+                    },
+                    rejected: songIDs.filter { !resolved.contains($0) }
+                )
+                sendAndCache(event, commandID: command.id)
+            } catch HelperMusicError.songNotFound {
+                sendError(
+                    commandID: command.id,
+                    code: "song_not_found",
+                    message: "Apple Music could not find any of the queued songs.",
+                    retryable: false
+                )
+            } catch {
+                sendError(
+                    commandID: command.id,
+                    code: "queue_sync_failed",
+                    message: Self.libraryWriteFailureReason(error),
+                    retryable: true
+                )
+            }
+        }
+    }
+
+    /// Catalog songs for `songIDs`, in the requested order.
+    ///
+    /// A batch resource request does not promise response order, and playlist
+    /// order is playback order, so reorder against the request.
+    private func catalogSongs(for songIDs: [String]) async throws -> [Song] {
+        var request = MusicCatalogResourceRequest<Song>(
+            matching: \.id,
+            memberOf: songIDs.map { MusicItemID($0) }
+        )
+        request.limit = songIDs.count
+        let response = try await request.response()
+        var byID: [String: Song] = [:]
+        for song in response.items where byID[song.id.rawValue] == nil {
+            byID[song.id.rawValue] = song
+        }
+        return songIDs.compactMap { byID[$0] }
+    }
+
+    /// A library write can fail because Sync Library is off, because the
+    /// music-user token is missing, or transiently. Only the first is
+    /// actionable and MusicKit does not expose it, so name the setting for the
+    /// permission-shaped failures and pass everything else through.
+    private static func libraryWriteFailureReason(_ error: Error) -> String {
+        if case AppleMusicWebAPI.Failure.http(let status, _) = error,
+            status == 401 || status == 403
+        {
+            return
+                "Apple Music refused Fozmo's library update. Adding subscription tracks to a library needs Sync Library: turn on Music → Settings → General → Sync Library, re-authorize Apple Music in Fozmo, then retry."
+        }
+        return
+            "Fozmo could not update its Apple Music queue playlist. Check that Sync Library is on in Music → Settings → General, then retry."
     }
 
     private func validateCatalogAccess(commandID: String) -> Bool {
