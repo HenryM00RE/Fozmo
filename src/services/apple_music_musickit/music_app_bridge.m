@@ -36,11 +36,37 @@ static void fozmo_catalog_error(
     );
 }
 
+/// Seed the search from Music.app's windows when it exposes any. The
+/// application element also parents the menu bar, and walking that deep menu
+/// tree costs thousands of accessibility round trips on every retry before the
+/// catalog track list is ever reached.
+static NSArray *fozmo_accessibility_search_roots(AXUIElementRef application) {
+    CFTypeRef windows_value = NULL;
+    if (AXUIElementCopyAttributeValue(
+            application,
+            kAXWindowsAttribute,
+            &windows_value
+        ) == kAXErrorSuccess
+        && windows_value != NULL) {
+        NSArray *windows =
+            CFGetTypeID(windows_value) == CFArrayGetTypeID()
+                ? [(__bridge NSArray *)windows_value copy]
+                : nil;
+        CFRelease(windows_value);
+        if (windows.count > 0) {
+            return windows;
+        }
+    }
+    return @[(__bridge id)application];
+}
+
 static AXUIElementRef fozmo_find_accessibility_identifier_prefix(
     AXUIElementRef application,
     CFStringRef target_identifier_prefix
 ) {
-    NSMutableArray *queue = [NSMutableArray arrayWithObject:(__bridge id)application];
+    NSMutableArray *queue = [NSMutableArray
+        arrayWithArray:fozmo_accessibility_search_roots(application)
+    ];
     NSUInteger cursor = 0;
     const NSUInteger maximum_nodes = 50000;
     while (cursor < queue.count && cursor < maximum_nodes) {
@@ -186,7 +212,12 @@ static bool fozmo_post_double_click(CGPoint point) {
         CGEventPost(kCGHIDEventTap, up);
         CFRelease(down);
         CFRelease(up);
-        usleep(90000);
+        // Separate the two clicks so Music.app recognises a double click. The
+        // pair is already complete after the second one, so do not pay the
+        // delay again on the way out.
+        if (click_state == 1) {
+            usleep(90000);
+        }
     }
 
     CGEventRef move_to_original = CGEventCreateMouseEvent(
@@ -340,6 +371,11 @@ int32_t fozmo_music_activate_catalog_track(
             music_pid = (pid_t)fozmo_music_app_pid();
             if (music_pid > 0) {
                 AXUIElementRef application = AXUIElementCreateApplication(music_pid);
+                // Music.app is still fetching and rendering the album page, so
+                // individual accessibility messages can be slow. Cap them well
+                // under the overall deadline: one stalled reply must not spend
+                // the whole activation budget.
+                AXUIElementSetMessagingTimeout(application, 1.0);
                 target = fozmo_find_accessibility_identifier_prefix(
                     application,
                     (__bridge CFStringRef)target_identifier_prefix

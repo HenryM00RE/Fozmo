@@ -118,22 +118,34 @@ pub(crate) async fn play_apple_music_source(
         })?
         .map_err(PlaybackError::integration)?;
 
-        let selected = wait_for_selected_track(state, &guard, &playback).await?;
-        // Music.app can carry its global player position across an
-        // Accessibility-selected catalog row. Reset only after the requested
-        // track is current so a shorter track cannot inherit a position at or
-        // beyond its EOF.
-        set_music_position_blocking(0.0).await?;
+        let selection = async {
+            let selected = wait_for_selected_track(state, &guard, &playback).await?;
+            // Music.app can carry its global player position across an
+            // Accessibility-selected catalog row. Reset only after the
+            // requested track is current so a shorter track cannot inherit a
+            // position at or beyond its EOF.
+            set_music_position_blocking(0.0).await?;
+            Ok::<MusicAppSnapshot, PlaybackError>(selected)
+        };
         // Music must still be decoding while we inspect its fresh decoder-log
         // event. Pausing here can make the app briefly disappear from Core
         // Audio and can prevent the ALAC event from being emitted at all. The
         // local Player remains paused, so these probe samples stay private;
         // the verified-rate restart below destroys them before playback is
         // restarted from zero.
-        let source_format = state
-            .apple_music()
-            .probe_music_app_source_format(format_boundary)
-            .await
+        //
+        // Music.app starts decoding as soon as the activation click lands, so
+        // the Unified Log query runs alongside the selection poll rather than
+        // after it. `log show` costs the best part of a second, and both halves
+        // still measure against the same pre-activation boundary, so the probe
+        // cannot accept a record left over from the previous track.
+        let apple_music = state.apple_music();
+        let (selected, source_format) = tokio::join!(
+            selection,
+            apple_music.probe_music_app_source_format(format_boundary)
+        );
+        let selected = selected?;
+        let source_format = source_format
             .map_err(playback_error)?
             .ok_or_else(|| {
                 PlaybackError::integration(
@@ -764,7 +776,7 @@ fn normalize_metadata(value: &str) -> String {
         .collect()
 }
 
-fn native_local_player(state: &AppState, zone_id: &str) -> Option<Arc<Player>> {
+pub(crate) fn native_local_player(state: &AppState, zone_id: &str) -> Option<Arc<Player>> {
     state
         .zones()
         .player_for_zone(zone_id)

@@ -2,7 +2,7 @@
 
 use super::model::MusicAppTrack;
 use std::ffi::{CStr, CString, c_char};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
@@ -193,13 +193,11 @@ fn validate_catalog_component(label: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Answer from the in-process running-application list. Playback start and the
+/// transport monitor both poll `status` several times per second, so this must
+/// not fork a helper process.
 fn music_app_running() -> bool {
-    Command::new("/usr/bin/pgrep")
-        .args(["-x", "Music"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
+    pid().is_some()
 }
 
 fn run_osascript<'a>(lines: impl IntoIterator<Item = &'a str>) -> Result<String, String> {
