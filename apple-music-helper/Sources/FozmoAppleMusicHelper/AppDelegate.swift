@@ -2,6 +2,12 @@ import AppKit
 import Darwin
 import Foundation
 
+private struct HelperLaunchBootstrap: Decodable {
+    let socketPath: String
+    let token: String
+    let sessionID: String
+}
+
 @main
 enum FozmoAppleMusicHelperMain {
     static func main() {
@@ -22,17 +28,25 @@ final class HelperAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let environment = ProcessInfo.processInfo.environment
+        let bootstrap: HelperLaunchBootstrap
+        do {
+            bootstrap = try Self.launchBootstrap(from: environment)
+        } catch {
+            showFatalError("Fozmo did not provide a valid private helper session.")
+            return
+        }
         guard
-            let socketPath = environment["FOZMO_APPLE_MUSIC_SOCKET"],
-            let token = environment["FOZMO_APPLE_MUSIC_TOKEN"],
-            let sessionID = environment["FOZMO_APPLE_MUSIC_SESSION_ID"],
-            !socketPath.isEmpty,
-            !token.isEmpty,
-            !sessionID.isEmpty
+            !bootstrap.socketPath.isEmpty,
+            !bootstrap.token.isEmpty,
+            !bootstrap.sessionID.isEmpty
         else {
             showFatalError("Fozmo did not provide a private helper session.")
             return
         }
+        let socketPath = bootstrap.socketPath
+        let token = bootstrap.token
+        let sessionID = bootstrap.sessionID
+        unsetenv("FOZMO_APPLE_MUSIC_BOOTSTRAP")
         unsetenv("FOZMO_APPLE_MUSIC_SOCKET")
         unsetenv("FOZMO_APPLE_MUSIC_TOKEN")
         unsetenv("FOZMO_APPLE_MUSIC_SESSION_ID")
@@ -65,6 +79,25 @@ final class HelperAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         ipc?.close()
+    }
+
+    private static func launchBootstrap(
+        from environment: [String: String]
+    ) throws -> HelperLaunchBootstrap {
+        if let bootstrapPath = environment["FOZMO_APPLE_MUSIC_BOOTSTRAP"],
+            !bootstrapPath.isEmpty
+        {
+            defer {
+                try? FileManager.default.removeItem(atPath: bootstrapPath)
+            }
+            let data = try Data(contentsOf: URL(fileURLWithPath: bootstrapPath))
+            return try JSONDecoder().decode(HelperLaunchBootstrap.self, from: data)
+        }
+        return HelperLaunchBootstrap(
+            socketPath: environment["FOZMO_APPLE_MUSIC_SOCKET"] ?? "",
+            token: environment["FOZMO_APPLE_MUSIC_TOKEN"] ?? "",
+            sessionID: environment["FOZMO_APPLE_MUSIC_SESSION_ID"] ?? ""
+        )
     }
 
     private func showFatalError(_ message: String) {

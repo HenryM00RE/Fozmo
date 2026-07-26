@@ -1,5 +1,7 @@
 use crate::app::state::AppState;
 use crate::listening::PlaybackObservation;
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+use crate::playback::apple_music_native::maybe_spawn_cross_provider_apple_music_prewarm;
 use crate::playback::auto_advance::{
     AutoAdvanceMonitorState, maybe_spawn_lastfm_radio_prefetch, maybe_spawn_qobuz_next_prefetch,
     maybe_spawn_queue_auto_advance, maybe_spawn_upnp_next_prewarm,
@@ -22,6 +24,8 @@ pub(crate) fn spawn_listening_monitor(state: AppState) {
     let pending_upnp_prewarms = Arc::new(Mutex::new(HashSet::<String>::new()));
     let completed_upnp_prewarms = Arc::new(Mutex::new(HashSet::<String>::new()));
     let pending_sonos_prefetches = Arc::new(Mutex::new(HashSet::<String>::new()));
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    let pending_apple_music_prewarms = Arc::new(Mutex::new(HashSet::<String>::new()));
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_millis(500));
         loop {
@@ -60,6 +64,16 @@ pub(crate) fn spawn_listening_monitor(state: AppState) {
                 })
                 .await;
                 if let Ok(Ok(status)) = status {
+                    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+                    let apple_music_handoff_owns_boundary =
+                        maybe_spawn_cross_provider_apple_music_prewarm(
+                            &state,
+                            &zone.id,
+                            &status,
+                            &pending_apple_music_prewarms,
+                        );
+                    #[cfg(not(all(target_os = "macos", feature = "apple_music_musickit")))]
+                    let apple_music_handoff_owns_boundary = false;
                     maybe_spawn_upnp_next_prewarm(
                         &state,
                         &zone.id,
@@ -67,13 +81,15 @@ pub(crate) fn spawn_listening_monitor(state: AppState) {
                         &pending_upnp_prewarms,
                         &completed_upnp_prewarms,
                     );
-                    maybe_spawn_queue_auto_advance(
-                        &state,
-                        &zone.id,
-                        &status,
-                        &pending_qobuz_advances,
-                        &qobuz_advance_monitor_state,
-                    );
+                    if !apple_music_handoff_owns_boundary {
+                        maybe_spawn_queue_auto_advance(
+                            &state,
+                            &zone.id,
+                            &status,
+                            &pending_qobuz_advances,
+                            &qobuz_advance_monitor_state,
+                        );
+                    }
                     maybe_spawn_lastfm_radio_prefetch(
                         &state,
                         &zone.id,

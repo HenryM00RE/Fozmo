@@ -5,7 +5,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::mem::MaybeUninit;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use symphonia::core::io::MediaSource;
 
 pub(super) type CaptureProducer = Producer<f32, Arc<SharedRb<f32, Vec<MaybeUninit<f32>>>>>;
@@ -15,11 +15,26 @@ pub(super) const LIVE_CHANNELS: u16 = 2;
 const BYTES_PER_SAMPLE: usize = 4;
 const STAGE_SAMPLES: usize = 4096;
 const EMPTY_RING_POLL: Duration = Duration::from_millis(2);
+const EMPTY_RING_UNDERRUN_THRESHOLD: Duration = Duration::from_millis(25);
 
-#[derive(Default)]
 pub(super) struct CaptureFlow {
     enqueued_frames: AtomicU64,
     consumed_frames: AtomicU64,
+    capture_gate_open: AtomicBool,
+    dropped_frames: AtomicU64,
+    underrun_count: AtomicU64,
+}
+
+impl Default for CaptureFlow {
+    fn default() -> Self {
+        Self {
+            enqueued_frames: AtomicU64::new(0),
+            consumed_frames: AtomicU64::new(0),
+            capture_gate_open: AtomicBool::new(true),
+            dropped_frames: AtomicU64::new(0),
+            underrun_count: AtomicU64::new(0),
+        }
+    }
 }
 
 impl CaptureFlow {
@@ -39,6 +54,31 @@ impl CaptureFlow {
         self.enqueued_frames
             .load(Ordering::Relaxed)
             .saturating_sub(self.consumed_frames.load(Ordering::Relaxed))
+    }
+
+    pub(super) fn capture_gate_open(&self) -> bool {
+        self.capture_gate_open.load(Ordering::Acquire)
+    }
+
+    pub(super) fn set_capture_gate_open(&self, open: bool) {
+        self.capture_gate_open.store(open, Ordering::Release);
+    }
+
+    pub(super) fn record_dropped(&self, frames: usize) {
+        self.dropped_frames
+            .fetch_add(frames as u64, Ordering::Relaxed);
+    }
+
+    pub(super) fn dropped_frames(&self) -> u64 {
+        self.dropped_frames.load(Ordering::Relaxed)
+    }
+
+    fn record_underrun(&self) {
+        self.underrun_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(super) fn underrun_count(&self) -> u64 {
+        self.underrun_count.load(Ordering::Relaxed)
     }
 }
 
@@ -85,6 +125,9 @@ pub(super) struct LiveCaptureSource {
     pending: Vec<u8>,
     pending_pos: usize,
     flow: Arc<CaptureFlow>,
+    received_audio: bool,
+    empty_since: Option<Instant>,
+    underrun_reported: bool,
 }
 
 impl LiveCaptureSource {
@@ -113,6 +156,9 @@ impl LiveCaptureSource {
             pending: Vec::new(),
             pending_pos: 0,
             flow,
+            received_audio: false,
+            empty_since: None,
+            underrun_reported: false,
         }
     }
 
@@ -161,10 +207,30 @@ impl Read for LiveCaptureSource {
                 return Ok(drained);
             }
             if self.stage_from_ring() > 0 {
+                self.received_audio = true;
+                self.empty_since = None;
+                self.underrun_reported = false;
                 continue;
             }
             if self.shutdown.load(Ordering::Acquire) {
                 return Ok(0);
+            }
+            if self.received_audio && self.empty_since.is_none() {
+                self.empty_since = Some(Instant::now());
+            }
+            if !self.underrun_reported
+                && self
+                    .empty_since
+                    .is_some_and(|started| started.elapsed() >= EMPTY_RING_UNDERRUN_THRESHOLD)
+            {
+                self.underrun_reported = true;
+                self.flow.record_underrun();
+                tracing::warn!(
+                    event = "apple_music_capture_ring_underrun",
+                    capture_gate_open = self.flow.capture_gate_open(),
+                    dropped_frames = self.flow.dropped_frames(),
+                    "Apple Music capture lead drained; live input is stalling until PCM resumes"
+                );
             }
             std::thread::sleep(EMPTY_RING_POLL);
         }
@@ -291,5 +357,17 @@ mod tests {
                 assert_eq!(recovered, sample);
             }
         }
+    }
+
+    #[test]
+    fn capture_flow_gate_starts_open_and_tracks_drops_and_underruns() {
+        let flow = CaptureFlow::default();
+        assert!(flow.capture_gate_open());
+        flow.set_capture_gate_open(false);
+        assert!(!flow.capture_gate_open());
+        flow.record_dropped(192);
+        flow.record_underrun();
+        assert_eq!(flow.dropped_frames(), 192);
+        assert_eq!(flow.underrun_count(), 1);
     }
 }

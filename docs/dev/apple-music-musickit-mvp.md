@@ -38,6 +38,72 @@ The helper protocol exposes only:
 
 It has no MusicKit player, renderer queue, or playback transport.
 
+## ApplicationMusicPlayer lossless spike (2026-07-26)
+
+The programmatic-player alternative was tested first inside the provisioned,
+signed `com.fozmo.apple-music-helper` app. The temporary, environment-gated
+`spike_play` command queued Björk's “Jóga” (`1726654451`) followed by “Unravel”
+from *Homogenic* (`1726654447`). macOS system output and input were both set to
+Fozmo Capture for the test.
+
+The spike failed the mandatory lossless criterion, so its command and player
+code were removed again and the product architecture above remains settled:
+
+| Check | Result |
+|---|---|
+| Plays from signed helper | **Fail** — authorization and subscription checks passed, but the post-`play()` state event reported `paused`, not `playing`. |
+| Decoder | **Fail** — `RemotePlayerService` PID 99240 selected `ACMP4AACBaseDecoder`, not `ACAppleLosslessDecoder`. |
+| Advertised rate/variant | **Fail** — the catalog exposed lossless variants, while the render decoder was 44.1 kHz AAC. |
+| Internal gapless queue advance | Not measured; the spike was stopped when the mandatory decoder check failed. |
+| Music.app transport interaction | No transport hijack was observed during the short run; this was not a long enough run to establish compatibility. |
+| Published state/current entry | **Pass** — Combine emitted player state and queue/current-entry changes. |
+| 44.1 → 96 kHz entry change | Not measured after the mandatory decoder failure. |
+
+This is the raw output from the required PID-independent decoder predicate:
+
+```json
+{"timezoneName":"","messageType":"Default","eventType":"logEvent","source":null,"formatString":"%25s:%-5d (%p) Input format: %s","userID":501,"activityIdentifier":0,"subsystem":"com.apple.coreaudio","category":"ac","threadID":11498972,"senderImageUUID":"0F483193-D206-362B-9874-0100BCCB9CBD","backtrace":{"frames":[{"imageOffset":103060,"imageUUID":"0F483193-D206-362B-9874-0100BCCB9CBD"}]},"bootUUID":"3590A0B1-4C7D-4C4A-9F0B-69FAC3D0BD58","processImagePath":"\/System\/Library\/Frameworks\/MediaPlayer.framework\/Versions\/A\/XPCServices\/RemotePlayerService.xpc\/Contents\/MacOS\/RemotePlayerService","senderImagePath":"\/System\/Library\/Components\/AudioCodecs.component\/Contents\/MacOS\/AudioCodecs","timestamp":"2026-07-26 18:11:22.348728+1200","machTimestamp":20147685217463,"eventMessage":"  ACMP4AACBaseDecoder.cpp:310   (0xabc180e00) Input format:  2 ch,  44100 Hz, aac  (0x00000000) 0 bits\/channel, 0 bytes\/packet, 1024 frames\/packet, 0 bytes\/frame","processImageUUID":"4044151C-2EEE-3A42-9F88-BDEE75975064","traceID":41979461356879876,"processID":99240,"senderProgramCounter":103060,"parentActivityIdentifier":0}
+{"timezoneName":"","messageType":"Default","eventType":"logEvent","source":null,"formatString":"%25s:%-5d (%p) Input format: %s","userID":501,"activityIdentifier":0,"subsystem":"com.apple.coreaudio","category":"ac","threadID":11498972,"senderImageUUID":"0F483193-D206-362B-9874-0100BCCB9CBD","backtrace":{"frames":[{"imageOffset":103060,"imageUUID":"0F483193-D206-362B-9874-0100BCCB9CBD"}]},"bootUUID":"3590A0B1-4C7D-4C4A-9F0B-69FAC3D0BD58","processImagePath":"\/System\/Library\/Frameworks\/MediaPlayer.framework\/Versions\/A\/XPCServices\/RemotePlayerService.xpc\/Contents\/MacOS\/RemotePlayerService","senderImagePath":"\/System\/Library\/Components\/AudioCodecs.component\/Contents\/MacOS\/AudioCodecs","timestamp":"2026-07-26 18:11:22.357170+1200","machTimestamp":20147685420088,"eventMessage":"  ACMP4AACBaseDecoder.cpp:310   (0xabc180e00) Input format:  2 ch,  44100 Hz, aac  (0x00000000) 0 bits\/channel, 0 bytes\/packet, 1024 frames\/packet, 0 bytes\/frame","processImageUUID":"4044151C-2EEE-3A42-9F88-BDEE75975064","traceID":41979461356879876,"processID":99240,"senderProgramCounter":103060,"parentActivityIdentifier":0}
+{"count":2,"finished":1}
+```
+
+The command used was:
+
+```sh
+log show --last 30s --style ndjson --info --debug --no-pager \
+  --predicate 'subsystem == "com.apple.coreaudio" AND eventMessage CONTAINS[c] "Input format:" AND (eventMessage CONTAINS[c] "ACAppleLosslessDecoder" OR eventMessage CONTAINS[c] "ACMP4AACBaseDecoder")'
+```
+
+## Boundary implementation
+
+- Playback starts at a cached, per-song verified ALAC rate when available, with
+  decoder-log reverification moved off the audible start path. A changed cache
+  entry is corrected after capture begins.
+- Fozmo launches the provisioned helper app through LaunchServices rather than
+  executing its inner Mach-O. This preserves the signed bundle identity and
+  `NSAppleMusicUsageDescription` that MusicKit/TCC require.
+- The capture session is not rebuilt when the verified rate is unchanged.
+- Music.app control runs through compiled, in-process `NSAppleScript` with a
+  two-second Apple Event timeout. Catalog selection retries once, transport
+  starts before its position is reset, and duration participates in track
+  identity matching.
+- Distributed `com.apple.Music.playerInfo` events drive monitoring, with a
+  two-second liveness fallback rather than a 350 ms poll/debounce loop.
+- A gated 20-second capture ring preserves a configurable boundary lead
+  (`apple_music_playback.boundary_lead_secs`, default 2.0 seconds). Same-rate arbitrary
+  Apple Music successors switch Music.app while the listener consumes the old
+  ring tail, without reopening Player, DSP, or the DAC.
+- An Apple Music rate change still requires replacing the CoreAudio capture
+  format. It takes the cached-format fallback and may expose one short gap of
+  up to the configured boundary lead; this is the documented non-gapless case
+  when the output carrier cannot remain compatible.
+- Qobuz/local successors into Apple Music route and verify Music.app, open the
+  capture ring, and prepare the live decoder during the outgoing tail. At the
+  endpoint, `begin_seamless_handoff` and
+  `play_prepared_stream_if_epoch(..., preserve_output: true)` install the
+  already-prefilled ring. If the output carrier cannot be preserved, the same
+  prepared ring is installed immediately after natural EOF as the fallback.
+
 ## Development setup
 
 Build the helper and run the deterministic test suites:
@@ -107,8 +173,9 @@ Normal transport continues through the standard zone playback endpoints.
 
 ## Security and persistence
 
-- The helper connection uses a random launch token, session ID, child PID,
-  expected bundle ID, and an owner-only Unix socket.
+- The helper connection uses a random launch token, session ID, the PID
+  reported by the LaunchServices-launched helper, the expected bundle ID, and
+  an owner-only Unix socket.
 - Apple credentials and tokens never cross the helper protocol.
 - Captured PCM stays in memory.
 - Queue, history, listening state, and album versions use the existing

@@ -15,14 +15,19 @@ use crate::playback::service::{
     apply_playback_settings_for_zone, prepare_airplay_volume_for_zone, prepare_hegel_for_zone,
 };
 use crate::playback::source::qobuz_play_request_from_source_ref;
-use crate::protocol::SourceRef;
-use crate::services::apple_music::{APPLE_MUSIC_LIVE_DISPLAY_NAME, AppleMusicPlaybackSnapshot};
+use crate::playback::status::StatusResponse;
+use crate::protocol::{SinkProtocol, SourceRef};
+use crate::services::apple_music::{
+    APPLE_MUSIC_LIVE_DISPLAY_NAME, AppleMusicPlaybackSnapshot, PreparedAppleMusicControl,
+};
 use crate::services::apple_music_musickit::{
     AppleMusicMvpError, MusicAppSnapshot, activate_catalog_track, music_app_status,
     pause_music_app, play_music_app, play_music_app_current_in_context,
     play_music_app_current_once, prepare_music_app, set_music_app_position,
+    wait_for_music_app_notification,
 };
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use tracing::{debug, info, warn};
 
@@ -30,24 +35,30 @@ const TRACK_ACTIVATION_TIMEOUT: Duration = Duration::from_secs(10);
 const TRACK_ACTIVATION_POLL: Duration = Duration::from_millis(75);
 const TRACK_TRANSPORT_SETTLE_TIMEOUT: Duration = Duration::from_secs(3);
 const TRACK_START_POSITION_TOLERANCE_SECS: f64 = 1.0;
-const TRACK_PARK_POSITION_TOLERANCE_SECS: f64 = 0.050;
-const START_PREFILL_TARGET_SECS: f64 = 0.500;
+const TRACK_PARK_POSITION_TOLERANCE_SECS: f64 = 0.250;
 const START_PREFILL_MIN_SECS: f64 = 0.250;
-const START_PREFILL_TIMEOUT: Duration = Duration::from_millis(2_500);
 const RESUME_PREFILL_TARGET_SECS: f64 = 0.080;
 const RESUME_PREFILL_MIN_SECS: f64 = 0.030;
 const RESUME_PREFILL_TIMEOUT: Duration = Duration::from_millis(1_000);
-const MONITOR_INTERVAL: Duration = Duration::from_millis(350);
-const TERMINAL_STATE_STARTUP_GRACE: Duration = Duration::from_secs(1);
-const TERMINAL_STATE_CONFIRMATIONS: u8 = 3;
+const MUSIC_NOTIFICATION_FALLBACK: Duration = Duration::from_secs(2);
 const STARTUP_TRANSPORT_STATUS_POLL: Duration = Duration::from_millis(350);
 const STARTUP_TRANSPORT_RECOVERY_TIMEOUT: Duration = Duration::from_secs(3);
 const STARTUP_STALL_POSITION_MAX_SECS: f64 = 1.0;
-const COMPLETION_TAIL_SECS: f64 = 4.0;
 const PLAYER_PAUSE_TIMEOUT: Duration = Duration::from_secs(4);
 const PLAYER_OUTPUT_START_TIMEOUT: Duration = Duration::from_secs(25);
 const PLAYER_EOF_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 const PLAYER_AUTO_ADVANCE_START_GRACE: Duration = Duration::from_millis(750);
+const CROSS_PROVIDER_PREWARM_SECS: f64 = 8.0;
+const CROSS_PROVIDER_HANDOFF_WINDOW_SECS: f64 = 1.5;
+const CROSS_PROVIDER_ENDPOINT_TOLERANCE_SECS: f64 = 0.100;
+
+fn apple_music_boundary_lead_secs(configured: f64) -> f64 {
+    if configured.is_finite() {
+        configured.clamp(0.5, 5.0)
+    } else {
+        2.0
+    }
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn play_apple_music_source(
@@ -67,6 +78,9 @@ pub(crate) async fn play_apple_music_source(
     let player = native_local_player(state, zone_id).ok_or(PlaybackError::ZoneNotAvailable)?;
 
     let _playback_switch = state.apple_music().lock_playback_switch().await;
+    let prepared_control = state
+        .apple_music_playback()
+        .take_prepared_control(&source.key());
     ensure_guard_current(state, &guard)?;
     pause_music_blocking().await?;
     if let Some(previous) = state.apple_music_playback().playback_snapshot() {
@@ -83,10 +97,39 @@ pub(crate) async fn play_apple_music_source(
     prepare_music_blocking().await?;
 
     let settings = state.settings().apple_music_playback_settings();
-    let initial_epoch = state
-        .apple_music_playback()
-        .start_playback_capture(player.clone(), &settings)
-        .map_err(PlaybackError::integration)?;
+    let cached_verified_format = prepared_control
+        .as_ref()
+        .map(|prepared| (prepared.rate_hz, prepared.source_bit_depth))
+        .or_else(|| {
+            state
+                .library()
+                .apple_music_track_verified_format(&song_id)
+                .ok()
+                .flatten()
+                .filter(|format| format.codec.eq_ignore_ascii_case("ALAC"))
+                .and_then(|format| {
+                    Some((
+                        u32::try_from(format.sample_rate).ok()?,
+                        format.bit_depth.and_then(|bits| u32::try_from(bits).ok()),
+                    ))
+                })
+        });
+    let initial_epoch = match cached_verified_format {
+        Some((rate_hz, source_bits)) => state
+            .apple_music_playback()
+            .start_playback_capture_at_format(player.clone(), &settings, rate_hz, source_bits),
+        None => state
+            .apple_music_playback()
+            .start_playback_capture(player.clone(), &settings),
+    }
+    .map_err(PlaybackError::integration)?;
+    // The ring starts empty and closed. Catalog navigation and Music.app's
+    // restored global position cannot leak into the listener's timeline.
+    if !state.apple_music_playback().set_capture_gate_open(false) {
+        return Err(PlaybackError::integration(
+            "Apple Music capture started without a controllable input gate.",
+        ));
+    }
     let playback = state.apple_music_playback().activate_playback(
         zone_id.to_string(),
         initial_epoch,
@@ -100,26 +143,31 @@ pub(crate) async fn play_apple_music_source(
         hold_player_paused(&player, initial_epoch).await?;
         ensure_owned(state, &guard, &playback)?;
         let format_boundary = SystemTime::now();
-        let activation_storefront = storefront.clone();
-        let activation_album_id = album_id.clone();
-        let activation_song_id = song_id.clone();
-        tokio::task::spawn_blocking(move || {
-            activate_catalog_track(
-                &activation_storefront,
-                &activation_album_id,
-                &activation_song_id,
-            )
-        })
-        .await
-        .map_err(|error| {
-            PlaybackError::internal_invariant(format!(
-                "Music.app catalog activation task stopped: {error}"
-            ))
-        })?
-        .map_err(PlaybackError::integration)?;
+        if let Some(prepared) = prepared_control.as_ref() {
+            debug!(
+                event = "apple_music_prepared_control_fallback",
+                song_id,
+                rate_hz = prepared.rate_hz,
+                "The prepared boundary missed its seamless endpoint; reusing its verified format"
+            );
+        }
+        activate_catalog_track_blocking(&storefront, &album_id, &song_id).await?;
 
         let selection = async {
-            let selected = wait_for_selected_track(state, &guard, &playback).await?;
+            let selected = match wait_for_selected_track(state, &guard, &playback).await {
+                Ok(selected) => selected,
+                Err(first_error) => {
+                    warn!(
+                        event = "apple_music_catalog_activation_retry",
+                        song_id,
+                        album_id,
+                        error = %first_error,
+                        "Music.app did not select the requested row; retrying catalog activation once"
+                    );
+                    activate_catalog_track_blocking(&storefront, &album_id, &song_id).await?;
+                    wait_for_selected_track(state, &guard, &playback).await?
+                }
+            };
             // Music.app can carry its global player position across an
             // Accessibility-selected catalog row. Reset only after the
             // requested track is current so a shorter track cannot inherit a
@@ -127,41 +175,45 @@ pub(crate) async fn play_apple_music_source(
             set_music_position_blocking(0.0).await?;
             Ok::<MusicAppSnapshot, PlaybackError>(selected)
         };
-        // Music must still be decoding while we inspect its fresh decoder-log
-        // event. Pausing here can make the app briefly disappear from Core
-        // Audio and can prevent the ALAC event from being emitted at all. The
-        // local Player remains paused, so these probe samples stay private;
-        // the verified-rate restart below destroys them before playback is
-        // restarted from zero.
-        //
-        // Music.app starts decoding as soon as the activation click lands, so
-        // the Unified Log query runs alongside the selection poll rather than
-        // after it. `log show` costs the best part of a second, and both halves
-        // still measure against the same pre-activation boundary, so the probe
-        // cannot accept a record left over from the previous track.
         let apple_music = state.apple_music();
-        let (selected, source_format) = tokio::join!(
-            selection,
-            apple_music.probe_music_app_source_format(format_boundary)
-        );
-        let selected = selected?;
-        let source_format = source_format
-            .map_err(playback_error)?
-            .ok_or_else(|| {
-                PlaybackError::integration(
-                    "Music.app did not expose a fresh Apple Lossless decoder format. Fozmo kept the Hegel muted and did not release unverified audio to the DSP.",
+        // A cached per-song format removes `log show` from the audible start
+        // path. Keep the verification query running concurrently and inspect
+        // it only after Player output is flowing.
+        let cached_probe = cached_verified_format.is_some().then(|| {
+            let probe_state = state.clone();
+            tokio::spawn(async move {
+                probe_state
+                    .apple_music()
+                    .probe_music_app_source_format(format_boundary)
+                    .await
+            })
+        });
+        let (selected, mut source_rate_hz, mut source_bits) =
+            if let Some((rate_hz, bits)) = cached_verified_format {
+                (selection.await?, rate_hz, bits)
+            } else {
+                let (selected, source_format) = tokio::join!(
+                    selection,
+                    apple_music.probe_music_app_source_format(format_boundary)
+                );
+                let source_format = source_format
+                    .map_err(playback_error)?
+                    .ok_or_else(|| {
+                        PlaybackError::integration(
+                            "Music.app did not expose a fresh Apple Lossless decoder format. Fozmo kept the Hegel muted and did not release unverified audio to the DSP.",
+                        )
+                    })?;
+                (
+                    selected?,
+                    source_format.sample_rate_hz,
+                    source_format.source_bit_depth_bits,
                 )
-            })?;
+            };
         pause_music_blocking().await?;
         ensure_owned(state, &guard, &playback)?;
-        let source_rate_hz = source_format.sample_rate_hz;
-        let source_bits = source_format.source_bit_depth_bits;
 
         // Establish Music.app's single-track transport before creating the
-        // capture session that Fozmo will actually play. Starting a catalog
-        // track is asynchronous: setting player position to zero in the same
-        // AppleScript call is not enough, because the transport can restore
-        // its previous global position a moment later.
+        // capture session that Fozmo will actually play.
         if use_contextual_transport {
             play_current_in_context_blocking().await?;
         } else {
@@ -187,10 +239,10 @@ pub(crate) async fn play_apple_music_source(
         .await?;
         ensure_owned(state, &guard, &playback)?;
 
-        // Recreate the capture ring only after Music.app is confirmed paused
-        // at zero. This guarantees that PCM from its former seek position
-        // cannot survive into the new Fozmo timeline.
-        let verified_epoch = state
+        // This is a no-op when the live session already has the verified rate.
+        // A rate change rebuilds only the capture/Player source; the system
+        // output route remains on Fozmo Capture.
+        let mut verified_epoch = state
             .apple_music_playback()
             .restart_at_verified_source_format(source_rate_hz, source_bits)
             .map_err(PlaybackError::integration)?;
@@ -200,26 +252,26 @@ pub(crate) async fn play_apple_music_source(
         {
             return Err(PlaybackError::conflict("Playback changed"));
         }
+        state
+            .apple_music_playback()
+            .set_capture_gate_open(false);
         hold_player_paused(&player, verified_epoch).await?;
         player.flush_live_output();
         ensure_owned(state, &guard, &playback)?;
 
-        play_music_blocking().await?;
-        wait_for_selected_track_transport(
-            &source,
-            "playing",
-            Some(TRACK_START_POSITION_TOLERANCE_SECS),
-            "resume from 0:00",
-        )
-        .await?;
+        restart_selected_track_with_transport(&source, use_contextual_transport).await?;
         ensure_owned(state, &guard, &playback)?;
+        state
+            .apple_music_playback()
+            .set_capture_gate_open(true);
+        let prefill_target_secs = apple_music_boundary_lead_secs(settings.boundary_lead_secs);
         wait_for_prefill(
             state,
             &guard,
             &playback,
-            START_PREFILL_TARGET_SECS,
-            START_PREFILL_MIN_SECS,
-            START_PREFILL_TIMEOUT,
+            prefill_target_secs,
+            (prefill_target_secs * 0.75).max(START_PREFILL_MIN_SECS),
+            Duration::from_secs_f64(prefill_target_secs + 2.0),
         )
         .await?;
         ensure_selected_track_still_playing(&source).await?;
@@ -227,6 +279,90 @@ pub(crate) async fn play_apple_music_source(
         prepare_hegel_for_zone(state, zone_id).await?;
         player.resume();
         wait_for_player_output_ready(state, &guard, &playback, &player, verified_epoch).await?;
+
+        if let Some(probe) = cached_probe {
+            match probe.await {
+                Ok(Ok(Some(actual)))
+                    if actual.sample_rate_hz != source_rate_hz
+                        || actual.source_bit_depth_bits != source_bits =>
+                {
+                    warn!(
+                        event = "apple_music_cached_format_mismatch",
+                        song_id,
+                        cached_rate_hz = source_rate_hz,
+                        actual_rate_hz = actual.sample_rate_hz,
+                        "The cached Apple Music decoder format changed; correcting the live session"
+                    );
+                    player.pause();
+                    pause_music_blocking().await?;
+                    state
+                        .apple_music_playback()
+                        .set_capture_gate_open(false);
+                    set_music_position_blocking(0.0).await?;
+                    source_rate_hz = actual.sample_rate_hz;
+                    source_bits = actual.source_bit_depth_bits;
+                    verified_epoch = state
+                        .apple_music_playback()
+                        .restart_at_verified_source_format(source_rate_hz, source_bits)
+                        .map_err(PlaybackError::integration)?;
+                    if !state
+                        .apple_music_playback()
+                        .replace_player_epoch(playback.generation, verified_epoch)
+                    {
+                        return Err(PlaybackError::conflict("Playback changed"));
+                    }
+                    state
+                        .apple_music_playback()
+                        .set_capture_gate_open(false);
+                    hold_player_paused(&player, verified_epoch).await?;
+                    player.flush_live_output();
+                    restart_selected_track_with_transport(&source, use_contextual_transport)
+                        .await?;
+                    state
+                        .apple_music_playback()
+                        .set_capture_gate_open(true);
+                    wait_for_prefill(
+                        state,
+                        &guard,
+                        &playback,
+                        prefill_target_secs,
+                        (prefill_target_secs * 0.75).max(START_PREFILL_MIN_SECS),
+                        Duration::from_secs_f64(prefill_target_secs + 2.0),
+                    )
+                    .await?;
+                    player.resume();
+                    wait_for_player_output_ready(
+                        state,
+                        &guard,
+                        &playback,
+                        &player,
+                        verified_epoch,
+                    )
+                    .await?;
+                }
+                Ok(Ok(Some(_))) => {}
+                Ok(Ok(None)) => warn!(
+                    event = "apple_music_cached_format_not_reverified",
+                    song_id,
+                    "Music.app exposed no fresh decoder event; continuing with the last verified per-track format"
+                ),
+                Ok(Err(error)) if error.code == "lossy_source_format_selected" => {
+                    return Err(playback_error(error));
+                }
+                Ok(Err(error)) => warn!(
+                    event = "apple_music_cached_format_verification_failed",
+                    song_id,
+                    error = %error.message,
+                    "Could not asynchronously reverify the cached Apple Music format"
+                ),
+                Err(error) => warn!(
+                    event = "apple_music_cached_format_verification_stopped",
+                    song_id,
+                    error = %error,
+                    "Cached Apple Music format verification task stopped"
+                ),
+            }
+        }
         state.apple_music_playback().update_playback(
             playback.generation,
             "playing",
@@ -300,6 +436,386 @@ pub(crate) fn active_snapshot(
         .playback_snapshot_for_zone(zone_id)?;
     let player = native_local_player(state, zone_id)?;
     (player.playback_epoch() == snapshot.player_epoch).then_some(snapshot)
+}
+
+/// Prepare and promote a Qobuz/local -> Apple Music boundary before the
+/// ordinary stopped-state auto-advance sees it. Returning true tells the
+/// monitor that this boundary owns auto-advance for the current tick.
+pub(crate) fn maybe_spawn_cross_provider_apple_music_prewarm(
+    state: &AppState,
+    zone_id: &str,
+    status: &StatusResponse,
+    pending: &Arc<Mutex<HashSet<String>>>,
+) -> bool {
+    if matches!(
+        state.zones().zone_protocol(zone_id),
+        Some(SinkProtocol::RemoteAgent | SinkProtocol::SonosUpnp | SinkProtocol::UpnpAvRenderer)
+    ) || state.apple_music_playback().capture_running()
+    {
+        return false;
+    }
+    let Some(active_source) = state.listening().active_source(zone_id) else {
+        return false;
+    };
+    if !matches!(
+        active_source,
+        SourceRef::QobuzTrack { .. } | SourceRef::LocalTrack { .. }
+    ) || status
+        .current_source
+        .as_ref()
+        .is_some_and(|source| source.key() != active_source.key())
+    {
+        return false;
+    }
+    let Some(next_source) = zone_queue_sources(state, zone_id)
+        .first()
+        .filter(|source| matches!(source, SourceRef::AppleMusicTrack { .. }))
+        .cloned()
+    else {
+        return false;
+    };
+    let next_key = next_source.key();
+    let prepared = state.apple_music_playback().prepared_boundary(&next_key);
+    let already_pending = pending.lock().unwrap().contains(zone_id);
+    if already_pending {
+        return true;
+    }
+
+    let has_reliable_timeline = status.duration_secs.is_finite()
+        && status.duration_secs > 0.0
+        && status.position_secs.is_finite()
+        && status.position_secs >= 0.0;
+    let remaining_secs = if has_reliable_timeline {
+        (status.duration_secs - status.position_secs).max(0.0)
+    } else {
+        f64::INFINITY
+    };
+    let should_promote = prepared.is_some()
+        && (status.state == "Stopped"
+            || (status.state == "Playing" && remaining_secs <= CROSS_PROVIDER_HANDOFF_WINDOW_SECS));
+    if should_promote {
+        if !pending.lock().unwrap().insert(zone_id.to_string()) {
+            return true;
+        }
+        let state = state.clone();
+        let zone_id = zone_id.to_string();
+        let pending = Arc::clone(pending);
+        let expected_source = active_source;
+        let outgoing_duration_secs = status.duration_secs;
+        let stopped = status.state == "Stopped";
+        tokio::spawn(async move {
+            let result = promote_cross_provider_apple_music_boundary(
+                &state,
+                &zone_id,
+                &expected_source,
+                next_source,
+                outgoing_duration_secs,
+                stopped,
+            )
+            .await;
+            if let Err(error) = result {
+                debug!(
+                    event = "apple_music_cross_provider_handoff_deferred",
+                    zone_id,
+                    error = %error,
+                    "The prepared Apple Music boundary was not at a safe endpoint yet"
+                );
+            }
+            pending.lock().unwrap().remove(&zone_id);
+        });
+        return true;
+    }
+
+    if prepared.is_some() {
+        return true;
+    }
+    if status.state != "Playing" || remaining_secs > CROSS_PROVIDER_PREWARM_SECS {
+        // If playback has already stopped without a prepared ring, let the
+        // existing queue router perform its reliable fallback immediately.
+        return false;
+    }
+    if !pending.lock().unwrap().insert(zone_id.to_string()) {
+        return true;
+    }
+    let Some(player) = native_local_player(state, zone_id) else {
+        pending.lock().unwrap().remove(zone_id);
+        return false;
+    };
+    let expected_epoch = player.playback_epoch();
+    let expected_source = active_source;
+    let state = state.clone();
+    let zone_id = zone_id.to_string();
+    let pending = Arc::clone(pending);
+    tokio::spawn(async move {
+        let result = prepare_cross_provider_apple_music_boundary(
+            &state,
+            &zone_id,
+            &expected_source,
+            expected_epoch,
+            next_source,
+        )
+        .await;
+        if let Err(error) = result {
+            warn!(
+                event = "apple_music_cross_provider_prewarm_failed",
+                zone_id,
+                error = %error,
+                "Could not prepare Apple Music during the outgoing track"
+            );
+            state.apple_music_playback().release_retained_route();
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+        pending.lock().unwrap().remove(&zone_id);
+    });
+    true
+}
+
+async fn prepare_cross_provider_apple_music_boundary(
+    state: &AppState,
+    zone_id: &str,
+    expected_source: &SourceRef,
+    expected_epoch: u64,
+    next_source: SourceRef,
+) -> Result<(), PlaybackError> {
+    let next_source = hydrate_catalog_source(state, next_source).await?;
+    let (song_id, storefront, album_id) = catalog_identity(&next_source)?;
+    let player = native_local_player(state, zone_id).ok_or(PlaybackError::ZoneNotAvailable)?;
+    let _playback_switch = state.apple_music().lock_playback_switch().await;
+    ensure_cross_provider_boundary_current(
+        state,
+        zone_id,
+        expected_source,
+        &next_source,
+        &player,
+        expected_epoch,
+    )?;
+    prepare_music_blocking().await?;
+    state
+        .apple_music_playback()
+        .prepare_capture_route(&player)
+        .map_err(PlaybackError::integration)?;
+    let format_boundary = SystemTime::now();
+    activate_catalog_track_blocking(&storefront, &album_id, &song_id).await?;
+    let apple_music = state.apple_music();
+    let selection = async {
+        match wait_for_music_track(&next_source, TRACK_ACTIVATION_TIMEOUT).await {
+            Ok(selected) => Ok(selected),
+            Err(first_error) => {
+                warn!(
+                    event = "apple_music_cross_provider_activation_retry",
+                    song_id,
+                    error = %first_error,
+                    "Retrying the prewarmed catalog activation once"
+                );
+                activate_catalog_track_blocking(&storefront, &album_id, &song_id).await?;
+                wait_for_music_track(&next_source, TRACK_ACTIVATION_TIMEOUT).await
+            }
+        }
+    };
+    let (selected, source_format) = tokio::join!(
+        selection,
+        apple_music.probe_music_app_source_format(format_boundary)
+    );
+    let selected = selected?;
+    let source_format = source_format.map_err(playback_error)?.ok_or_else(|| {
+        PlaybackError::integration(
+            "Music.app exposed no fresh Apple Lossless format during cross-provider prewarm.",
+        )
+    })?;
+    ensure_cross_provider_boundary_current(
+        state,
+        zone_id,
+        expected_source,
+        &next_source,
+        &player,
+        expected_epoch,
+    )?;
+    pause_music_blocking().await?;
+    set_music_position_blocking(0.0).await?;
+    let queue = zone_queue_sources(state, zone_id);
+    let contextual = queue
+        .get(1)
+        .is_some_and(|following| native_apple_music_gapless_pair(&next_source, following));
+    wait_for_selected_track_transport(
+        &next_source,
+        "paused",
+        Some(TRACK_PARK_POSITION_TOLERANCE_SECS),
+        "park the prewarmed track at 0:00",
+    )
+    .await?;
+
+    let settings = state.settings().apple_music_playback_settings();
+    let prepared = PreparedAppleMusicControl {
+        source_key: next_source.key(),
+        rate_hz: source_format.sample_rate_hz,
+        source_bit_depth: source_format.source_bit_depth_bits,
+        duration_secs: selected
+            .track
+            .duration_secs
+            .or_else(|| next_source.duration_secs()),
+    };
+    state
+        .apple_music_playback()
+        .prepare_boundary_capture(player.clone(), &settings, prepared)
+        .map_err(PlaybackError::integration)?;
+    restart_selected_track_with_transport(&next_source, contextual).await?;
+    if !state
+        .apple_music_playback()
+        .set_prepared_capture_gate_open(true)
+    {
+        return Err(PlaybackError::integration(
+            "The prepared Apple Music capture gate disappeared.",
+        ));
+    }
+    let prefill_target = apple_music_boundary_lead_secs(settings.boundary_lead_secs);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs_f64(prefill_target + 2.0);
+    loop {
+        let buffered = state
+            .apple_music_playback()
+            .prepared_boundary(&next_source.key())
+            .map(|(_, buffered)| buffered)
+            .ok_or_else(|| PlaybackError::conflict("Prepared Apple Music boundary changed"))?;
+        if buffered >= prefill_target {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(PlaybackError::integration(format!(
+                "Prepared Apple Music captured only {buffered:.3}s of the {prefill_target:.3}s boundary lead."
+            )));
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    ensure_cross_provider_boundary_current(
+        state,
+        zone_id,
+        expected_source,
+        &next_source,
+        &player,
+        expected_epoch,
+    )?;
+    if let Err(error) = state.library().record_apple_music_track_format(
+        &song_id,
+        Some(&album_id),
+        Some(&storefront),
+        "ALAC",
+        source_format.sample_rate_hz,
+        source_format.source_bit_depth_bits,
+    ) {
+        warn!(
+            event = "apple_music_verified_format_not_recorded",
+            zone_id, song_id, error, "Could not remember the prewarmed Apple Music decoder format"
+        );
+    }
+    info!(
+        event = "apple_music_cross_provider_prewarm_ready",
+        zone_id,
+        next_source_key = next_source.key(),
+        source_rate_hz = source_format.sample_rate_hz,
+        prefill_ms = prefill_target * 1_000.0,
+        "Apple Music capture and DSP source are ready behind the outgoing track"
+    );
+    Ok(())
+}
+
+fn ensure_cross_provider_boundary_current(
+    state: &AppState,
+    zone_id: &str,
+    expected_source: &SourceRef,
+    next_source: &SourceRef,
+    player: &Player,
+    expected_epoch: u64,
+) -> Result<(), PlaybackError> {
+    if player.playback_epoch() != expected_epoch
+        || state
+            .listening()
+            .active_source(zone_id)
+            .is_none_or(|source| source.key() != expected_source.key())
+        || zone_queue_sources(state, zone_id)
+            .first()
+            .is_none_or(|source| source.key() != next_source.key())
+    {
+        return Err(PlaybackError::conflict("Playback or queue changed"));
+    }
+    Ok(())
+}
+
+async fn promote_cross_provider_apple_music_boundary(
+    state: &AppState,
+    zone_id: &str,
+    expected_source: &SourceRef,
+    next_source: SourceRef,
+    outgoing_duration_secs: f64,
+    outgoing_stopped: bool,
+) -> Result<(), PlaybackError> {
+    let player = native_local_player(state, zone_id).ok_or(PlaybackError::ZoneNotAvailable)?;
+    let expected_epoch = player.playback_epoch();
+    let _playback_switch = state.apple_music().lock_playback_switch().await;
+    ensure_cross_provider_boundary_current(
+        state,
+        zone_id,
+        expected_source,
+        &next_source,
+        &player,
+        expected_epoch,
+    )?;
+    let (_, buffered_secs) = state
+        .apple_music_playback()
+        .prepared_boundary(&next_source.key())
+        .ok_or_else(|| PlaybackError::conflict("Prepared Apple Music boundary changed"))?;
+    let (handoff_epoch, output_cushion_secs, preserve_output) = if outgoing_stopped {
+        (expected_epoch, 0.0, false)
+    } else {
+        let boundary = player
+            .begin_seamless_handoff(
+                state
+                    .apple_music_playback()
+                    .prepared_boundary(&next_source.key())
+                    .map(|(prepared, _)| prepared.rate_hz),
+            )
+            .await
+            .map_err(PlaybackError::integration)?;
+        if outgoing_duration_secs.is_finite()
+            && outgoing_duration_secs > 0.0
+            && boundary.position_secs
+                < outgoing_duration_secs - CROSS_PROVIDER_ENDPOINT_TOLERANCE_SECS
+        {
+            player.cancel_seamless_handoff(boundary.epoch);
+            return Err(PlaybackError::conflict(format!(
+                "Outgoing endpoint {:.3}s has not reached duration {:.3}s",
+                boundary.position_secs, outgoing_duration_secs
+            )));
+        }
+        (boundary.epoch, boundary.output_cushion_secs, true)
+    };
+    let playback = match state.apple_music_playback().promote_prepared_boundary(
+        zone_id.to_string(),
+        next_source.clone(),
+        handoff_epoch,
+        preserve_output,
+    ) {
+        Ok(playback) => playback,
+        Err(error) => {
+            if preserve_output {
+                player.cancel_seamless_handoff(handoff_epoch);
+            }
+            return Err(PlaybackError::integration(error));
+        }
+    };
+    state.listening().completed_next(state.library(), zone_id);
+    spawn_music_app_monitor(state.clone(), zone_id.to_string(), playback.generation);
+    spawn_native_next_prefetch(state.clone(), zone_id.to_string());
+    info!(
+        event = "apple_music_cross_provider_handoff_completed",
+        zone_id,
+        previous_source_key = expected_source.key(),
+        next_source_key = next_source.key(),
+        buffered_ms = buffered_secs * 1_000.0,
+        output_cushion_ms = output_cushion_secs * 1_000.0,
+        preserve_output,
+        player_epoch = playback.player_epoch,
+        "Promoted the prefilled Apple Music ring without an audible start gap"
+    );
+    Ok(())
 }
 
 /// Refresh the Player-owned item directly behind the native live capture.
@@ -510,6 +1026,7 @@ pub(crate) async fn seek(
         .apple_music_playback()
         .restart_current_managed_session()
         .map_err(PlaybackError::integration)?;
+    state.apple_music_playback().set_capture_gate_open(false);
     if !state
         .apple_music_playback()
         .set_timeline_origin(snapshot.generation, seconds)
@@ -517,14 +1034,18 @@ pub(crate) async fn seek(
         return Err(PlaybackError::conflict("Playback changed"));
     }
     hold_player_paused(&player, replacement_epoch).await?;
+    player.flush_live_output();
     set_music_position_blocking(seconds).await?;
     play_music_blocking().await?;
+    state.apple_music_playback().set_capture_gate_open(true);
+    let settings = state.settings().apple_music_playback_settings();
+    let prefill_target_secs = apple_music_boundary_lead_secs(settings.boundary_lead_secs);
     wait_for_prefill_without_guard(
         state,
         &snapshot,
-        RESUME_PREFILL_TARGET_SECS,
-        RESUME_PREFILL_MIN_SECS,
-        RESUME_PREFILL_TIMEOUT,
+        prefill_target_secs,
+        (prefill_target_secs * 0.75).max(START_PREFILL_MIN_SECS),
+        Duration::from_secs_f64(prefill_target_secs + 2.0),
     )
     .await?;
     prepare_hegel_for_zone(state, zone_id).await?;
@@ -789,7 +1310,21 @@ fn music_track_matches_source(snapshot: &MusicAppSnapshot, source: &SourceRef) -
             expected == actual || expected.contains(&actual) || actual.contains(&expected)
         })
     });
-    title_matches && artist_matches
+    let duration_matches = source.duration_secs().is_none_or(|expected| {
+        snapshot
+            .track
+            .duration_secs
+            .is_none_or(|actual| track_durations_match(expected, actual))
+    });
+    title_matches && artist_matches && duration_matches
+}
+
+fn track_durations_match(expected: f64, actual: f64) -> bool {
+    if !expected.is_finite() || !actual.is_finite() || expected <= 0.0 || actual <= 0.0 {
+        return false;
+    }
+    let tolerance = (expected * 0.005).clamp(0.75, 2.0);
+    (expected - actual).abs() <= tolerance
 }
 
 fn normalize_metadata(value: &str) -> String {
@@ -1047,16 +1582,18 @@ async fn cleanup_failed_start(
 
 fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(MONITOR_INTERVAL);
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut last_position = 0.0_f64;
         let mut last_duration = 0.0_f64;
         let mut consecutive_errors = 0_u8;
-        let mut consecutive_stopped = 0_u8;
         let mut startup_recovery_attempted = false;
-        let monitor_started = tokio::time::Instant::now();
+        let mut first_snapshot = true;
+        let mut last_playing_observed_at: Option<tokio::time::Instant> = None;
         loop {
-            ticker.tick().await;
+            if first_snapshot {
+                first_snapshot = false;
+            } else {
+                wait_for_music_notification_blocking(MUSIC_NOTIFICATION_FALLBACK).await;
+            }
             let Some(snapshot) = active_snapshot(&state, &zone_id) else {
                 break;
             };
@@ -1107,7 +1644,12 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
                 } else {
                     snapshot.duration_secs
                 };
-                let completed = native_track_completed(last_position, duration);
+                let completion_position = projected_music_position(
+                    last_position,
+                    last_playing_observed_at
+                        .map(|observed| tokio::time::Instant::now().duration_since(observed)),
+                );
+                let completed = native_track_completed(completion_position, duration);
                 if completed
                     && let Some(next) = promote_continuous_apple_music_boundary(
                         &state, &zone_id, generation, &snapshot, &music,
@@ -1119,8 +1661,8 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
                         .duration_secs
                         .or_else(|| next.duration_secs())
                         .unwrap_or(0.0);
-                    consecutive_stopped = 0;
                     startup_recovery_attempted = false;
+                    last_playing_observed_at = Some(tokio::time::Instant::now());
                     continue;
                 }
                 warn!(
@@ -1158,7 +1700,7 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
             }
             match music.player_state.as_deref() {
                 Some("playing") => {
-                    consecutive_stopped = 0;
+                    last_playing_observed_at = Some(tokio::time::Instant::now());
                     state.apple_music_playback().update_playback(
                         generation,
                         "playing",
@@ -1167,7 +1709,7 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
                     );
                 }
                 Some("paused") => {
-                    consecutive_stopped = 0;
+                    last_playing_observed_at = None;
                     state.apple_music_playback().update_playback(
                         generation,
                         "paused",
@@ -1176,24 +1718,10 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
                     );
                 }
                 Some("stopped") => {
-                    consecutive_stopped = consecutive_stopped.saturating_add(1);
-                    let elapsed = monitor_started.elapsed();
-                    if !stopped_state_is_terminal(consecutive_stopped, elapsed) {
-                        debug!(
-                            event = "apple_music_native_terminal_state_deferred",
-                            zone_id,
-                            generation,
-                            consecutive_stopped,
-                            elapsed_ms = elapsed.as_millis(),
-                            "Deferring a transient Music.app stopped state"
-                        );
-                        continue;
-                    }
                     if should_recover_startup_stall(last_position, startup_recovery_attempted) {
                         startup_recovery_attempted = true;
                         match restart_selected_track_with_normal_transport(&snapshot.source).await {
                             Ok(recovered) => {
-                                consecutive_stopped = 0;
                                 if let Some(position) = recovered.track.position_secs {
                                     last_position = position;
                                 }
@@ -1206,6 +1734,7 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
                                     recovered.track.position_secs,
                                     recovered.track.duration_secs,
                                 );
+                                last_playing_observed_at = Some(tokio::time::Instant::now());
                                 info!(
                                     event = "apple_music_native_startup_transport_recovered",
                                     zone_id,
@@ -1230,12 +1759,40 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
                     } else {
                         snapshot.duration_secs
                     };
-                    let completed = native_track_completed(last_position, duration);
+                    let completion_position = projected_music_position(
+                        last_position,
+                        last_playing_observed_at
+                            .map(|observed| tokio::time::Instant::now().duration_since(observed)),
+                    );
+                    let completed = native_track_completed(completion_position, duration);
+                    if completed {
+                        match switch_buffered_apple_music_boundary(
+                            &state, &zone_id, generation, &snapshot,
+                        )
+                        .await
+                        {
+                            Ok(Some(next_music)) => {
+                                last_position = next_music.track.position_secs.unwrap_or(0.0);
+                                last_duration = next_music.track.duration_secs.unwrap_or_default();
+                                startup_recovery_attempted = false;
+                                continue;
+                            }
+                            Ok(None) => {}
+                            Err(error) => warn!(
+                                event = "apple_music_buffered_boundary_fallback",
+                                zone_id,
+                                generation,
+                                error = %error,
+                                "Buffered Apple Music switch failed; falling back to normal queue routing"
+                            ),
+                        }
+                    }
                     info!(
                         event = "apple_music_native_terminal_state",
                         zone_id,
                         generation,
                         last_position_secs = last_position,
+                        completion_position_secs = completion_position,
                         duration_secs = duration,
                         completed,
                         queued_count = zone_queue_sources(&state, &zone_id).len(),
@@ -1261,12 +1818,164 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
                     .await;
                     break;
                 }
-                _ => {
-                    consecutive_stopped = 0;
-                }
+                _ => {}
             }
         }
     });
+}
+
+async fn switch_buffered_apple_music_boundary(
+    state: &AppState,
+    zone_id: &str,
+    generation: u64,
+    previous: &AppleMusicPlaybackSnapshot,
+) -> Result<Option<MusicAppSnapshot>, PlaybackError> {
+    let queue = zone_queue_sources(state, zone_id);
+    let Some(next) = queue.first().cloned() else {
+        return Ok(None);
+    };
+    if !matches!(next, SourceRef::AppleMusicTrack { .. }) {
+        return Ok(None);
+    }
+    let (song_id, storefront, album_id) = catalog_identity(&next)?;
+    let Some((live_rate_hz, _)) = state.apple_music_playback().session_format() else {
+        return Ok(None);
+    };
+    let next_format = state
+        .library()
+        .apple_music_track_verified_format(&song_id)
+        .map_err(PlaybackError::library)?
+        .filter(|format| format.codec.eq_ignore_ascii_case("ALAC"))
+        .and_then(|format| {
+            Some((
+                u32::try_from(format.sample_rate).ok()?,
+                format.bit_depth.and_then(|bits| u32::try_from(bits).ok()),
+            ))
+        });
+    let Some((next_rate_hz, _)) = next_format else {
+        debug!(
+            event = "apple_music_buffered_boundary_format_unknown",
+            zone_id, song_id, "The next Apple Music track has no cached verified format"
+        );
+        return Ok(None);
+    };
+    if next_rate_hz != live_rate_hz {
+        info!(
+            event = "apple_music_buffered_boundary_rate_change",
+            zone_id,
+            song_id,
+            live_rate_hz,
+            next_rate_hz,
+            "The next Apple Music track needs a capture-rate change"
+        );
+        return Ok(None);
+    }
+
+    let _playback_switch = state.apple_music().lock_playback_switch().await;
+    let Some(active) = active_snapshot(state, zone_id) else {
+        return Ok(None);
+    };
+    if active.generation != generation || active.source.key() != previous.source.key() {
+        return Ok(None);
+    }
+    let player = native_local_player(state, zone_id).ok_or(PlaybackError::ZoneNotAvailable)?;
+    let buffered_before = state
+        .apple_music_playback()
+        .buffered_audio_secs()
+        .map_err(PlaybackError::integration)?;
+    let underruns_before = state
+        .apple_music_playback()
+        .capture_underrun_count()
+        .unwrap_or_default();
+    if !state.apple_music_playback().set_capture_gate_open(false) {
+        return Ok(None);
+    }
+    info!(
+        event = "apple_music_buffered_boundary_started",
+        zone_id,
+        previous_source_key = previous.source.key(),
+        next_source_key = next.key(),
+        buffered_ms = buffered_before * 1_000.0,
+        "Switching Music.app while the listener consumes the capture tail"
+    );
+
+    activate_catalog_track_blocking(&storefront, &album_id, &song_id).await?;
+    let selected = match wait_for_music_track(&next, TRACK_ACTIVATION_TIMEOUT).await {
+        Ok(selected) => selected,
+        Err(first_error) => {
+            warn!(
+                event = "apple_music_buffered_boundary_activation_retry",
+                zone_id,
+                song_id,
+                error = %first_error,
+                "Retrying the buffered catalog activation once"
+            );
+            activate_catalog_track_blocking(&storefront, &album_id, &song_id).await?;
+            wait_for_music_track(&next, TRACK_ACTIVATION_TIMEOUT).await?
+        }
+    };
+    pause_music_blocking().await?;
+    set_music_position_blocking(0.0).await?;
+    let contextual = queue
+        .get(1)
+        .is_some_and(|following| native_apple_music_gapless_pair(&next, following));
+    let playing = restart_selected_track_with_transport(&next, contextual).await?;
+    state.apple_music_playback().set_capture_gate_open(true);
+
+    let player_position_secs = native_player_position_secs(&player);
+    if !state.apple_music_playback().promote_continuous_playback(
+        generation,
+        next.clone(),
+        player_position_secs,
+        playing.track.position_secs,
+        playing.track.duration_secs.or(selected.track.duration_secs),
+    ) {
+        return Err(PlaybackError::conflict("Playback changed"));
+    }
+    state.listening().completed_next(state.library(), zone_id);
+    spawn_native_next_prefetch(state.clone(), zone_id.to_string());
+    let underruns_after = state
+        .apple_music_playback()
+        .capture_underrun_count()
+        .unwrap_or_default();
+    if underruns_after > underruns_before {
+        warn!(
+            event = "apple_music_buffered_boundary_underrun",
+            zone_id,
+            previous_source_key = previous.source.key(),
+            next_source_key = next.key(),
+            buffered_ms = buffered_before * 1_000.0,
+            "Music.app switch outran the capture lead; live input resumed after the current-behaviour gap"
+        );
+    } else {
+        info!(
+            event = "apple_music_buffered_boundary_completed",
+            zone_id,
+            previous_source_key = previous.source.key(),
+            next_source_key = next.key(),
+            "Promoted an arbitrary same-rate Apple Music boundary without reopening Player or the DAC"
+        );
+    }
+    Ok(Some(playing))
+}
+
+async fn wait_for_music_track(
+    source: &SourceRef,
+    timeout: Duration,
+) -> Result<MusicAppSnapshot, PlaybackError> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let snapshot = music_status_blocking().await?;
+        if music_track_matches_source(&snapshot, source) {
+            return Ok(snapshot);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(PlaybackError::integration(
+                "Music.app did not select the buffered Apple Music successor.",
+            ));
+        }
+        tokio::time::sleep(TRACK_ACTIVATION_POLL).await;
+    }
 }
 
 fn promote_continuous_apple_music_boundary(
@@ -1319,14 +2028,21 @@ fn native_player_position_secs(player: &Player) -> f64 {
     }
 }
 
-fn stopped_state_is_terminal(consecutive_stopped: u8, elapsed: Duration) -> bool {
-    elapsed >= TERMINAL_STATE_STARTUP_GRACE && consecutive_stopped >= TERMINAL_STATE_CONFIRMATIONS
-}
-
 fn should_recover_startup_stall(last_position_secs: f64, already_attempted: bool) -> bool {
     !already_attempted
         && (!last_position_secs.is_finite()
             || last_position_secs <= STARTUP_STALL_POSITION_MAX_SECS)
+}
+
+fn projected_music_position(last_position_secs: f64, elapsed: Option<Duration>) -> f64 {
+    if !last_position_secs.is_finite() || last_position_secs < 0.0 {
+        return 0.0;
+    }
+    last_position_secs
+        + elapsed
+            .map(|duration| duration.as_secs_f64())
+            .filter(|seconds| seconds.is_finite())
+            .unwrap_or_default()
 }
 
 fn native_track_completed(last_position_secs: f64, duration_secs: f64) -> bool {
@@ -1334,8 +2050,8 @@ fn native_track_completed(last_position_secs: f64, duration_secs: f64) -> bool {
         && duration_secs > 0.0
         && last_position_secs.is_finite()
         && last_position_secs > 0.0
-        && (last_position_secs >= duration_secs - COMPLETION_TAIL_SECS
-            || last_position_secs / duration_secs >= 0.97)
+        && (last_position_secs >= duration_secs - 0.5
+            || last_position_secs / duration_secs >= 0.995)
 }
 
 async fn finish_native_playback(
@@ -1601,19 +2317,36 @@ async fn music_status_blocking() -> Result<MusicAppSnapshot, PlaybackError> {
         .map_err(PlaybackError::integration)
 }
 
+async fn wait_for_music_notification_blocking(timeout: Duration) {
+    let _ = tokio::task::spawn_blocking(move || wait_for_music_app_notification(timeout)).await;
+}
+
 async fn restart_selected_track_with_normal_transport(
     source: &SourceRef,
 ) -> Result<MusicAppSnapshot, PlaybackError> {
-    play_music_blocking().await?;
+    restart_selected_track_with_transport(source, false).await
+}
+
+async fn restart_selected_track_with_transport(
+    source: &SourceRef,
+    contextual: bool,
+) -> Result<MusicAppSnapshot, PlaybackError> {
+    if contextual {
+        play_current_in_context_blocking().await?;
+    } else {
+        play_current_once_blocking().await?;
+    }
     // `play` can restore Music.app's previous global player position while it
     // creates the transport. Apply the start position after that transition.
     set_music_position_blocking(0.0).await?;
     let deadline = tokio::time::Instant::now() + STARTUP_TRANSPORT_RECOVERY_TIMEOUT;
+    let mut next_position_reset = tokio::time::Instant::now() + Duration::from_millis(250);
     loop {
         let snapshot = music_status_blocking().await?;
         if snapshot.running
             && snapshot.player_state.as_deref() == Some("playing")
             && music_track_matches_source(&snapshot, source)
+            && track_position_is_at_start(&snapshot, TRACK_START_POSITION_TOLERANCE_SECS)
         {
             return Ok(snapshot);
         }
@@ -1622,8 +2355,39 @@ async fn restart_selected_track_with_normal_transport(
                 "Music.app did not restart the selected track with its normal transport.",
             ));
         }
+        if snapshot.running
+            && snapshot.player_state.as_deref() == Some("playing")
+            && music_track_matches_source(&snapshot, source)
+            && tokio::time::Instant::now() >= next_position_reset
+        {
+            warn!(
+                event = "apple_music_start_position_corrected",
+                position_secs = snapshot.track.position_secs.unwrap_or_default(),
+                "Music.app restored its global position after play; resetting the selected track to 0:00"
+            );
+            set_music_position_blocking(0.0).await?;
+            next_position_reset = tokio::time::Instant::now() + Duration::from_millis(250);
+        }
         tokio::time::sleep(TRACK_ACTIVATION_POLL).await;
     }
+}
+
+async fn activate_catalog_track_blocking(
+    storefront: &str,
+    album_id: &str,
+    song_id: &str,
+) -> Result<(), PlaybackError> {
+    let storefront = storefront.to_string();
+    let album_id = album_id.to_string();
+    let song_id = song_id.to_string();
+    tokio::task::spawn_blocking(move || activate_catalog_track(&storefront, &album_id, &song_id))
+        .await
+        .map_err(|error| {
+            PlaybackError::internal_invariant(format!(
+                "Music.app catalog activation task stopped: {error}"
+            ))
+        })?
+        .map_err(PlaybackError::integration)
 }
 
 async fn prepare_music_blocking() -> Result<(), PlaybackError> {
@@ -1742,6 +2506,43 @@ mod tests {
     }
 
     #[test]
+    fn music_metadata_match_rejects_a_same_named_track_with_wrong_duration() {
+        let mut snapshot = MusicAppSnapshot::default();
+        snapshot.running = true;
+        snapshot.track.title = Some("New Kid In Town".to_string());
+        snapshot.track.artist = Some("Eagles".to_string());
+        snapshot.track.duration_secs = Some(201.8);
+
+        assert!(!music_track_matches_source(
+            &snapshot,
+            &apple_source(Some("New Kid in Town"), Some("EAGLES"))
+        ));
+        snapshot.track.duration_secs = Some(299.2);
+        assert!(music_track_matches_source(
+            &snapshot,
+            &apple_source(Some("New Kid in Town"), Some("EAGLES"))
+        ));
+    }
+
+    #[test]
+    fn boundary_lead_uses_two_seconds_for_invalid_values_and_safe_bounds() {
+        assert_eq!(apple_music_boundary_lead_secs(f64::NAN), 2.0);
+        assert_eq!(apple_music_boundary_lead_secs(0.1), 0.5);
+        assert_eq!(apple_music_boundary_lead_secs(2.0), 2.0);
+        assert_eq!(apple_music_boundary_lead_secs(12.0), 5.0);
+    }
+
+    #[test]
+    fn terminal_completion_projects_the_last_playing_observation_to_the_stop_event() {
+        let projected = projected_music_position(198.9, Some(Duration::from_secs_f64(1.1)));
+        assert!(native_track_completed(projected, 200.0));
+        assert!(!native_track_completed(
+            projected_music_position(80.0, Some(Duration::from_secs_f64(1.1))),
+            200.0
+        ));
+    }
+
+    #[test]
     fn native_gapless_pair_requires_the_next_track_from_the_same_apple_album() {
         let current = apple_source(Some("New Kid in Town"), Some("Eagles"));
         let mut next = apple_source(Some("Life in the Fast Lane"), Some("Eagles"));
@@ -1807,8 +2608,9 @@ mod tests {
 
     #[test]
     fn terminal_music_state_uses_retained_near_end_position_as_completion() {
-        assert!(native_track_completed(296.5, 300.0));
-        assert!(native_track_completed(291.0, 300.0));
+        assert!(native_track_completed(299.5, 300.0));
+        assert!(native_track_completed(299.0, 300.0));
+        assert!(!native_track_completed(296.5, 300.0));
         assert!(!native_track_completed(280.0, 300.0));
         assert!(!native_track_completed(0.0, 300.0));
         assert!(!native_track_completed(296.5, 0.0));
@@ -1838,22 +2640,6 @@ mod tests {
         assert!(local_player_output_is_ready(PlaybackState::Playing));
         assert!(!local_player_output_is_ready(PlaybackState::Paused));
         assert!(!local_player_output_is_ready(PlaybackState::Stopped));
-    }
-
-    #[test]
-    fn terminal_music_state_requires_grace_and_consecutive_observations() {
-        assert!(!stopped_state_is_terminal(
-            TERMINAL_STATE_CONFIRMATIONS,
-            TERMINAL_STATE_STARTUP_GRACE - Duration::from_millis(1)
-        ));
-        assert!(!stopped_state_is_terminal(
-            TERMINAL_STATE_CONFIRMATIONS - 1,
-            TERMINAL_STATE_STARTUP_GRACE
-        ));
-        assert!(stopped_state_is_terminal(
-            TERMINAL_STATE_CONFIRMATIONS,
-            TERMINAL_STATE_STARTUP_GRACE
-        ));
     }
 
     #[test]

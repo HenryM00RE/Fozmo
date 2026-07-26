@@ -4,7 +4,7 @@ use super::live_source::{
     CaptureFlow, CaptureProducer, LIVE_CHANNELS, LiveCaptureSource, live_capture_ring,
     ring_capacity_samples,
 };
-use crate::audio::player::{Player, TrackTags};
+use crate::audio::player::{Player, PreparedStream, TrackTags};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, StreamConfig};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -101,6 +101,63 @@ pub(super) struct LiveSession {
     player_epoch: u64,
 }
 
+/// A capture worker and fully probed live decoder that have not replaced the
+/// Player's outgoing session yet. The capture ring can accumulate Apple Music
+/// PCM while Qobuz/local audio continues through the already-open output.
+pub(super) struct PreparedLiveSession {
+    shutdown: Arc<AtomicBool>,
+    _worker: CaptureWorker,
+    rate_hz: u32,
+    flow: Arc<CaptureFlow>,
+    prepared_stream: PreparedStream,
+}
+
+impl PreparedLiveSession {
+    pub(super) fn buffered_audio_secs(&self) -> f64 {
+        self.flow.buffered_frames() as f64 / f64::from(self.rate_hz.max(1))
+    }
+
+    pub(super) fn set_capture_gate_open(&self, open: bool) {
+        self.flow.set_capture_gate_open(open);
+    }
+
+    pub(super) fn activate(
+        self,
+        player: &Arc<Player>,
+        expected_epoch: u64,
+        source_bit_depth: Option<u32>,
+        preserve_output: bool,
+    ) -> Result<LiveSession, String> {
+        let Self {
+            shutdown,
+            _worker,
+            rate_hz,
+            flow,
+            prepared_stream,
+        } = self;
+        let tags = live_track_tags(rate_hz, source_bit_depth);
+        if !player.play_prepared_stream_if_epoch(
+            expected_epoch,
+            prepared_stream,
+            LIVE_DISPLAY_NAME.to_string(),
+            None,
+            Some(tags),
+            Vec::new(),
+            preserve_output,
+        ) {
+            shutdown.store(true, Ordering::Release);
+            return Err("Playback changed before the prepared Apple Music handoff.".to_string());
+        }
+        Ok(LiveSession {
+            shutdown,
+            _worker,
+            rate_hz,
+            flow,
+            player_epoch: player.playback_epoch(),
+        })
+    }
+}
+
 impl LiveSession {
     pub(super) fn player_epoch(&self) -> u64 {
         self.player_epoch
@@ -108,6 +165,14 @@ impl LiveSession {
 
     pub(super) fn buffered_audio_secs(&self) -> f64 {
         self.flow.buffered_frames() as f64 / f64::from(self.rate_hz.max(1))
+    }
+
+    pub(super) fn set_capture_gate_open(&self, open: bool) {
+        self.flow.set_capture_gate_open(open);
+    }
+
+    pub(super) fn capture_underrun_count(&self) -> u64 {
+        self.flow.underrun_count()
     }
 }
 
@@ -126,6 +191,9 @@ pub(super) fn start_live_session(
     let (producer, consumer) = live_capture_ring(capacity);
     let shutdown = Arc::new(AtomicBool::new(false));
     let flow = Arc::new(CaptureFlow::default());
+    // A new live source must not admit Music.app navigation, paused transport,
+    // or stale audio before its caller confirms the requested track at 0:00.
+    flow.set_capture_gate_open(false);
 
     let device_name = params.device_name.clone();
     let rate_hz = params.rate_hz;
@@ -141,14 +209,7 @@ pub(super) fn start_live_session(
         Arc::clone(&flow),
     );
     let source_bit_depth = source_bit_depth_for_tags(params.source_bit_depth);
-    let tags = TrackTags {
-        title: Some(LIVE_DISPLAY_NAME.to_string()),
-        artist: Some("Apple Music".to_string()),
-        sample_rate: Some(params.rate_hz),
-        channels: Some(LIVE_CHANNELS),
-        bits_per_sample: Some(source_bit_depth),
-        ..TrackTags::default()
-    };
+    let tags = live_track_tags(params.rate_hz, Some(source_bit_depth));
     let epoch = player.reserve_playback_change();
     let started = if start_paused {
         player.play_stream_paused_if_epoch(
@@ -182,6 +243,53 @@ pub(super) fn start_live_session(
         flow,
         player_epoch: player.playback_epoch(),
     })
+}
+
+pub(super) fn prepare_live_session(
+    player: &Arc<Player>,
+    params: &LiveSessionParams,
+) -> Result<PreparedLiveSession, String> {
+    let capacity = ring_capacity_samples(params.rate_hz, params.buffer_ms);
+    let (producer, consumer) = live_capture_ring(capacity);
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let flow = Arc::new(CaptureFlow::default());
+    // Until the requested track is confirmed playing at 0:00, discard
+    // catalog-navigation audio instead of admitting it to the prepared ring.
+    flow.set_capture_gate_open(false);
+
+    let device_name = params.device_name.clone();
+    let rate_hz = params.rate_hz;
+    let worker_flow = Arc::clone(&flow);
+    let worker = spawn_capture_worker("fozmo-capture-prepared", move || {
+        open_fozmo_capture_stream(&device_name, rate_hz, producer, worker_flow)
+    })?;
+    let source = LiveCaptureSource::new_with_flow(
+        params.rate_hz,
+        consumer,
+        Arc::clone(&shutdown),
+        Arc::clone(&flow),
+    );
+    let prepared_stream = player
+        .prepare_stream(Box::new(source), Some("wav".to_string()), None)
+        .map_err(|error| format!("Could not prepare Apple Music live decoder: {error}"))?;
+    Ok(PreparedLiveSession {
+        shutdown,
+        _worker: worker,
+        rate_hz: params.rate_hz,
+        flow,
+        prepared_stream,
+    })
+}
+
+fn live_track_tags(rate_hz: u32, source_bit_depth: Option<u32>) -> TrackTags {
+    TrackTags {
+        title: Some(LIVE_DISPLAY_NAME.to_string()),
+        artist: Some("Apple Music".to_string()),
+        sample_rate: Some(rate_hz),
+        channels: Some(LIVE_CHANNELS),
+        bits_per_sample: Some(source_bit_depth_for_tags(source_bit_depth)),
+        ..TrackTags::default()
+    }
 }
 
 fn source_bit_depth_for_tags(source_bit_depth: Option<u32>) -> u32 {
@@ -224,6 +332,10 @@ pub(super) fn open_fozmo_capture_stream(
         .build_input_stream(
             &config,
             move |data: &[f32], _| {
+                if !flow.capture_gate_open() {
+                    flow.record_dropped(data.len() / channels);
+                    return;
+                }
                 let pushed = producer.push_slice(data);
                 flow.record_enqueued(pushed / channels);
             },
@@ -245,7 +357,8 @@ pub(super) fn open_fozmo_capture_stream(
 
 #[cfg(test)]
 mod tests {
-    use super::source_bit_depth_for_tags;
+    use super::{CaptureFlow, source_bit_depth_for_tags};
+    use std::sync::Arc;
 
     #[test]
     fn live_source_reports_detected_precision_not_float_container_width() {
@@ -253,5 +366,18 @@ mod tests {
         assert_eq!(source_bit_depth_for_tags(Some(16)), 16);
         assert_eq!(source_bit_depth_for_tags(None), 32);
         assert_eq!(source_bit_depth_for_tags(Some(20)), 32);
+    }
+
+    #[test]
+    fn gated_capture_writer_drops_whole_frames_without_advancing_lead() {
+        let flow = Arc::new(CaptureFlow::default());
+        flow.set_capture_gate_open(false);
+        let channels = usize::from(super::LIVE_CHANNELS);
+        let data = [0.25_f32; 16];
+        if !flow.capture_gate_open() {
+            flow.record_dropped(data.len() / channels);
+        }
+        assert_eq!(flow.buffered_frames(), 0);
+        assert_eq!(flow.dropped_frames(), 8);
     }
 }

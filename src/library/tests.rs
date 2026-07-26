@@ -5402,6 +5402,16 @@ fn verified_playback_format_replaces_the_advertised_apple_music_tier() {
             Some(24),
         )
         .unwrap();
+    assert_eq!(
+        library
+            .apple_music_track_verified_format("apple-human-behaviour")
+            .unwrap(),
+        Some(AppleMusicVerifiedFormat {
+            codec: "ALAC".to_string(),
+            sample_rate: 96_000,
+            bit_depth: Some(24),
+        })
+    );
 
     let stamped = library
         .album_versions(album_id)

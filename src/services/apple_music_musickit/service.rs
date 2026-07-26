@@ -11,6 +11,9 @@ use super::source_format::{
 };
 use async_trait::async_trait;
 use rand::{RngCore, rngs::OsRng};
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{
     Arc, Mutex,
@@ -398,15 +401,51 @@ impl AppleMusicService {
                 true,
             )
         })?;
+        let helper_app = helper_app_bundle_path(&canonical_helper).ok_or_else(|| {
+            error(
+                "helper_missing",
+                "The Fozmo Apple Music helper is not inside a valid app bundle.",
+                false,
+                "launching_helper",
+                true,
+            )
+        })?;
+        let bootstrap_path =
+            write_helper_bootstrap(&self.runtime_root, &socket_path, &token, &session_id).map_err(
+                |_| {
+                    cleanup_socket(&socket_path);
+                    error(
+                        "helper_launch_failed",
+                        "Fozmo could not create the private Apple Music launch record.",
+                        true,
+                        "launching_helper",
+                        true,
+                    )
+                },
+            )?;
 
-        let mut child = Command::new(canonical_helper)
-            .env("FOZMO_APPLE_MUSIC_SOCKET", &socket_path)
-            .env("FOZMO_APPLE_MUSIC_TOKEN", &token)
-            .env("FOZMO_APPLE_MUSIC_SESSION_ID", &session_id)
+        // Launch through LaunchServices so macOS associates the process with
+        // the signed bundle's Info.plist and MusicKit App ID. Executing the
+        // Mach-O inside Contents/MacOS directly makes TCC treat it as an
+        // unbundled process and abort authorization even though the bundle
+        // contains NSAppleMusicUsageDescription. Pass only a protected
+        // bootstrap-file path on `open`'s command line; putting the random
+        // launch token in `--env` would expose it through the process list.
+        let mut child = Command::new("/usr/bin/open")
+            .arg("-W")
+            .arg("-n")
+            .arg("-g")
+            .arg("--env")
+            .arg(format!(
+                "FOZMO_APPLE_MUSIC_BOOTSTRAP={}",
+                bootstrap_path.to_string_lossy()
+            ))
+            .arg(helper_app)
             .kill_on_drop(true)
             .spawn()
             .map_err(|_| {
                 cleanup_socket(&socket_path);
+                cleanup_bootstrap(&bootstrap_path);
                 error(
                     "helper_launch_failed",
                     "Fozmo could not launch the Apple Music helper.",
@@ -415,26 +454,25 @@ impl AppleMusicService {
                     true,
                 )
             })?;
-        let launched_pid = match child.id() {
-            Some(pid) => pid,
-            None => {
-                let _ = child.kill().await;
-                cleanup_socket(&socket_path);
-                let failure = error(
-                    "helper_launch_failed",
-                    "The Apple Music helper launched without a process identifier.",
-                    true,
-                    "launching_helper",
-                    true,
-                );
-                self.record_error(failure.clone());
-                return Err(failure);
-            }
-        };
+        if child.id().is_none() {
+            let _ = child.kill().await;
+            cleanup_socket(&socket_path);
+            cleanup_bootstrap(&bootstrap_path);
+            let failure = error(
+                "helper_launch_failed",
+                "The Apple Music helper launched without a process identifier.",
+                true,
+                "launching_helper",
+                true,
+            );
+            self.record_error(failure.clone());
+            return Err(failure);
+        }
 
         let (mut stream, _) = match timeout(HELPER_CONNECT_TIMEOUT, listener.accept()).await {
             Ok(Ok(connection)) => connection,
             _ => {
+                cleanup_bootstrap(&bootstrap_path);
                 let child_state = match child.try_wait() {
                     Ok(Some(status)) => format!("exited ({status})"),
                     Ok(None) => "still running".to_string(),
@@ -458,6 +496,7 @@ impl AppleMusicService {
                 return Err(failure);
             }
         };
+        cleanup_bootstrap(&bootstrap_path);
         let hello: HelperMessage =
             match timeout(HELPER_CONNECT_TIMEOUT, read_json_frame(&mut stream)).await {
                 Ok(Ok(hello)) => hello,
@@ -475,11 +514,12 @@ impl AppleMusicService {
                     return Err(failure);
                 }
             };
+        let launched_pid = hello.pid.filter(|pid| *pid > 0);
         if hello.v != PROTOCOL_VERSION
             || hello.message_type != "hello"
             || hello.session_id.as_deref() != Some(session_id.as_str())
             || hello.token.as_deref() != Some(token.as_str())
-            || hello.pid != Some(launched_pid)
+            || launched_pid.is_none()
             || hello.bundle_id.as_deref() != Some(EXPECTED_HELPER_BUNDLE_ID)
         {
             let _ = child.kill().await;
@@ -494,6 +534,7 @@ impl AppleMusicService {
             self.record_error(failure.clone());
             return Err(failure);
         }
+        let launched_pid = launched_pid.expect("validated helper PID");
 
         let mut accept =
             HelperMessage::command("cmd-accept".to_string(), "accept", session_id.clone());
@@ -973,6 +1014,42 @@ fn helper_executable_path(resource_dir: &Path) -> PathBuf {
         .join("Contents")
         .join("MacOS")
         .join(HELPER_EXECUTABLE)
+}
+
+fn helper_app_bundle_path(helper_executable: &Path) -> Option<&Path> {
+    let app = helper_executable.parent()?.parent()?.parent()?;
+    (app.extension().and_then(|extension| extension.to_str()) == Some("app")
+        && app.join("Contents/Info.plist").is_file())
+    .then_some(app)
+}
+
+fn write_helper_bootstrap(
+    runtime_root: &Path,
+    socket_path: &Path,
+    token: &str,
+    session_id: &str,
+) -> Result<PathBuf, std::io::Error> {
+    let path = runtime_root.join(format!("am-{}.bootstrap.json", random_hex(6)));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)?;
+    serde_json::to_writer(
+        &mut file,
+        &serde_json::json!({
+            "socketPath": socket_path,
+            "token": token,
+            "sessionID": session_id,
+        }),
+    )
+    .map_err(std::io::Error::other)?;
+    file.flush()?;
+    Ok(path)
+}
+
+fn cleanup_bootstrap(path: &Path) {
+    let _ = std::fs::remove_file(path);
 }
 
 fn cleanup_socket(socket_path: &Path) {

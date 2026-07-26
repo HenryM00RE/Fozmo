@@ -74,6 +74,10 @@ pub struct AppleMusicPlaybackSettings {
     pub output_device_name: Option<String>,
     #[serde(default = "default_apple_music_buffer_ms")]
     pub buffer_ms: u32,
+    /// PCM lead retained in Fozmo Capture while Apple switches decoders at a
+    /// boundary it cannot advance internally.
+    #[serde(default = "default_apple_music_boundary_lead_secs")]
+    pub boundary_lead_secs: f64,
 }
 
 impl Default for AppleMusicPlaybackSettings {
@@ -82,6 +86,7 @@ impl Default for AppleMusicPlaybackSettings {
             enabled: false,
             output_device_name: None,
             buffer_ms: default_apple_music_buffer_ms(),
+            boundary_lead_secs: default_apple_music_boundary_lead_secs(),
         }
     }
 }
@@ -159,6 +164,10 @@ fn default_remote_access_port() -> u16 {
 
 fn default_apple_music_buffer_ms() -> u32 {
     250
+}
+
+fn default_apple_music_boundary_lead_secs() -> f64 {
+    2.0
 }
 
 fn default_hegel_port() -> u16 {

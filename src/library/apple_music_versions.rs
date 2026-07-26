@@ -70,6 +70,34 @@ impl Library {
         apple_music_album_verified_format(&conn, album_id)
     }
 
+    /// The last decoder format verified for one catalog song.
+    pub fn apple_music_track_verified_format(
+        &self,
+        song_id: &str,
+    ) -> Result<Option<AppleMusicVerifiedFormat>, String> {
+        let song_id = song_id.trim();
+        if song_id.is_empty() {
+            return Ok(None);
+        }
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT codec, sample_rate, bit_depth
+             FROM apple_music_track_formats
+             WHERE song_id = ?1
+             LIMIT 1",
+            [song_id],
+            |row| {
+                Ok(AppleMusicVerifiedFormat {
+                    codec: row.get(0)?,
+                    sample_rate: row.get(1)?,
+                    bit_depth: row.get(2)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|error| format!("Apple Music verified track format: {error}"))
+    }
+
     /// Every catalog song on the album whose format Fozmo has verified, keyed
     /// by song ID.
     pub fn apple_music_track_verified_formats(
