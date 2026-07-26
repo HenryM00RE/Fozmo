@@ -193,9 +193,10 @@ fn validate_catalog_component(label: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Answer from the in-process running-application list. Playback start and the
-/// transport monitor both poll `status` several times per second, so this must
-/// not fork a helper process.
+/// Answer from the kernel's process table. Playback start and the transport
+/// monitor both poll `status` several times per second, so this must not fork a
+/// helper process, and it must not consult `NSWorkspace`, whose cached
+/// running-application list goes stale in a process that never pumps a run loop.
 fn music_app_running() -> bool {
     pid().is_some()
 }
@@ -298,6 +299,22 @@ fn parse_number(value: Option<&str>) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Playback aborts with "Music.app quit" the moment this disagrees with
+    /// reality, so check it against the process table rather than against a
+    /// fixed expectation: this holds whether or not Music.app is running here.
+    #[test]
+    fn music_app_liveness_agrees_with_the_process_table() {
+        let running_per_pgrep = Command::new("/usr/bin/pgrep")
+            .args(["-x", "Music"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+
+        assert_eq!(music_app_running(), running_per_pgrep);
+        assert_eq!(pid().is_some(), running_per_pgrep);
+    }
 
     #[test]
     fn parses_music_status_with_timeline() {

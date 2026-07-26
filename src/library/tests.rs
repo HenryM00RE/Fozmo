@@ -5140,6 +5140,7 @@ fn apple_music_album_version_links_recordings_and_resolves_playback() {
             isrc: Some(format!("GBAQT940000{track_number}")),
             artwork_url: None,
             audio_variants: vec!["lossless".to_string()],
+            verified_format: None,
         };
     let apple_album = AppleCatalogAlbum {
         album_id: "apple-album-1".to_string(),
@@ -5151,6 +5152,7 @@ fn apple_music_album_version_links_recordings_and_resolves_playback() {
         artwork_url: Some("https://example.invalid/art/{w}x{h}.jpg".to_string()),
         editorial_notes_standard: Some("Apple Music editorial notes.".to_string()),
         audio_variants: vec!["lossless".to_string()],
+        verified_format: None,
         tracks: vec![
             song("apple-song-1", "Mysterons", 1, 305.0),
             song("apple-song-2", "Sour Times", 2, 251.0),
@@ -5311,6 +5313,136 @@ fn apple_music_album_version_links_recordings_and_resolves_playback() {
 
 #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
 #[test]
+fn verified_playback_format_replaces_the_advertised_apple_music_tier() {
+    let library = test_library("apple-music-verified-format");
+    let now = now_secs();
+    let album_id = {
+        let conn = library.conn.lock().unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO albums (
+                title, album_artist, sort_key, year, confidence, match_status,
+                track_count, created_at, updated_at
+            )
+            VALUES ('Debut', 'Björk', 'bjork|debut', 1993, 100, 'matched', 1, ?1, ?1)
+            "#,
+            [now],
+        )
+        .unwrap();
+        let album_id = conn.last_insert_rowid();
+        conn.execute(
+            r#"
+            INSERT INTO tracks (
+                path, file_name, size_bytes, modified_secs, title, artist,
+                album, album_artist, track_number, disc_number, duration_secs,
+                sample_rate, bit_depth, format, album_id, embedded_art,
+                created_at, updated_at
+            )
+            VALUES ('/tmp/apple-verified/1.flac', '01 Human Behaviour.flac', 1, 1,
+                    'Human Behaviour', 'Björk', 'Debut', 'Björk', 1, 1, 313.0,
+                    44100, 16, 'FLAC', ?1, 0, ?2, ?2)
+            "#,
+            params![album_id, now],
+        )
+        .unwrap();
+        album_id
+    };
+    let apple_album = AppleCatalogAlbum {
+        album_id: "apple-debut".to_string(),
+        storefront: "nz".to_string(),
+        title: "Debut".to_string(),
+        artist: "Björk".to_string(),
+        upc: None,
+        release_date: Some("1993-07-05".to_string()),
+        artwork_url: None,
+        editorial_notes_standard: None,
+        // MusicKit has emitted the enum's leading dot on album payloads.
+        audio_variants: vec![".highResolutionLossless".to_string()],
+        verified_format: None,
+        tracks: vec![AppleCatalogSong {
+            song_id: "apple-human-behaviour".to_string(),
+            storefront: "nz".to_string(),
+            album_id: Some("apple-debut".to_string()),
+            title: "Human Behaviour".to_string(),
+            artist: "Björk".to_string(),
+            album_title: Some("Debut".to_string()),
+            album_artist: Some("Björk".to_string()),
+            duration_secs: Some(313.0),
+            track_number: Some(1),
+            disc_number: Some(1),
+            isrc: None,
+            artwork_url: None,
+            audio_variants: vec!["lossless".to_string()],
+            verified_format: None,
+        }],
+    };
+
+    let version = library
+        .link_apple_music_album(album_id, &apple_album)
+        .unwrap()
+        .unwrap();
+    // Apple publishes no rate, so the version carries only what it advertises.
+    assert_eq!(version.sample_rate, None);
+    assert_eq!(version.bit_depth, None);
+    assert_eq!(version.format.as_deref(), Some("Apple Music"));
+    assert!(
+        version
+            .audio_variants
+            .contains(&".highResolutionLossless".to_string()),
+        "the advertised tier must reach the UI so it can say Hi-Res Lossless"
+    );
+
+    library
+        .record_apple_music_track_format(
+            "apple-human-behaviour",
+            Some("apple-debut"),
+            Some("nz"),
+            "ALAC",
+            96_000,
+            Some(24),
+        )
+        .unwrap();
+
+    let stamped = library
+        .album_versions(album_id)
+        .unwrap()
+        .into_iter()
+        .find(|version| version.provider == "apple_music")
+        .expect("linked Apple Music version");
+    assert_eq!(stamped.format.as_deref(), Some("ALAC"));
+    assert_eq!(stamped.sample_rate, Some(96_000));
+    assert_eq!(stamped.bit_depth, Some(24));
+
+    // A second track that verifies lower must not downgrade the album stamp.
+    library
+        .record_apple_music_track_format(
+            "apple-venus-as-a-boy",
+            Some("apple-debut"),
+            Some("nz"),
+            "ALAC",
+            44_100,
+            Some(24),
+        )
+        .unwrap();
+    assert_eq!(
+        library
+            .apple_music_album_verified_format("apple-debut")
+            .unwrap()
+            .map(|format| format.sample_rate),
+        Some(96_000)
+    );
+    assert_eq!(
+        library
+            .apple_music_track_verified_formats("apple-debut")
+            .unwrap()
+            .get("apple-venus-as-a-boy")
+            .map(|format| format.sample_rate),
+        Some(44_100)
+    );
+}
+
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+#[test]
 fn apple_music_expanded_multidisc_album_is_a_safe_complete_match() {
     let library = test_library("apple-music-expanded-multidisc-match");
     let now = now_secs();
@@ -5373,6 +5505,7 @@ fn apple_music_expanded_multidisc_album_is_a_safe_complete_match() {
         artwork_url: None,
         editorial_notes_standard: None,
         audio_variants: vec!["lossless".to_string()],
+        verified_format: None,
         tracks: [
             (1, 1, "Brakhage", 318.0),
             (1, 2, "Miss Modular", 269.0),
@@ -5396,6 +5529,7 @@ fn apple_music_expanded_multidisc_album_is_a_safe_complete_match() {
                 isrc: None,
                 artwork_url: None,
                 audio_variants: vec!["lossless".to_string()],
+                verified_format: None,
             },
         )
         .collect(),
@@ -5487,6 +5621,7 @@ fn apple_music_live_suffixes_and_format_specific_upc_still_auto_match() {
         artwork_url: None,
         editorial_notes_standard: None,
         audio_variants: vec!["lossless".to_string()],
+        verified_format: None,
         tracks: [
             (1, "2 + 2 = 5 (Live)", 216.165),
             (2, "Sit Down. Stand Up (Live)", 251.738),
@@ -5507,6 +5642,7 @@ fn apple_music_live_suffixes_and_format_specific_upc_still_auto_match() {
             isrc: None,
             artwork_url: None,
             audio_variants: vec!["lossless".to_string()],
+            verified_format: None,
         })
         .collect(),
     };
@@ -5597,6 +5733,7 @@ fn apple_music_base_edition_can_match_local_edition_with_one_bonus_track() {
         artwork_url: None,
         editorial_notes_standard: None,
         audio_variants: vec!["lossless".to_string()],
+        verified_format: None,
         tracks: base_tracks
             .into_iter()
             .map(|(track_number, title, duration_secs)| AppleCatalogSong {
@@ -5613,6 +5750,7 @@ fn apple_music_base_edition_can_match_local_edition_with_one_bonus_track() {
                 isrc: None,
                 artwork_url: None,
                 audio_variants: vec!["lossless".to_string()],
+                verified_format: None,
             })
             .collect(),
     };

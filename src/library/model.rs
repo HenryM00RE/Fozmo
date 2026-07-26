@@ -582,6 +582,11 @@ pub struct AlbumVersionSummary {
     pub source_label: Option<String>,
     pub image_url: Option<String>,
     pub storefront: Option<String>,
+    /// Apple Music only. The catalog's coarse quality advertisement, used for a
+    /// "Lossless"/"Hi-Res Lossless" label until playback verifies the real
+    /// decoder format and fills in `format`/`sample_rate`/`bit_depth`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audio_variants: Vec<String>,
     pub status: String,
     pub is_primary: bool,
     pub musicbrainz_match_status: Option<String>,

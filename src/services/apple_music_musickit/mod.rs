@@ -9,7 +9,7 @@ mod source_format;
 pub(crate) use model::{
     AppleCatalogAlbum, AppleCatalogSearchResult, AppleCatalogSong, AppleMusicAlbumVersionRequest,
     AppleMusicAuthorizeRequest, AppleMusicCatalogQuery, AppleMusicCatalogSearchQuery,
-    AppleMusicMvpError, AppleMusicMvpStatus, AppleMusicPlayRequest,
+    AppleMusicMvpError, AppleMusicMvpStatus, AppleMusicPlayRequest, AppleVerifiedFormat,
 };
 pub(crate) use music_app::{
     MusicAppSnapshot, activate_catalog_track, pause as pause_music_app, play as play_music_app,

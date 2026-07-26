@@ -8,6 +8,27 @@ use std::collections::{HashMap, HashSet};
 
 type LocalVersionAlbumRow = (i64, String, Option<String>, Option<i32>, i64, Option<i64>);
 
+/// Apple's catalog cannot report a track's real rate, so an Apple Music version
+/// carries only its advertised variant until playback verifies Music.app's
+/// decoder. Once it has, report the same format triple as every other provider.
+fn stamp_apple_music_version(
+    conn: &Connection,
+    version: &mut AlbumVersionSummary,
+) -> Result<(), String> {
+    if version.provider != "apple_music" {
+        return Ok(());
+    }
+    let Some(verified) =
+        super::provider_versions::apple_music_album_verified_format(conn, &version.provider_id)?
+    else {
+        return Ok(());
+    };
+    version.format = Some(verified.codec);
+    version.sample_rate = Some(verified.sample_rate);
+    version.bit_depth = verified.bit_depth;
+    Ok(())
+}
+
 impl Library {
     pub fn album_versions(&self, album_id: i64) -> Result<Vec<AlbumVersionSummary>, String> {
         let conn = self.conn.lock().unwrap();
@@ -24,7 +45,8 @@ impl Library {
                        CASE WHEN v.provider = 'apple_music'
                             THEN json_extract(v.payload_json, '$.artwork_url') END,
                        CASE WHEN v.provider = 'apple_music'
-                            THEN json_extract(v.payload_json, '$.storefront') END
+                            THEN json_extract(v.payload_json, '$.storefront') END,
+                       CASE WHEN v.provider = 'apple_music' THEN v.payload_json END
                 FROM album_versions v
                 JOIN albums a ON a.id = v.album_id
                 WHERE v.album_id = ?1
@@ -46,10 +68,14 @@ impl Library {
                 "#,
             )
             .map_err(|e| format!("album versions: {e}"))?;
-        collect_rows(
+        let mut versions = collect_rows(
             stmt.query_map([album_id], album_version_from_row)
                 .map_err(|e| format!("album versions map: {e}"))?,
-        )
+        )?;
+        for version in &mut versions {
+            stamp_apple_music_version(&conn, version)?;
+        }
+        Ok(versions)
     }
 
     pub fn set_primary_version(

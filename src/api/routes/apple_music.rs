@@ -136,12 +136,45 @@ async fn lookup_album(
     Path(album_id): Path<String>,
     Query(query): Query<AppleMusicCatalogQuery>,
 ) -> Result<Json<AppleCatalogAlbum>, (StatusCode, Json<AppleMusicMvpError>)> {
-    state
+    let album = state
         .apple_music()
         .lookup_album(album_id, query.storefront)
         .await
-        .map(Json)
-        .map_err(api_error)
+        .map_err(api_error)?;
+    Ok(Json(with_verified_formats(&state, album)))
+}
+
+/// Apple's catalog cannot report a track's real rate, so replace the advertised
+/// tier with the decoder format Fozmo verified the last time each track played.
+/// Only this response is enriched: the payload stored when an album version is
+/// linked must stay a faithful copy of the catalog.
+fn with_verified_formats(state: &AppState, mut album: AppleCatalogAlbum) -> AppleCatalogAlbum {
+    let library = state.library();
+    album.verified_format = library
+        .apple_music_album_verified_format(&album.album_id)
+        .ok()
+        .flatten()
+        .map(verified_format_payload);
+    let Ok(by_song) = library.apple_music_track_verified_formats(&album.album_id) else {
+        return album;
+    };
+    for track in &mut album.tracks {
+        track.verified_format = by_song
+            .get(&track.song_id)
+            .cloned()
+            .map(verified_format_payload);
+    }
+    album
+}
+
+fn verified_format_payload(
+    format: crate::library::AppleMusicVerifiedFormat,
+) -> crate::services::apple_music_musickit::AppleVerifiedFormat {
+    crate::services::apple_music_musickit::AppleVerifiedFormat {
+        codec: format.codec,
+        sample_rate: format.sample_rate,
+        bit_depth: format.bit_depth,
+    }
 }
 
 async fn preview_album_version(

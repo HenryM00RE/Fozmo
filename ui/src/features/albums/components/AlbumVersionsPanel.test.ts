@@ -30,21 +30,23 @@ describe('album version hierarchy', () => {
     ]);
   });
 
-  it('shows one Lossless row without Apple management controls or authorization banners', () => {
+  const appleVersion = (extra: JsonRecord = {}) =>
+    ({
+      id: 4,
+      provider: 'apple_music',
+      source_label: 'Apple Music',
+      title: 'In Rainbows',
+      artist: 'Radiohead',
+      year: 2007,
+      track_count: 10,
+      is_primary: false,
+      ...extra
+    }) as JsonRecord;
+
+  const renderVersions = (versions: JsonRecord[]) =>
     render(
       createElement(AlbumVersionsPanel, {
-        versions: [
-          {
-            id: 4,
-            provider: 'apple_music',
-            source_label: 'Apple Music',
-            title: 'In Rainbows',
-            artist: 'Radiohead',
-            year: 2007,
-            track_count: 10,
-            is_primary: false
-          }
-        ],
+        versions,
         fallbackAlbum: null,
         fallbackTracks: [],
         viewingVersionId: 'another-version',
@@ -52,10 +54,31 @@ describe('album version hierarchy', () => {
       })
     );
 
-    expect(screen.getAllByText('Lossless')).toHaveLength(2);
+  it('names the source in the kicker and the advertised tier in the quality column', () => {
+    renderVersions([appleVersion({ audio_variants: ['.highResolutionLossless'] })]);
+
+    // The kicker says where the version came from, not how good it is.
+    expect(screen.getByText('Apple Music')).toBeInTheDocument();
+    expect(screen.getByText('Hi-Res Lossless')).toBeInTheDocument();
     expect(screen.queryByLabelText('Apple Music version options')).not.toBeInTheDocument();
     expect(
       screen.queryByText('Authorize Apple Music before using the catalog.')
     ).not.toBeInTheDocument();
+  });
+
+  it('replaces the advertised tier once playback has verified the real format', () => {
+    renderVersions([
+      appleVersion({
+        audio_variants: ['.highResolutionLossless'],
+        format: 'ALAC',
+        sample_rate: 96_000,
+        bit_depth: 24
+      })
+    ]);
+
+    expect(screen.getByText('ALAC 96.0kHz 24bit')).toBeInTheDocument();
+    expect(screen.queryByText('Hi-Res Lossless')).not.toBeInTheDocument();
+    // The kicker still names the source.
+    expect(screen.getByText('Apple Music')).toBeInTheDocument();
   });
 });

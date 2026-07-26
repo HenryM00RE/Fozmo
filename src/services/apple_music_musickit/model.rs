@@ -31,6 +31,20 @@ pub(crate) struct AppleCatalogSong {
     /// on MusicKit's active variant because availability is not selection.
     #[serde(default)]
     pub audio_variants: Vec<String>,
+    /// Filled in by Fozmo rather than by Apple. Absent until a track has played.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified_format: Option<AppleVerifiedFormat>,
+}
+
+/// The decoder format Fozmo verified while this catalog item actually played.
+/// Apple publishes only a coarse quality tier, so an exact rate and depth can
+/// come from nowhere else.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub(crate) struct AppleVerifiedFormat {
+    pub codec: String,
+    pub sample_rate: i64,
+    #[serde(default)]
+    pub bit_depth: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -81,6 +95,10 @@ pub(crate) struct AppleCatalogAlbum {
     pub editorial_notes_standard: Option<String>,
     #[serde(default)]
     pub audio_variants: Vec<String>,
+    /// Best format Fozmo has verified across this album's played tracks.
+    /// Filled in by Fozmo rather than by Apple, and absent until one has played.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verified_format: Option<AppleVerifiedFormat>,
     #[serde(default)]
     pub tracks: Vec<AppleCatalogSong>,
 }

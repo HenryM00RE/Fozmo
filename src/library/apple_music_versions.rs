@@ -1,6 +1,7 @@
 use super::matching::pair_tracks;
 use super::provider_versions::{
-    ExternalAlbumVersionInput, ExternalTrackPairing, ExternalVersionTrackInput,
+    AppleMusicVerifiedFormat, ExternalAlbumVersionInput, ExternalTrackPairing,
+    ExternalVersionTrackInput, apple_music_album_verified_format,
     assign_recording_ids_for_external_version, external_album_version_by_provider_id,
     external_version_tracks, rebuild_external_track_links, upsert_external_album_version,
     upsert_external_version_tracks,
@@ -11,9 +12,110 @@ use super::{
 };
 use crate::services::apple_music_musickit::{AppleCatalogAlbum, AppleCatalogSong};
 use rusqlite::{OptionalExtension, params};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 const PROVIDER: &str = "apple_music";
+
+impl Library {
+    /// Remember what Music.app's decoder reported for one catalog song.
+    pub fn record_apple_music_track_format(
+        &self,
+        song_id: &str,
+        album_id: Option<&str>,
+        storefront: Option<&str>,
+        codec: &str,
+        sample_rate: u32,
+        bit_depth: Option<u32>,
+    ) -> Result<(), String> {
+        let song_id = song_id.trim();
+        if song_id.is_empty() || sample_rate == 0 {
+            return Ok(());
+        }
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO apple_music_track_formats (
+                song_id, album_id, storefront, codec, sample_rate, bit_depth, observed_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            ON CONFLICT(song_id) DO UPDATE SET
+                album_id = COALESCE(excluded.album_id, album_id),
+                storefront = COALESCE(excluded.storefront, storefront),
+                codec = excluded.codec,
+                sample_rate = excluded.sample_rate,
+                bit_depth = excluded.bit_depth,
+                observed_at = excluded.observed_at
+            "#,
+            params![
+                song_id,
+                normalized_catalog_id(album_id),
+                normalized_catalog_id(storefront),
+                codec,
+                i64::from(sample_rate),
+                bit_depth.map(i64::from),
+                super::now_secs(),
+            ],
+        )
+        .map(|_| ())
+        .map_err(|error| format!("record Apple Music verified format: {error}"))
+    }
+
+    /// The best format verified so far for a catalog album, mirroring how a
+    /// local or Qobuz version is stamped with its highest-quality track.
+    pub fn apple_music_album_verified_format(
+        &self,
+        album_id: &str,
+    ) -> Result<Option<AppleMusicVerifiedFormat>, String> {
+        let conn = self.conn.lock().unwrap();
+        apple_music_album_verified_format(&conn, album_id)
+    }
+
+    /// Every catalog song on the album whose format Fozmo has verified, keyed
+    /// by song ID.
+    pub fn apple_music_track_verified_formats(
+        &self,
+        album_id: &str,
+    ) -> Result<HashMap<String, AppleMusicVerifiedFormat>, String> {
+        let album_id = album_id.trim();
+        if album_id.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT song_id, codec, sample_rate, bit_depth
+                 FROM apple_music_track_formats
+                 WHERE album_id = ?1",
+            )
+            .map_err(|error| format!("Apple Music verified track formats: {error}"))?;
+        let rows = stmt
+            .query_map([album_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    AppleMusicVerifiedFormat {
+                        codec: row.get(1)?,
+                        sample_rate: row.get(2)?,
+                        bit_depth: row.get(3)?,
+                    },
+                ))
+            })
+            .map_err(|error| format!("Apple Music verified track formats map: {error}"))?;
+        let mut out = HashMap::new();
+        for row in rows {
+            let (song_id, format) =
+                row.map_err(|error| format!("Apple Music verified track format row: {error}"))?;
+            out.insert(song_id, format);
+        }
+        Ok(out)
+    }
+}
+
+fn normalized_catalog_id(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
 
 impl Library {
     pub fn preview_apple_music_album_version(

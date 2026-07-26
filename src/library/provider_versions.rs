@@ -4,6 +4,47 @@ use rusqlite::{Connection, OptionalExtension};
 use rusqlite::{Transaction, params};
 use std::collections::HashMap;
 
+/// The decoder format Fozmo verified while a catalog track actually played.
+/// Apple's catalog only advertises a coarse quality variant, so playback is the
+/// only place an exact Apple Music rate and depth can come from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppleMusicVerifiedFormat {
+    pub codec: String,
+    pub sample_rate: i64,
+    pub bit_depth: Option<i64>,
+}
+
+/// The best format verified so far for a catalog album, mirroring how a local
+/// or Qobuz version is stamped with its highest-quality track.
+pub(super) fn apple_music_album_verified_format(
+    conn: &rusqlite::Connection,
+    album_id: &str,
+) -> Result<Option<AppleMusicVerifiedFormat>, String> {
+    use rusqlite::OptionalExtension as _;
+
+    let album_id = album_id.trim();
+    if album_id.is_empty() {
+        return Ok(None);
+    }
+    conn.query_row(
+        "SELECT codec, sample_rate, bit_depth
+         FROM apple_music_track_formats
+         WHERE album_id = ?1
+         ORDER BY sample_rate DESC, COALESCE(bit_depth, 0) DESC
+         LIMIT 1",
+        [album_id],
+        |row| {
+            Ok(AppleMusicVerifiedFormat {
+                codec: row.get(0)?,
+                sample_rate: row.get(1)?,
+                bit_depth: row.get(2)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(|error| format!("Apple Music verified album format: {error}"))
+}
+
 pub(super) struct ExternalAlbumVersionInput<'a> {
     pub album_id: i64,
     pub provider: &'a str,

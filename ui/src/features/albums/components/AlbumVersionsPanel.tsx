@@ -143,11 +143,12 @@ export function AlbumVersionsPanel({
                   : sameVersionId(version.id, viewingVersionId);
               const isQobuzVersion = version.provider === 'qobuz';
               const isAppleMusicVersion = version.provider === 'apple_music';
-              const providerLabel = isAppleMusicVersion
-                ? 'Lossless'
-                : String(
-                    version.source_label || (version.provider === 'qobuz' ? 'Qobuz' : 'Library')
-                  );
+              // The kicker names the source; the quality column carries the
+              // format, so an Apple row must not repeat its tier here.
+              const providerLabel = String(
+                version.source_label ||
+                  (isQobuzVersion ? 'Qobuz' : isAppleMusicVersion ? 'Apple Music' : 'Library')
+              );
               const canEdit = version.provider === 'local' && Boolean(onEditLocalAlbum);
               const versionLabel = albumVersionLabel(version);
               const openAlbumId = idValue(version.open_album_id);

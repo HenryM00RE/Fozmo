@@ -243,16 +243,34 @@ pub(crate) async fn play_apple_music_source(
             player_epoch = verified_epoch,
             "Music.app lossless capture is feeding the selected local DSP/output"
         );
-        Ok::<(), PlaybackError>(())
+        Ok::<(u32, Option<u32>), PlaybackError>((source_rate_hz, source_bits))
     }
     .await;
 
-    match start_result {
-        Ok(()) => {}
+    let (verified_rate_hz, verified_bits) = match start_result {
+        Ok(format) => format,
         Err(error) => {
             cleanup_failed_start(state, playback.generation, &player).await;
             return Err(error);
         }
+    };
+
+    // Apple's catalog only advertises "lossless" or "hi-res lossless", so this
+    // verified decoder format is the sole source of an exact Apple Music rate
+    // and depth. The strict start path rejects every non-ALAC decoder, so a
+    // format that reaches here is always Apple Lossless.
+    if let Err(error) = state.library().record_apple_music_track_format(
+        &song_id,
+        Some(&album_id),
+        Some(&storefront),
+        "ALAC",
+        verified_rate_hz,
+        verified_bits,
+    ) {
+        warn!(
+            event = "apple_music_verified_format_not_recorded",
+            zone_id, song_id, error, "Could not remember the verified Apple Music decoder format"
+        );
     }
 
     state

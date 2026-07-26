@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 2;
+pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 3;
 
 pub(super) fn migrate(conn: &Connection) -> Result<(), String> {
     let found = schema_version(conn)?;
@@ -28,6 +28,12 @@ pub(super) fn migrate(conn: &Connection) -> Result<(), String> {
             conn.pragma_update(None, "user_version", 2_u32)
                 .map_err(|error| format!("record library schema version 2: {error}"))?;
             version = 2;
+        }
+        if version < 3 {
+            migrate_to_v3(conn)?;
+            conn.pragma_update(None, "user_version", 3_u32)
+                .map_err(|error| format!("record library schema version 3: {error}"))?;
+            version = 3;
         }
         debug_assert_eq!(version, CURRENT_SCHEMA_VERSION);
         conn.execute_batch("COMMIT")
@@ -73,6 +79,30 @@ fn migrate_to_v2(conn: &Connection) -> Result<(), String> {
          RENAME COLUMN qobuz_version_track_id TO provider_version_track_id;",
     )
     .map_err(|error| format!("migrate provider version track links to schema v2: {error}"))
+}
+
+/// Apple Music never publishes a catalog track's real sample rate — only a
+/// coarse "lossless"/"hi-res lossless" variant. Fozmo learns the exact format by
+/// verifying Music.app's decoder at playback, so those observations live apart
+/// from catalog metadata: they are keyed by catalog song rather than by any
+/// local album, and must survive unlinking and relinking an album version.
+fn migrate_to_v3(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS apple_music_track_formats (
+            song_id TEXT PRIMARY KEY,
+            album_id TEXT,
+            storefront TEXT,
+            codec TEXT NOT NULL,
+            sample_rate INTEGER NOT NULL,
+            bit_depth INTEGER,
+            observed_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_apple_music_track_formats_album
+            ON apple_music_track_formats(album_id);
+        "#,
+    )
+    .map_err(|error| format!("create Apple Music verified formats: {error}"))
 }
 
 fn apply_initial_schema(conn: &Connection) -> Result<(), String> {
@@ -814,7 +844,7 @@ mod tests {
 
         migrate(&conn).unwrap();
 
-        assert_eq!(schema_version(&conn).unwrap(), 2);
+        assert_eq!(schema_version(&conn).unwrap(), CURRENT_SCHEMA_VERSION);
         assert!(has_column(&conn, "version_track_links", "provider_version_track_id").unwrap());
         assert_eq!(
             conn.query_row(
@@ -864,6 +894,60 @@ mod tests {
             )
             .unwrap(),
             2
+        );
+    }
+
+    #[test]
+    fn v3_migration_adds_apple_music_verified_formats_without_touching_catalog_data() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        assert_eq!(schema_version(&conn).unwrap(), CURRENT_SCHEMA_VERSION);
+
+        conn.execute(
+            r#"
+            INSERT INTO apple_music_track_formats (
+                song_id, album_id, storefront, codec, sample_rate, bit_depth, observed_at
+            )
+            VALUES ('song-1', 'album-1', 'nz', 'ALAC', 96000, 24, 1)
+            "#,
+            [],
+        )
+        .unwrap();
+        // A later playback of the same song replaces its observation rather
+        // than accumulating rows.
+        conn.execute(
+            r#"
+            INSERT INTO apple_music_track_formats (
+                song_id, album_id, storefront, codec, sample_rate, bit_depth, observed_at
+            )
+            VALUES ('song-1', 'album-1', 'nz', 'ALAC', 44100, 16, 2)
+            ON CONFLICT(song_id) DO UPDATE SET
+                sample_rate = excluded.sample_rate,
+                bit_depth = excluded.bit_depth
+            "#,
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            conn.query_row(
+                "SELECT sample_rate FROM apple_music_track_formats WHERE song_id = 'song-1'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            44_100
+        );
+
+        // Rerunning the migration on an up-to-date database is a no-op.
+        migrate(&conn).unwrap();
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM apple_music_track_formats",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            1
         );
     }
 

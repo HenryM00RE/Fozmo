@@ -1,3 +1,4 @@
+import { appleMusicVariantLabel, versionQualityLabel } from '../../../shared/lib/appSupport';
 import type {
   JsonRecord,
   LibraryAlbum,
@@ -124,25 +125,33 @@ export function appleMusicAlbumToLibraryDetail(catalogAlbum: JsonRecord): JsonRe
     track_count: tracks.length,
     tracks
   } as LibraryAlbum;
+  // Fozmo verifies Music.app's decoder while a catalog track plays and reports
+  // that exact format back on the album. Until a track has played, all Apple
+  // publishes is the advertised tier.
+  const verified = record(catalogAlbum.verified_format);
+  const verifiedSampleRate = verified ? optionalNumber(verified.sample_rate) : null;
+  const version = {
+    id: `apple_music:${storefront || 'default'}:${albumId}`,
+    provider: 'apple_music',
+    source_label: 'Apple Music',
+    title,
+    artist,
+    year: album.year,
+    track_count: tracks.length,
+    format: verifiedSampleRate ? text(verified?.codec, 'ALAC') : 'Apple Music',
+    sample_rate: verifiedSampleRate,
+    bit_depth: verified ? optionalNumber(verified.bit_depth) : null,
+    image_url: artworkUrl,
+    audio_variants: allVariants,
+    is_primary: true
+  } as JsonRecord;
   return {
     provider: 'apple_music',
-    quality_label: 'Lossless',
+    quality_label: verifiedSampleRate
+      ? versionQualityLabel(version)
+      : appleMusicVariantLabel(allVariants),
     album,
     tracks,
-    versions: [
-      {
-        id: `apple_music:${storefront || 'default'}:${albumId}`,
-        provider: 'apple_music',
-        source_label: 'Lossless',
-        title,
-        artist,
-        year: album.year,
-        track_count: tracks.length,
-        format: 'Apple Music',
-        image_url: artworkUrl,
-        audio_variants: allVariants,
-        is_primary: true
-      }
-    ]
+    versions: [version]
   };
 }

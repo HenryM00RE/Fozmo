@@ -40,7 +40,7 @@ describe('Apple Music album adapter', () => {
     expect(detail.versions).toEqual([
       expect.objectContaining({
         provider: 'apple_music',
-        source_label: 'Lossless',
+        source_label: 'Apple Music',
         format: 'Apple Music',
         is_primary: true
       })
@@ -74,7 +74,7 @@ describe('Apple Music album adapter', () => {
     } as JsonRecord);
 
     expect(detail.tracks).toEqual([]);
-    expect(detail.quality_label).toBe('Lossless');
+    expect(detail.quality_label).toBe('Apple Music');
   });
 
   it('groups all advertised Apple quality variants behind one Apple Music version', () => {
@@ -89,13 +89,50 @@ describe('Apple Music album adapter', () => {
       tracks: []
     });
 
-    expect(detail.quality_label).toBe('Lossless');
+    expect(detail.quality_label).toBe('Hi-Res Lossless');
     expect(detail.versions).toHaveLength(1);
     expect(detail.versions).toEqual([
       expect.objectContaining({
         provider: 'apple_music',
-        source_label: 'Lossless',
+        source_label: 'Apple Music',
         format: 'Apple Music'
+      })
+    ]);
+  });
+
+  it('reads the hi-res tier from the current MusicKit spelling too', () => {
+    const detail = appleMusicAlbumToLibraryDetail({
+      album_id: 'album-1',
+      storefront: 'nz',
+      title: 'Test Album',
+      artist: 'Test Artist',
+      audio_variants: ['lossless'],
+      // `hiResLossless` is MusicKit's own enum case.
+      tracks: [{ song_id: 'song-1', title: 'Track', audio_variants: ['hiResLossless'] }]
+    });
+
+    expect(detail.quality_label).toBe('Hi-Res Lossless');
+  });
+
+  it('reports the verified playback format instead of the advertised tier', () => {
+    const detail = appleMusicAlbumToLibraryDetail({
+      album_id: 'album-1',
+      storefront: 'nz',
+      title: 'Test Album',
+      artist: 'Test Artist',
+      audio_variants: ['.highResolutionLossless'],
+      verified_format: { codec: 'ALAC', sample_rate: 96000, bit_depth: 24 },
+      tracks: []
+    });
+
+    expect(detail.quality_label).toBe('ALAC 96.0kHz 24bit');
+    expect(detail.versions).toEqual([
+      expect.objectContaining({
+        provider: 'apple_music',
+        source_label: 'Apple Music',
+        format: 'ALAC',
+        sample_rate: 96000,
+        bit_depth: 24
       })
     ]);
   });

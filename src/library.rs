@@ -92,6 +92,8 @@ pub struct Library {
 }
 
 pub use model::*;
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+pub use provider_versions::AppleMusicVerifiedFormat;
 
 impl Library {
     /// Send a synchronous library operation to the dedicated database worker
@@ -426,6 +428,7 @@ fn album_version_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AlbumVers
         source_label: row.get(12)?,
         image_url: row.get(21)?,
         storefront: row.get(22)?,
+        audio_variants: apple_music_audio_variants(row.get::<_, Option<String>>(23)?),
         status: row.get(13)?,
         is_primary: row.get::<_, i64>(14)? != 0,
         musicbrainz_match_status: row.get(15)?,
@@ -435,6 +438,45 @@ fn album_version_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AlbumVers
         qobuz_tagged_at: row.get(19)?,
         autometa_message: row.get(20)?,
     })
+}
+
+/// Every quality variant an Apple Music album payload advertises, from the
+/// album itself and from its tracks. MusicKit has emitted the enum's leading
+/// dot on album payloads while track payloads carry the bare value, so readers
+/// must normalise before comparing.
+fn apple_music_audio_variants(payload_json: Option<String>) -> Vec<String> {
+    fn push_variants(value: Option<&serde_json::Value>, out: &mut Vec<String>) {
+        let Some(entries) = value.and_then(serde_json::Value::as_array) else {
+            return;
+        };
+        out.extend(
+            entries
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|variant| !variant.is_empty())
+                .map(str::to_string),
+        );
+    }
+
+    let Some(payload) = payload_json else {
+        return Vec::new();
+    };
+    let Ok(album) = serde_json::from_str::<serde_json::Value>(&payload) else {
+        return Vec::new();
+    };
+    let mut variants = Vec::new();
+    push_variants(album.get("audio_variants"), &mut variants);
+    for track in album
+        .get("tracks")
+        .and_then(serde_json::Value::as_array)
+        .unwrap_or(&Vec::new())
+    {
+        push_variants(track.get("audio_variants"), &mut variants);
+    }
+    variants.sort();
+    variants.dedup();
+    variants
 }
 
 fn collect_rows<T>(

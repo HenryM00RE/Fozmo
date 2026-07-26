@@ -519,8 +519,33 @@ export function trackCreditRows(track: LibraryTrack) {
   return rows;
 }
 
+/// Apple advertises a quality tier rather than a rate, and MusicKit has spelled
+/// the hi-res tier several ways: `hiResLossless` is the current enum case, while
+/// album payloads have carried `.highResolutionLossless` with the enum's leading
+/// dot. Compare on a normalised form so a spelling change cannot silently
+/// downgrade an album to plain "Lossless".
+function normalizedAudioVariant(variant: unknown) {
+  return String(variant ?? '')
+    .toLowerCase()
+    .replace(/[^a-z]/g, '');
+}
+
+export function appleMusicVariantLabel(variants: unknown) {
+  const normalized = (Array.isArray(variants) ? variants : []).map(normalizedAudioVariant);
+  const lossless = normalized.filter((variant) => variant.includes('lossless'));
+  if (!lossless.length) return 'Apple Music';
+  return lossless.some((variant) => variant.includes('hires') || variant.includes('highresolution'))
+    ? 'Hi-Res Lossless'
+    : 'Lossless';
+}
+
 export function versionQualityLabel(version: JsonRecord) {
-  if (version.provider === 'apple_music') return 'Lossless';
+  // Apple Music has no published rate, so a catalog version shows its
+  // advertised tier until playback verifies Music.app's decoder and stamps the
+  // real format onto the version.
+  if (version.provider === 'apple_music' && !Number(version.sample_rate)) {
+    return appleMusicVariantLabel(version.audio_variants);
+  }
   const parts = [];
   if (version.format) parts.push(String(version.format).toUpperCase());
   if (version.sample_rate) parts.push(`${(Number(version.sample_rate) / 1000).toFixed(1)}kHz`);
