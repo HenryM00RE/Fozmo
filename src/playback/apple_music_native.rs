@@ -40,6 +40,7 @@ const RESUME_PREFILL_TARGET_SECS: f64 = 0.080;
 const RESUME_PREFILL_MIN_SECS: f64 = 0.030;
 const RESUME_PREFILL_TIMEOUT: Duration = Duration::from_millis(1_000);
 const MUSIC_NOTIFICATION_FALLBACK: Duration = Duration::from_secs(2);
+const MUSIC_STOP_CONFIRMATION_DELAY: Duration = Duration::from_millis(100);
 const STARTUP_TRANSPORT_STATUS_POLL: Duration = Duration::from_millis(350);
 const STARTUP_TRANSPORT_RECOVERY_TIMEOUT: Duration = Duration::from_secs(3);
 const STARTUP_STALL_POSITION_MAX_SECS: f64 = 1.0;
@@ -967,10 +968,14 @@ pub(crate) async fn pause(state: &AppState, zone_id: &str) -> Result<bool, Playb
     };
     pause_music_blocking().await?;
     let player = native_local_player(state, zone_id).ok_or(PlaybackError::ZoneNotAvailable)?;
+    let paused_position_secs = snapshot.audible_position_secs(native_player_position_secs(&player));
     player.pause();
-    state
+    if !state
         .apple_music_playback()
-        .update_playback(snapshot.generation, "paused", None, None);
+        .pause_playback_at(snapshot.generation, paused_position_secs)
+    {
+        return Err(PlaybackError::conflict("Playback changed"));
+    }
     Ok(true)
 }
 
@@ -1014,12 +1019,12 @@ pub(crate) async fn seek(
     let player = native_local_player(state, zone_id).ok_or(PlaybackError::ZoneNotAvailable)?;
     pause_music_blocking().await?;
     player.pause();
-    state.apple_music_playback().update_playback(
-        snapshot.generation,
-        "paused",
-        Some(seconds),
-        None,
-    );
+    if !state
+        .apple_music_playback()
+        .pause_playback_at(snapshot.generation, seconds)
+    {
+        return Err(PlaybackError::conflict("Playback changed"));
+    }
     let replacement_epoch = state
         .apple_music_playback()
         .restart_current_managed_session()
@@ -1732,6 +1737,58 @@ fn spawn_music_app_monitor(state: AppState, zone_id: String, generation: u64) {
                     );
                 }
                 Some("stopped") => {
+                    // Music.app can publish a transient stopped notification
+                    // while a pause is settling. Tearing down the managed
+                    // session on that first sample makes the next Play start
+                    // the queue playlist from 0:00. Give the transport one
+                    // short confirmation window and honor the listener-facing
+                    // Player state before treating this as a real terminal
+                    // track.
+                    tokio::time::sleep(MUSIC_STOP_CONFIRMATION_DELAY).await;
+                    let fozmo_paused = active_snapshot(&state, &zone_id)
+                        .filter(|current| current.generation == generation)
+                        .is_some_and(|current| current.playback_state == "paused")
+                        || native_local_player(&state, &zone_id).is_some_and(|player| {
+                            player.playback_state()
+                                == crate::audio::player::PlaybackState::Paused
+                        });
+                    if fozmo_paused {
+                        last_playing_observed_at = None;
+                        continue;
+                    }
+                    let Ok(confirmed) = music_status_blocking().await else {
+                        continue;
+                    };
+                    if confirmed.player_state.as_deref() != Some("stopped") {
+                        if let Some(position) = confirmed.track.position_secs {
+                            last_position = position;
+                        }
+                        if let Some(duration) = confirmed.track.duration_secs {
+                            last_duration = duration;
+                        }
+                        match confirmed.player_state.as_deref() {
+                            Some("playing") => {
+                                last_playing_observed_at = Some(tokio::time::Instant::now());
+                                state.apple_music_playback().update_playback(
+                                    generation,
+                                    "playing",
+                                    confirmed.track.position_secs,
+                                    confirmed.track.duration_secs,
+                                );
+                            }
+                            Some("paused") => {
+                                last_playing_observed_at = None;
+                                state.apple_music_playback().update_playback(
+                                    generation,
+                                    "paused",
+                                    confirmed.track.position_secs,
+                                    confirmed.track.duration_secs,
+                                );
+                            }
+                            _ => {}
+                        }
+                        continue;
+                    }
                     if should_recover_startup_stall(last_position, startup_recovery_attempted) {
                         startup_recovery_attempted = true;
                         match restart_queue_playlist_from_start(&snapshot.source, None).await {
@@ -2077,6 +2134,30 @@ async fn finish_native_playback(
         return;
     };
     if snapshot.generation != generation {
+        return;
+    }
+    if reason == "stopped_early"
+        && let Some(player) = native_local_player(&state, &zone_id)
+        && player.playback_state() == crate::audio::player::PlaybackState::Paused
+    {
+        // The pause command owns the playback-switch lock before it updates
+        // the snapshot. A monitor that sampled Music.app's transient stopped
+        // state can arrive here afterward, so restore the paused timeline and
+        // replace this monitor instead of tearing the session down.
+        let paused_position_secs =
+            snapshot.audible_position_secs(native_player_position_secs(&player));
+        state
+            .apple_music_playback()
+            .pause_playback_at(generation, paused_position_secs);
+        drop(playback_switch);
+        spawn_music_app_monitor(state, zone_id.clone(), generation);
+        debug!(
+            event = "apple_music_native_false_stop_ignored",
+            zone_id,
+            generation,
+            paused_position_secs,
+            "Kept the paused Apple Music session after a transient stopped observation"
+        );
         return;
     }
     let queue = zone_queue_sources(&state, &zone_id);

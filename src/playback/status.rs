@@ -647,8 +647,9 @@ fn apply_native_apple_music_status_overlay(
     // output. Report the Player-consumed timeline—the audio the user is
     // actually hearing—rather than the decoder head. A seek establishes a
     // new source-position origin for the fresh live Player session.
-    let audible_position_secs = snapshot.timeline_origin_secs
-        + (response.position_secs - snapshot.player_position_origin_secs).max(0.0);
+    let audible_position_secs = snapshot
+        .paused_position_secs
+        .unwrap_or_else(|| snapshot.audible_position_secs(response.position_secs));
     response.position_secs = if response.duration_secs > 0.0 {
         audible_position_secs.min(response.duration_secs)
     } else {
@@ -894,6 +895,18 @@ mod tests {
         );
         let sought_status = build_status_response_for_zone(&state, &zone_id).unwrap();
         assert_eq!(sought_status.position_secs, 42.5);
+
+        assert!(
+            state
+                .apple_music_playback()
+                .pause_playback_at(snapshot.generation, 42.5)
+        );
+        let paused_status = build_status_response_for_zone(&state, &zone_id).unwrap();
+        assert_eq!(paused_status.state, "Paused");
+        assert_eq!(
+            paused_status.position_secs, 42.5,
+            "paused Apple Music must retain its audible position even when Player reports zero"
+        );
     }
 
     #[cfg(feature = "hegel")]

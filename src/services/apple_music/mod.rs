@@ -42,8 +42,27 @@ pub(crate) struct AppleMusicPlaybackSnapshot {
     /// This advances across native Music.app album transitions while the live
     /// capture and physical output remain open.
     pub(crate) player_position_origin_secs: f64,
+    /// Listener-facing position captured when Fozmo pauses the local Player.
+    ///
+    /// Music.app is deliberately ahead of this point because its decoded PCM
+    /// is buffered through Fozmo. Keeping the audible position separately
+    /// prevents a paused status from falling back to 0:00 when Player metrics
+    /// are transiently reset while the output settles.
+    pub(crate) paused_position_secs: Option<f64>,
     pub(crate) position_secs: f64,
     pub(crate) duration_secs: f64,
+}
+
+impl AppleMusicPlaybackSnapshot {
+    pub(crate) fn audible_position_secs(&self, player_position_secs: f64) -> f64 {
+        let position = self.timeline_origin_secs
+            + (player_position_secs - self.player_position_origin_secs).max(0.0);
+        if self.duration_secs > 0.0 {
+            position.min(self.duration_secs)
+        } else {
+            position
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -580,6 +599,7 @@ impl AppleMusicPlaybackService {
             playback_state: "preparing".to_string(),
             timeline_origin_secs: 0.0,
             player_position_origin_secs: 0.0,
+            paused_position_secs: None,
             position_secs: 0.0,
         };
         runtime.playback = Some(snapshot.clone());
@@ -650,12 +670,36 @@ impl AppleMusicPlaybackService {
             return false;
         };
         snapshot.playback_state = playback_state.to_string();
+        if playback_state != "paused" {
+            snapshot.paused_position_secs = None;
+        }
         if let Some(position) = position_secs.filter(|value| value.is_finite() && *value >= 0.0) {
             snapshot.position_secs = position;
         }
         if let Some(duration) = duration_secs.filter(|value| value.is_finite() && *value > 0.0) {
             snapshot.duration_secs = duration;
         }
+        true
+    }
+
+    pub(crate) fn pause_playback_at(&self, generation: u64, position_secs: f64) -> bool {
+        if !position_secs.is_finite() || position_secs < 0.0 {
+            return false;
+        }
+        let mut runtime = self.runtime.lock().unwrap();
+        let Some(snapshot) = runtime
+            .playback
+            .as_mut()
+            .filter(|snapshot| snapshot.generation == generation)
+        else {
+            return false;
+        };
+        snapshot.playback_state = "paused".to_string();
+        snapshot.paused_position_secs = Some(if snapshot.duration_secs > 0.0 {
+            position_secs.min(snapshot.duration_secs)
+        } else {
+            position_secs
+        });
         true
     }
 
@@ -685,6 +729,7 @@ impl AppleMusicPlaybackService {
         snapshot.source = source;
         snapshot.playback_state = "playing".to_string();
         snapshot.timeline_origin_secs = 0.0;
+        snapshot.paused_position_secs = None;
         snapshot.position_secs = position_secs
             .filter(|value| value.is_finite() && *value >= 0.0)
             .unwrap_or(0.0);
@@ -1043,5 +1088,30 @@ mod tests {
         assert_eq!(promoted.timeline_origin_secs, 0.0);
         assert_eq!(promoted.position_secs, 0.08);
         assert_eq!(promoted.duration_secs, 242.0);
+    }
+
+    #[test]
+    fn paused_position_is_frozen_until_playback_resumes() {
+        let service = AppleMusicPlaybackService::new(Arc::new(Player::new()));
+        let snapshot = service.activate_playback(
+            "local-core".to_string(),
+            7,
+            apple_source("1109715066", "15 Step", 1),
+        );
+        service.update_playback(snapshot.generation, "playing", Some(44.0), Some(240.0));
+
+        assert!(service.pause_playback_at(snapshot.generation, 41.75));
+        let paused = service.playback_snapshot().unwrap();
+        assert_eq!(paused.playback_state, "paused");
+        assert_eq!(paused.paused_position_secs, Some(41.75));
+        assert_eq!(
+            paused.position_secs, 44.0,
+            "freezing the listener position must not replace Music.app's decoder head"
+        );
+
+        service.update_playback(snapshot.generation, "playing", Some(44.1), None);
+        let resumed = service.playback_snapshot().unwrap();
+        assert_eq!(resumed.playback_state, "playing");
+        assert_eq!(resumed.paused_position_secs, None);
     }
 }
