@@ -420,6 +420,10 @@ pub(crate) async fn stop_replaced_session_if_current(
         clear_prefetched_player_queue(state, &snapshot);
         let _ = pause_music_blocking().await;
         state.apple_music_playback().stop_runtime(false);
+    } else {
+        // This command may have replaced the Apple Music successor that a
+        // finished track retained the capture route for.
+        state.apple_music_playback().release_retained_route();
     }
     Ok(())
 }
@@ -539,10 +543,12 @@ pub(crate) async fn next(state: &AppState, zone_id: &str) -> Result<bool, Playba
         .unwrap_or_else(|| crate::settings::DEFAULT_PROFILE_ID.to_string());
     clear_prefetched_player_queue(state, &snapshot);
     let _ = pause_music_blocking().await;
-    let detached_epoch = state
-        .apple_music_playback()
-        .stop_runtime(false)
-        .unwrap_or(snapshot.player_epoch);
+    let detached_epoch = if retains_capture_route(true, &queue) {
+        state.apple_music_playback().stop_playback_retaining_route()
+    } else {
+        state.apple_music_playback().stop_runtime(false)
+    }
+    .unwrap_or(snapshot.player_epoch);
     let Some((next, rest)) = queue.split_first() else {
         if let Some(player) = native_local_player(state, zone_id) {
             player.stop();
@@ -1333,10 +1339,12 @@ async fn finish_native_playback(
         .listening()
         .profile_id(&zone_id)
         .unwrap_or_else(|| crate::settings::DEFAULT_PROFILE_ID.to_string());
-    let detached_epoch = state
-        .apple_music_playback()
-        .stop_runtime(false)
-        .unwrap_or(snapshot.player_epoch);
+    let detached_epoch = if retains_capture_route(completed, &queue) {
+        state.apple_music_playback().stop_playback_retaining_route()
+    } else {
+        state.apple_music_playback().stop_runtime(false)
+    }
+    .unwrap_or(snapshot.player_epoch);
     if !completed {
         if let Some(player) = native_local_player(&state, &zone_id) {
             player.stop();
@@ -1366,6 +1374,7 @@ async fn finish_native_playback(
     let Some(boundary) =
         wait_for_live_eof_drain(&state, &zone_id, detached_epoch, expect_engine_handoff).await
     else {
+        state.apple_music_playback().release_retained_route();
         return;
     };
     let Some((next, rest)) = next else {
@@ -1506,6 +1515,7 @@ async fn route_after_native_boundary(
     if native_local_player(&state, &zone_id)
         .is_none_or(|player| player.playback_epoch() != expected_epoch)
     {
+        state.apple_music_playback().release_retained_route();
         return;
     }
     let source_key = source.key();
@@ -1535,6 +1545,9 @@ async fn route_after_native_boundary(
         {
             player.stop();
         }
+        // The successor never opened its capture session, so nothing else will
+        // hand the macOS default output back to the DAC.
+        state.apple_music_playback().release_retained_route();
         state.listening().stop(state.library(), &zone_id);
     } else {
         debug!(
@@ -1542,6 +1555,15 @@ async fn route_after_native_boundary(
             zone_id, reason, source_key, "Routed the next mixed-provider queue entry"
         );
     }
+}
+
+/// Whether the boundary hands the Fozmo Capture route straight to another
+/// Apple Music track rather than to the DAC.
+fn retains_capture_route(completed: bool, queue: &[SourceRef]) -> bool {
+    completed
+        && queue
+            .first()
+            .is_some_and(|next| matches!(next, SourceRef::AppleMusicTrack { .. }))
 }
 
 fn zone_queue_sources(state: &AppState, zone_id: &str) -> Vec<SourceRef> {
@@ -1814,6 +1836,34 @@ mod tests {
             TERMINAL_STATE_CONFIRMATIONS,
             TERMINAL_STATE_STARTUP_GRACE
         ));
+    }
+
+    #[test]
+    fn only_a_completed_apple_music_successor_keeps_the_capture_route() {
+        let apple = apple_source(Some("Track"), Some("Artist"));
+        let local = SourceRef::LocalTrack {
+            track_id: 7,
+            file_name: None,
+            title: Some("Local".to_string()),
+            artist: Some("Artist".to_string()),
+            album: None,
+            album_artist: None,
+            album_id: None,
+            art_id: None,
+            duration_secs: Some(180.0),
+            ext_hint: None,
+            radio: false,
+            radio_context: None,
+            playlist_context: None,
+        };
+
+        assert!(retains_capture_route(true, std::slice::from_ref(&apple)));
+        // A local or Qobuz successor needs the DAC back as the macOS default.
+        assert!(!retains_capture_route(true, std::slice::from_ref(&local)));
+        // Nothing follows, so the route must be handed back.
+        assert!(!retains_capture_route(true, &[]));
+        // An interrupted track is not handing off to anything.
+        assert!(!retains_capture_route(false, std::slice::from_ref(&apple)));
     }
 
     #[test]

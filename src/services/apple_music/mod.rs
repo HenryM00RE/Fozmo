@@ -53,6 +53,10 @@ struct CaptureRuntime {
     session: Option<capture_session::LiveSession>,
     session_params: Option<LiveSessionParams>,
     saved_default_output_uid: Option<String>,
+    /// A finished track deliberately left macOS routed to Fozmo Capture for an
+    /// Apple Music successor that has not opened its session yet. Every path
+    /// that does not reach `start_playback_capture` must release it.
+    route_retained: bool,
     playback: Option<AppleMusicPlaybackSnapshot>,
     next_playback_generation: u64,
     next_prefetch_revision: u64,
@@ -67,6 +71,7 @@ impl Default for CaptureRuntime {
             session: None,
             session_params: None,
             saved_default_output_uid: None,
+            route_retained: false,
             playback: None,
             next_playback_generation: 1,
             next_prefetch_revision: 1,
@@ -140,16 +145,32 @@ impl AppleMusicPlaybackService {
                 .to_string()
         })?;
 
+        // A retained route already knows which physical device to hand back,
+        // and re-deriving it by name can fail on exactly the CoreAudio scan
+        // that the capture handoff perturbed.
+        let retained_output_uid = {
+            let runtime = self.runtime.lock().unwrap();
+            runtime
+                .route_retained
+                .then(|| runtime.saved_default_output_uid.clone())
+                .flatten()
+        };
         let current_default = coreaudio::default_output_device_uid();
-        let saved_default_output_uid = if current_default.as_deref() == Some(CAPTURE_DEVICE_UID) {
-            configured_output_device_name
-                .as_deref()
-                .and_then(coreaudio::local_physical_device_uid_for_name)
+        let already_routed_to_capture = current_default.as_deref() == Some(CAPTURE_DEVICE_UID);
+        let saved_default_output_uid = if already_routed_to_capture {
+            retained_output_uid.or_else(|| {
+                configured_output_device_name
+                    .as_deref()
+                    .and_then(coreaudio::local_physical_device_uid_for_name)
+            })
         } else {
             current_default
         };
-        coreaudio::set_default_output_device(device_id)
-            .map_err(|error| format!("Could not route macOS output to Fozmo Capture: {error}"))?;
+        if !already_routed_to_capture {
+            coreaudio::set_default_output_device(device_id).map_err(|error| {
+                format!("Could not route macOS output to Fozmo Capture: {error}")
+            })?;
+        }
 
         let restore_on_error = |saved: &Option<String>| {
             if let Some(uid) = saved.as_deref()
@@ -180,6 +201,8 @@ impl AppleMusicPlaybackService {
         let previous_session = {
             let mut runtime = self.runtime.lock().unwrap();
             runtime.running = true;
+            // This session now owns the capture route.
+            runtime.route_retained = false;
             runtime.player = Some(Arc::clone(&player));
             runtime.stopped_unix_ms = None;
             runtime.session_params = Some(params);
@@ -231,6 +254,7 @@ impl AppleMusicPlaybackService {
         let (session, player, saved_default_output_uid) = {
             let mut runtime = self.runtime.lock().unwrap();
             runtime.running = false;
+            runtime.route_retained = false;
             runtime.stopped_unix_ms = Some(now_unix_ms());
             runtime.session_params = None;
             runtime.playback = None;
@@ -249,8 +273,54 @@ impl AppleMusicPlaybackService {
         Some(player.playback_epoch())
     }
 
+    /// End the finished track's capture session but keep macOS routed to Fozmo
+    /// Capture for an Apple Music successor that is about to open its own.
+    /// Handing the system default output back to the DAC and taking it away
+    /// again a moment later makes Music.app rebuild its output chain twice and
+    /// is what drops the DAC out of a CoreAudio scan at the boundary.
+    ///
+    /// Closing the session still releases the producer, so Player drains the
+    /// captured tail and reaches EOF exactly as it does for any other boundary.
+    /// The caller owns the retained route until `start_playback_capture` claims
+    /// it, and must call [`Self::release_retained_route`] on every path that
+    /// does not get there.
+    pub(crate) fn stop_playback_retaining_route(&self) -> Option<u64> {
+        let (session, player) = {
+            let mut runtime = self.runtime.lock().unwrap();
+            runtime.running = false;
+            runtime.route_retained = true;
+            runtime.stopped_unix_ms = Some(now_unix_ms());
+            runtime.session_params = None;
+            runtime.playback = None;
+            (runtime.session.take(), runtime.player.take())
+        };
+        drop(session);
+        let player = player.unwrap_or_else(|| Arc::clone(&self.player));
+        Some(player.playback_epoch())
+    }
+
+    /// Hand the macOS default output back when a retained capture route was
+    /// never claimed. Safe to call unconditionally: it does nothing unless a
+    /// route is still outstanding.
+    pub(crate) fn release_retained_route(&self) {
+        let saved = {
+            let mut runtime = self.runtime.lock().unwrap();
+            if !runtime.route_retained || runtime.running {
+                return;
+            }
+            runtime.route_retained = false;
+            runtime.saved_default_output_uid.take()
+        };
+        restore_default_output(saved);
+    }
+
     pub(crate) fn capture_running(&self) -> bool {
         self.runtime.lock().unwrap().running
+    }
+
+    #[cfg(test)]
+    fn route_is_retained(&self) -> bool {
+        self.runtime.lock().unwrap().route_retained
     }
 
     /// Keep zone discovery from marking the physical DAC offline during the
@@ -637,6 +707,48 @@ mod tests {
         assert_eq!(next_player_position_origin(0.0, 237.5, 236.9), 237.5);
         assert_eq!(next_player_position_origin(237.5, 242.0, 478.8), 479.5);
         assert_eq!(next_player_position_origin(0.0, 0.0, 17.25), 17.25);
+    }
+
+    #[test]
+    fn retaining_stop_ends_the_track_and_holds_the_route_until_it_is_released() {
+        let player = Arc::new(Player::new());
+        let service = AppleMusicPlaybackService::new(Arc::clone(&player));
+        let snapshot = service.activate_playback(
+            "local-core".to_string(),
+            player.playback_epoch(),
+            apple_source("1109715066", "15 Step", 1),
+        );
+
+        let detached = service.stop_playback_retaining_route();
+
+        // The track ends exactly as it does for any other boundary...
+        assert_eq!(detached, Some(snapshot.player_epoch));
+        assert!(service.playback_snapshot().is_none());
+        assert!(!service.capture_running());
+        // ...but the successor still owns the capture route.
+        assert!(service.route_is_retained());
+
+        service.release_retained_route();
+        assert!(!service.route_is_retained());
+        // Releasing twice must not hand back a route a later session owns.
+        service.release_retained_route();
+        assert!(!service.route_is_retained());
+    }
+
+    #[test]
+    fn a_plain_stop_never_leaves_a_route_outstanding() {
+        let service = AppleMusicPlaybackService::new(Arc::new(Player::new()));
+        service.activate_playback(
+            "local-core".to_string(),
+            0,
+            apple_source("1109715066", "15 Step", 1),
+        );
+
+        service.stop_playback_retaining_route();
+        assert!(service.route_is_retained());
+        service.stop_runtime(false);
+
+        assert!(!service.route_is_retained());
     }
 
     #[test]
