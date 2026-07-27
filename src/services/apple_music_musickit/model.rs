@@ -46,6 +46,15 @@ pub(crate) struct AppleCatalogSong {
     /// Filled in by Fozmo rather than by Apple. Absent until a track has played.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verified_format: Option<AppleVerifiedFormat>,
+    /// This listener's own play history for the track, matching what Qobuz
+    /// tracks carry. Attached only where a catalog album is served to the UI,
+    /// so a stored album-version payload stays a faithful copy of the catalog.
+    #[serde(default)]
+    pub play_count: i64,
+    #[serde(default)]
+    pub last_played_at: Option<i64>,
+    #[serde(default)]
+    pub listened_secs: f64,
 }
 
 /// The decoder format Fozmo verified while this catalog item actually played.

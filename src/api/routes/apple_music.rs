@@ -1,4 +1,5 @@
 use super::playback_sequence::playback_request_sequence_from_headers;
+use crate::app::auth::ProfileContext;
 use crate::app::state::AppState;
 use crate::library::{
     AlbumDetail, AlbumVersionSummary, AppleMusicAlbumMatchPreview, AppleMusicVersionDetail,
@@ -15,7 +16,7 @@ use crate::services::apple_music_musickit::{
 };
 use axum::{
     Json, Router,
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
 };
@@ -133,6 +134,7 @@ async fn search_catalog(
 
 async fn lookup_album(
     State(state): State<AppState>,
+    profile: Option<Extension<ProfileContext>>,
     Path(album_id): Path<String>,
     Query(query): Query<AppleMusicCatalogQuery>,
 ) -> Result<Json<AppleCatalogAlbum>, (StatusCode, Json<AppleMusicMvpError>)> {
@@ -141,7 +143,49 @@ async fn lookup_album(
         .lookup_album(album_id, query.storefront)
         .await
         .map_err(api_error)?;
-    Ok(Json(with_verified_formats(&state, album)))
+    let profile_id = profile
+        .map(|Extension(profile)| profile.id)
+        .unwrap_or_else(|| state.settings().active_profile_id());
+    let album = with_verified_formats(&state, album);
+    Ok(Json(
+        with_playback_summaries(&state, profile_id, album).await,
+    ))
+}
+
+/// Apple reports nothing about how often this listener has played a track, so
+/// carry Fozmo's own history onto the catalog album the same way the Qobuz
+/// album detail does. Plays recorded against a linked local or Qobuz edition
+/// roll up here too, because the summary lookup resolves by recording.
+async fn with_playback_summaries(
+    state: &AppState,
+    profile_id: String,
+    mut album: AppleCatalogAlbum,
+) -> AppleCatalogAlbum {
+    let keys = album
+        .tracks
+        .iter()
+        .map(|track| format!("apple_music:{}", track.song_id))
+        .collect::<Vec<_>>();
+    if keys.is_empty() {
+        return album;
+    }
+    let Ok(summaries) = state
+        .library()
+        .run_blocking(move |library| {
+            library.playback_summaries_for_keys_for_profile(&profile_id, &keys)
+        })
+        .await
+    else {
+        return album;
+    };
+    for track in &mut album.tracks {
+        if let Some(summary) = summaries.get(&format!("apple_music:{}", track.song_id)) {
+            track.play_count = summary.play_count;
+            track.last_played_at = summary.last_played_at;
+            track.listened_secs = summary.listened_secs;
+        }
+    }
+    album
 }
 
 /// Apple's catalog cannot report a track's real rate, so replace the advertised
@@ -386,14 +430,14 @@ async fn unlink_album_version(
 
 async fn album_version_detail(
     State(state): State<AppState>,
+    profile: Option<Extension<ProfileContext>>,
     Path((local_album_id, version_id)): Path<(i64, i64)>,
 ) -> Result<Json<AppleMusicVersionDetail>, (StatusCode, Json<AppleMusicMvpError>)> {
-    state
+    let mut detail = state
         .library()
         .run_blocking(move |library| library.apple_music_version_detail(local_album_id, version_id))
         .await
         .map_err(library_api_error)?
-        .map(Json)
         .ok_or_else(|| {
             api_error(apple_music_error(
                 "apple_music_version_not_found",
@@ -402,7 +446,15 @@ async fn album_version_detail(
                 "resolving_album_version",
                 true,
             ))
-        })
+        })?;
+    // The stored version payload is a frozen copy of the catalog, so the play
+    // history has to be attached on the way out — otherwise the Apple edition
+    // of an album reads zero next to the local edition's counts.
+    let profile_id = profile
+        .map(|Extension(profile)| profile.id)
+        .unwrap_or_else(|| state.settings().active_profile_id());
+    detail.apple_album = with_playback_summaries(&state, profile_id, detail.apple_album).await;
+    Ok(Json(detail))
 }
 
 async fn linked_library_album(
@@ -623,6 +675,74 @@ fn playback_api_error(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::library::PlaybackHistoryInput;
+    use crate::playback::test_support::app_state;
+    use crate::settings::DEFAULT_PROFILE_ID;
+
+    #[tokio::test]
+    async fn catalog_album_reports_the_listener_s_own_play_history() {
+        let state = app_state("apple-music-catalog-play-counts");
+        for played_secs in [300.0, 280.0] {
+            state
+                .library()
+                .record_playback_history(PlaybackHistoryInput {
+                    profile_id: Some(DEFAULT_PROFILE_ID.to_string()),
+                    source: SourceRef::AppleMusicTrack {
+                        song_id: "1440857781".to_string(),
+                        storefront: Some("nz".to_string()),
+                        title: Some("Hyperballad".to_string()),
+                        artist: Some("Björk".to_string()),
+                        album: Some("Post".to_string()),
+                        album_artist: Some("Björk".to_string()),
+                        album_id: Some("1440857780".to_string()),
+                        artwork_url: None,
+                        duration_secs: Some(315.0),
+                        track_number: Some(3),
+                        disc_number: Some(1),
+                        isrc: None,
+                        radio: false,
+                        radio_context: None,
+                        playlist_context: None,
+                    },
+                    zone_id: "local-core".to_string(),
+                    zone_name: "Local".to_string(),
+                    played_secs: Some(played_secs),
+                    duration_secs: Some(315.0),
+                    completed: true,
+                    counted: true,
+                    radio: false,
+                })
+                .unwrap();
+        }
+        let album = AppleCatalogAlbum {
+            album_id: "1440857780".to_string(),
+            title: "Post".to_string(),
+            artist: "Björk".to_string(),
+            tracks: vec![
+                AppleCatalogSong {
+                    song_id: "1440857781".to_string(),
+                    title: "Hyperballad".to_string(),
+                    ..AppleCatalogSong::default()
+                },
+                AppleCatalogSong {
+                    song_id: "1440857782".to_string(),
+                    title: "The Modern Things".to_string(),
+                    ..AppleCatalogSong::default()
+                },
+            ],
+            ..AppleCatalogAlbum::default()
+        };
+
+        let enriched = with_playback_summaries(&state, DEFAULT_PROFILE_ID.to_string(), album).await;
+
+        assert_eq!(enriched.tracks[0].play_count, 2);
+        assert!((enriched.tracks[0].listened_secs - 580.0).abs() < f64::EPSILON);
+        assert!(enriched.tracks[0].last_played_at.is_some());
+        assert_eq!(
+            enriched.tracks[1].play_count, 0,
+            "an unplayed catalog track keeps a zero count"
+        );
+    }
 
     fn apple_match_candidate(
         album_id: &str,

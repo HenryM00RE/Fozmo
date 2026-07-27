@@ -10,6 +10,15 @@ const COUNTED_PLAY_SECONDS: f64 = 30.0;
 const COMPLETION_RATIO: f64 = 0.95;
 const COMPLETION_TAIL_SECONDS: f64 = 2.0;
 const PENDING_MATCH_GRACE_SECONDS: f64 = 20.0;
+/// How long a mid-track `Stopped` observation is treated as transient before
+/// the listen is written out.
+///
+/// Providers that hand audio through an external player report `Stopped` while
+/// a capture session or physical output is restarted, which is not the end of
+/// the track the listener is hearing. Finalizing immediately would split one
+/// play into fragments too short to count, so hold the session open long
+/// enough to cover a transport settle and a startup recovery.
+const TRANSIENT_STOP_GRACE_SECONDS: f64 = 8.0;
 
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct PlaybackObservation {
@@ -37,6 +46,7 @@ struct ActiveListen {
     last_tick: Instant,
     started_at: Instant,
     waiting_for_queue_advance_since: Option<Instant>,
+    stopped_since: Option<Instant>,
     pending_match: bool,
     is_playing: bool,
     radio: bool,
@@ -118,6 +128,7 @@ impl ListeningTracker {
                 last_tick: now,
                 started_at: now,
                 waiting_for_queue_advance_since: None,
+                stopped_since: None,
                 pending_match: true,
                 is_playing: false,
                 radio,
@@ -347,6 +358,18 @@ impl ListeningTracker {
                     return;
                 }
             }
+            // A stop short of the track's end is more often a restarting output
+            // than a finished play. Keep the session so the rest of the track
+            // still accrues to it, and stop the clock meanwhile.
+            if !completed {
+                let stopped_since = *current.stopped_since.get_or_insert(now);
+                if now.duration_since(stopped_since).as_secs_f64() < TRANSIENT_STOP_GRACE_SECONDS {
+                    current.is_playing = false;
+                    current.last_tick = now;
+                    active.insert(zone_id.to_string(), current);
+                    return;
+                }
+            }
             finalize.push((current, completed));
             drop(active);
             for (listen, completed) in finalize {
@@ -391,6 +414,7 @@ impl ListeningTracker {
                         last_tick: now,
                         started_at: now,
                         waiting_for_queue_advance_since: None,
+                        stopped_since: None,
                         pending_match: false,
                         is_playing,
                         radio,
@@ -424,6 +448,7 @@ impl ListeningTracker {
 
         current.pending_match = false;
         current.waiting_for_queue_advance_since = None;
+        current.stopped_since = None;
         if is_playing {
             let delta = now.duration_since(current.last_tick).as_secs_f64();
             if delta.is_finite() && delta > 0.0 && delta < 5.0 {
@@ -495,6 +520,7 @@ impl ListeningTracker {
                     last_tick: now,
                     started_at: now,
                     waiting_for_queue_advance_since: None,
+                    stopped_since: None,
                     pending_match: true,
                     is_playing: false,
                     radio: next.radio,
@@ -515,6 +541,19 @@ impl ListeningTracker {
     ) -> Option<ActiveListen> {
         let (queued, queue) = self
             .recover_from_pending_queue(library, zone_id, observation)
+            // A zone whose status carries the source it is playing can be
+            // recovered exactly, whatever the provider. Only local files can be
+            // rebuilt from a file name, so without this a provider that plays
+            // through an external app has no way back into a listen.
+            .or_else(|| {
+                observation.current_source.clone().map(|source| {
+                    let radio = source.is_radio();
+                    (
+                        QueuedListen::new(source, radio, profile_id.clone()),
+                        Vec::new(),
+                    )
+                })
+            })
             .or_else(|| {
                 recover_local_source(library, observation)
                     .map(|source| (QueuedListen::new(source, false, profile_id), Vec::new()))
@@ -536,6 +575,7 @@ impl ListeningTracker {
             last_tick: now,
             started_at: now,
             waiting_for_queue_advance_since: None,
+            stopped_since: None,
             pending_match: false,
             is_playing: observation.state == "Playing",
             radio,
@@ -1136,6 +1176,135 @@ mod tests {
     }
 
     #[test]
+    fn transient_stop_keeps_the_listen_open_instead_of_splitting_it() {
+        let library = test_library("transient-stop-holds-listen");
+        let tracker = ListeningTracker::default();
+        let zone_id = "local-core";
+        let source = apple_music_test_source("1440857781", "Hyperballad");
+        tracker.start(
+            &library,
+            zone_id.to_string(),
+            "Local".to_string(),
+            "default".to_string(),
+            source.clone(),
+            Vec::new(),
+        );
+        tracker.observe(
+            &library,
+            zone_id,
+            "default".to_string(),
+            observation_for_source("Playing", &source, 40.0, 315.0),
+        );
+
+        // Music.app restarts the capture session mid-track.
+        tracker.observe(
+            &library,
+            zone_id,
+            "default".to_string(),
+            observation_for_source("Stopped", &source, 40.0, 315.0),
+        );
+
+        assert_eq!(
+            tracker.active_source(zone_id).map(|source| source.key()),
+            Some(source.key()),
+            "a mid-track stop must not tear down the listen"
+        );
+        assert!(
+            library
+                .recent_playback_history(10, true)
+                .unwrap()
+                .is_empty(),
+            "a transient stop must not write a fragment of the play"
+        );
+
+        tracker.observe(
+            &library,
+            zone_id,
+            "default".to_string(),
+            observation_for_source("Playing", &source, 41.0, 315.0),
+        );
+
+        assert_eq!(
+            tracker.active_source(zone_id).map(|source| source.key()),
+            Some(source.key())
+        );
+    }
+
+    #[test]
+    fn stop_that_outlasts_the_grace_window_finalizes_the_listen() {
+        let library = test_library("sustained-stop-finalizes");
+        let tracker = ListeningTracker::default();
+        let zone_id = "local-core";
+        let source = apple_music_test_source("1440857781", "Hyperballad");
+        tracker.start(
+            &library,
+            zone_id.to_string(),
+            "Local".to_string(),
+            "default".to_string(),
+            source.clone(),
+            Vec::new(),
+        );
+        tracker.observe(
+            &library,
+            zone_id,
+            "default".to_string(),
+            observation_for_source("Playing", &source, 40.0, 315.0),
+        );
+        tracker.observe(
+            &library,
+            zone_id,
+            "default".to_string(),
+            observation_for_source("Stopped", &source, 40.0, 315.0),
+        );
+        {
+            let mut active = tracker.active.lock().unwrap();
+            let listen = active.get_mut(zone_id).unwrap();
+            listen.stopped_since = Some(
+                Instant::now()
+                    - std::time::Duration::from_secs_f64(TRANSIENT_STOP_GRACE_SECONDS + 1.0),
+            );
+            listen.listened_secs = 45.0;
+        }
+
+        tracker.observe(
+            &library,
+            zone_id,
+            "default".to_string(),
+            observation_for_source("Stopped", &source, 40.0, 315.0),
+        );
+
+        assert!(tracker.active_source(zone_id).is_none());
+        let recent = library.recent_playback_history(10, true).unwrap();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].source.key(), source.key());
+        assert!(recent[0].counted);
+    }
+
+    #[test]
+    fn playing_observation_recovers_a_listen_from_the_reported_source() {
+        let library = test_library("recover-from-reported-source");
+        let tracker = ListeningTracker::default();
+        let zone_id = "local-core";
+        let source = apple_music_test_source("1440857781", "Hyperballad");
+
+        tracker.observe(
+            &library,
+            zone_id,
+            "default".to_string(),
+            observation_for_source("Playing", &source, 12.0, 315.0),
+        );
+
+        assert_eq!(
+            tracker.active_source(zone_id).map(|source| source.key()),
+            Some(source.key()),
+            "a provider that reports its own source must be recoverable"
+        );
+        let live = tracker.active_history_inputs();
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].profile_id.as_deref(), Some("default"));
+    }
+
+    #[test]
     fn transfer_to_zone_preserves_active_listen_without_history() {
         let library = test_library("transfer-active-listen");
         let tracker = ListeningTracker::default();
@@ -1559,6 +1728,26 @@ mod tests {
             album_id: Some("ogmrf6hyzd6ja".to_string()),
             image_url: None,
             duration_secs: Some(10.0),
+            radio: false,
+            radio_context: None,
+            playlist_context: None,
+        }
+    }
+
+    fn apple_music_test_source(song_id: &str, title: &str) -> SourceRef {
+        SourceRef::AppleMusicTrack {
+            song_id: song_id.to_string(),
+            storefront: Some("nz".to_string()),
+            title: Some(title.to_string()),
+            artist: Some("Björk".to_string()),
+            album: Some("Post".to_string()),
+            album_artist: Some("Björk".to_string()),
+            album_id: Some("1440857780".to_string()),
+            artwork_url: None,
+            duration_secs: Some(315.0),
+            track_number: Some(3),
+            disc_number: Some(1),
+            isrc: None,
             radio: false,
             radio_context: None,
             playlist_context: None,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { albumListenCount } from '../../../shared/lib/appSupport';
 import type { JsonRecord, LibraryTrack } from '../../../shared/types';
 import { appleMusicAlbumToLibraryDetail, appleMusicSourceFromAlbumTrack } from './appleMusicAlbum';
 
@@ -62,6 +63,40 @@ describe('Apple Music album adapter', () => {
       album: 'Homogenic',
       album_id: '1440880938'
     });
+  });
+
+  it('carries the play history the server attaches to catalog tracks', () => {
+    const detail = appleMusicAlbumToLibraryDetail({
+      album_id: '1440857780',
+      storefront: 'nz',
+      title: 'Post',
+      artist: 'Björk',
+      tracks: [
+        {
+          song_id: '1440857781',
+          storefront: 'nz',
+          title: 'Hyperballad',
+          artist: 'Björk',
+          play_count: 4,
+          last_played_at: 1785126167,
+          listened_secs: 1200
+        },
+        {
+          song_id: '1440857782',
+          storefront: 'nz',
+          title: 'The Modern Things',
+          artist: 'Björk',
+          play_count: 0,
+          last_played_at: null,
+          listened_secs: 0
+        }
+      ]
+    });
+
+    const tracks = detail.tracks as LibraryTrack[];
+    expect(albumListenCount(tracks[0] as JsonRecord)).toBe(4);
+    expect(tracks[0]).toMatchObject({ last_played_at: 1785126167, listened_secs: 1200 });
+    expect(albumListenCount(tracks[1] as JsonRecord)).toBe(0);
   });
 
   it('drops catalog tracks that do not have a playable song id', () => {
