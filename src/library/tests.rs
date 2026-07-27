@@ -5312,6 +5312,142 @@ fn apple_music_album_version_links_recordings_and_resolves_playback() {
     );
 }
 
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+#[test]
+fn recently_played_collapses_an_apple_edition_onto_its_library_album() {
+    let library = test_library("recent-albums-linked-apple-music");
+    let now = now_secs();
+    let (album_id, local_track_id) = {
+        let conn = library.conn.lock().unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO albums (
+                title, album_artist, sort_key, year, confidence, match_status,
+                track_count, created_at, updated_at
+            )
+            VALUES ('TNT', 'Tortoise', 'tortoise|tnt', 1998, 100, 'matched', 1, ?1, ?1)
+            "#,
+            [now],
+        )
+        .unwrap();
+        let album_id = conn.last_insert_rowid();
+        conn.execute(
+            r#"
+            INSERT INTO tracks (
+                path, file_name, size_bytes, modified_secs, title, artist,
+                album, album_artist, track_number, disc_number, duration_secs,
+                sample_rate, bit_depth, format, album_id, embedded_art,
+                created_at, updated_at
+            )
+            VALUES ('/tmp/recent-albums-linked-apple-music/01.flac', '01.flac', 1, 1,
+                    'TNT', 'Tortoise', 'TNT', 'Tortoise', 1, 1, 453.0,
+                    44100, 16, 'FLAC', ?1, 0, ?2, ?2)
+            "#,
+            params![album_id, now],
+        )
+        .unwrap();
+        (album_id, conn.last_insert_rowid())
+    };
+    let apple_source = SourceRef::AppleMusicTrack {
+        song_id: "apple-tnt-1".to_string(),
+        storefront: Some("nz".to_string()),
+        title: Some("TNT".to_string()),
+        artist: Some("Tortoise".to_string()),
+        album: Some("TNT".to_string()),
+        album_artist: Some("Tortoise".to_string()),
+        album_id: Some("tnt-apple".to_string()),
+        artwork_url: Some("https://example.invalid/tnt.jpg".to_string()),
+        duration_secs: Some(453.0),
+        track_number: Some(1),
+        disc_number: Some(1),
+        isrc: None,
+        radio: false,
+        radio_context: None,
+        playlist_context: None,
+    };
+    let local_source = SourceRef::LocalTrack {
+        track_id: local_track_id,
+        file_name: Some("01.flac".to_string()),
+        title: Some("TNT".to_string()),
+        artist: Some("Tortoise".to_string()),
+        album: Some("TNT".to_string()),
+        album_artist: Some("Tortoise".to_string()),
+        album_id: Some(album_id),
+        art_id: None,
+        duration_secs: Some(453.0),
+        ext_hint: Some("flac".to_string()),
+        radio: false,
+        radio_context: None,
+        playlist_context: None,
+    };
+
+    // The shelf already holds both editions side by side, as it does for
+    // anyone who streamed the album before Fozmo matched an Apple edition.
+    library
+        .record_recent_album_for_source(None, &apple_source)
+        .unwrap();
+    library
+        .record_recent_album_for_source(None, &local_source)
+        .unwrap();
+    assert_eq!(
+        library.recent_albums(50).unwrap().len(),
+        2,
+        "an unlinked Apple edition is still its own record"
+    );
+
+    library
+        .link_apple_music_album(
+            album_id,
+            &AppleCatalogAlbum {
+                album_id: "tnt-apple".to_string(),
+                storefront: "nz".to_string(),
+                title: "TNT".to_string(),
+                artist: "Tortoise".to_string(),
+                tracks: vec![AppleCatalogSong {
+                    song_id: "apple-tnt-1".to_string(),
+                    storefront: "nz".to_string(),
+                    album_id: Some("tnt-apple".to_string()),
+                    title: "TNT".to_string(),
+                    artist: "Tortoise".to_string(),
+                    album_title: Some("TNT".to_string()),
+                    album_artist: Some("Tortoise".to_string()),
+                    duration_secs: Some(453.0),
+                    track_number: Some(1),
+                    disc_number: Some(1),
+                    ..AppleCatalogSong::default()
+                }],
+                ..AppleCatalogAlbum::default()
+            },
+        )
+        .unwrap()
+        .unwrap();
+
+    let collapsed = |recent: Vec<RecentAlbumSummary>| {
+        assert_eq!(
+            recent.len(),
+            1,
+            "the Apple edition and the library album are one record on the shelf"
+        );
+        assert_eq!(recent[0].title, "TNT");
+        assert!(!recent[0].is_apple_music);
+        assert_eq!(recent[0].provider, "local");
+        assert_eq!(
+            recent[0].album_id.as_deref(),
+            Some(album_id.to_string().as_str()),
+            "the card must open the library album, which opens at its primary version"
+        );
+    };
+
+    // Rows stored before the link still collapse when the shelf is read.
+    collapsed(library.recent_albums(50).unwrap());
+
+    // And a later Apple play claims the library album's entry outright.
+    library
+        .record_recent_album_for_source(None, &apple_source)
+        .unwrap();
+    collapsed(library.recent_albums(50).unwrap());
+}
+
 /// An Apple edition opened from a local album's Versions tab renders from the
 /// stored catalog payload, which carries no counts of its own. The payload must
 /// stay a faithful catalog copy, so the plays have to come from the summary

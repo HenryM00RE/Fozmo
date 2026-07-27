@@ -174,6 +174,41 @@ impl Library {
                 artwork_url,
                 ..
             } => {
+                // An Apple edition of an album already in the library is the
+                // same record to the listener, so it claims the local album's
+                // shelf entry rather than sitting beside it as a duplicate.
+                if let Some(linked_album) =
+                    self.linked_recent_album_for_apple_music_id(album_id.as_deref())?
+                {
+                    let item_key = format!("local:album:{}", linked_album.id);
+                    let local_album_id = linked_album.id.to_string();
+                    let title = clean_recent_text(Some(&linked_album.title))
+                        .or_else(|| clean_recent_text(album.as_deref()))
+                        .unwrap_or_else(|| "Unknown album".to_string());
+                    let album_artist = clean_recent_text(linked_album.album_artist.as_deref())
+                        .or_else(|| clean_recent_text(album_artist.as_deref()))
+                        .or_else(|| clean_recent_text(artist.as_deref()))
+                        .unwrap_or_else(|| "Unknown artist".to_string());
+                    self.upsert_recent_album(
+                        &profile_id,
+                        &item_key,
+                        "local",
+                        Some(local_album_id.as_str()),
+                        &title,
+                        &album_artist,
+                        linked_album.art_id,
+                        artwork_url.as_deref(),
+                        Some(song_id),
+                        played_at,
+                    )?;
+                    if let Some(apple_album_id) = album_id.as_deref() {
+                        self.delete_recent_album_key(
+                            &profile_id,
+                            &format!("apple_music:album:{apple_album_id}"),
+                        )?;
+                    }
+                    return Ok(());
+                }
                 let title = clean_recent_text(album.as_deref())
                     .or_else(|| clean_recent_text(title.as_deref()))
                     .unwrap_or_else(|| "Unknown album".to_string());
@@ -398,16 +433,23 @@ impl Library {
         Ok(out)
     }
 
+    /// Collapse a streaming edition onto the library album it is linked to.
+    ///
+    /// The shelf shows records, not editions, so every provider that resolves
+    /// to the same local album has to land on one entry — which also makes the
+    /// card open the album at its primary version.
     fn canonicalize_recent_album_summary(
         &self,
         album: RecentAlbumSummary,
     ) -> Result<RecentAlbumSummary, String> {
-        if !album.is_qobuz {
-            return Ok(album);
-        }
-        let Some(linked) =
+        let linked = if album.is_qobuz {
             self.linked_recent_album_for_qobuz_id(album.qobuz_album_id.as_deref())?
-        else {
+        } else if album.is_apple_music {
+            self.linked_recent_album_for_apple_music_id(album.apple_music_album_id.as_deref())?
+        } else {
+            return Ok(album);
+        };
+        let Some(linked) = linked else {
             return Ok(album);
         };
         Ok(RecentAlbumSummary {
@@ -426,6 +468,40 @@ impl Library {
             album_id: Some(linked.id.to_string()),
             ..album
         })
+    }
+
+    fn linked_recent_album_for_apple_music_id(
+        &self,
+        apple_music_album_id: Option<&str>,
+    ) -> Result<Option<LinkedRecentAlbum>, String> {
+        let Some(raw_id) = apple_music_album_id
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        else {
+            return Ok(None);
+        };
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            r#"
+            SELECT a.id, a.title, a.album_artist, COALESCE(a.canonical_art_id, a.art_id)
+            FROM albums a
+            JOIN album_versions v ON v.album_id = a.id AND v.provider = 'apple_music'
+            WHERE v.provider_id = ?1
+            ORDER BY v.updated_at DESC, v.id DESC
+            LIMIT 1
+            "#,
+            params![raw_id],
+            |row| {
+                Ok(LinkedRecentAlbum {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    album_artist: row.get(2)?,
+                    art_id: row.get(3)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| format!("linked recent apple music album lookup: {e}"))
     }
 
     fn linked_recent_album_for_qobuz_id(
