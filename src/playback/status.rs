@@ -638,6 +638,14 @@ fn apply_native_apple_music_status_overlay(
     response.track_title = snapshot.source.title().map(str::to_string);
     response.track_artist = snapshot.source.artist().map(str::to_string);
     response.track_album = snapshot.source.album().map(str::to_string);
+    if let Some((source_rate, source_bits)) =
+        native_apple_music_verified_source_format(state, &snapshot.source)
+    {
+        response.source_rate = source_rate;
+        if let Some(source_bits) = source_bits {
+            response.source_bits = source_bits;
+        }
+    }
     response.duration_secs = if snapshot.duration_secs > 0.0 {
         snapshot.duration_secs
     } else {
@@ -655,6 +663,31 @@ fn apply_native_apple_music_status_overlay(
     } else {
         audible_position_secs
     };
+}
+
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+fn native_apple_music_verified_source_format(
+    state: &AppState,
+    source: &SourceRef,
+) -> Option<(u32, Option<u32>)> {
+    let SourceRef::AppleMusicTrack { song_id, .. } = source else {
+        return None;
+    };
+    state
+        .library()
+        .apple_music_track_verified_format(song_id)
+        .ok()
+        .flatten()
+        .filter(|format| format.codec.eq_ignore_ascii_case("ALAC"))
+        .and_then(|format| {
+            Some((
+                u32::try_from(format.sample_rate).ok()?,
+                format.bit_depth.and_then(|bits| u32::try_from(bits).ok()),
+            ))
+        })
+        // The live session is updated as soon as Music.app verifies its
+        // decoder, before that format is persisted to the library.
+        .or_else(|| state.apple_music_playback().session_format())
 }
 
 fn build_status_response_for_sonos(
@@ -865,6 +898,17 @@ mod tests {
             radio_context: None,
             playlist_context: None,
         };
+        state
+            .library()
+            .record_apple_music_track_format(
+                "635770203",
+                Some("635770200"),
+                Some("nz"),
+                "ALAC",
+                48_000,
+                Some(16),
+            )
+            .unwrap();
         let snapshot = state.apple_music_playback().activate_playback(
             zone_id.clone(),
             player.playback_epoch(),
@@ -882,6 +926,11 @@ mod tests {
         assert_eq!(status.state, "Playing");
         assert_eq!(status.current_source, Some(source));
         assert_eq!(status.track_title.as_deref(), Some("New Kid In Town"));
+        assert_eq!(status.source_rate, 48_000);
+        assert_eq!(
+            status.source_bits, 16,
+            "the signal path must report the verified ALAC depth, not the 32-bit capture carrier"
+        );
         assert_eq!(
             status.position_secs, 0.0,
             "decoder prebuffer must not move the audible timeline"

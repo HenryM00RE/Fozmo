@@ -1,17 +1,19 @@
 # Fozmo Apple Music helper
 
 This macOS `LSUIElement` app is Fozmo's MusicKit authorization and catalog
-bridge. It speaks authenticated protocol v2 over a private Unix socket and
+bridge. It speaks authenticated protocol v4 over a private Unix socket and
 supports:
 
 - Music authorization and subscription checks;
 - normalized song and album catalog lookup;
 - song and album search;
+- immutable Apple Music queue generation staging and adoption;
 - helper lifecycle.
 
-The helper does not own a playback queue or render audio. Product playback
-uses Music.app → Fozmo Capture → the normal Fozmo Player, DSP, and selected
-local output.
+The helper owns only the cloud-library half of Fozmo's immutable `Fozmo A` /
+`Fozmo B` queue generations; it never renders audio. Product playback uses
+Music.app → Fozmo Capture → the normal Fozmo Player, DSP, and selected local
+output.
 
 ## Build and test
 

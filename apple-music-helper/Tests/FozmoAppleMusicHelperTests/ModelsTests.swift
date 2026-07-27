@@ -1,6 +1,7 @@
 import Foundation
 import MusicKit
 import XCTest
+
 @testable import FozmoAppleMusicHelper
 
 final class ModelsTests: XCTestCase {
@@ -91,6 +92,73 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(entry["duration_secs"] as? Double, 312)
     }
 
+    func testImmutableQueueCommandDecodesStableGenerationFields() throws {
+        let command = try JSONDecoder().decode(
+            IncomingCommand.self,
+            from: Data(
+                """
+                {
+                  "v": \(helperProtocolVersion),
+                  "id": "stage-generation-1",
+                  "type": "stage_or_adopt_queue",
+                  "session_id": "am-test",
+                  "song_ids": ["1726654449", "1726654450"],
+                  "operation_id": "stage-generation-1",
+                  "generation": "generation-1",
+                  "slot": "a",
+                  "fingerprint": "abc123",
+                  "allow_create": true
+                }
+                """.utf8
+            )
+        )
+
+        XCTAssertEqual(command.operationID, "stage-generation-1")
+        XCTAssertEqual(command.generation, "generation-1")
+        XCTAssertEqual(command.slot, "a")
+        XCTAssertEqual(command.fingerprint, "abc123")
+        XCTAssertEqual(command.allowCreate, true)
+    }
+
+    func testImmutableQueueResultEncodesIndependentServerOrder() throws {
+        var event = HelperEvent(type: "queue_generation_staged")
+        event.stageOrAdopt = StageOrAdoptPayload(
+            slotName: "Fozmo A",
+            generation: "generation-1",
+            operationID: "stage-generation-1",
+            fingerprint: "abc123",
+            requestedCount: 2,
+            acceptedEntries: [
+                QueueEntryPayload(
+                    songID: "1726654449",
+                    title: "Jóga",
+                    artist: "Björk",
+                    durationSecs: 312,
+                    catalogSongID: "1726654449",
+                    albumTitle: "Homogenic",
+                    discNumber: 1,
+                    trackNumber: 5,
+                    storefront: "nz"
+                )
+            ],
+            rejectedSongIDs: ["1726654450"],
+            webPlaylistID: "p.queue-1",
+            serverCatalogIDs: ["1726654449"]
+        )
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(event)) as? [String: Any]
+        )
+        let result = try XCTUnwrap(object["stage_or_adopt"] as? [String: Any])
+        XCTAssertEqual(result["slot_name"] as? String, "Fozmo A")
+        XCTAssertEqual(result["operation_id"] as? String, "stage-generation-1")
+        XCTAssertEqual(result["server_catalog_ids"] as? [String], ["1726654449"])
+        let entry = try XCTUnwrap(
+            (result["accepted_entries"] as? [[String: Any]])?.first
+        )
+        XCTAssertEqual(entry["album_title"] as? String, "Homogenic")
+        XCTAssertEqual(entry["track_number"] as? Int, 5)
+    }
+
     /// The playlist is the playback order, so a sync must preserve the caller's
     /// ordering and reject anything Music.app could not represent.
     func testQueueSongIDNormalizationPreservesOrderAndDropsDuplicates() {
@@ -166,7 +234,8 @@ final class ModelsTests: XCTestCase {
             JSONSerialization.jsonObject(with: JSONEncoder().encode(event)) as? [String: Any]
         )
         let search = try XCTUnwrap(object["catalog_search"] as? [String: Any])
-        XCTAssertEqual((search["songs"] as? [[String: Any]])?.first?["song_id"] as? String, "song-1")
+        XCTAssertEqual(
+            (search["songs"] as? [[String: Any]])?.first?["song_id"] as? String, "song-1")
         XCTAssertEqual(
             (search["albums"] as? [[String: Any]])?.first?["album_id"] as? String,
             "album-1"

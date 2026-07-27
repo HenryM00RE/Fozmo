@@ -1,6 +1,7 @@
 //! Synchronous Music.app controls for native Apple Music product playback.
 
 use super::model::MusicAppTrack;
+use super::queue_verification::MusicAppPlaylistTrack;
 use std::ffi::{CStr, CString, c_char};
 #[cfg(test)]
 use std::process::Command;
@@ -10,6 +11,9 @@ use std::time::Duration;
 const MUSIC_COMMAND_ATTEMPTS: usize = 3;
 const MUSIC_COMMAND_RETRY_DELAY: Duration = Duration::from_millis(150);
 const MUSIC_APPLE_EVENT_TIMEOUT_SECS: f64 = 2.0;
+const QUEUE_OBSERVATION_APPLE_EVENT_TIMEOUT_SECS: f64 = 8.0;
+const MUSIC_SCRIPT_OUTPUT_BYTES: usize = 8 * 1_024;
+const QUEUE_OBSERVATION_OUTPUT_BYTES: usize = 256 * 1_024;
 
 const MUSIC_STATUS_SCRIPT: &[&str] = &[
     "tell application \"Music\"",
@@ -53,13 +57,10 @@ macro_rules! queue_playlist_name {
 /// realistic library the scan costs about 0.65 s per call against 0.13 s here,
 /// and the readiness poll runs it repeatedly. Callers wrap the reference in
 /// `try` because it raises when the playlist does not exist.
-const QUEUE_PLAYLIST_REFERENCE: &str =
-    concat!("user playlist \"", queue_playlist_name!(), "\"");
+const QUEUE_PLAYLIST_REFERENCE: &str = concat!("user playlist \"", queue_playlist_name!(), "\"");
 
 const PLAY_QUEUE_PLAYLIST_STATEMENT: &str =
     concat!("play playlist \"", queue_playlist_name!(), "\"");
-
-
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct MusicAppSnapshot {
@@ -105,8 +106,6 @@ pub(crate) fn play() -> Result<(), String> {
     run_music_command("play")
 }
 
-
-
 pub(crate) fn pause() -> Result<(), String> {
     run_music_command("pause")
 }
@@ -119,6 +118,7 @@ pub(crate) fn pause() -> Result<(), String> {
 /// equal to the upcoming run and always enters it at the top. Shuffle and
 /// repeat are cleared because either one would make Music.app's next track
 /// disagree with Fozmo's queue.
+#[allow(dead_code)]
 pub(crate) fn play_queue_playlist() -> Result<(), String> {
     run_music_script_with_retry(&[
         "tell application \"Music\"",
@@ -136,11 +136,202 @@ pub(crate) fn play_queue_playlist() -> Result<(), String> {
     .map(|_| ())
 }
 
+/// Start one immutable queue generation by Music.app persistent identity.
+///
+/// Slot names are deliberately reusable, so a name alone is not sufficient:
+/// an older generation may still be disappearing through Sync Library.
+pub(crate) fn play_queue_generation(
+    playlist_name: &str,
+    persistent_id: &str,
+) -> Result<(), String> {
+    let playlist_name = apple_script_string(playlist_name);
+    let persistent_id = apple_script_string(persistent_id);
+    let select = format!(
+        "set targetPlaylist to first user playlist whose name is {playlist_name} and persistent ID is {persistent_id}"
+    );
+    run_music_script_with_retry(&[
+        "tell application \"Music\"",
+        "pause",
+        "try",
+        "set shuffle enabled to false",
+        "end try",
+        "try",
+        "set song repeat to off",
+        "end try",
+        select.as_str(),
+        "play targetPlaylist",
+        "set player position to 0",
+        "end tell",
+    ])
+    .map(|_| ())
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct QueueGenerationObservation {
+    pub persistent_id: String,
+    pub tracks: Vec<MusicAppPlaylistTrack>,
+}
+
+/// Read the exact immutable generation Music.app has received so far.
+///
+/// Before the persistent ID is known, the exact protocol description resolves
+/// the generation. Once known, both the slot name and persistent ID must match.
+pub(crate) fn queue_generation_observation(
+    playlist_name: &str,
+    description: &str,
+    persistent_id: Option<&str>,
+) -> Result<Option<QueueGenerationObservation>, String> {
+    let playlist_name = apple_script_string(playlist_name);
+    let description = apple_script_string(description);
+    let persistent_id = persistent_id.map(apple_script_string);
+    let predicate = persistent_id.map_or_else(
+        || format!("name of p is {playlist_name} and description of p is {description}"),
+        |persistent_id| {
+            format!("name of p is {playlist_name} and persistent ID of p is {persistent_id}")
+        },
+    );
+    let find = format!(
+        "repeat with p in user playlists\n\
+         try\n\
+         if {predicate} then\n\
+         set targetPlaylist to p\n\
+         exit repeat\n\
+         end if\n\
+         end try\n\
+         end repeat"
+    );
+    let output = run_music_script_with_retry_timeout(
+        &[
+            "tell application \"Music\"",
+            "set fieldSeparator to ASCII character 31",
+            "set rowSeparator to ASCII character 30",
+            "set targetPlaylist to missing value",
+            find.as_str(),
+            "if targetPlaylist is missing value then return \"\"",
+            "set out to (persistent ID of targetPlaylist) & rowSeparator",
+            "repeat with t in tracks of targetPlaylist",
+            "set databaseID to \"\"",
+            "set trackName to \"\"",
+            "set artistName to \"\"",
+            "set albumName to \"\"",
+            "set durationValue to \"\"",
+            "set discValue to \"\"",
+            "set trackValue to \"\"",
+            "try",
+            "set databaseID to (database ID of t) as string",
+            "end try",
+            "try",
+            "set trackName to name of t",
+            "end try",
+            "try",
+            "set artistName to artist of t",
+            "end try",
+            "try",
+            "set albumName to album of t",
+            "end try",
+            "try",
+            "set durationValue to (duration of t) as string",
+            "end try",
+            "try",
+            "set discValue to (disc number of t) as string",
+            "end try",
+            "try",
+            "set trackValue to (track number of t) as string",
+            "end try",
+            "set out to out & databaseID & fieldSeparator & trackName & fieldSeparator & artistName & fieldSeparator & albumName & fieldSeparator & durationValue & fieldSeparator & discValue & fieldSeparator & trackValue & rowSeparator",
+            "end repeat",
+            "return out",
+            "end tell",
+        ],
+        QUEUE_OBSERVATION_APPLE_EVENT_TIMEOUT_SECS,
+        QUEUE_OBSERVATION_OUTPUT_BYTES,
+    )?;
+    Ok(parse_queue_generation_observation(&output))
+}
+
+fn parse_queue_generation_observation(output: &str) -> Option<QueueGenerationObservation> {
+    const FIELD_SEPARATOR: char = '\u{1f}';
+    const ROW_SEPARATOR: char = '\u{1e}';
+
+    if output.is_empty() {
+        return None;
+    }
+    let mut rows = output.split(ROW_SEPARATOR);
+    let persistent_id = rows.next().unwrap_or_default().trim().to_string();
+    if persistent_id.is_empty() {
+        return None;
+    }
+    let tracks = rows
+        .filter(|row| !row.is_empty())
+        .map(|row| {
+            let fields = row.split(FIELD_SEPARATOR).collect::<Vec<_>>();
+            MusicAppPlaylistTrack {
+                database_id: fields
+                    .first()
+                    .copied()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string(),
+                title: fields.get(1).copied().unwrap_or_default().to_string(),
+                artist: fields.get(2).copied().unwrap_or_default().to_string(),
+                album: fields.get(3).copied().unwrap_or_default().to_string(),
+                duration_secs: fields
+                    .get(4)
+                    .and_then(|value| value.trim().parse().ok())
+                    .unwrap_or_default(),
+                disc_number: fields
+                    .get(5)
+                    .and_then(|value| value.trim().parse().ok())
+                    .unwrap_or_default(),
+                track_number: fields
+                    .get(6)
+                    .and_then(|value| value.trim().parse().ok())
+                    .unwrap_or_default(),
+            }
+        })
+        .collect();
+    Some(QueueGenerationObservation {
+        persistent_id,
+        tracks,
+    })
+}
+
+/// Delete one superseded generation only when all Music.app identities match.
+pub(crate) fn delete_queue_generation(
+    playlist_name: &str,
+    description: &str,
+    persistent_id: &str,
+) -> Result<bool, String> {
+    let playlist_name = apple_script_string(playlist_name);
+    let description = apple_script_string(description);
+    let persistent_id = apple_script_string(persistent_id);
+    let delete = format!(
+        "repeat with p in user playlists\n\
+         try\n\
+         if name of p is {playlist_name} and description of p is {description} and persistent ID of p is {persistent_id} then\n\
+         delete p\n\
+         set deletedGeneration to true\n\
+         exit repeat\n\
+         end if\n\
+         end try\n\
+         end repeat"
+    );
+    run_music_script_with_retry(&[
+        "tell application \"Music\"",
+        "set deletedGeneration to false",
+        delete.as_str(),
+        "return deletedGeneration as string",
+        "end tell",
+    ])
+    .map(|output| output.trim().eq_ignore_ascii_case("true"))
+}
+
 /// `database ID` of every queue-playlist track, in playback order.
 ///
 /// These are the identities Fozmo matches `current track` against. Music.app
 /// assigns them when the catalog songs land in the library, so they cannot be
 /// known before the sync.
+#[allow(dead_code)]
 pub(crate) fn queue_playlist_track_keys() -> Result<Vec<String>, String> {
     let read_keys = format!(
         "repeat with t in (tracks of {QUEUE_PLAYLIST_REFERENCE})\n\
@@ -169,6 +360,7 @@ pub(crate) fn queue_playlist_track_keys() -> Result<Vec<String>, String> {
 /// Apple documents that "there may be a delay before a new resource appears in
 /// a user's library", so Fozmo polls this after a sync rather than assuming the
 /// playlist is playable the moment the Web API returns.
+#[allow(dead_code)]
 pub(crate) fn queue_playlist_track_count() -> Result<Option<usize>, String> {
     let read_count = format!("set c to (count of tracks of {QUEUE_PLAYLIST_REFERENCE})");
     let output = run_music_script_with_retry(&[
@@ -193,6 +385,7 @@ pub(crate) fn queue_playlist_track_count() -> Result<Option<usize>, String> {
 /// change is applied by deleting the playlist and creating it afresh. The loop
 /// is bounded because deleting inside an AppleScript iteration invalidates the
 /// collection, and a duplicate name is possible after an interrupted sync.
+#[allow(dead_code)]
 pub(crate) fn delete_queue_playlist() -> Result<(), String> {
     // Deleting by direct reference raises once the last one is gone, which is
     // the loop's exit condition. Bounded because an interrupted sync can leave
@@ -224,7 +417,6 @@ pub(crate) fn prepare_bit_perfect() -> Result<(), String> {
     .map(|_| ())
 }
 
-
 pub(crate) fn set_position(seconds: f64) -> Result<(), String> {
     if !seconds.is_finite() || seconds < 0.0 {
         return Err("Apple Music position must be a finite non-negative value.".to_string());
@@ -245,6 +437,15 @@ fn run_music_command(command: &str) -> Result<(), String> {
     run_music_script_with_retry(&["tell application \"Music\"", command, "end tell"]).map(|_| ())
 }
 
+fn apple_script_string(value: &str) -> String {
+    format!(
+        "\"{}\"",
+        value
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace(['\r', '\n'], " ")
+    )
+}
 
 /// Answer from the kernel's process table. Playback start and the transport
 /// monitor both query `status` on latency-sensitive paths, so this must not
@@ -255,15 +456,27 @@ fn music_app_running() -> bool {
 }
 
 fn run_apple_script<'a>(lines: impl IntoIterator<Item = &'a str>) -> Result<String, String> {
+    run_apple_script_with_options(
+        lines,
+        MUSIC_APPLE_EVENT_TIMEOUT_SECS,
+        MUSIC_SCRIPT_OUTPUT_BYTES,
+    )
+}
+
+fn run_apple_script_with_options<'a>(
+    lines: impl IntoIterator<Item = &'a str>,
+    timeout_seconds: f64,
+    output_capacity: usize,
+) -> Result<String, String> {
     let source = lines.into_iter().collect::<Vec<_>>().join("\n");
     let source = CString::new(source)
         .map_err(|_| "The Music app command contains an invalid NUL byte.".to_string())?;
-    let mut output = vec![0_i8; 8_192];
+    let mut output = vec![0_i8; output_capacity];
     let mut error = vec![0_i8; 2_048];
     let result = unsafe {
         fozmo_music_execute_script(
             source.as_ptr(),
-            MUSIC_APPLE_EVENT_TIMEOUT_SECS,
+            timeout_seconds,
             output.as_mut_ptr(),
             output.len(),
             error.as_mut_ptr(),
@@ -289,9 +502,22 @@ fn run_apple_script<'a>(lines: impl IntoIterator<Item = &'a str>) -> Result<Stri
 }
 
 fn run_music_script_with_retry(lines: &[&str]) -> Result<String, String> {
+    run_music_script_with_retry_timeout(
+        lines,
+        MUSIC_APPLE_EVENT_TIMEOUT_SECS,
+        MUSIC_SCRIPT_OUTPUT_BYTES,
+    )
+}
+
+fn run_music_script_with_retry_timeout(
+    lines: &[&str],
+    timeout_seconds: f64,
+    output_capacity: usize,
+) -> Result<String, String> {
     let mut last_error = None;
     for attempt in 0..MUSIC_COMMAND_ATTEMPTS {
-        match run_apple_script(lines.iter().copied()) {
+        match run_apple_script_with_options(lines.iter().copied(), timeout_seconds, output_capacity)
+        {
             Ok(output) => return Ok(output),
             Err(error) => last_error = Some(error),
         }
@@ -406,9 +632,31 @@ mod tests {
         assert_eq!(snapshot.track.position_secs, None);
     }
 
-    
-    
-    
+    #[test]
+    fn parses_an_immutable_queue_generation_positionally() {
+        let field = '\u{1f}';
+        let row = '\u{1e}';
+        let output = format!(
+            "PID-A{row}DB-1{field}Jóga{field}Björk{field}Homogenic{field}312.5{field}1{field}5{row}"
+        );
+        let observation =
+            parse_queue_generation_observation(&output).expect("a generation observation");
+
+        assert_eq!(observation.persistent_id, "PID-A");
+        assert_eq!(
+            observation.tracks,
+            vec![MusicAppPlaylistTrack {
+                database_id: "DB-1".to_string(),
+                title: "Jóga".to_string(),
+                artist: "Björk".to_string(),
+                album: "Homogenic".to_string(),
+                duration_secs: 312.5,
+                disc_number: 1,
+                track_number: 5,
+            }]
+        );
+    }
+
     /// The AppleScript embeds the playlist name as a literal while the helper
     /// protocol carries it as a constant. If they drift, Fozmo builds one
     /// playlist and plays another.
@@ -416,8 +664,14 @@ mod tests {
     fn queue_playlist_scripts_use_the_protocol_playlist_name() {
         let name = super::super::model::QUEUE_PLAYLIST_NAME;
         assert_eq!(queue_playlist_name!(), name);
-        assert_eq!(QUEUE_PLAYLIST_REFERENCE, format!("user playlist \"{name}\""));
-        assert_eq!(PLAY_QUEUE_PLAYLIST_STATEMENT, format!("play playlist \"{name}\""));
+        assert_eq!(
+            QUEUE_PLAYLIST_REFERENCE,
+            format!("user playlist \"{name}\"")
+        );
+        assert_eq!(
+            PLAY_QUEUE_PLAYLIST_STATEMENT,
+            format!("play playlist \"{name}\"")
+        );
     }
 
     /// `play track N of playlist` starts a single-track transport that stops at

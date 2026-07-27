@@ -16,6 +16,26 @@ use std::collections::{HashMap, HashSet};
 
 const PROVIDER: &str = "apple_music";
 
+/// A verified Apple Music decoder format with the context it was observed in.
+///
+/// Safe-island construction treats these as predictions rather than
+/// guarantees — a live mismatch still enters a protected restart — but a
+/// prediction is only usable while its storefront and observation time still
+/// apply.
+// Consumed by safe-island construction once the transition coordinator drives
+// Apple preparation; the query and its row type land with the island builder.
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct AppleMusicTrackFormatRecord {
+    pub song_id: String,
+    pub storefront: Option<String>,
+    pub codec: String,
+    pub sample_rate: i64,
+    pub bit_depth: Option<i64>,
+    /// Unix seconds.
+    pub observed_at: i64,
+}
+
 impl Library {
     /// Remember what Music.app's decoder reported for one catalog song.
     pub fn record_apple_music_track_format(
@@ -96,6 +116,56 @@ impl Library {
         )
         .optional()
         .map_err(|error| format!("Apple Music verified track format: {error}"))
+    }
+
+    /// Full verified-format rows for `song_ids`, keyed by song ID.
+    ///
+    /// Unlike [`Library::apple_music_track_verified_format`] this exposes the
+    /// storefront and observation time, which safe-island construction needs:
+    /// a rate verified in one storefront does not predict another's mastering,
+    /// and a rate observed long ago, or before the current macOS/Music.app
+    /// context, is no longer a usable prediction. The columns already exist, so
+    /// there is no migration here.
+    #[allow(dead_code)]
+    pub fn apple_music_track_format_records(
+        &self,
+        song_ids: &[String],
+    ) -> Result<HashMap<String, AppleMusicTrackFormatRecord>, String> {
+        let mut out = HashMap::new();
+        if song_ids.is_empty() {
+            return Ok(out);
+        }
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT song_id, storefront, codec, sample_rate, bit_depth, observed_at
+                 FROM apple_music_track_formats
+                 WHERE song_id = ?1",
+            )
+            .map_err(|error| format!("Apple Music verified format records: {error}"))?;
+        for song_id in song_ids {
+            let song_id = song_id.trim();
+            if song_id.is_empty() {
+                continue;
+            }
+            let record = stmt
+                .query_row([song_id], |row| {
+                    Ok(AppleMusicTrackFormatRecord {
+                        song_id: row.get(0)?,
+                        storefront: row.get(1)?,
+                        codec: row.get(2)?,
+                        sample_rate: row.get(3)?,
+                        bit_depth: row.get(4)?,
+                        observed_at: row.get(5)?,
+                    })
+                })
+                .optional()
+                .map_err(|error| format!("Apple Music verified format record: {error}"))?;
+            if let Some(record) = record {
+                out.insert(record.song_id.clone(), record);
+            }
+        }
+        Ok(out)
     }
 
     /// Every catalog song on the album whose format Fozmo has verified, keyed

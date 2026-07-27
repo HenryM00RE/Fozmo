@@ -2,7 +2,7 @@ use crate::protocol::SourceRef;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-pub(super) const PROTOCOL_VERSION: u32 = 3;
+pub(super) const PROTOCOL_VERSION: u32 = 4;
 pub(super) const EXPECTED_HELPER_BUNDLE_ID: &str = "com.fozmo.apple-music-helper";
 
 /// Music.app playlist Fozmo owns outright.
@@ -14,6 +14,7 @@ pub(super) const EXPECTED_HELPER_BUNDLE_ID: &str = "com.fozmo.apple-music-helper
 ///
 /// The AppleScript in `music_app.rs` embeds this name via a macro; a test there
 /// pins the two spellings together.
+#[cfg(test)]
 pub(crate) const QUEUE_PLAYLIST_NAME: &str = "Fozmo";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -71,6 +72,13 @@ pub(crate) struct AppleQueueSync {
     pub rejected: Vec<String>,
 }
 
+/// One track the helper accepted into a queue generation.
+///
+/// Carries enough metadata to identify the track positionally in Music.app.
+/// A raw count cannot establish readiness — Music.app can report the right
+/// number of tracks while they are still the wrong ones, or in the wrong
+/// order — so the visible-prefix check matches every field below against what
+/// Music.app actually exposes.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub(crate) struct AppleQueueEntry {
     pub song_id: String,
@@ -80,6 +88,28 @@ pub(crate) struct AppleQueueEntry {
     pub artist: String,
     #[serde(default)]
     pub duration_secs: Option<f64>,
+    /// Catalog song ID as the Web API reports it back through the playlist's
+    /// ordered track relationship. Normally equal to `song_id`, but Apple can
+    /// substitute an equivalent catalog item, and the substitution is what the
+    /// server-order check has to compare against.
+    #[serde(default)]
+    pub catalog_song_id: Option<String>,
+    #[serde(default)]
+    pub album_title: Option<String>,
+    #[serde(default)]
+    pub disc_number: Option<u32>,
+    #[serde(default)]
+    pub track_number: Option<u32>,
+    #[serde(default)]
+    pub storefront: Option<String>,
+}
+
+impl AppleQueueEntry {
+    /// The catalog ID the server-order check compares, falling back to the
+    /// requested ID when the helper did not resolve a distinct one.
+    pub(crate) fn effective_catalog_id(&self) -> &str {
+        self.catalog_song_id.as_deref().unwrap_or(&self.song_id)
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -326,7 +356,19 @@ pub(crate) struct HelperMessage {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub song_ids: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slot: Option<super::queue_generation::AppleQueueSlot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow_create: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub queue_sync: Option<AppleQueueSync>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stage_or_adopt: Option<super::queue_generation::StageOrAdoptResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub library_status: Option<AppleLibraryStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -364,7 +406,13 @@ impl HelperMessage {
             catalog_album: None,
             catalog_search: None,
             song_ids: Vec::new(),
+            operation_id: None,
+            generation: None,
+            slot: None,
+            fingerprint: None,
+            allow_create: None,
             queue_sync: None,
+            stage_or_adopt: None,
             library_status: None,
             code: None,
             message: None,

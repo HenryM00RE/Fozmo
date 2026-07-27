@@ -47,6 +47,7 @@ final class MusicSessionController {
             "search_songs",
             "library_status",
             "sync_queue",
+            "stage_or_adopt_queue",
         ]
         sendEvent(event)
     }
@@ -122,6 +123,8 @@ final class MusicSessionController {
             reportLibraryStatus(command)
         case "sync_queue":
             syncQueue(command)
+        case "stage_or_adopt_queue":
+            stageOrAdoptQueue(command)
         case "shutdown":
             var event = HelperEvent(type: "will_exit")
             event.commandID = command.id
@@ -402,6 +405,159 @@ final class MusicSessionController {
         }
     }
 
+    /// Materialize one immutable queue generation, or adopt the exact
+    /// generation after an ambiguous response or helper restart.
+    ///
+    /// `allowCreate` is true only on the generation's first durable attempt.
+    /// Once Fozmo has recorded that the POST may have been sent, every retry is
+    /// a read-only search by the exact description below.
+    private func stageOrAdoptQueue(_ command: IncomingCommand) {
+        guard validateCatalogAccess(commandID: command.id) else { return }
+        guard
+            let songIDs = CatalogInput.normalizedQueueSongIDs(command.songIDs),
+            let operationID = CatalogInput.normalizedID(command.operationID),
+            operationID == command.id,
+            let generation = CatalogInput.normalizedID(command.generation),
+            let rawSlot = CatalogInput.normalizedID(command.slot)?.lowercased(),
+            rawSlot == "a" || rawSlot == "b",
+            let fingerprint = CatalogInput.normalizedID(command.fingerprint),
+            let allowCreate = command.allowCreate
+        else {
+            sendError(
+                commandID: command.id,
+                code: "queue_stage_invalid",
+                message: "The immutable Apple Music queue request is incomplete.",
+                retryable: false
+            )
+            return
+        }
+        let slot = rawSlot.uppercased()
+        let slotName = "Fozmo \(slot)"
+        let description =
+            "fozmo.queue.v4;slot=\(slot);generation=\(generation);fingerprint=\(fingerprint)"
+
+        Task { @MainActor in
+            do {
+                let songs = try await catalogSongs(for: songIDs)
+                guard !songs.isEmpty else { throw HelperMusicError.songNotFound }
+                let resolved = Set(songs.map(\.id.rawValue))
+                let acceptedEntries = songs.map { song in
+                    QueueEntryPayload(
+                        songID: song.id.rawValue,
+                        title: song.title,
+                        artist: song.artistName,
+                        durationSecs: song.duration,
+                        catalogSongID: song.id.rawValue,
+                        albumTitle: song.albumTitle,
+                        discNumber: song.discNumber,
+                        trackNumber: song.trackNumber,
+                        storefront: nil
+                    )
+                }
+                let rejected = songIDs.filter { !resolved.contains($0) }
+                let deadline = ContinuousClock.now.advanced(by: .seconds(60))
+                var playlistID: String?
+                var createAttempted = false
+                var lastError: Error?
+
+                while ContinuousClock.now < deadline {
+                    do {
+                        let playlists = try await AppleMusicWebAPI.playlists()
+                        let matches = playlists.filter {
+                            $0.name == slotName && $0.description == description
+                        }
+                        if matches.count > 1 {
+                            sendError(
+                                commandID: command.id,
+                                code: "queue_generation_ambiguous",
+                                message:
+                                    "Apple Music exposed more than one playlist for the same Fozmo queue generation.",
+                                retryable: false
+                            )
+                            return
+                        }
+                        if let adopted = matches.first {
+                            playlistID = adopted.id
+                        }
+                    } catch {
+                        lastError = error
+                    }
+
+                    if playlistID == nil, allowCreate, !createAttempted {
+                        // Marked before awaiting the POST: any error after this
+                        // point is ambiguous and must fall through to adoption.
+                        createAttempted = true
+                        do {
+                            playlistID = try await AppleMusicWebAPI.createPlaylist(
+                                name: slotName,
+                                description: description,
+                                catalogSongIDs: songs.map(\.id.rawValue)
+                            )
+                        } catch {
+                            lastError = error
+                        }
+                    }
+
+                    if let playlistID {
+                        do {
+                            let tracks = try await AppleMusicWebAPI.playlistTracks(
+                                playlistID: playlistID
+                            )
+                            if tracks.count == songs.count {
+                                var event = statusEvent(
+                                    type: "queue_generation_staged",
+                                    commandID: command.id
+                                )
+                                event.stageOrAdopt = StageOrAdoptPayload(
+                                    slotName: slotName,
+                                    generation: generation,
+                                    operationID: operationID,
+                                    fingerprint: fingerprint,
+                                    requestedCount: songIDs.count,
+                                    acceptedEntries: acceptedEntries,
+                                    rejectedSongIDs: rejected,
+                                    webPlaylistID: playlistID,
+                                    serverCatalogIDs: tracks.map(\.catalogID)
+                                )
+                                sendAndCache(event, commandID: command.id)
+                                return
+                            }
+                        } catch {
+                            // The playlist itself may be visible before its
+                            // ordered track relationship. Keep adopting.
+                            lastError = error
+                        }
+                    }
+                    try await Task.sleep(for: .milliseconds(500))
+                }
+
+                let detail = lastError.map(Self.libraryWriteFailureReason) ?? ""
+                sendError(
+                    commandID: command.id,
+                    code: "queue_generation_not_visible",
+                    message:
+                        "Apple Music did not materialize Fozmo's immutable queue generation in time."
+                        + (detail.isEmpty ? "" : " \(detail)"),
+                    retryable: true
+                )
+            } catch HelperMusicError.songNotFound {
+                sendError(
+                    commandID: command.id,
+                    code: "song_not_found",
+                    message: "Apple Music could not find the queue's first song.",
+                    retryable: false
+                )
+            } catch {
+                sendError(
+                    commandID: command.id,
+                    code: "queue_stage_failed",
+                    message: Self.libraryWriteFailureReason(error),
+                    retryable: true
+                )
+            }
+        }
+    }
+
     /// Catalog songs for `songIDs`, in the requested order.
     ///
     /// A batch resource request does not promise response order, and playlist
@@ -423,16 +579,44 @@ final class MusicSessionController {
     /// A library write can fail because Sync Library is off, because the
     /// music-user token is missing, or transiently. Only the first is
     /// actionable and MusicKit does not expose it, so name the setting for the
-    /// permission-shaped failures and pass everything else through.
+    /// permission-shaped failures.
+    ///
+    /// Everything else carries Apple's own status and body. Blaming Sync
+    /// Library for every failure sent users to a setting that was already on
+    /// while the real cause — a rejected request body, a 500, an unreachable
+    /// endpoint — stayed invisible: the helper is launched through `open`, so
+    /// its stderr reaches no log Fozmo can read, and this string is the only
+    /// channel the failure has.
     private static func libraryWriteFailureReason(_ error: Error) -> String {
-        if case AppleMusicWebAPI.Failure.http(let status, _) = error,
-            status == 401 || status == 403
-        {
+        switch error {
+        case AppleMusicWebAPI.Failure.http(let status, let body)
+        where status == 401 || status == 403:
             return
-                "Apple Music refused Fozmo's library update. Adding subscription tracks to a library needs Sync Library: turn on Music → Settings → General → Sync Library, re-authorize Apple Music in Fozmo, then retry."
+                "Apple Music refused Fozmo's library update (HTTP \(status)). Adding subscription tracks to a library needs Sync Library: turn on Music → Settings → General → Sync Library, re-authorize Apple Music in Fozmo, then retry.\(Self.appleDetail(body))"
+        case AppleMusicWebAPI.Failure.http(let status, let body):
+            return
+                "Apple Music rejected Fozmo's queue playlist request with HTTP \(status).\(Self.appleDetail(body))"
+        case AppleMusicWebAPI.Failure.malformedResponse:
+            return
+                "Apple Music returned a queue playlist response Fozmo could not read."
+        default:
+            return
+                "Fozmo could not reach Apple Music to update its queue playlist: \(error.localizedDescription)"
         }
-        return
-            "Fozmo could not update its Apple Music queue playlist. Check that Sync Library is on in Music → Settings → General, then retry."
+    }
+
+    /// Apple's error body, trimmed to something a message can carry.
+    ///
+    /// The bodies are JSON with a `detail` worth reading; the full document is
+    /// far too long for a UI string, and truncating is better than dropping it.
+    private static func appleDetail(_ body: String) -> String {
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        let clipped =
+            trimmed.count > 400
+            ? String(trimmed.prefix(400)) + "…"
+            : trimmed
+        return " Apple reported: \(clipped)"
     }
 
     private func validateCatalogAccess(commandID: String) -> Bool {

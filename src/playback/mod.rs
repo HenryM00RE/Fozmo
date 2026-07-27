@@ -1,16 +1,28 @@
 pub mod airplay_volume;
 #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+#[allow(dead_code)]
+pub mod apple_island;
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
 pub(crate) mod apple_music_native;
 pub mod apply_settings;
 pub mod artist_radio;
 pub mod auto_advance;
+// The identity, boundary, and coordinator modules are the substrate the mixed
+// Apple/local/Qobuz transition work is built on. They ship before the engine
+// hands them authority, so parts of each are unreferenced until that switch.
+#[allow(dead_code)]
+pub mod boundary;
 pub mod commands;
 pub mod config;
 pub mod config_applicator;
 pub mod control;
+#[allow(dead_code)]
+pub mod coordinator;
 pub mod error;
 #[cfg_attr(not(feature = "hegel"), allow(dead_code))]
 pub mod hegel_control;
+#[allow(dead_code)]
+pub mod identity;
 pub mod intent;
 pub mod lastfm;
 pub mod local;

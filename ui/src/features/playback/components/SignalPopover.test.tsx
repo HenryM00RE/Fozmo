@@ -86,4 +86,35 @@ describe('SignalPopover', () => {
       expect(endpoints.zoneEq).toHaveBeenCalledWith('hegel-h390');
     });
   });
+
+  it('shows the verified Apple Music ALAC source format', async () => {
+    vi.spyOn(endpoints, 'zoneEq').mockResolvedValue({ enabled: false, bands: [] });
+
+    render(
+      <SignalPopover
+        status={{
+          active_zone_id: 'hegel-h390',
+          active_zone_name: 'Hegel H390',
+          state: 'Playing',
+          file_name: 'apple_music:635770203',
+          current_source: {
+            kind: 'apple_music_track',
+            song_id: '635770203'
+          },
+          source_rate: 48000,
+          source_bits: 16,
+          target_rate: 48000,
+          target_bits: 24,
+          active_output_mode: 'Pcm'
+        }}
+      />
+    );
+
+    expect(screen.getByText('ALAC')).toBeInTheDocument();
+    expect(screen.getByText('16/48.0 kHz')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(endpoints.zoneEq).toHaveBeenCalledWith('hegel-h390');
+    });
+  });
 });

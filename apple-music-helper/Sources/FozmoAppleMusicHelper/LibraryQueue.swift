@@ -23,7 +23,12 @@ enum AppleMusicWebAPI {
     struct Playlist: Equatable {
         let id: String
         let name: String
+        let description: String?
         let canEdit: Bool
+    }
+
+    struct PlaylistTrack: Equatable {
+        let catalogID: String?
     }
 
     enum Failure: Error {
@@ -53,9 +58,42 @@ enum AppleMusicWebAPI {
                     Playlist(
                         id: id,
                         name: name,
+                        description: descriptionText(attributes["description"]),
                         canEdit: attributes["canEdit"] as? Bool ?? false
                     )
                 )
+            }
+            next = (json["next"] as? String).flatMap {
+                URL(string: $0.hasPrefix("http") ? $0 : "https://api.music.apple.com\($0)")
+            }
+        }
+        return found
+    }
+
+    /// Ordered tracks Apple actually stored for a library playlist.
+    ///
+    /// Library-song IDs are private to the user's library. `catalogId` is the
+    /// stable identity Fozmo can compare with the catalog IDs it requested.
+    static func playlistTracks(playlistID: String) async throws -> [PlaylistTrack] {
+        var found: [PlaylistTrack] = []
+        var next: URL? =
+            base
+            .appendingPathComponent(playlistID)
+            .appendingPathComponent("tracks")
+        if let initial = next {
+            var components = URLComponents(url: initial, resolvingAgainstBaseURL: false)
+            components?.queryItems = [URLQueryItem(name: "limit", value: "100")]
+            next = components?.url
+        }
+        while let url = next {
+            let json = try await requestJSON(url: url, method: "GET", body: nil)
+            guard let data = json["data"] as? [[String: Any]] else {
+                throw Failure.malformedResponse
+            }
+            for entry in data {
+                let attributes = entry["attributes"] as? [String: Any]
+                let playParams = attributes?["playParams"] as? [String: Any]
+                found.append(PlaylistTrack(catalogID: playParams?["catalogId"] as? String))
             }
             next = (json["next"] as? String).flatMap {
                 URL(string: $0.hasPrefix("http") ? $0 : "https://api.music.apple.com\($0)")
@@ -133,5 +171,15 @@ enum AppleMusicWebAPI {
             throw Failure.malformedResponse
         }
         return json
+    }
+
+    private static func descriptionText(_ value: Any?) -> String? {
+        if let value = value as? String {
+            return value
+        }
+        if let value = value as? [String: Any] {
+            return value["standard"] as? String
+        }
+        return nil
     }
 }

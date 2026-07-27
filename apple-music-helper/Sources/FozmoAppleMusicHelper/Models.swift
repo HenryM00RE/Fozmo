@@ -1,7 +1,7 @@
 import Foundation
 import MusicKit
 
-let helperProtocolVersion = 3
+let helperProtocolVersion = 4
 let helperBundleIdentifier = "com.fozmo.apple-music-helper"
 
 /// Name of the Music.app playlist Fozmo owns outright.
@@ -135,6 +135,11 @@ struct IncomingCommand: Decodable, Equatable {
     let limit: Int?
     let storefront: String?
     let songIDs: [String]?
+    let operationID: String?
+    let generation: String?
+    let slot: String?
+    let fingerprint: String?
+    let allowCreate: Bool?
 
     enum CodingKeys: String, CodingKey {
         case version = "v"
@@ -149,6 +154,11 @@ struct IncomingCommand: Decodable, Equatable {
         case limit
         case storefront
         case songIDs = "song_ids"
+        case operationID = "operation_id"
+        case generation
+        case slot
+        case fingerprint
+        case allowCreate = "allow_create"
     }
 }
 
@@ -322,12 +332,68 @@ struct QueueEntryPayload: Codable, Equatable {
     let title: String
     let artist: String
     let durationSecs: Double?
+    let catalogSongID: String?
+    let albumTitle: String?
+    let discNumber: Int?
+    let trackNumber: Int?
+    let storefront: String?
 
     enum CodingKeys: String, CodingKey {
         case songID = "song_id"
         case title
         case artist
         case durationSecs = "duration_secs"
+        case catalogSongID = "catalog_song_id"
+        case albumTitle = "album_title"
+        case discNumber = "disc_number"
+        case trackNumber = "track_number"
+        case storefront
+    }
+
+    init(
+        songID: String,
+        title: String,
+        artist: String,
+        durationSecs: Double?,
+        catalogSongID: String? = nil,
+        albumTitle: String? = nil,
+        discNumber: Int? = nil,
+        trackNumber: Int? = nil,
+        storefront: String? = nil
+    ) {
+        self.songID = songID
+        self.title = title
+        self.artist = artist
+        self.durationSecs = durationSecs
+        self.catalogSongID = catalogSongID
+        self.albumTitle = albumTitle
+        self.discNumber = discNumber
+        self.trackNumber = trackNumber
+        self.storefront = storefront
+    }
+}
+
+struct StageOrAdoptPayload: Codable, Equatable {
+    let slotName: String
+    let generation: String
+    let operationID: String
+    let fingerprint: String
+    let requestedCount: Int
+    let acceptedEntries: [QueueEntryPayload]
+    let rejectedSongIDs: [String]
+    let webPlaylistID: String?
+    let serverCatalogIDs: [String?]
+
+    enum CodingKeys: String, CodingKey {
+        case slotName = "slot_name"
+        case generation
+        case operationID = "operation_id"
+        case fingerprint
+        case requestedCount = "requested_count"
+        case acceptedEntries = "accepted_entries"
+        case rejectedSongIDs = "rejected_song_ids"
+        case webPlaylistID = "web_playlist_id"
+        case serverCatalogIDs = "server_catalog_ids"
     }
 }
 
@@ -365,6 +431,7 @@ struct HelperEvent: Encodable, Equatable {
     var catalogAlbum: CatalogAlbumPayload?
     var catalogSearch: CatalogSearchPayload?
     var queueSync: QueueSyncPayload?
+    var stageOrAdopt: StageOrAdoptPayload?
     var libraryStatus: LibraryStatusPayload?
     var code: String?
     var message: String?
@@ -389,6 +456,7 @@ struct HelperEvent: Encodable, Equatable {
         case catalogAlbum = "catalog_album"
         case catalogSearch = "catalog_search"
         case queueSync = "queue_sync"
+        case stageOrAdopt = "stage_or_adopt"
         case libraryStatus = "library_status"
         case code
         case message
@@ -418,8 +486,8 @@ enum AuthorizationLabel {
     }
 }
 
-private extension String {
-    var nonEmpty: String? {
+extension String {
+    fileprivate var nonEmpty: String? {
         isEmpty ? nil : self
     }
 }

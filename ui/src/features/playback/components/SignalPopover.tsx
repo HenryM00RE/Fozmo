@@ -217,12 +217,17 @@ export function SignalPopover({
       ? 'Realtime stream'
       : 'Realtime n/a');
   const normalizedSourceProvider = stringValue(sourceProvider).toLowerCase();
-  const isQobuzSource =
-    normalizedSourceProvider === 'qobuz' ||
-    String((status.current_source as JsonRecord | null)?.kind || '')
-      .toLowerCase()
-      .includes('qobuz');
-  const sourceFormat = isQobuzSource ? 'FLAC' : fileFormatLabel(status.file_name);
+  const currentSourceKind = String(
+    (status.current_source as JsonRecord | null)?.kind || ''
+  ).toLowerCase();
+  const isQobuzSource = normalizedSourceProvider === 'qobuz' || currentSourceKind.includes('qobuz');
+  const isAppleMusicSource =
+    normalizedSourceProvider === 'apple_music' || currentSourceKind.includes('apple_music');
+  const sourceFormat = isQobuzSource
+    ? 'FLAC'
+    : isAppleMusicSource
+      ? 'ALAC'
+      : fileFormatLabel(status.file_name);
   const sourceDetail = hasActiveStream
     ? hasKnownSignalRate
       ? isDsd

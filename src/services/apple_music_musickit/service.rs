@@ -4,7 +4,16 @@ use super::model::{
     AppleMusicMvpError, AppleMusicMvpState, AppleMusicMvpStatus, AppleQueueSync,
     EXPECTED_HELPER_BUNDLE_ID, HelperMessage, PROTOCOL_VERSION,
 };
-use super::music_app::pid as music_app_pid;
+use super::music_app::{
+    delete_queue_generation, pid as music_app_pid, queue_generation_observation,
+};
+use super::queue_generation::{
+    AppleQueueGenerationCache, AppleQueueGenerationStore, AppleQueueLifecycle, AppleQueueSlot,
+    AppleQueueSlotRecord, DeletionRequest, NormalizationFailure, STAGE_OR_ADOPT_TIMEOUT,
+    StageOrAdoptAttempt, StageOrAdoptResult, StageRefusal, content_fingerprint,
+    normalize_helper_result,
+};
+use super::queue_verification::{StartupReadinessPolicy, verify_server_order, visible_prefix};
 use super::source_format::{
     AppleMusicDecoderDetection, AppleMusicSourceFormat, SourceFormatProbeState,
     query_recent_music_app_source_format,
@@ -15,6 +24,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
+use std::process::Command as StdCommand;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -30,6 +40,8 @@ const HELPER_EXECUTABLE: &str = "FozmoAppleMusicHelper";
 const HELPER_APP: &str = "FozmoAppleMusicHelper.app";
 const HELPER_CONNECT_TIMEOUT: Duration = Duration::from_secs(12);
 const HELPER_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
+const QUEUE_GENERATION_VISIBLE_TIMEOUT: Duration = Duration::from_secs(60);
+const QUEUE_GENERATION_VISIBLE_POLL: Duration = Duration::from_millis(250);
 /// Apple builds the queue playlist in one request, so the whole upcoming run
 /// travels in a single call. Cap it so a long queue cannot stall a start.
 const MAX_QUEUE_PLAYLIST_LENGTH: usize = 100;
@@ -52,8 +64,19 @@ pub(crate) struct AppleMusicService {
     status: Arc<Mutex<AppleMusicMvpStatus>>,
     source_format_probe: Mutex<SourceFormatProbeState>,
     playback_switch: AsyncMutex<()>,
+    queue_generation_store: AppleQueueGenerationStore,
+    queue_generations: AsyncMutex<AppleQueueGenerationCache>,
+    current_queue_target: Mutex<Option<AppleQueuePlaybackTarget>>,
     connection: AsyncMutex<Option<HelperConnection>>,
     next_command_id: AtomicU64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct AppleQueuePlaybackTarget {
+    pub playlist_name: String,
+    pub persistent_id: String,
+    pub database_ids: Vec<String>,
+    pub accepted_count: usize,
 }
 
 #[allow(dead_code)]
@@ -91,15 +114,356 @@ impl AppleMusicService {
     pub(crate) fn new(resource_dir: &Path, cache_dir: &Path) -> Self {
         let helper_path = helper_executable_path(resource_dir);
         let helper_present = helper_path.is_file();
+        let queue_generation_store = AppleQueueGenerationStore::new(cache_dir);
+        let queue_generations = queue_generation_store.load();
         Self {
             helper_path,
             runtime_root: cache_dir.join("apple-music"),
             status: Arc::new(Mutex::new(AppleMusicMvpStatus::new(helper_present))),
             source_format_probe: Mutex::new(SourceFormatProbeState::default()),
             playback_switch: AsyncMutex::new(()),
+            queue_generation_store,
+            queue_generations: AsyncMutex::new(queue_generations),
+            current_queue_target: Mutex::new(None),
             connection: AsyncMutex::new(None),
             next_command_id: AtomicU64::new(1),
         }
+    }
+
+    pub(crate) fn current_queue_target(&self) -> Option<AppleQueuePlaybackTarget> {
+        self.current_queue_target.lock().unwrap().clone()
+    }
+
+    /// Stage one immutable queue generation and wait until Music.app exposes
+    /// enough of its verified prefix for safe startup.
+    pub(crate) async fn stage_queue_generation(
+        &self,
+        song_ids: Vec<String>,
+    ) -> Result<AppleQueuePlaybackTarget, AppleMusicMvpError> {
+        if song_ids.is_empty() || song_ids.len() > MAX_QUEUE_PLAYLIST_LENGTH {
+            return Err(error(
+                "queue_stage_invalid",
+                "Fozmo needs between 1 and 100 Apple Music tracks to stage a queue.",
+                false,
+                "queue_stage",
+                true,
+            ));
+        }
+        let song_ids = song_ids
+            .into_iter()
+            .map(|song_id| validate_catalog_id(song_id, "queue_song_id_invalid"))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.ensure_ready().await?;
+
+        let context = queue_format_context(self.status().helper_version.as_deref());
+        let fingerprint = content_fingerprint(&song_ids, &context);
+        let mut cache = self.queue_generations.lock().await;
+        if cache.format_context_fingerprint != context {
+            *cache = AppleQueueGenerationCache {
+                format_context_fingerprint: context,
+                ..AppleQueueGenerationCache::default()
+            };
+            self.save_queue_cache(&cache)?;
+        }
+
+        let reusable_slot = AppleQueueSlot::ALL.into_iter().find(|slot| {
+            cache.slot(*slot).is_some_and(|record| {
+                record.fingerprint == fingerprint
+                    && record.requested_song_ids == song_ids
+                    && record.lifecycle != AppleQueueLifecycle::Quarantined
+            })
+        });
+        let slot = if let Some(slot) = reusable_slot {
+            slot
+        } else {
+            let current_slot =
+                self.current_queue_target
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .and_then(|target| {
+                        AppleQueueSlot::ALL
+                            .into_iter()
+                            .find(|slot| slot.playlist_name() == target.playlist_name)
+                    });
+            let preferred = current_slot.map(AppleQueueSlot::other);
+            preferred
+                .filter(|slot| queue_slot_replaceable(cache.slot(*slot)))
+                .or_else(|| {
+                    AppleQueueSlot::ALL
+                        .into_iter()
+                        .find(|slot| Some(*slot) != current_slot && queue_slot_replaceable(cache.slot(*slot)))
+                })
+                .ok_or_else(|| {
+                    error(
+                        "queue_generation_slots_busy",
+                        "Both immutable Apple Music queue slots are still owned by active or materializing generations.",
+                        true,
+                        "queue_stage",
+                        true,
+                    )
+                })?
+        };
+
+        if reusable_slot.is_none() {
+            if let Some(stale) = cache.slot(slot).cloned() {
+                let (Some(web_playlist_id), Some(music_app_persistent_id)) = (
+                    stale.web_playlist_id.clone(),
+                    stale.music_app_persistent_id.clone(),
+                ) else {
+                    return Err(error(
+                        "queue_generation_slot_not_deletable",
+                        format!(
+                            "The superseded {} queue generation is missing an Apple identity.",
+                            slot.playlist_name()
+                        ),
+                        true,
+                        "queue_cleanup",
+                        true,
+                    ));
+                };
+                let request = DeletionRequest {
+                    slot,
+                    generation: stale.generation.clone(),
+                    description: stale.description(),
+                    fingerprint: stale.fingerprint.clone(),
+                    web_playlist_id,
+                    music_app_persistent_id: music_app_persistent_id.clone(),
+                    referenced_by_transition: false,
+                    transport_cleanup_complete: true,
+                };
+                stale.deletion_guard(&request).map_err(|refusal| {
+                    error(
+                        "queue_generation_delete_refused",
+                        format!(
+                            "Fozmo refused to delete a superseded Apple queue generation: {refusal:?}"
+                        ),
+                        false,
+                        "queue_cleanup",
+                        true,
+                    )
+                })?;
+                let name = slot.playlist_name().to_string();
+                let description = stale.description();
+                tokio::task::spawn_blocking(move || {
+                    delete_queue_generation(&name, &description, &music_app_persistent_id)
+                })
+                .await
+                .map_err(|join_error| {
+                    error(
+                        "queue_generation_delete_stopped",
+                        format!("The Music.app queue cleanup stopped: {join_error}"),
+                        true,
+                        "queue_cleanup",
+                        true,
+                    )
+                })?
+                .map_err(|message| {
+                    error(
+                        "queue_generation_delete_failed",
+                        message,
+                        true,
+                        "queue_cleanup",
+                        true,
+                    )
+                })?;
+                tracing::info!(
+                    event = "apple_music_queue_generation_retired",
+                    slot = slot.as_str(),
+                    generation = stale.generation,
+                    "Retired an inactive immutable Apple Music queue generation"
+                );
+                *cache.slot_mut(slot) = None;
+                self.save_queue_cache(&cache)?;
+            }
+            let format_context_fingerprint = cache.format_context_fingerprint.clone();
+            cache.put(AppleQueueSlotRecord::plan(
+                slot,
+                song_ids.clone(),
+                &format_context_fingerprint,
+            ));
+            self.save_queue_cache(&cache)?;
+        }
+        let record = cache
+            .slot_mut(slot)
+            .as_mut()
+            .expect("the selected queue slot has a record");
+        let attempt = record.next_attempt().map_err(stage_refusal_error)?;
+        // Persist CreateSent before the helper can issue the POST.
+        self.save_queue_cache(&cache)?;
+
+        let result = match self.stage_or_adopt_queue(attempt).await {
+            Ok(result) => result,
+            Err(failure) => {
+                if matches!(
+                    failure.code.as_str(),
+                    "queue_generation_ambiguous" | "queue_generation_not_visible"
+                ) && let Some(record) = cache.slot_mut(slot).as_mut()
+                {
+                    record.quarantine();
+                    let _ = self.queue_generation_store.save(&cache);
+                }
+                return Err(failure);
+            }
+        };
+        if let Err(failure) = normalize_helper_result(&song_ids, &result) {
+            quarantine_record(&mut cache, slot);
+            let _ = self.queue_generation_store.save(&cache);
+            return Err(normalization_error(failure));
+        }
+        if !result.rejected_song_ids.is_empty() {
+            quarantine_record(&mut cache, slot);
+            let _ = self.queue_generation_store.save(&cache);
+            return Err(error(
+                "queue_tracks_rejected",
+                format!(
+                    "Apple Music rejected {} track(s) from Fozmo's immutable queue.",
+                    result.rejected_song_ids.len()
+                ),
+                false,
+                "queue_stage",
+                true,
+            ));
+        }
+        if let Err(failure) =
+            verify_server_order(&result.accepted_entries, &result.server_catalog_ids)
+        {
+            quarantine_record(&mut cache, slot);
+            let _ = self.queue_generation_store.save(&cache);
+            return Err(error(
+                "queue_server_order_mismatch",
+                format!("Apple Music stored a different immutable queue order: {failure:?}"),
+                false,
+                "queue_stage",
+                true,
+            ));
+        }
+        tracing::info!(
+            event = "apple_music_queue_generation_server_verified",
+            slot = slot.as_str(),
+            generation = result.generation,
+            requested = result.requested_count,
+            accepted = result.accepted_entries.len(),
+            rejected = result.rejected_song_ids.len(),
+            web_playlist_id = result.web_playlist_id.as_deref().unwrap_or_default(),
+            "Verified the immutable Apple Music queue generation on Apple's server"
+        );
+        let (accepted, description, mut persistent_id) = {
+            let record = cache
+                .slot_mut(slot)
+                .as_mut()
+                .expect("the staged queue slot still exists");
+            if let Err(refusal) = record.adopt(&result) {
+                record.quarantine();
+                let failure = stage_refusal_error(refusal);
+                let _ = self.queue_generation_store.save(&cache);
+                return Err(failure);
+            }
+            (
+                record.accepted_entries.clone(),
+                record.description(),
+                record.music_app_persistent_id.clone(),
+            )
+        };
+        self.save_queue_cache(&cache)?;
+
+        let readiness = StartupReadinessPolicy {
+            has_native_successor: accepted.len() > 1,
+            later_visible_adoption_qualified: false,
+        };
+        let required = readiness.required_entries(accepted.len());
+        let deadline = Instant::now() + QUEUE_GENERATION_VISIBLE_TIMEOUT;
+        let mut last_prefix = 0;
+        let mut logged_prefix = usize::MAX;
+        loop {
+            let name = slot.playlist_name().to_string();
+            let generation_description = description.clone();
+            let known_id = persistent_id.clone();
+            let observation = tokio::task::spawn_blocking(move || {
+                queue_generation_observation(&name, &generation_description, known_id.as_deref())
+            })
+            .await
+            .map_err(|join_error| {
+                error(
+                    "queue_music_app_poll_stopped",
+                    format!("The Music.app queue poll stopped: {join_error}"),
+                    true,
+                    "queue_visibility",
+                    true,
+                )
+            })?
+            .map_err(|message| {
+                error(
+                    "queue_music_app_poll_failed",
+                    message,
+                    true,
+                    "queue_visibility",
+                    true,
+                )
+            })?;
+            if let Some(observation) = observation {
+                persistent_id = Some(observation.persistent_id.clone());
+                let prefix = visible_prefix(&accepted, &observation.tracks);
+                last_prefix = prefix.length;
+                if prefix.length != logged_prefix {
+                    tracing::info!(
+                        event = "apple_music_queue_generation_visible_prefix",
+                        slot = slot.as_str(),
+                        generation = result.generation,
+                        visible = prefix.length,
+                        required,
+                        accepted = accepted.len(),
+                        stopped_by = ?prefix.stopped_by,
+                        "Music.app's verified immutable queue prefix changed"
+                    );
+                    logged_prefix = prefix.length;
+                }
+                if prefix.length >= required {
+                    let target = AppleQueuePlaybackTarget {
+                        playlist_name: slot.playlist_name().to_string(),
+                        persistent_id: observation.persistent_id,
+                        database_ids: prefix.database_ids.clone(),
+                        accepted_count: accepted.len(),
+                    };
+                    let record = cache
+                        .slot_mut(slot)
+                        .as_mut()
+                        .expect("the visible queue slot still exists");
+                    record.music_app_persistent_id = Some(target.persistent_id.clone());
+                    record.music_app_database_ids = prefix.database_ids;
+                    self.save_queue_cache(&cache)?;
+                    *self.current_queue_target.lock().unwrap() = Some(target.clone());
+                    return Ok(target);
+                }
+            }
+            if Instant::now() >= deadline {
+                return Err(error(
+                    "queue_generation_not_visible_in_music_app",
+                    format!(
+                        "Music.app exposed {last_prefix} of the {required} verified queue entries required for startup within 60 seconds."
+                    ),
+                    true,
+                    "queue_visibility",
+                    true,
+                ));
+            }
+            tokio::time::sleep(QUEUE_GENERATION_VISIBLE_POLL).await;
+        }
+    }
+
+    fn save_queue_cache(
+        &self,
+        cache: &AppleQueueGenerationCache,
+    ) -> Result<(), AppleMusicMvpError> {
+        self.queue_generation_store.save(cache).map_err(|message| {
+            error(
+                "queue_generation_cache_failed",
+                message,
+                true,
+                "queue_stage",
+                true,
+            )
+        })
     }
 
     pub(crate) fn status(&self) -> AppleMusicMvpStatus {
@@ -309,6 +673,7 @@ impl AppleMusicService {
     /// Fozmo starts the playlist from the top rather than at an index, because
     /// `play track N of playlist` plays one track and stops instead of
     /// advancing, which would give up the gapless boundary this exists for.
+    #[allow(dead_code)]
     pub(crate) async fn sync_queue_playlist(
         &self,
         song_ids: Vec<String>,
@@ -341,11 +706,47 @@ impl AppleMusicService {
         })
     }
 
+    async fn stage_or_adopt_queue(
+        &self,
+        attempt: StageOrAdoptAttempt,
+    ) -> Result<StageOrAdoptResult, AppleMusicMvpError> {
+        let session_id = self.session_id().await?;
+        let mut command = HelperMessage::command(
+            attempt.operation_id.clone(),
+            "stage_or_adopt_queue",
+            session_id,
+        );
+        command.operation_id = Some(attempt.operation_id.clone());
+        command.generation = Some(attempt.generation);
+        command.slot = Some(attempt.slot);
+        command.fingerprint = Some(attempt.fingerprint);
+        command.song_ids = attempt.requested_song_ids;
+        command.allow_create = Some(attempt.allow_create);
+        let event = self
+            .send_serialized_and_wait(
+                attempt.operation_id,
+                &command,
+                &["queue_generation_staged"],
+                STAGE_OR_ADOPT_TIMEOUT,
+            )
+            .await?;
+        event.stage_or_adopt.ok_or_else(|| {
+            error(
+                "helper_protocol_mismatch",
+                "The Apple Music helper returned an empty queue-generation response.",
+                false,
+                "queue_stage",
+                true,
+            )
+        })
+    }
+
     /// Whether Apple will accept the library writes the queue playlist needs.
     ///
     /// Adding subscription tracks to a library requires Sync Library, and
     /// neither MusicKit nor AppleScript exposes that setting, so the only
     /// honest check is asking Apple to list the user's playlists.
+    #[allow(dead_code)]
     pub(crate) async fn library_status(&self) -> Result<AppleLibraryStatus, AppleMusicMvpError> {
         self.ensure_ready().await?;
         let command = self.next_command("library_status").await?;
@@ -817,8 +1218,13 @@ impl AppleMusicService {
         expected_events: &[&str],
     ) -> Result<HelperMessage, AppleMusicMvpError> {
         let command_id = command.id.clone().unwrap_or_default();
-        self.send_serialized_and_wait(command_id, &command, expected_events)
-            .await
+        self.send_serialized_and_wait(
+            command_id,
+            &command,
+            expected_events,
+            HELPER_COMMAND_TIMEOUT,
+        )
+        .await
     }
 
     async fn send_serialized_and_wait<T: serde::Serialize>(
@@ -826,6 +1232,7 @@ impl AppleMusicService {
         command_id: String,
         command: &T,
         expected_events: &[&str],
+        command_timeout: Duration,
     ) -> Result<HelperMessage, AppleMusicMvpError> {
         let mut receiver = {
             let mut guard = self.connection.lock().await;
@@ -864,7 +1271,7 @@ impl AppleMusicService {
             receiver
         };
 
-        let deadline = Instant::now() + HELPER_COMMAND_TIMEOUT;
+        let deadline = Instant::now() + command_timeout;
         loop {
             let event = match timeout_at(deadline, receiver.recv()).await.map_err(|_| {
                 error(
@@ -1201,6 +1608,109 @@ fn validate_storefront(value: Option<String>) -> Result<Option<String>, AppleMus
         ));
     }
     Ok(value)
+}
+
+fn queue_slot_replaceable(record: Option<&AppleQueueSlotRecord>) -> bool {
+    record.is_none_or(|record| {
+        !record.is_referenced()
+            && !matches!(
+                record.lifecycle,
+                AppleQueueLifecycle::CreateSent | AppleQueueLifecycle::Planned
+            )
+    })
+}
+
+fn quarantine_record(cache: &mut AppleQueueGenerationCache, slot: AppleQueueSlot) {
+    if let Some(record) = cache.slot_mut(slot).as_mut() {
+        record.quarantine();
+    }
+}
+
+fn queue_format_context(helper_version: Option<&str>) -> String {
+    let macos_build = command_value("sw_vers", &["-buildVersion"]);
+    let music_version = plist_value(
+        Path::new("/System/Applications/Music.app/Contents/Info.plist"),
+        "CFBundleShortVersionString",
+    );
+    let music_build = plist_value(
+        Path::new("/System/Applications/Music.app/Contents/Info.plist"),
+        "CFBundleVersion",
+    );
+    let driver_build = plist_value(
+        Path::new("/Library/Audio/Plug-Ins/HAL/FozmoCapture.driver/Contents/Info.plist"),
+        "CFBundleVersion",
+    );
+    format!(
+        "macos={macos_build};music={music_version};music_build={music_build};helper_protocol={PROTOCOL_VERSION};helper={};driver={driver_build}",
+        helper_version.unwrap_or("unknown")
+    )
+}
+
+fn plist_value(path: &Path, key: &str) -> String {
+    command_value(
+        "plutil",
+        &[
+            "-extract",
+            key,
+            "raw",
+            "-o",
+            "-",
+            path.to_str().unwrap_or_default(),
+        ],
+    )
+}
+
+fn command_value(program: &str, arguments: &[&str]) -> String {
+    StdCommand::new(program)
+        .args(arguments)
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn stage_refusal_error(refusal: StageRefusal) -> AppleMusicMvpError {
+    let message = match refusal {
+        StageRefusal::Mismatched { detail } => {
+            format!("The Apple Music helper returned a mismatched queue generation: {detail}.")
+        }
+        StageRefusal::Quarantined => {
+            "This Apple Music queue generation was quarantined after an ambiguous create."
+                .to_string()
+        }
+    };
+    error(
+        "queue_generation_refused",
+        message,
+        false,
+        "queue_stage",
+        true,
+    )
+}
+
+fn normalization_error(failure: NormalizationFailure) -> AppleMusicMvpError {
+    match failure {
+        NormalizationFailure::HeadRejected { song_id } => error(
+            "queue_head_rejected",
+            format!("Apple Music rejected the requested first queue track {song_id}."),
+            false,
+            "queue_stage",
+            true,
+        ),
+        NormalizationFailure::UnrequestedEntries { song_ids } => error(
+            "queue_unrequested_entries",
+            format!(
+                "Apple Music returned {} queue entries Fozmo did not request.",
+                song_ids.len()
+            ),
+            false,
+            "queue_stage",
+            true,
+        ),
+    }
 }
 
 fn error(
