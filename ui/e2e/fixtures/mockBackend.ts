@@ -58,6 +58,7 @@ export const fixtures = {
     capabilities: {
       airplay2: false,
       asio: false,
+      apple_music_musickit: false,
       experimental_dsd256: false,
       hegel: true,
       local_library: true,

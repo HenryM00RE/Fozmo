@@ -16,6 +16,28 @@ test('DSP settings auto-apply changed playback config', async ({ page }) => {
   });
 });
 
+test('settings content scrolls through the shared topbar fade', async ({ page }) => {
+  await installMockBackend(page);
+
+  await page.goto('/');
+  await page.locator('.sidebar-settings-bottom').click();
+  await page.getByRole('button', { name: 'DSP' }).click();
+
+  const settingsView = page.locator('.settings-view');
+  const settingsContent = page.locator('.settings-content');
+  const viewStyles = await settingsView.evaluate((element) => {
+    const styles = getComputedStyle(element);
+    return {
+      maskImage: styles.maskImage,
+      overflowY: styles.overflowY
+    };
+  });
+
+  expect(viewStyles.overflowY).toBe('auto');
+  expect(viewStyles.maskImage).toContain('linear-gradient');
+  await expect(settingsContent).toHaveCSS('overflow-y', 'visible');
+});
+
 test('filter selections persist their canonical setting names', async ({ page }) => {
   const backend = await installMockBackend(page);
 
