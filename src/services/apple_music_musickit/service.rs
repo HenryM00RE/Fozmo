@@ -1781,7 +1781,7 @@ impl AppleMusicService {
             cleanup_socket(&socket_path);
             let failure = error(
                 "helper_protocol_mismatch",
-                "The Apple Music helper identity or protocol did not match.",
+                "The Apple Music helper does not match this Fozmo build. Rebuild or reinstall the helper, then restart Fozmo.",
                 false,
                 "launching_helper",
                 true,

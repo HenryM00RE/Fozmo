@@ -1,4 +1,11 @@
-import { type KeyboardEvent, useCallback, useEffect, useMemo } from 'react';
+import {
+  type KeyboardEvent,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef
+} from 'react';
 import {
   type GlobalSearchPlacement,
   type GlobalSearchSource,
@@ -11,6 +18,9 @@ import { actionMenuPosition } from '../../shared/ui/menuPosition';
 import { GlobalSearchActionsMenu, GlobalSearchRow } from './components/GlobalSearchRow';
 import { buildGlobalSearchView } from './globalSearchModel';
 import { useGlobalSearchDialogState } from './hooks/useGlobalSearchDialogState';
+
+/* Matches T3 Code's --fade-size of 1.5rem. */
+const RESULTS_FADE_SIZE = 24;
 
 function GlobalSearchSkeletonRows({ count }: { count: number }) {
   return (
@@ -87,6 +97,13 @@ export function GlobalSearch({
     toggleShowAll,
     toggleMenu
   } = useGlobalSearchDialogState(query);
+  const resultsRef = useRef<HTMLDivElement | null>(null);
+  // Scoring runs over the whole album list on every keystroke. Deferring the
+  // query keeps the field itself responsive while the list re-renders at lower
+  // priority. This is not the fetch debounce in useGlobalSearch — that delays
+  // the request; this delays the render. Only the view build reads the
+  // deferred value: the input and the recent-search commit stay live.
+  const deferredQuery = useDeferredValue(query);
   const commitSearch = useCallback(() => {
     onRememberSearch(query);
   }, [onRememberSearch, query]);
@@ -106,7 +123,7 @@ export function GlobalSearch({
     onPlayTrack,
     onQueueAlbum,
     onQueueTrack,
-    query,
+    query: deferredQuery,
     results,
     showAll
   });
@@ -137,6 +154,40 @@ export function GlobalSearch({
       return Math.min(current, visibleRows.length - 1);
     });
   }, [setActiveIndex, visibleRows.length]);
+
+  // Each edge fades only as far as there is actually overflow past it, so the
+  // list is unmasked at rest and the fade grows in as you scroll. Mirrors T3
+  // Code's scroll-area (min(--fade-size, --scroll-area-overflow-y-start)),
+  // which gets these figures from its scroll primitive; we measure them here.
+  const syncResultsFade = useCallback(() => {
+    const results = resultsRef.current;
+    if (!results) return;
+    const scrollable = results.scrollHeight - results.clientHeight;
+    const top = Math.max(0, Math.min(RESULTS_FADE_SIZE, results.scrollTop));
+    const bottom = Math.max(0, Math.min(RESULTS_FADE_SIZE, scrollable - results.scrollTop));
+    results.style.setProperty('--search-fade-top', `${top}px`);
+    results.style.setProperty('--search-fade-bottom', `${bottom}px`);
+  }, []);
+
+  const handleResultsScroll = useCallback(() => {
+    closeMenu();
+    syncResultsFade();
+  }, [closeMenu, syncResultsFade]);
+
+  // Scrolling isn't the only thing that changes the overflow: so does the
+  // result set and the show-all toggle.
+  useEffect(() => {
+    syncResultsFade();
+  }, [syncResultsFade, visibleRows.length, showAll, searchView.isLoading]);
+
+  // Arrow keys only move the index, so past the fold the highlight walks off
+  // the panel and leaves the user navigating blind. 'nearest' keeps this a
+  // no-op when the row is already visible, so selecting by mouse doesn't jump.
+  useEffect(() => {
+    if (activeIndex < 0) return;
+    const activeRow = resultsRef.current?.querySelector('.global-search-row.is-active');
+    activeRow?.scrollIntoView?.({ block: 'nearest' });
+  }, [activeIndex]);
 
   const runRowAt = useCallback(
     (index: number) => {
@@ -217,7 +268,7 @@ export function GlobalSearch({
         </header>
         <div className="global-search-body">
           <div className="global-search-status">{searchView.status}</div>
-          <div className="global-search-results" onScroll={closeMenu}>
+          <div className="global-search-results" ref={resultsRef} onScroll={handleResultsScroll}>
             {!searchView.hasQuery ? (
               <section
                 className="global-search-section global-search-recent-section"

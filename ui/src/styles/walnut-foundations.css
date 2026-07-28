@@ -118,8 +118,12 @@
   --stamp-ink-fill: rgba(45, 45, 42, 0.04);
   --select-menu-shade: rgba(45, 45, 42, 0.42);
   --select-menu-fade: linear-gradient(rgba(244, 241, 232, 0), rgba(244, 241, 232, 0.92));
-  --modal-backdrop-bg: rgba(45, 45, 42, 0.16);
-  --modal-backdrop-open-filter: contrast(0.86) brightness(0.94);
+  /* Washing toward the canvas rather than dimming with ink is what drops the
+     contrast behind a modal without darkening the room. Ported from T3 Code
+     (apps/web/src/index.css, .dialog-backdrop). The wash does the contrast
+     work, so the filter carries blur alone. */
+  --modal-backdrop-bg: color-mix(in srgb, var(--canvas) 60%, transparent);
+  --modal-backdrop-open-filter: contrast(1) brightness(1);
   --modal-backdrop-rest-filter: contrast(1) brightness(1);
 
   /* ----- Motion ----- */
@@ -234,8 +238,8 @@
   --stamp-ink-fill: rgba(45, 45, 42, 0.04);
   --select-menu-shade: rgba(45, 45, 42, 0.42);
   --select-menu-fade: linear-gradient(rgba(246, 246, 241, 0), rgba(246, 246, 241, 0.92));
-  --modal-backdrop-bg: rgba(45, 45, 42, 0.14);
-  --modal-backdrop-open-filter: contrast(0.92) brightness(0.96);
+  --modal-backdrop-bg: color-mix(in srgb, var(--canvas) 60%, transparent);
+  --modal-backdrop-open-filter: contrast(1) brightness(1);
   --modal-backdrop-rest-filter: contrast(1) brightness(1);
 }
 
@@ -326,8 +330,9 @@
   --stamp-ink-fill: rgba(255, 255, 255, 0.04);
   --select-menu-shade: rgba(0, 0, 0, 0.45);
   --select-menu-fade: linear-gradient(rgba(30, 30, 29, 0), rgba(30, 30, 29, 0.92));
-  --modal-backdrop-bg: rgba(0, 0, 0, 0.22);
-  --modal-backdrop-open-filter: contrast(0.9) brightness(0.82);
+  /* Dark leans on a touch more canvas so the wash still reads over black. */
+  --modal-backdrop-bg: color-mix(in srgb, var(--canvas) 64%, transparent);
+  --modal-backdrop-open-filter: contrast(1) brightness(1);
   --modal-backdrop-rest-filter: contrast(1) brightness(1);
 }
 
@@ -445,8 +450,3 @@ hr {
   color: var(--ink-strong);
 }
 
-/* Dropdown menu surface tracks each theme's canvas */
-:root[data-theme="neutral"] .dropdown-menu,
-:root[data-theme="neutral"] .menu {
-  background: rgba(244, 244, 239, 0.68);
-}

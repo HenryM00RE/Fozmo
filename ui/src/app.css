@@ -9,7 +9,7 @@
   --track-row-divider-size: calc(1px / var(--app-ui-scale));
   --app-select-bg: rgb(242, 239, 230);
   --player-bar-bg: rgb(242, 239, 230);
-  --app-modal-backdrop-filter: blur(5px) var(--modal-backdrop-open-filter);
+  --app-modal-backdrop-filter: blur(4px) var(--modal-backdrop-open-filter);
   --app-select-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.52), 0 0 0 1px var(--line-12, rgba(45, 45, 42, 0.12)),
     0 3px 10px rgba(45, 45, 42, 0.075), 0 1px 2px rgba(45, 45, 42, 0.055);
@@ -3329,10 +3329,13 @@ html[data-custom-display-font="on"]
   }
 }
 
+/* Sized to match T3 Code's command palette (max-w-xl / max-h-105 = 576/420).
+   The height was fixed rather than capped, so the panel held its full 700px
+   even with two results. A cap lets it hug its content and grow only as far
+   as it needs. */
 .react-app .global-search-panel {
-  width: min(780px, 100%);
-  height: min(700px, calc(100dvh - 96px));
-  max-height: calc(100dvh - 96px);
+  width: min(576px, 100%);
+  max-height: min(420px, calc(100dvh - 96px));
   border-radius: 24px;
 }
 
@@ -3343,13 +3346,19 @@ html[data-custom-display-font="on"]
   padding: min(6vh, 48px) 24px 24px;
 }
 
+/* Field proportions follow T3 Code's command input: a compact row with a
+   leading search glyph, rather than a tall banner with oversized text. */
 .react-app .global-search-head,
 .react-app .global-search-field {
-  min-height: 68px;
+  min-height: 48px;
+}
+
+.react-app .global-search-head {
+  padding: 0 12px 0 22px;
 }
 
 .react-app .global-search-field input {
-  font-size: 24px;
+  font-size: 18px;
 }
 
 .react-app .global-search-status {
@@ -3522,11 +3531,27 @@ html[data-custom-display-font="on"]
   height: 42px;
 }
 
+/* --search-fade-top/-bottom are measured against real overflow in
+   GlobalSearch, so both edges sit at 0 until there is something to scroll to.
+   The previous mask was a fixed 14px bottom fade that washed out the last row
+   even when the list fitted. */
 .react-app .global-search-results {
   padding-top: 18px;
   padding-bottom: 10px;
-  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 14px), transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--search-fade-top, 0px),
+    #000 calc(100% - var(--search-fade-bottom, 0px)),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--search-fade-top, 0px),
+    #000 calc(100% - var(--search-fade-bottom, 0px)),
+    transparent 100%
+  );
 }
 
 .react-app .global-search-status:not(:empty) + .global-search-results {
