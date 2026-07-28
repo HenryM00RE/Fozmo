@@ -3,6 +3,7 @@ use crate::app::auth::ProfileContext;
 use crate::app::state::AppState;
 use crate::library::{
     AlbumDetail, AlbumVersionSummary, AppleMusicAlbumMatchPreview, AppleMusicVersionDetail,
+    QobuzAppleMusicLink, QobuzAppleMusicMatch, apple_music_match_for_qobuz_album,
 };
 use crate::playback::commands::accept_playback_request_sequence;
 use crate::playback::intent::{PlaybackGuard, PlaybackIntent};
@@ -58,6 +59,10 @@ pub(super) fn routes() -> Router<AppState> {
         .route(
             "/api/library/apple-music-albums/:id",
             get(linked_library_album),
+        )
+        .route(
+            "/api/apple-music/qobuz-albums/:id/version",
+            get(qobuz_album_version),
         )
         .route("/api/apple-music/shutdown", post(shutdown))
 }
@@ -371,29 +376,48 @@ fn compare_apple_match_candidates(
 fn apple_match_preference(
     candidate: &AppleMusicAlbumMatchPreview,
 ) -> (bool, i64, bool, bool, bool, bool, usize) {
-    let has_evidence = |expected: &str| {
-        candidate
-            .evidence
-            .iter()
-            .any(|evidence| evidence == expected)
-    };
-    let advertises_lossless = candidate.apple_album.audio_variants.iter().any(|variant| {
-        let normalized = variant
-            .chars()
-            .filter(|character| character.is_ascii_alphanumeric())
-            .flat_map(char::to_lowercase)
-            .collect::<String>();
-        normalized == "lossless" || normalized == "highresolutionlossless"
-    });
-    (
+    apple_match_preference_parts(
         candidate.safe_to_link,
         candidate.confidence,
+        &candidate.evidence,
+        &candidate.apple_album,
+        candidate.pairings.len(),
+    )
+}
+
+/// Rank one Apple Music candidate against the others found for the same album,
+/// whether it was judged against a local album or a standalone Qobuz one.
+fn apple_match_preference_parts(
+    safe_to_link: bool,
+    confidence: i64,
+    evidence: &[String],
+    apple_album: &AppleCatalogAlbum,
+    paired_track_count: usize,
+) -> (bool, i64, bool, bool, bool, bool, usize) {
+    let has_evidence = |expected: &str| evidence.iter().any(|evidence| evidence == expected);
+    let advertises_lossless = apple_album.audio_variants.iter().any(|variant| {
+        matches!(
+            normalized_audio_variant(variant).as_str(),
+            "lossless" | "highresolutionlossless"
+        )
+    });
+    (
+        safe_to_link,
+        confidence,
         has_evidence("upc_match"),
         has_evidence("exact_normalized_title"),
         has_evidence("equal_track_count"),
         advertises_lossless,
-        candidate.pairings.len(),
+        paired_track_count,
     )
+}
+
+fn normalized_audio_variant(variant: &str) -> String {
+    variant
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 async fn link_album_version(
@@ -455,6 +479,259 @@ async fn album_version_detail(
         .unwrap_or_else(|| state.settings().active_profile_id());
     detail.apple_album = with_playback_summaries(&state, profile_id, detail.apple_album).await;
     Ok(Json(detail))
+}
+
+/// A Qobuz album Apple had nothing for is worth re-checking eventually — Apple
+/// adds catalog editions — but not on every visit.
+const QOBUZ_APPLE_MUSIC_MISS_RETRY_SECS: i64 = 14 * 24 * 60 * 60;
+
+/// How many search hits are looked up in full before the best is chosen. Each
+/// lookup is a helper round trip, and Apple orders search results well enough
+/// that the match is in the first handful when it exists at all.
+const QOBUZ_APPLE_MUSIC_CANDIDATE_LIMIT: usize = 6;
+
+#[derive(Debug, Deserialize)]
+struct QobuzAppleMusicVersionQuery {
+    storefront: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct QobuzAppleMusicVersionResponse {
+    status: String,
+    version: Option<QobuzAppleMusicVersion>,
+    message: Option<String>,
+}
+
+/// The Apple Music row a standalone Qobuz album shows under Versions.
+///
+/// A linked local album stores its Apple edition in `album_versions` and serves
+/// it as an [`AlbumVersionSummary`]; a Qobuz album with no local counterpart has
+/// no album row to key one to, so the same fields are assembled straight from
+/// the catalog copy with a catalog-derived string ID.
+#[derive(Debug, Serialize)]
+struct QobuzAppleMusicVersion {
+    id: String,
+    provider: &'static str,
+    provider_id: String,
+    source_label: &'static str,
+    title: String,
+    artist: Option<String>,
+    year: Option<i32>,
+    track_count: i64,
+    format: Option<String>,
+    sample_rate: Option<i64>,
+    bit_depth: Option<i64>,
+    image_url: Option<String>,
+    storefront: Option<String>,
+    audio_variants: Vec<String>,
+    is_primary: bool,
+}
+
+/// Offer the Apple Music edition of a Qobuz album that no local album covers.
+///
+/// A Qobuz album linked to a local album already inherits that album's Apple
+/// version through the local album's version list, so only the standalone case
+/// reaches here. The answer is remembered per Qobuz album because finding it
+/// costs a catalog search plus a lookup per candidate.
+async fn qobuz_album_version(
+    State(state): State<AppState>,
+    Path(qobuz_album_id): Path<String>,
+    Query(query): Query<QobuzAppleMusicVersionQuery>,
+) -> Result<Json<QobuzAppleMusicVersionResponse>, (StatusCode, Json<AppleMusicMvpError>)> {
+    let qobuz_album_id = qobuz_album_id.trim().to_string();
+    if qobuz_album_id.is_empty() {
+        return Ok(Json(no_match_response()));
+    }
+
+    let cached: Option<QobuzAppleMusicLink> = {
+        let qobuz_album_id = qobuz_album_id.clone();
+        state
+            .library()
+            .run_blocking(move |library| library.qobuz_apple_music_link(&qobuz_album_id))
+            .await
+            .map_err(library_api_error)?
+    };
+    if let Some(link) = cached
+        && link.is_current(QOBUZ_APPLE_MUSIC_MISS_RETRY_SECS)
+    {
+        return Ok(Json(match link.apple_album {
+            Some(album) => linked_response(&state, &album),
+            None => no_match_response(),
+        }));
+    }
+
+    let detail = match state.qobuz().album_detail(&qobuz_album_id).await {
+        Ok(detail) => detail,
+        Err(message) => return Ok(Json(unavailable_response(message))),
+    };
+    let artist = detail.album.artist.trim();
+    let term = if artist.is_empty() {
+        detail.album.title.clone()
+    } else {
+        format!("{artist} {}", detail.album.title)
+    };
+    let search = match state
+        .apple_music()
+        .search_songs(term, query.storefront.clone(), 10)
+        .await
+    {
+        Ok(search) => search,
+        Err(error) => return Ok(Json(unavailable_response(error.message))),
+    };
+
+    let mut best: Option<(AppleCatalogAlbum, QobuzAppleMusicMatch)> = None;
+    let mut seen_album_ids = HashSet::new();
+    for candidate in search
+        .albums
+        .into_iter()
+        .take(QOBUZ_APPLE_MUSIC_CANDIDATE_LIMIT)
+    {
+        if !seen_album_ids.insert(candidate.album_id.clone()) {
+            continue;
+        }
+        let Ok(album) = state
+            .apple_music()
+            .lookup_album(
+                candidate.album_id,
+                Some(candidate.storefront).filter(|value| !value.trim().is_empty()),
+            )
+            .await
+        else {
+            continue;
+        };
+        let assessment = apple_music_match_for_qobuz_album(&detail, &album);
+        if best.as_ref().is_none_or(|(best_album, best_match)| {
+            compare_qobuz_apple_candidates(&album, &assessment, best_album, best_match)
+                == Ordering::Less
+        }) {
+            best = Some((album, assessment));
+        }
+    }
+
+    let linked = best.filter(|(_, assessment)| assessment.safe_to_link);
+    {
+        let qobuz_album_id = qobuz_album_id.clone();
+        let stored = linked
+            .as_ref()
+            .map(|(album, assessment)| (album.clone(), assessment.confidence));
+        state
+            .library()
+            .run_blocking(move |library| {
+                let (album, confidence) = match stored.as_ref() {
+                    Some((album, confidence)) => (Some(album), *confidence),
+                    None => (None, 0),
+                };
+                library.save_qobuz_apple_music_link(&qobuz_album_id, album, confidence)
+            })
+            .await
+            .map_err(library_api_error)?;
+    }
+    Ok(Json(match linked {
+        Some((album, _)) => linked_response(&state, &album),
+        None => no_match_response(),
+    }))
+}
+
+fn compare_qobuz_apple_candidates(
+    left_album: &AppleCatalogAlbum,
+    left: &QobuzAppleMusicMatch,
+    right_album: &AppleCatalogAlbum,
+    right: &QobuzAppleMusicMatch,
+) -> Ordering {
+    let preference = |album: &AppleCatalogAlbum, candidate: &QobuzAppleMusicMatch| {
+        apple_match_preference_parts(
+            candidate.safe_to_link,
+            candidate.confidence,
+            &candidate.evidence,
+            album,
+            candidate.paired_track_count,
+        )
+    };
+    preference(right_album, right)
+        .cmp(&preference(left_album, left))
+        .then_with(|| left_album.album_id.cmp(&right_album.album_id))
+}
+
+fn linked_response(state: &AppState, album: &AppleCatalogAlbum) -> QobuzAppleMusicVersionResponse {
+    QobuzAppleMusicVersionResponse {
+        status: "linked".to_string(),
+        version: Some(qobuz_apple_music_version(state, album)),
+        message: None,
+    }
+}
+
+fn no_match_response() -> QobuzAppleMusicVersionResponse {
+    QobuzAppleMusicVersionResponse {
+        status: "no_match".to_string(),
+        version: None,
+        message: None,
+    }
+}
+
+fn unavailable_response(message: String) -> QobuzAppleMusicVersionResponse {
+    QobuzAppleMusicVersionResponse {
+        status: "unavailable".to_string(),
+        version: None,
+        message: Some(message),
+    }
+}
+
+fn qobuz_apple_music_version(
+    state: &AppState,
+    album: &AppleCatalogAlbum,
+) -> QobuzAppleMusicVersion {
+    // Apple's catalog cannot report a track's real rate, so the row advertises
+    // its variant tier until playback verifies Music.app's decoder — the same
+    // rule a linked local album's Apple version follows.
+    let verified = state
+        .library()
+        .apple_music_album_verified_format(&album.album_id)
+        .ok()
+        .flatten();
+    let storefront = album.storefront.trim();
+    let mut audio_variants = album
+        .audio_variants
+        .iter()
+        .chain(album.tracks.iter().flat_map(|track| &track.audio_variants))
+        .map(|variant| variant.trim().to_string())
+        .filter(|variant| !variant.is_empty())
+        .collect::<Vec<_>>();
+    audio_variants.sort();
+    audio_variants.dedup();
+    QobuzAppleMusicVersion {
+        id: format!(
+            "apple_music:{}:{}",
+            if storefront.is_empty() {
+                "default"
+            } else {
+                storefront
+            },
+            album.album_id
+        ),
+        provider: "apple_music",
+        provider_id: album.album_id.clone(),
+        source_label: "Apple Music",
+        title: album.title.clone(),
+        artist: Some(album.artist.clone()),
+        year: album
+            .release_date
+            .as_deref()
+            .and_then(|date| date.get(..4))
+            .and_then(|year| year.parse::<i32>().ok()),
+        track_count: album.tracks.len() as i64,
+        format: Some(
+            verified
+                .as_ref()
+                .map(|format| format.codec.clone())
+                .unwrap_or_else(|| "Apple Music".to_string()),
+        ),
+        sample_rate: verified.as_ref().map(|format| format.sample_rate),
+        bit_depth: verified.as_ref().and_then(|format| format.bit_depth),
+        image_url: album.artwork_url.clone(),
+        storefront: (!storefront.is_empty()).then(|| storefront.to_string()),
+        audio_variants,
+        is_primary: false,
+    }
 }
 
 async fn linked_library_album(

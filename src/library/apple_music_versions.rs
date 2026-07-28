@@ -11,6 +11,7 @@ use super::{
     AppleMusicVersionDetail, Library, MbTrack, ResolvedPlaySource,
 };
 use crate::services::apple_music_musickit::{AppleCatalogAlbum, AppleCatalogSong};
+use crate::services::qobuz::{QobuzAlbumDetail, QobuzTrack};
 use rusqlite::{OptionalExtension, params};
 use std::collections::{HashMap, HashSet};
 
@@ -215,6 +216,153 @@ fn normalized_catalog_id(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
+/// The album an Apple Music candidate is judged against.
+///
+/// A local album supplies its own scanned tracks; a Qobuz album that no local
+/// album covers supplies catalog tracks shaped the same way. Both go through
+/// one rule set so an Apple edition is accepted on the same evidence wherever
+/// it is offered.
+pub(crate) struct AppleMatchReference<'a> {
+    pub title: &'a str,
+    pub artist: Option<&'a str>,
+    pub barcode: Option<&'a str>,
+    pub tracks: &'a [super::TrackSummary],
+}
+
+pub(crate) struct AppleMatchAssessment {
+    pub confidence: i64,
+    pub evidence: Vec<String>,
+    pub safe_to_link: bool,
+    pub pairings: Vec<ExternalTrackPairing>,
+    pub unmatched_reference_track_ids: Vec<i64>,
+    pub unmatched_apple_song_ids: Vec<String>,
+}
+
+pub(crate) fn assess_apple_album_match(
+    reference: &AppleMatchReference<'_>,
+    apple_album: &AppleCatalogAlbum,
+) -> AppleMatchAssessment {
+    let reference_tracks = reference.tracks;
+    let pairings = pair_apple_tracks(reference_tracks, &apple_album.tracks);
+    let paired_reference = pairings
+        .iter()
+        .map(|pairing| pairing.local_track_id)
+        .collect::<HashSet<_>>();
+    let paired_apple = pairings
+        .iter()
+        .map(|pairing| pairing.provider_track_id.as_str())
+        .collect::<HashSet<_>>();
+    let unmatched_reference_track_ids = reference_tracks
+        .iter()
+        .filter(|track| !paired_reference.contains(&track.id))
+        .map(|track| track.id)
+        .collect::<Vec<_>>();
+    let unmatched_apple_song_ids = apple_album
+        .tracks
+        .iter()
+        .filter(|track| !paired_apple.contains(track.song_id.as_str()))
+        .map(|track| track.song_id.clone())
+        .collect::<Vec<_>>();
+    let normalized_reference_title = normalize_apple_match_text(reference.title);
+    let normalized_apple_title = normalize_apple_match_text(&apple_album.title);
+    let title_match = normalized_reference_title == normalized_apple_title;
+    let edition_title_match = !title_match
+        && normalized_album_base_title(reference.title)
+            == normalized_album_base_title(&apple_album.title);
+    let artist_match = reference.artist.is_some_and(|artist| {
+        normalize_apple_match_text(artist) == normalize_apple_match_text(&apple_album.artist)
+    });
+    let track_count_match =
+        !reference_tracks.is_empty() && reference_tracks.len() == apple_album.tracks.len();
+    let barcode_match = match (reference.barcode, apple_album.upc.as_deref()) {
+        (Some(reference), Some(apple)) => {
+            Some(normalize_barcode(reference) == normalize_barcode(apple))
+        }
+        _ => None,
+    };
+    let all_tracks_paired = unmatched_reference_track_ids.is_empty()
+        && unmatched_apple_song_ids.is_empty()
+        && !pairings.is_empty();
+    let all_provider_tracks_paired = unmatched_apple_song_ids.is_empty()
+        && pairings.len() == apple_album.tracks.len()
+        && !pairings.is_empty();
+    let provider_is_complete_local_subset = !track_count_match
+        && all_provider_tracks_paired
+        && unmatched_reference_track_ids.len() <= 2
+        && pairings.len() * 5 >= reference_tracks.len() * 4;
+    let compatible_track_set = track_count_match || provider_is_complete_local_subset;
+    let complete_track_evidence = all_provider_tracks_paired
+        && pairings.iter().all(|pairing| pairing.confidence >= 95)
+        && pairings
+            .iter()
+            .filter(|pairing| pairing.confidence == 100)
+            .count()
+            * 10
+            >= pairings.len() * 9;
+    let complete_release_evidence = complete_track_evidence
+        && compatible_track_set
+        && (title_match || edition_title_match)
+        && artist_match;
+    let mut confidence = 0;
+    let mut evidence = Vec::new();
+    if title_match {
+        confidence += 25;
+        evidence.push("exact_normalized_title".to_string());
+    } else if edition_title_match {
+        confidence += 25;
+        evidence.push("edition_compatible_title".to_string());
+    }
+    if artist_match {
+        confidence += 20;
+        evidence.push("exact_normalized_artist".to_string());
+    }
+    if track_count_match {
+        confidence += 20;
+        evidence.push("equal_track_count".to_string());
+    } else if provider_is_complete_local_subset {
+        confidence += 20;
+        evidence.push("complete_provider_edition_with_local_bonus_tracks".to_string());
+    }
+    match barcode_match {
+        Some(true) => {
+            confidence += 25;
+            evidence.push("upc_match".to_string());
+        }
+        Some(false) if complete_release_evidence => {
+            evidence.push("upc_conflict_overridden_by_complete_track_evidence".to_string());
+        }
+        Some(false) => {
+            confidence -= 40;
+            evidence.push("upc_conflict".to_string());
+        }
+        None => {}
+    }
+    if all_tracks_paired {
+        confidence += 10;
+        evidence.push("all_tracks_paired".to_string());
+    } else if provider_is_complete_local_subset {
+        confidence += 10;
+        evidence.push("all_provider_tracks_paired".to_string());
+    }
+    if complete_release_evidence {
+        confidence += 25;
+        evidence.push("complete_track_evidence".to_string());
+    }
+    let safe_to_link = (barcode_match != Some(false) || complete_release_evidence)
+        && compatible_track_set
+        && all_provider_tracks_paired
+        && complete_track_evidence
+        && (barcode_match == Some(true) || ((title_match || edition_title_match) && artist_match));
+    AppleMatchAssessment {
+        confidence: confidence.clamp(0, 100),
+        evidence,
+        safe_to_link,
+        pairings,
+        unmatched_reference_track_ids,
+        unmatched_apple_song_ids,
+    }
+}
+
 impl Library {
     pub fn preview_apple_music_album_version(
         &self,
@@ -225,121 +373,23 @@ impl Library {
             return Ok(None);
         };
         let local_tracks = self.primary_local_album_tracks(&local_album)?;
-        let pairings = pair_apple_tracks(&local_tracks, &apple_album.tracks);
-        let paired_local = pairings
-            .iter()
-            .map(|pairing| pairing.local_track_id)
-            .collect::<HashSet<_>>();
-        let paired_apple = pairings
-            .iter()
-            .map(|pairing| pairing.provider_track_id.as_str())
-            .collect::<HashSet<_>>();
-        let unmatched_local_track_ids = local_tracks
-            .iter()
-            .filter(|track| !paired_local.contains(&track.id))
-            .map(|track| track.id)
-            .collect::<Vec<_>>();
-        let unmatched_apple_song_ids = apple_album
-            .tracks
-            .iter()
-            .filter(|track| !paired_apple.contains(track.song_id.as_str()))
-            .map(|track| track.song_id.clone())
-            .collect::<Vec<_>>();
-        let normalized_local_title = normalize_apple_match_text(&local_album.title);
-        let normalized_apple_title = normalize_apple_match_text(&apple_album.title);
-        let title_match = normalized_local_title == normalized_apple_title;
-        let edition_title_match = !title_match
-            && normalized_album_base_title(&local_album.title)
-                == normalized_album_base_title(&apple_album.title);
-        let artist_match = local_album.album_artist.as_deref().is_some_and(|artist| {
-            normalize_apple_match_text(artist) == normalize_apple_match_text(&apple_album.artist)
-        });
-        let track_count_match =
-            !local_tracks.is_empty() && local_tracks.len() == apple_album.tracks.len();
-        let barcode_match = match (
-            local_album.mb_barcode.as_deref(),
-            apple_album.upc.as_deref(),
-        ) {
-            (Some(local), Some(apple)) => {
-                Some(normalize_barcode(local) == normalize_barcode(apple))
-            }
-            _ => None,
-        };
-        let all_tracks_paired = unmatched_local_track_ids.is_empty()
-            && unmatched_apple_song_ids.is_empty()
-            && !pairings.is_empty();
-        let all_provider_tracks_paired = unmatched_apple_song_ids.is_empty()
-            && pairings.len() == apple_album.tracks.len()
-            && !pairings.is_empty();
-        let provider_is_complete_local_subset = !track_count_match
-            && all_provider_tracks_paired
-            && unmatched_local_track_ids.len() <= 2
-            && pairings.len() * 5 >= local_tracks.len() * 4;
-        let compatible_track_set = track_count_match || provider_is_complete_local_subset;
-        let complete_track_evidence = all_provider_tracks_paired
-            && pairings.iter().all(|pairing| pairing.confidence >= 95)
-            && pairings
-                .iter()
-                .filter(|pairing| pairing.confidence == 100)
-                .count()
-                * 10
-                >= pairings.len() * 9;
-        let complete_release_evidence = complete_track_evidence
-            && compatible_track_set
-            && (title_match || edition_title_match)
-            && artist_match;
-        let mut confidence = 0;
-        let mut evidence = Vec::new();
-        if title_match {
-            confidence += 25;
-            evidence.push("exact_normalized_title".to_string());
-        } else if edition_title_match {
-            confidence += 25;
-            evidence.push("edition_compatible_title".to_string());
-        }
-        if artist_match {
-            confidence += 20;
-            evidence.push("exact_normalized_artist".to_string());
-        }
-        if track_count_match {
-            confidence += 20;
-            evidence.push("equal_track_count".to_string());
-        } else if provider_is_complete_local_subset {
-            confidence += 20;
-            evidence.push("complete_provider_edition_with_local_bonus_tracks".to_string());
-        }
-        match barcode_match {
-            Some(true) => {
-                confidence += 25;
-                evidence.push("upc_match".to_string());
-            }
-            Some(false) if complete_release_evidence => {
-                evidence.push("upc_conflict_overridden_by_complete_track_evidence".to_string());
-            }
-            Some(false) => {
-                confidence -= 40;
-                evidence.push("upc_conflict".to_string());
-            }
-            None => {}
-        }
-        if all_tracks_paired {
-            confidence += 10;
-            evidence.push("all_tracks_paired".to_string());
-        } else if provider_is_complete_local_subset {
-            confidence += 10;
-            evidence.push("all_provider_tracks_paired".to_string());
-        }
-        if complete_release_evidence {
-            confidence += 25;
-            evidence.push("complete_track_evidence".to_string());
-        }
-        confidence = confidence.clamp(0, 100);
-        let safe_to_link = (barcode_match != Some(false) || complete_release_evidence)
-            && compatible_track_set
-            && all_provider_tracks_paired
-            && complete_track_evidence
-            && (barcode_match == Some(true)
-                || ((title_match || edition_title_match) && artist_match));
+        let assessment = assess_apple_album_match(
+            &AppleMatchReference {
+                title: &local_album.title,
+                artist: local_album.album_artist.as_deref(),
+                barcode: local_album.mb_barcode.as_deref(),
+                tracks: &local_tracks,
+            },
+            &apple_album,
+        );
+        let AppleMatchAssessment {
+            confidence,
+            evidence,
+            safe_to_link,
+            pairings,
+            unmatched_reference_track_ids: unmatched_local_track_ids,
+            unmatched_apple_song_ids,
+        } = assessment;
         let pairings = pairings
             .into_iter()
             .filter_map(|pairing| {
@@ -666,6 +716,190 @@ impl Library {
     }
 }
 
+/// How well one Apple Music catalog album matches a Qobuz album.
+///
+/// Qobuz albums that a local album covers inherit that album's Apple link, so
+/// this is only ever asked about the standalone case, where there is no
+/// `albums` row to pair tracks against and the Qobuz catalog listing stands in
+/// for the local one.
+#[derive(Debug, Clone)]
+pub struct QobuzAppleMusicMatch {
+    pub confidence: i64,
+    pub evidence: Vec<String>,
+    pub safe_to_link: bool,
+    pub paired_track_count: usize,
+}
+
+/// A resolved Apple Music edition for a standalone Qobuz album, or the record
+/// that Apple had nothing worth showing. `apple_album` is the frozen catalog
+/// copy the version row is rendered from.
+#[derive(Debug, Clone)]
+pub struct QobuzAppleMusicLink {
+    pub apple_album: Option<AppleCatalogAlbum>,
+    /// Unix seconds.
+    pub matched_at: i64,
+}
+
+impl QobuzAppleMusicLink {
+    /// Whether this answer should stand instead of searching Apple again. A
+    /// resolved edition holds indefinitely; a remembered miss expires after
+    /// `miss_retry_secs`, because Apple does add catalog editions.
+    pub fn is_current(&self, miss_retry_secs: i64) -> bool {
+        self.apple_album.is_some() || super::now_secs() - self.matched_at < miss_retry_secs
+    }
+}
+
+pub fn apple_music_match_for_qobuz_album(
+    qobuz: &QobuzAlbumDetail,
+    apple_album: &AppleCatalogAlbum,
+) -> QobuzAppleMusicMatch {
+    let tracks = qobuz
+        .tracks
+        .iter()
+        .enumerate()
+        .map(|(index, track)| qobuz_reference_track(track, index))
+        .collect::<Vec<_>>();
+    let assessment = assess_apple_album_match(
+        &AppleMatchReference {
+            title: &qobuz.album.title,
+            artist: Some(&qobuz.album.artist),
+            barcode: qobuz.album.upc.as_deref(),
+            tracks: &tracks,
+        },
+        apple_album,
+    );
+    QobuzAppleMusicMatch {
+        confidence: assessment.confidence,
+        evidence: assessment.evidence,
+        safe_to_link: assessment.safe_to_link,
+        paired_track_count: assessment.pairings.len(),
+    }
+}
+
+/// Shape a Qobuz catalog track like a scanned local track so the shared Apple
+/// matcher can pair it. Qobuz IDs stay as the track identity, and the empty
+/// file name simply skips the filename pass — Qobuz publishes real titles, so
+/// there is no filename evidence to recover.
+fn qobuz_reference_track(track: &QobuzTrack, index: usize) -> super::TrackSummary {
+    super::TrackSummary {
+        id: track.id as i64,
+        file_name: String::new(),
+        title: track.title.clone(),
+        artist: Some(track.artist.clone()),
+        album: Some(track.album.clone()),
+        album_artist: None,
+        track_number: Some(track.track_number.unwrap_or((index + 1) as u32) as i64),
+        disc_number: Some(track.disc_number.unwrap_or(1) as i64),
+        year: None,
+        genre: None,
+        composer: None,
+        duration_secs: Some(track.duration as f64).filter(|duration| *duration > 0.0),
+        sample_rate: None,
+        bit_depth: None,
+        channels: None,
+        format: None,
+        album_id: None,
+        art_id: None,
+        play_count: 0,
+        last_played_at: None,
+        listened_secs: 0.0,
+        preferred_play_source: None,
+    }
+}
+
+impl Library {
+    /// The Apple Music edition already resolved for a standalone Qobuz album,
+    /// including a remembered "Apple has nothing" answer.
+    pub fn qobuz_apple_music_link(
+        &self,
+        qobuz_album_id: &str,
+    ) -> Result<Option<QobuzAppleMusicLink>, String> {
+        let qobuz_album_id = qobuz_album_id.trim();
+        if qobuz_album_id.is_empty() {
+            return Ok(None);
+        }
+        let conn = self.conn.lock().unwrap();
+        let row = conn
+            .query_row(
+                r#"
+                SELECT payload_json, matched_at
+                FROM qobuz_apple_music_links
+                WHERE qobuz_album_id = ?1
+                "#,
+                [qobuz_album_id],
+                |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .optional()
+            .map_err(|error| format!("Qobuz Apple Music link lookup: {error}"))?;
+        let Some((payload_json, matched_at)) = row else {
+            return Ok(None);
+        };
+        let apple_album = payload_json
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()
+            .map_err(|error| format!("parse Qobuz Apple Music link payload: {error}"))?;
+        Ok(Some(QobuzAppleMusicLink {
+            apple_album,
+            matched_at,
+        }))
+    }
+
+    /// Remember the Apple Music edition resolved for a standalone Qobuz album.
+    /// `apple_album` of `None` records that the search found nothing, which is
+    /// worth keeping so the next visit does not repeat a catalog search and a
+    /// lookup per candidate.
+    pub fn save_qobuz_apple_music_link(
+        &self,
+        qobuz_album_id: &str,
+        apple_album: Option<&AppleCatalogAlbum>,
+        confidence: i64,
+    ) -> Result<(), String> {
+        let qobuz_album_id = qobuz_album_id.trim();
+        if qobuz_album_id.is_empty() {
+            return Ok(());
+        }
+        let payload_json = apple_album
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|error| format!("serialize Qobuz Apple Music link payload: {error}"))?;
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO qobuz_apple_music_links (
+                qobuz_album_id, apple_album_id, storefront, status, confidence,
+                payload_json, matched_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            ON CONFLICT(qobuz_album_id) DO UPDATE SET
+                apple_album_id = excluded.apple_album_id,
+                storefront = excluded.storefront,
+                status = excluded.status,
+                confidence = excluded.confidence,
+                payload_json = excluded.payload_json,
+                matched_at = excluded.matched_at
+            "#,
+            params![
+                qobuz_album_id,
+                apple_album.map(|album| album.album_id.as_str()),
+                apple_album
+                    .map(|album| album.storefront.as_str())
+                    .filter(|storefront| !storefront.trim().is_empty()),
+                if apple_album.is_some() {
+                    "linked"
+                } else {
+                    "no_match"
+                },
+                confidence,
+                payload_json,
+                super::now_secs(),
+            ],
+        )
+        .map(|_| ())
+        .map_err(|error| format!("save Qobuz Apple Music link: {error}"))
+    }
+}
+
 fn apple_version_track(track: &AppleCatalogSong, index: usize) -> ExternalVersionTrackInput {
     ExternalVersionTrackInput {
         provider_track_id: track.song_id.clone(),
@@ -759,11 +993,21 @@ fn apple_play_source(album: &AppleCatalogAlbum, track: &AppleCatalogSong) -> Res
     }
 }
 
+/// One release's barcode reaches Fozmo in several widths — Qobuz publishes
+/// 13-digit EANs where Apple often publishes the same GTIN as a 12-digit UPC,
+/// which is the EAN without its leading zero. Leading zeros carry no meaning in
+/// a GTIN, so dropping them compares the identifier rather than its formatting.
 fn normalize_barcode(value: &str) -> String {
-    value
+    let digits = value
         .chars()
         .filter(|character| character.is_ascii_digit())
-        .collect()
+        .collect::<String>();
+    let trimmed = digits.trim_start_matches('0');
+    if trimmed.is_empty() {
+        digits
+    } else {
+        trimmed.to_string()
+    }
 }
 
 fn normalized_album_base_title(value: &str) -> String {

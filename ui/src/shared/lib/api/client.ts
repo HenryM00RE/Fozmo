@@ -778,6 +778,11 @@ export const endpoints = {
     api.get<JsonRecord | null>(
       `/api/library/apple-music-albums/${encodeURIComponent(String(appleAlbumId))}`
     ),
+  qobuzAppleMusicVersion: (qobuzAlbumId: string | number, storefront?: string) =>
+    api.get<JsonRecord>(
+      `/api/apple-music/qobuz-albums/${encodeURIComponent(String(qobuzAlbumId))}/version`,
+      storefront ? { storefront } : undefined
+    ),
   shutdownAppleMusicHelper: () => api.post<JsonRecord>('/api/apple-music/shutdown'),
 
   nowPlayingQueue: (zoneId: string, signal?: AbortSignal) =>

@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 3;
+pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 4;
 
 pub(super) fn migrate(conn: &Connection) -> Result<(), String> {
     let found = schema_version(conn)?;
@@ -34,6 +34,12 @@ pub(super) fn migrate(conn: &Connection) -> Result<(), String> {
             conn.pragma_update(None, "user_version", 3_u32)
                 .map_err(|error| format!("record library schema version 3: {error}"))?;
             version = 3;
+        }
+        if version < 4 {
+            migrate_to_v4(conn)?;
+            conn.pragma_update(None, "user_version", 4_u32)
+                .map_err(|error| format!("record library schema version 4: {error}"))?;
+            version = 4;
         }
         debug_assert_eq!(version, CURRENT_SCHEMA_VERSION);
         conn.execute_batch("COMMIT")
@@ -103,6 +109,28 @@ fn migrate_to_v3(conn: &Connection) -> Result<(), String> {
         "#,
     )
     .map_err(|error| format!("create Apple Music verified formats: {error}"))
+}
+
+/// A Qobuz album that no local album covers still deserves its Apple Music
+/// edition under Versions, but there is no `albums` row for an `album_versions`
+/// link to hang off. Resolving one costs a catalog search plus a lookup per
+/// candidate, so the outcome — including "Apple has nothing" — is remembered
+/// per Qobuz album ID instead of being rediscovered on every visit.
+fn migrate_to_v4(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS qobuz_apple_music_links (
+            qobuz_album_id TEXT PRIMARY KEY,
+            apple_album_id TEXT,
+            storefront TEXT,
+            status TEXT NOT NULL,
+            confidence INTEGER NOT NULL DEFAULT 0,
+            payload_json TEXT,
+            matched_at INTEGER NOT NULL
+        );
+        "#,
+    )
+    .map_err(|error| format!("create Qobuz Apple Music links: {error}"))
 }
 
 fn apply_initial_schema(conn: &Connection) -> Result<(), String> {

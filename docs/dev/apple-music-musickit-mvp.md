@@ -217,7 +217,14 @@ The feature-enabled local router adds:
 - `GET /api/apple-music/catalog/albums/:id`
 - `POST /api/apple-music/play`
 - Apple Music album-version preview, match, link, unlink, and detail routes
+- `GET /api/apple-music/qobuz-albums/:id/version`
 - `POST /api/apple-music/shutdown`
+
+A Qobuz album linked to a local album inherits that album's Apple Music version
+through the local album's version list. A Qobuz album with no local counterpart
+has no `albums` row to key a version to, so `qobuz-albums/:id/version` matches
+the Apple catalog against the Qobuz listing on the same evidence and remembers
+the outcome — including "Apple has nothing" — in `qobuz_apple_music_links`.
 
 Normal transport continues through the standard zone playback endpoints.
 

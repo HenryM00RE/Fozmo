@@ -48,7 +48,10 @@ mod zones;
 
 const USER_AGENT: &str = crate::app::identity::USER_AGENT;
 #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
-pub(crate) use apple_music_versions::AppleMusicTrackFormatRecord;
+pub(crate) use apple_music_versions::{
+    AppleMusicTrackFormatRecord, QobuzAppleMusicLink, QobuzAppleMusicMatch,
+    apple_music_match_for_qobuz_album,
+};
 pub(crate) use artwork::{MAX_ARTWORK_BYTES, safe_raster_artwork_mime, sanitize_raster_artwork};
 pub(crate) use autometa::is_valid_musicbrainz_release_id;
 type DatabaseJob = Box<dyn FnOnce() + Send + 'static>;

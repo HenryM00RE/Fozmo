@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { qobuzTrackToQueueItem } from '../../../shared/lib/queue';
+import { qobuzTrackToQueueItem, sourceRefToQueueItem } from '../../../shared/lib/queue';
 import type { CustomDisplayFontSettings } from '../../../shared/lib/theme';
-import type { JsonRecord, LibraryAlbum, QueueItem } from '../../../shared/types';
+import type { JsonRecord, LibraryAlbum, QueueItem, SourceRef } from '../../../shared/types';
 import type { AlbumSelectionItem } from '../../albums/model/albumModel';
+import { appleMusicSourceFromAlbumTrack } from '../../albums/model/appleMusicAlbum';
 import { AlbumDetailPage } from '../../albums/pages/AlbumDetailPage';
 import type { PlaybackStatus } from '../../playback/model/playbackStore';
 import { loadQobuzAlbumDetail } from '../model/qobuzData';
@@ -80,6 +81,17 @@ export function QobuzAlbumPage({
       onPlayQobuzTracks={(tracks, startIndex = 0) =>
         playItems(tracks.map(qobuzTrackToQueueItem), startIndex)
       }
+      onPlayAppleMusicTracks={(tracks, startIndex = 0) => {
+        // A standalone Qobuz album can show an Apple Music version, and there is
+        // no local album to route its playback through, so the catalog sources
+        // are queued directly.
+        const items = tracks
+          .map(appleMusicSourceFromAlbumTrack)
+          .filter((source): source is SourceRef => source !== null)
+          .map(sourceRefToQueueItem)
+          .filter((item): item is QueueItem => item !== null);
+        if (items.length) playItems(items, startIndex);
+      }}
       selectedTrackKeys={selectedTrackKeys}
       selectionActive={selectionActive}
       onSelectionItemsChange={onSelectionItemsChange}

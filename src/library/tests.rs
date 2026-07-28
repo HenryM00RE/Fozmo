@@ -5571,6 +5571,145 @@ fn a_linked_apple_music_version_can_report_the_local_album_s_plays() {
     );
 }
 
+/// A Qobuz album with no local counterpart is matched against the Apple catalog
+/// on the same evidence a local album is: title, artist, barcode and a complete
+/// paired track set.
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+#[test]
+fn a_standalone_qobuz_album_matches_its_apple_music_edition() {
+    let mut album = qalbum("qobuz-homogenic", "Homogenic", "Björk", Some(1997));
+    album.upc = Some("0731452103321".to_string());
+    let qobuz = QobuzAlbumDetail {
+        album,
+        tracks: vec![
+            {
+                let mut track = qtrack(1, "Hunter", "Homogenic", "Björk");
+                track.track_number = Some(1);
+                track.disc_number = Some(1);
+                track.duration = 256;
+                track
+            },
+            {
+                let mut track = qtrack(2, "Jóga", "Homogenic", "Björk");
+                track.track_number = Some(2);
+                track.disc_number = Some(1);
+                track.duration = 301;
+                track
+            },
+        ],
+    };
+    let apple_song =
+        |song_id: &str, title: &str, track_number: u32, duration: f64| AppleCatalogSong {
+            song_id: song_id.to_string(),
+            storefront: "nz".to_string(),
+            title: title.to_string(),
+            artist: "Björk".to_string(),
+            duration_secs: Some(duration),
+            track_number: Some(track_number),
+            disc_number: Some(1),
+            ..AppleCatalogSong::default()
+        };
+    let apple = AppleCatalogAlbum {
+        album_id: "apple-homogenic".to_string(),
+        storefront: "nz".to_string(),
+        title: "Homogenic".to_string(),
+        artist: "Björk".to_string(),
+        upc: Some("731452103321".to_string()),
+        tracks: vec![
+            apple_song("apple-hunter", "Hunter", 1, 256.0),
+            apple_song("apple-joga", "Jóga", 2, 301.0),
+        ],
+        ..AppleCatalogAlbum::default()
+    };
+
+    let matched = apple_music_match_for_qobuz_album(&qobuz, &apple);
+
+    assert!(matched.safe_to_link);
+    assert_eq!(matched.confidence, 100);
+    assert_eq!(matched.paired_track_count, 2);
+    assert!(matched.evidence.iter().any(|item| item == "upc_match"));
+
+    let other_album = AppleCatalogAlbum {
+        album_id: "apple-post".to_string(),
+        title: "Post".to_string(),
+        upc: Some("731452103328".to_string()),
+        tracks: vec![apple_song("apple-army", "Army of Me", 1, 234.0)],
+        ..apple
+    };
+
+    let mismatched = apple_music_match_for_qobuz_album(&qobuz, &other_album);
+
+    assert!(
+        !mismatched.safe_to_link,
+        "a different release must not be offered as this album's Apple edition"
+    );
+}
+
+/// Resolving a standalone Qobuz album's Apple edition costs a catalog search
+/// plus a lookup per candidate, so both the edition and the absence of one are
+/// remembered.
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+#[test]
+fn a_standalone_qobuz_apple_music_answer_is_remembered() {
+    let library = test_library("qobuz-apple-music-link");
+    assert!(
+        library
+            .qobuz_apple_music_link("qobuz-homogenic")
+            .unwrap()
+            .is_none()
+    );
+
+    let apple = AppleCatalogAlbum {
+        album_id: "apple-homogenic".to_string(),
+        storefront: "nz".to_string(),
+        title: "Homogenic".to_string(),
+        artist: "Björk".to_string(),
+        editorial_notes_standard: Some("Apple Music editorial notes.".to_string()),
+        ..AppleCatalogAlbum::default()
+    };
+    library
+        .save_qobuz_apple_music_link("qobuz-homogenic", Some(&apple), 100)
+        .unwrap();
+
+    let stored = library
+        .qobuz_apple_music_link("qobuz-homogenic")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        stored
+            .apple_album
+            .as_ref()
+            .map(|album| album.album_id.as_str()),
+        Some("apple-homogenic")
+    );
+    assert_eq!(
+        stored
+            .apple_album
+            .as_ref()
+            .and_then(|album| album.editorial_notes_standard.as_deref()),
+        Some("Apple Music editorial notes."),
+        "the frozen catalog copy renders the version row without another lookup"
+    );
+    assert!(stored.is_current(0), "a resolved edition never goes stale");
+
+    library
+        .save_qobuz_apple_music_link("qobuz-nothing-on-apple", None, 0)
+        .unwrap();
+    let miss = library
+        .qobuz_apple_music_link("qobuz-nothing-on-apple")
+        .unwrap()
+        .unwrap();
+    assert!(miss.apple_album.is_none());
+    assert!(
+        miss.is_current(60),
+        "a fresh miss stands instead of searching Apple again"
+    );
+    assert!(
+        !miss.is_current(0),
+        "an expired miss lets the search run again"
+    );
+}
+
 #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
 #[test]
 fn plays_merge_across_local_qobuz_and_apple_music_editions_of_one_album() {
