@@ -88,6 +88,7 @@ pub(crate) async fn play_qobuz_request_for_zone_with_profile(
                 radio_auto,
                 guard: PlaybackGuard::from_expected_sequence(sequence),
                 qobuz_request: Some(Box::new(req)),
+                startup_id: None,
             },
         )
         .await

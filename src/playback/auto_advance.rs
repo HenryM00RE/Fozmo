@@ -1242,6 +1242,7 @@ async fn queue_auto_advance(
                 radio_auto,
                 guard: PlaybackGuard::none(),
                 qobuz_request: None,
+                startup_id: None,
             },
         )
         .await

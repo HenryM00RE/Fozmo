@@ -695,6 +695,12 @@ export const endpoints = {
   saveLastfmSettings: (settings: unknown) => api.post<JsonRecord>('/api/lastfm/settings', settings),
   appleMusicStatus: () =>
     api.get<JsonRecord>('/api/apple-music/status', undefined, undefined, 'no-store'),
+  appleMusicQueuePlaylists: () =>
+    api.get<JsonRecord>('/api/apple-music/queue-playlists', undefined, undefined, 'no-store'),
+  cleanupAppleMusicQueuePlaylists: (legacyWebPlaylistIds: string[]) =>
+    api.post<JsonRecord>('/api/apple-music/queue-playlists/cleanup', {
+      legacy_web_playlist_ids: legacyWebPlaylistIds
+    }),
   launchAppleMusicHelper: () => api.post<JsonRecord>('/api/apple-music/launch'),
   authorizeAppleMusic: () =>
     api.post<JsonRecord>('/api/apple-music/authorize', { present_ui: true }),

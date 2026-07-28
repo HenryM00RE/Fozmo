@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 4;
+pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 5;
 
 pub(super) fn migrate(conn: &Connection) -> Result<(), String> {
     let found = schema_version(conn)?;
@@ -40,6 +40,12 @@ pub(super) fn migrate(conn: &Connection) -> Result<(), String> {
             conn.pragma_update(None, "user_version", 4_u32)
                 .map_err(|error| format!("record library schema version 4: {error}"))?;
             version = 4;
+        }
+        if version < 5 {
+            migrate_to_v5(conn)?;
+            conn.pragma_update(None, "user_version", 5_u32)
+                .map_err(|error| format!("record library schema version 5: {error}"))?;
+            version = 5;
         }
         debug_assert_eq!(version, CURRENT_SCHEMA_VERSION);
         conn.execute_batch("COMMIT")
@@ -102,13 +108,23 @@ fn migrate_to_v3(conn: &Connection) -> Result<(), String> {
             codec TEXT NOT NULL,
             sample_rate INTEGER NOT NULL,
             bit_depth INTEGER,
-            observed_at INTEGER NOT NULL
+            observed_at INTEGER NOT NULL,
+            format_context_fingerprint TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_apple_music_track_formats_album
             ON apple_music_track_formats(album_id);
         "#,
     )
     .map_err(|error| format!("create Apple Music verified formats: {error}"))
+}
+
+fn migrate_to_v5(conn: &Connection) -> Result<(), String> {
+    add_column_if_missing(
+        conn,
+        "apple_music_track_formats",
+        "format_context_fingerprint",
+        "TEXT",
+    )
 }
 
 /// A Qobuz album that no local album covers still deserves its Apple Music

@@ -74,10 +74,18 @@ pub struct AppleMusicPlaybackSettings {
     pub output_device_name: Option<String>,
     #[serde(default = "default_apple_music_buffer_ms")]
     pub buffer_ms: u32,
+    /// PCM retained before the first program frame is released to the output.
+    /// This is intentionally independent from the longer provider-boundary
+    /// lead used once playback is already running.
+    #[serde(default = "default_apple_music_startup_prefill_ms")]
+    pub startup_prefill_ms: u32,
     /// PCM lead retained in Fozmo Capture while Apple switches decoders at a
     /// boundary it cannot advance internally.
     #[serde(default = "default_apple_music_boundary_lead_secs")]
     pub boundary_lead_secs: f64,
+    /// How long unused Fozmo queue generations remain warm before cleanup.
+    #[serde(default = "default_apple_music_playlist_cleanup_idle_secs")]
+    pub playlist_cleanup_idle_secs: u64,
 }
 
 impl Default for AppleMusicPlaybackSettings {
@@ -86,7 +94,9 @@ impl Default for AppleMusicPlaybackSettings {
             enabled: false,
             output_device_name: None,
             buffer_ms: default_apple_music_buffer_ms(),
+            startup_prefill_ms: default_apple_music_startup_prefill_ms(),
             boundary_lead_secs: default_apple_music_boundary_lead_secs(),
+            playlist_cleanup_idle_secs: default_apple_music_playlist_cleanup_idle_secs(),
         }
     }
 }
@@ -166,8 +176,16 @@ fn default_apple_music_buffer_ms() -> u32 {
     250
 }
 
+fn default_apple_music_startup_prefill_ms() -> u32 {
+    500
+}
+
 fn default_apple_music_boundary_lead_secs() -> f64 {
     2.0
+}
+
+fn default_apple_music_playlist_cleanup_idle_secs() -> u64 {
+    30 * 60
 }
 
 fn default_hegel_port() -> u16 {

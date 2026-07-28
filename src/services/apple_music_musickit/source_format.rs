@@ -8,14 +8,118 @@
 
 use regex::Regex;
 use serde_json::Value;
+use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::sync::{OnceLock, mpsc};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-const UNIFIED_LOG_LOOKBACK_SECS: u64 = 8;
-const UNIFIED_LOG_QUERY_TIMEOUT: Duration = Duration::from_secs(3);
+/// One long-lived, PID-scoped Unified Log stream. Playback probes drain this
+/// local receiver instead of starting `log show` for every retry.
+#[derive(Default)]
+pub(super) struct DecoderLogObserver {
+    #[cfg(target_os = "macos")]
+    running: Option<RunningDecoderLogObserver>,
+}
+
+#[cfg(target_os = "macos")]
+struct RunningDecoderLogObserver {
+    pid: u32,
+    child: std::process::Child,
+    lines: mpsc::Receiver<String>,
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for RunningDecoderLogObserver {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+impl DecoderLogObserver {
+    #[cfg(target_os = "macos")]
+    pub(super) fn ensure(&mut self, pid: u32) -> Result<(), String> {
+        let reusable = self.running.as_mut().is_some_and(|running| {
+            running.pid == pid && running.child.try_wait().ok().flatten().is_none()
+        });
+        if reusable {
+            return Ok(());
+        }
+        self.running = None;
+        let predicate = music_app_log_predicate(pid);
+        let mut child = Command::new("/usr/bin/log")
+            .args([
+                "stream",
+                "--style",
+                "ndjson",
+                "--color",
+                "none",
+                "--info",
+                "--debug",
+                "--predicate",
+                &predicate,
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| format!("could not start supervised decoder log observer: {error}"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "decoder log observer opened without stdout".to_string())?;
+        let (sender, lines) = mpsc::sync_channel(256);
+        std::thread::Builder::new()
+            .name("fozmo-apple-decoder-log".to_string())
+            .spawn(move || {
+                for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                    if sender.send(line).is_err() {
+                        break;
+                    }
+                }
+            })
+            .map_err(|error| format!("could not supervise decoder log observer: {error}"))?;
+        self.running = Some(RunningDecoderLogObserver { pid, child, lines });
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub(super) fn ensure(&mut self, _pid: u32) -> Result<(), String> {
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(super) fn latest_after(
+        &mut self,
+        pid: u32,
+        boundary: SystemTime,
+    ) -> Result<Option<AppleMusicDecoderDetection>, String> {
+        self.ensure(pid)?;
+        let Some(running) = self.running.as_mut() else {
+            return Ok(None);
+        };
+        let mut detections = Vec::new();
+        while let Ok(line) = running.lines.try_recv() {
+            if line.is_empty() {
+                continue;
+            }
+            if let Some(detection) = parse_music_app_log_output(&line, boundary) {
+                detections.push(detection);
+            }
+        }
+        Ok(preferred_detection(detections))
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub(super) fn latest_after(
+        &mut self,
+        _pid: u32,
+        _boundary: SystemTime,
+    ) -> Result<Option<AppleMusicDecoderDetection>, String> {
+        Ok(None)
+    }
+}
 
 pub(super) const NATIVE_APPLE_MUSIC_RATES: [u32; 6] =
     [44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
@@ -91,73 +195,6 @@ pub(super) fn is_native_apple_music_rate(rate_hz: u32) -> bool {
     NATIVE_APPLE_MUSIC_RATES.contains(&rate_hz)
 }
 
-#[cfg(target_os = "macos")]
-pub(super) fn query_recent_music_app_source_format(
-    music_app_pid: u32,
-    boundary: SystemTime,
-    query_timeout: Duration,
-) -> Result<Option<AppleMusicDecoderDetection>, String> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|error| format!("system clock is before the Unix epoch: {error}"))?
-        .as_secs();
-    let boundary_secs = boundary
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let start_secs = now
-        .saturating_sub(UNIFIED_LOG_LOOKBACK_SECS)
-        .max(boundary_secs.saturating_sub(1));
-    let start = format!("@{start_secs}");
-    let predicate = music_app_log_predicate(music_app_pid);
-    let mut command = Command::new("/usr/bin/log");
-    command
-        .args([
-            "show",
-            "--start",
-            &start,
-            "--style",
-            "ndjson",
-            "--color",
-            "none",
-            "--no-pager",
-            "--no-backtrace",
-            "--no-signpost",
-            "--no-loss",
-            "--info",
-            "--debug",
-            "--predicate",
-            &predicate,
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    let output =
-        command_output_with_timeout(command, query_timeout.min(UNIFIED_LOG_QUERY_TIMEOUT))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let detail = truncate_error(stderr.trim(), 512);
-        return Err(if detail.is_empty() {
-            format!("`log show` exited with {}", output.status)
-        } else {
-            format!("`log show` exited with {}: {detail}", output.status)
-        });
-    }
-    Ok(parse_music_app_log_output(
-        &String::from_utf8_lossy(&output.stdout),
-        boundary,
-    ))
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(super) fn query_recent_music_app_source_format(
-    _music_app_pid: u32,
-    _boundary: SystemTime,
-    _query_timeout: Duration,
-) -> Result<Option<AppleMusicDecoderDetection>, String> {
-    Ok(None)
-}
-
 fn music_app_log_predicate(music_app_pid: u32) -> String {
     format!(
         r#"processIdentifier == {music_app_pid} AND subsystem == "com.apple.coreaudio" AND eventMessage CONTAINS[c] "Input format:" AND (eventMessage CONTAINS[c] "ACAppleLosslessDecoder" OR eventMessage CONTAINS[c] "ACMP4AACBaseDecoder")"#
@@ -192,6 +229,12 @@ fn parse_music_app_log_output(
     // fresh ALAC event anywhere in the snapshot; only report AAC when the
     // snapshot contains no ALAC at all. The caller keeps polling until its
     // deadline before treating that AAC observation as final.
+    preferred_detection(detections)
+}
+
+fn preferred_detection(
+    detections: Vec<AppleMusicDecoderDetection>,
+) -> Option<AppleMusicDecoderDetection> {
     detections
         .iter()
         .filter_map(|detection| match detection {
@@ -299,51 +342,6 @@ fn parse_rate(value: &str) -> Option<u32> {
     }
     let rounded = rate.round();
     ((rate - rounded).abs() <= 0.5).then_some(rounded as u32)
-}
-
-fn command_output_with_timeout(
-    mut command: Command,
-    timeout: Duration,
-) -> Result<std::process::Output, String> {
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("could not start `/usr/bin/log show`: {error}"))?;
-    let deadline = Instant::now() + timeout;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => {
-                return child
-                    .wait_with_output()
-                    .map_err(|error| format!("could not collect `/usr/bin/log show`: {error}"));
-            }
-            Ok(None) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(25));
-            }
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!(
-                    "`/usr/bin/log show` did not finish within {} ms",
-                    timeout.as_millis()
-                ));
-            }
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!("could not wait for `/usr/bin/log show`: {error}"));
-            }
-        }
-    }
-}
-
-fn truncate_error(value: &str, max_chars: usize) -> String {
-    let mut chars = value.chars();
-    let truncated = chars.by_ref().take(max_chars).collect::<String>();
-    if chars.next().is_some() {
-        format!("{truncated}…")
-    } else {
-        truncated
-    }
 }
 
 #[cfg(test)]

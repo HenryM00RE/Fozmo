@@ -183,6 +183,10 @@ pub struct AtomicPlayerState {
     pub startup_started_at_ms: AtomicU64,
     /// Elapsed milliseconds from startup boundary to STARTING -> PLAYING.
     pub startup_ready_ms: AtomicU64,
+    /// Unix milliseconds when the output callback consumed the first program
+    /// frame in the current startup window. Zero until the real-time callback
+    /// acknowledges it.
+    pub first_program_frame_at_ms: AtomicU64,
     /// Lowest output ring fill observed during the startup diagnostic window.
     pub startup_ring_low_watermark_units: AtomicU64,
     /// Units per second for `startup_ring_low_watermark_units`.
@@ -345,6 +349,7 @@ impl AtomicPlayerState {
             lock_wait_max_ns: AtomicU64::new(0),
             startup_started_at_ms: AtomicU64::new(0),
             startup_ready_ms: AtomicU64::new(0),
+            first_program_frame_at_ms: AtomicU64::new(0),
             startup_ring_low_watermark_units: AtomicU64::new(u64::MAX),
             startup_ring_units_per_sec: AtomicU64::new(0),
             startup_first_render_block_ns: AtomicU64::new(0),
@@ -545,6 +550,7 @@ impl AtomicPlayerState {
         self.startup_started_at_ms
             .store(unix_epoch_millis(), Ordering::Relaxed);
         self.startup_ready_ms.store(0, Ordering::Relaxed);
+        self.first_program_frame_at_ms.store(0, Ordering::Release);
         self.startup_ring_low_watermark_units
             .store(u64::MAX, Ordering::Relaxed);
         self.startup_ring_units_per_sec.store(0, Ordering::Relaxed);
@@ -576,6 +582,16 @@ impl AtomicPlayerState {
             0,
             elapsed,
             Ordering::Relaxed,
+            Ordering::Relaxed,
+        );
+    }
+
+    /// Audio-callback side: acknowledge the first non-idle program frame once.
+    pub fn acknowledge_first_program_frame(&self) {
+        let _ = self.first_program_frame_at_ms.compare_exchange(
+            0,
+            unix_epoch_millis(),
+            Ordering::Release,
             Ordering::Relaxed,
         );
     }
@@ -747,5 +763,22 @@ mod tests {
         assert_eq!(state.max_audio_callback_gap_ns.load(Ordering::Relaxed), 0);
         assert_eq!(state.lock_wait_max_ns.load(Ordering::Relaxed), 0);
         assert_eq!(state.dsp_graph_rebuild_count.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn first_program_frame_acknowledgement_is_once_per_startup_window() {
+        let state = AtomicPlayerState::new();
+        state.begin_startup_diagnostics();
+        assert_eq!(state.first_program_frame_at_ms.load(Ordering::Acquire), 0);
+        state.acknowledge_first_program_frame();
+        let first = state.first_program_frame_at_ms.load(Ordering::Acquire);
+        assert!(first > 0);
+        state.acknowledge_first_program_frame();
+        assert_eq!(
+            state.first_program_frame_at_ms.load(Ordering::Acquire),
+            first
+        );
+        state.begin_startup_diagnostics();
+        assert_eq!(state.first_program_frame_at_ms.load(Ordering::Acquire), 0);
     }
 }

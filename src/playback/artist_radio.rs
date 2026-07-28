@@ -118,6 +118,7 @@ pub(crate) async fn play_artist_radio_for_zone_with_profile(
                 radio_auto,
                 guard: PlaybackGuard::from_expected_sequence(sequence),
                 qobuz_request,
+                startup_id: None,
             },
         )
         .await

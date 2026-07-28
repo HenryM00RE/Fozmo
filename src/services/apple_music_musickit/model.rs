@@ -1,21 +1,10 @@
 use crate::protocol::SourceRef;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
-pub(super) const PROTOCOL_VERSION: u32 = 4;
+pub(super) const PROTOCOL_VERSION: u32 = 5;
 pub(super) const EXPECTED_HELPER_BUNDLE_ID: &str = "com.fozmo.apple-music-helper";
-
-/// Music.app playlist Fozmo owns outright.
-///
-/// Music.app only advances a queue gaplessly when playback started from a
-/// container it owns, and its AppleScript `current track` cannot see catalog
-/// tracks that are not in the library. Fozmo therefore keeps this one playlist
-/// equal to the upcoming Apple Music run and always starts it from the top.
-///
-/// The AppleScript in `music_app.rs` embeds this name via a macro; a test there
-/// pins the two spellings together.
-#[cfg(test)]
-pub(crate) const QUEUE_PLAYLIST_NAME: &str = "Fozmo";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub(crate) struct AppleCatalogSong {
@@ -66,19 +55,6 @@ pub(crate) struct AppleVerifiedFormat {
     pub sample_rate: i64,
     #[serde(default)]
     pub bit_depth: Option<i64>,
-}
-
-/// Result of rebuilding the Fozmo queue playlist.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub(crate) struct AppleQueueSync {
-    pub playlist_name: String,
-    pub playlist_id: String,
-    /// The order Music.app will play, which Fozmo's own queue must mirror.
-    #[serde(default)]
-    pub entries: Vec<AppleQueueEntry>,
-    /// Songs the catalog could not resolve, so Fozmo can stop expecting them.
-    #[serde(default)]
-    pub rejected: Vec<String>,
 }
 
 /// One track the helper accepted into a queue generation.
@@ -247,6 +223,60 @@ pub(crate) struct AppleMusicMvpStatus {
     pub helper_capabilities: Vec<String>,
     pub last_error: Option<AppleMusicMvpError>,
     pub integration_stage: String,
+    pub latest_startup: Option<AppleMusicStartupTiming>,
+    pub managed_playlists: AppleMusicManagedPlaylistStatus,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub(crate) struct AppleMusicStartupTiming {
+    pub startup_id: String,
+    pub started_unix_ms: u64,
+    pub phase_ms: BTreeMap<String, u64>,
+    pub total_ttfs_ms: Option<u64>,
+    pub outcome: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub(crate) struct AppleMusicManagedPlaylistStatus {
+    pub active_slots: usize,
+    pub cleanup_pending: usize,
+    pub legacy_candidates: usize,
+    pub ledger_path: String,
+    pub nested_folder_qualified: bool,
+    pub single_pass_cached_format_qualified: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct AppleLibraryPlaylistIdentity {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub can_edit: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub(crate) struct AppleQueuePlaylistInventory {
+    pub owned: Vec<AppleQueuePlaylistItem>,
+    pub legacy_candidates: Vec<AppleQueuePlaylistItem>,
+    pub foreign_installations: Vec<AppleQueuePlaylistItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct AppleQueuePlaylistItem {
+    pub web_playlist_id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub music_app_persistent_id: Option<String>,
+    pub installation_owner: Option<String>,
+    pub lifecycle: String,
+    pub referenced: bool,
+    pub cleanup_pending: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub(crate) struct AppleQueuePlaylistCleanupRequest {
+    #[serde(default)]
+    pub legacy_web_playlist_ids: Vec<String>,
 }
 
 impl AppleMusicMvpStatus {
@@ -271,6 +301,8 @@ impl AppleMusicMvpStatus {
             helper_capabilities: Vec::new(),
             last_error: None,
             integration_stage: "musickit_catalog_music_app_capture".to_string(),
+            latest_startup: None,
+            managed_playlists: AppleMusicManagedPlaylistStatus::default(),
         }
     }
 }
@@ -375,7 +407,19 @@ pub(crate) struct HelperMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allow_create: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub queue_sync: Option<AppleQueueSync>,
+    pub installation_owner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_folder_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub known_web_playlist_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub startup_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub web_playlist_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub library_playlist: Option<AppleLibraryPlaylistIdentity>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub playlist_inventory: Vec<AppleLibraryPlaylistIdentity>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stage_or_adopt: Option<super::queue_generation::StageOrAdoptResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -420,7 +464,13 @@ impl HelperMessage {
             slot: None,
             fingerprint: None,
             allow_create: None,
-            queue_sync: None,
+            installation_owner: None,
+            parent_folder_id: None,
+            known_web_playlist_id: None,
+            startup_id: None,
+            web_playlist_id: None,
+            library_playlist: None,
+            playlist_inventory: Vec::new(),
             stage_or_adopt: None,
             library_status: None,
             code: None,

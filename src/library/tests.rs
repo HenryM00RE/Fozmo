@@ -6009,6 +6009,58 @@ fn verified_playback_format_replaces_the_advertised_apple_music_tier() {
             bit_depth: Some(24),
         })
     );
+    assert_eq!(
+        library
+            .apple_music_track_verified_format_in_context(
+                "apple-human-behaviour",
+                Some("nz"),
+                "runtime-context-1",
+            )
+            .unwrap(),
+        None,
+        "observations without a runtime context are not startup predictions"
+    );
+    library
+        .record_apple_music_track_format_in_context(
+            "apple-human-behaviour",
+            Some("apple-debut"),
+            Some("nz"),
+            "ALAC",
+            96_000,
+            Some(24),
+            Some("runtime-context-1"),
+        )
+        .unwrap();
+    assert!(
+        library
+            .apple_music_track_verified_format_in_context(
+                "apple-human-behaviour",
+                Some("nz"),
+                "runtime-context-1",
+            )
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(
+        library
+            .apple_music_track_verified_format_in_context(
+                "apple-human-behaviour",
+                Some("us"),
+                "runtime-context-1",
+            )
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        library
+            .apple_music_track_verified_format_in_context(
+                "apple-human-behaviour",
+                Some("nz"),
+                "runtime-context-2",
+            )
+            .unwrap(),
+        None
+    );
 
     let stamped = library
         .album_versions(album_id)

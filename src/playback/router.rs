@@ -103,6 +103,7 @@ impl<'a> PlaybackRouter<'a> {
                     radio_auto,
                     guard,
                     qobuz_request,
+                    startup_id,
                 } => {
                     self.play_source(
                         zone_id,
@@ -112,6 +113,7 @@ impl<'a> PlaybackRouter<'a> {
                         radio_auto,
                         guard,
                         qobuz_request,
+                        startup_id,
                     )
                     .await
                 }
@@ -168,6 +170,7 @@ impl<'a> PlaybackRouter<'a> {
         radio_auto: bool,
         guard: PlaybackGuard,
         qobuz_request: Option<Box<QobuzPlayRequest>>,
+        startup_id: Option<String>,
     ) -> Result<PlaybackOutcome, PlaybackError> {
         let source_kind = source.kind();
         let track_id = source.local_track_id();
@@ -259,6 +262,7 @@ impl<'a> PlaybackRouter<'a> {
                     {
                         return crate::playback::apple_music_native::play_apple_music_source(
                             self.state, zone_id, profile_id, source, queue, radio_auto, guard,
+                            startup_id,
                         )
                         .await;
                     }
@@ -334,6 +338,7 @@ impl<'a> PlaybackRouter<'a> {
                             radio_auto,
                             PlaybackGuard::none(),
                             None,
+                            None,
                         )
                         .await?;
                         return Ok(PlaybackOutcome::Completed);
@@ -408,6 +413,7 @@ impl<'a> PlaybackRouter<'a> {
                         radio_auto,
                         PlaybackGuard::none(),
                         None,
+                        None,
                     )
                     .await?;
                     return Ok(PlaybackOutcome::Completed);
@@ -438,6 +444,7 @@ impl<'a> PlaybackRouter<'a> {
                     req.radio_auto,
                     PlaybackGuard::none(),
                     Some(Box::new(req)),
+                    None,
                 )
                 .await?;
                 return Ok(PlaybackOutcome::QobuzRadioAdvanced);
@@ -515,6 +522,7 @@ impl<'a> PlaybackRouter<'a> {
                             radio_auto,
                             PlaybackGuard::none(),
                             None,
+                            None,
                         )
                         .await;
                 }
@@ -544,6 +552,7 @@ impl<'a> PlaybackRouter<'a> {
                             queued_sources,
                             false,
                             PlaybackGuard::none(),
+                            None,
                             None,
                         )
                         .await;
@@ -1576,6 +1585,7 @@ mod tests {
                     radio_auto: false,
                     guard: PlaybackGuard::none(),
                     qobuz_request: None,
+                    startup_id: None,
                 },
             )
             .await
@@ -1791,6 +1801,7 @@ mod tests {
                     radio_auto: false,
                     guard: PlaybackGuard::none(),
                     qobuz_request: None,
+                    startup_id: None,
                 },
             )
             .await;

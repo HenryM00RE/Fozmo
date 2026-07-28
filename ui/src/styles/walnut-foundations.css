@@ -159,9 +159,9 @@
 :root[data-theme="neutral"] {
   color-scheme: light;
 
-  --canvas: rgb(244, 244, 243);
-  --canvas-tint: rgb(238, 238, 237);
-  --canvas-raised: rgb(250, 250, 249);
+  --canvas: rgb(240, 240, 235);
+  --canvas-tint: rgb(234, 234, 229);
+  --canvas-raised: rgb(246, 246, 241);
 
   /* Ink stays walnut charcoal — keeps brand DNA consistent */
   --ink: rgb(45, 45, 42);
@@ -174,8 +174,8 @@
   --line-12: rgba(45, 45, 42, 0.12);
   --line-15: rgba(45, 45, 42, 0.15);
   --line-20: rgba(45, 45, 42, 0.2);
-  --modal-line: rgb(224, 224, 222);
-  --modal-line-soft: rgba(224, 224, 222, 0.72);
+  --modal-line: rgb(220, 220, 214);
+  --modal-line-soft: rgba(220, 220, 214, 0.72);
 
   /* Specular gets a touch brighter to fight the near-white canvas */
   --specular: rgba(255, 255, 255, 0.72);
@@ -221,7 +221,7 @@
   --glass-fill: rgba(45, 45, 42, 0.025);
   --glass-fill-strong: rgba(45, 45, 42, 0.045);
   --glass-fill-soft: rgba(45, 45, 42, 0.018);
-  --segmented-active-fill: rgb(254, 254, 253);
+  --segmented-active-fill: rgb(250, 250, 245);
   --segmented-active-line: var(--line-15);
 
   --focus-ring: rgba(45, 45, 42, 0.12);
@@ -233,7 +233,7 @@
   --row-selected-hover: rgba(45, 45, 42, 0.055);
   --stamp-ink-fill: rgba(45, 45, 42, 0.04);
   --select-menu-shade: rgba(45, 45, 42, 0.42);
-  --select-menu-fade: linear-gradient(rgba(250, 250, 249, 0), rgba(250, 250, 249, 0.92));
+  --select-menu-fade: linear-gradient(rgba(246, 246, 241, 0), rgba(246, 246, 241, 0.92));
   --modal-backdrop-bg: rgba(45, 45, 42, 0.14);
   --modal-backdrop-open-filter: contrast(0.92) brightness(0.96);
   --modal-backdrop-rest-filter: contrast(1) brightness(1);
@@ -448,5 +448,5 @@ hr {
 /* Dropdown menu surface tracks each theme's canvas */
 :root[data-theme="neutral"] .dropdown-menu,
 :root[data-theme="neutral"] .menu {
-  background: rgba(248, 248, 247, 0.68);
+  background: rgba(244, 244, 239, 0.68);
 }

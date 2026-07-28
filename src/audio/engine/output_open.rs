@@ -672,6 +672,9 @@ fn open_coreaudio_pcm_stream(
                     }
 
                     let played_frames = (read / channels) as u64;
+                    if played_frames > 0 {
+                        callback_state.acknowledge_first_program_frame();
+                    }
                     callback_state
                         .position_samples
                         .fetch_add(played_frames, Ordering::Relaxed);
@@ -1153,6 +1156,9 @@ pub(super) fn open_coreaudio_dop_stream(
                             callback_state
                                 .position_samples
                                 .fetch_add(played_frames as u64 * 16, Ordering::Relaxed);
+                            if played_frames > 0 {
+                                callback_state.acknowledge_first_program_frame();
+                            }
                         }
                         CoreAudioDopCallbackPlan::RecoveryIdle {
                             missing_samples,

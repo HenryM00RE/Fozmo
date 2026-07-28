@@ -64,6 +64,7 @@ pub(crate) async fn play_file_request_for_zone_with_profile(
                 radio_auto: false,
                 guard: PlaybackGuard::from_expected_sequence(sequence),
                 qobuz_request: None,
+                startup_id: None,
             },
         )
         .await

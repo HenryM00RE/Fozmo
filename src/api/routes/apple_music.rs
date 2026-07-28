@@ -14,6 +14,7 @@ use crate::services::apple_music_musickit::{
     AppleCatalogAlbum, AppleCatalogSearchResult, AppleCatalogSong, AppleMusicAlbumVersionRequest,
     AppleMusicAuthorizeRequest, AppleMusicCatalogQuery, AppleMusicCatalogSearchQuery,
     AppleMusicMvpError, AppleMusicMvpStatus, AppleMusicPlayRequest,
+    AppleQueuePlaylistCleanupRequest, AppleQueuePlaylistInventory,
 };
 use axum::{
     Json, Router,
@@ -33,6 +34,11 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/api/apple-music/launch", post(launch))
         .route("/api/apple-music/authorize", post(authorize))
         .route("/api/apple-music/play", post(play))
+        .route("/api/apple-music/queue-playlists", get(queue_playlists))
+        .route(
+            "/api/apple-music/queue-playlists/cleanup",
+            post(cleanup_queue_playlists),
+        )
         .route("/api/apple-music/catalog/search", get(search_catalog))
         .route("/api/apple-music/catalog/songs/:id", get(lookup_song))
         .route("/api/apple-music/catalog/albums/:id", get(lookup_album))
@@ -95,6 +101,29 @@ async fn status(State(state): State<AppState>) -> AppleMusicApiResult {
     state
         .apple_music()
         .refresh_status()
+        .await
+        .map(Json)
+        .map_err(api_error)
+}
+
+async fn queue_playlists(
+    State(state): State<AppState>,
+) -> Result<Json<AppleQueuePlaylistInventory>, (StatusCode, Json<AppleMusicMvpError>)> {
+    state
+        .apple_music()
+        .queue_playlist_inventory()
+        .await
+        .map(Json)
+        .map_err(api_error)
+}
+
+async fn cleanup_queue_playlists(
+    State(state): State<AppState>,
+    Json(request): Json<AppleQueuePlaylistCleanupRequest>,
+) -> Result<Json<AppleQueuePlaylistInventory>, (StatusCode, Json<AppleMusicMvpError>)> {
+    state
+        .apple_music()
+        .cleanup_queue_playlists(0, &request.legacy_web_playlist_ids)
         .await
         .map(Json)
         .map_err(api_error)
@@ -751,8 +780,22 @@ async fn play(
     headers: HeaderMap,
     Json(request): Json<AppleMusicPlayRequest>,
 ) -> AppleMusicApiResult {
+    let startup_id = state.apple_music().begin_startup();
+    let result = play_inner(&state, headers, request, &startup_id).await;
+    state
+        .apple_music()
+        .complete_startup(&startup_id, result.is_ok());
+    result
+}
+
+async fn play_inner(
+    state: &AppState,
+    headers: HeaderMap,
+    request: AppleMusicPlayRequest,
+    startup_id: &str,
+) -> AppleMusicApiResult {
     let sequence = playback_request_sequence_from_headers(&headers);
-    if !accept_playback_request_sequence(&state, sequence.as_ref()) {
+    if !accept_playback_request_sequence(state, sequence.as_ref()) {
         return Err(playback_api_error(
             crate::playback::error::PlaybackError::conflict("Playback changed"),
         ));
@@ -765,7 +808,7 @@ async fn play(
         .map(str::to_owned)
         .unwrap_or_else(|| state.zones().active_zone_id());
     let source = match request.source {
-        Some(source) => resolve_scenario_source(&state, source)
+        Some(source) => resolve_scenario_source(state, source)
             .await
             .map_err(api_error)?,
         None => {
@@ -789,13 +832,16 @@ async fn play(
     let mut queue = Vec::with_capacity(request.queue.len());
     for queued in request.queue {
         queue.push(
-            resolve_scenario_source(&state, queued)
+            resolve_scenario_source(state, queued)
                 .await
                 .map_err(api_error)?,
         );
     }
     let profile_id = state.settings().active_profile_id();
-    PlaybackRouter::new(&state)
+    state
+        .apple_music()
+        .mark_startup_phase(startup_id, "request_resolution");
+    PlaybackRouter::new(state)
         .execute(
             &zone_id,
             PlaybackIntent::Play {
@@ -805,6 +851,7 @@ async fn play(
                 radio_auto: false,
                 guard: PlaybackGuard::from_expected_sequence(sequence),
                 qobuz_request: None,
+                startup_id: Some(startup_id.to_string()),
             },
         )
         .await

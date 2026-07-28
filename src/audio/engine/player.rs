@@ -294,6 +294,11 @@ impl Player {
         self.snapshot_impl(false)
     }
 
+    pub fn first_program_frame_at_ms(&self) -> Option<u64> {
+        let observed = self.state.first_program_frame_at_ms.load(Ordering::Acquire);
+        (observed != 0).then_some(observed)
+    }
+
     fn snapshot_impl(&self, include_cover: bool) -> PlayerSnapshot {
         let state = PlaybackState::from_id(self.state.state.load(Ordering::Relaxed));
         let file_name = self.file_name.lock().unwrap().clone();

@@ -5,6 +5,24 @@ import XCTest
 @testable import FozmoAppleMusicHelper
 
 final class ModelsTests: XCTestCase {
+    func testFreshQueueCreationDoesNotBeginWithPlaylistEnumeration() {
+        XCTAssertEqual(
+            QueueStagePlan.initialAction(allowCreate: true, knownWebPlaylistID: nil),
+            .create
+        )
+        XCTAssertEqual(
+            QueueStagePlan.initialAction(
+                allowCreate: false,
+                knownWebPlaylistID: "p.known"
+            ),
+            .targetedLookup
+        )
+        XCTAssertEqual(
+            QueueStagePlan.initialAction(allowCreate: false, knownWebPlaylistID: nil),
+            .enumerateForAdoption
+        )
+    }
+
     func testCatalogCommandDecodesVersionedWireNames() throws {
         let data = Data(
             """
@@ -23,23 +41,6 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(command.id, "cmd-9")
         XCTAssertEqual(command.albumID, "album-1")
         XCTAssertEqual(command.storefront, "nz")
-    }
-
-    func testQueueCommandDecodesSongIDList() throws {
-        let data = Data(
-            """
-            {
-              "v": \(helperProtocolVersion),
-              "id": "cmd-10",
-              "type": "sync_queue",
-              "session_id": "am-test",
-              "song_ids": ["1726654449", "1726654450"]
-            }
-            """.utf8
-        )
-        let command = try JSONDecoder().decode(IncomingCommand.self, from: data)
-        XCTAssertEqual(command.type, "sync_queue")
-        XCTAssertEqual(command.songIDs, ["1726654449", "1726654450"])
     }
 
     func testAuthorizationLabelsAreStableProtocolValues() {
@@ -61,35 +62,7 @@ final class ModelsTests: XCTestCase {
         XCTAssertNil(object["playback_state"])
         XCTAssertNil(object["now_playing"])
         XCTAssertNil(object["queue_revision"])
-        XCTAssertNil(object["queue_sync"])
         XCTAssertNil(object["library_status"])
-    }
-
-    func testQueueSyncPayloadUsesStableWireFields() throws {
-        var event = HelperEvent(type: "queue_synced")
-        event.queueSync = QueueSyncPayload(
-            playlistName: fozmoQueuePlaylistName,
-            playlistID: "p.ABC123",
-            entries: [
-                QueueEntryPayload(
-                    songID: "1726654449",
-                    title: "Jóga",
-                    artist: "Björk",
-                    durationSecs: 312
-                )
-            ],
-            rejected: ["9999"]
-        )
-        let object = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: JSONEncoder().encode(event)) as? [String: Any]
-        )
-        let sync = try XCTUnwrap(object["queue_sync"] as? [String: Any])
-        XCTAssertEqual(sync["playlist_name"] as? String, "Fozmo")
-        XCTAssertEqual(sync["playlist_id"] as? String, "p.ABC123")
-        XCTAssertEqual(sync["rejected"] as? [String], ["9999"])
-        let entry = try XCTUnwrap((sync["entries"] as? [[String: Any]])?.first)
-        XCTAssertEqual(entry["song_id"] as? String, "1726654449")
-        XCTAssertEqual(entry["duration_secs"] as? Double, 312)
     }
 
     func testImmutableQueueCommandDecodesStableGenerationFields() throws {
@@ -143,7 +116,8 @@ final class ModelsTests: XCTestCase {
             ],
             rejectedSongIDs: ["1726654450"],
             webPlaylistID: "p.queue-1",
-            serverCatalogIDs: ["1726654449"]
+            serverCatalogIDs: ["1726654449"],
+            phaseTimingsMS: ["catalog_resolution": 42]
         )
         let object = try XCTUnwrap(
             JSONSerialization.jsonObject(with: JSONEncoder().encode(event)) as? [String: Any]
@@ -181,7 +155,7 @@ final class ModelsTests: XCTestCase {
         event.libraryStatus = LibraryStatusPayload(
             canPlayCatalogContent: true,
             canWriteLibrary: false,
-            playlistName: fozmoQueuePlaylistName,
+            playlistName: "Fozmo A/B",
             blockedReason: "Sync Library is off."
         )
         let object = try XCTUnwrap(

@@ -13,6 +13,9 @@ pub(crate) enum PlaybackIntent {
         radio_auto: bool,
         guard: PlaybackGuard,
         qobuz_request: Option<Box<QobuzPlayRequest>>,
+        /// Present only for the local Apple Music HTTP start whose first
+        /// program frame is being measured.
+        startup_id: Option<String>,
     },
     Pause,
     Resume,

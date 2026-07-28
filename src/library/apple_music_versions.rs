@@ -35,6 +35,7 @@ pub struct AppleMusicTrackFormatRecord {
     pub bit_depth: Option<i64>,
     /// Unix seconds.
     pub observed_at: i64,
+    pub format_context_fingerprint: Option<String>,
 }
 
 impl Library {
@@ -48,6 +49,27 @@ impl Library {
         sample_rate: u32,
         bit_depth: Option<u32>,
     ) -> Result<(), String> {
+        self.record_apple_music_track_format_in_context(
+            song_id,
+            album_id,
+            storefront,
+            codec,
+            sample_rate,
+            bit_depth,
+            None,
+        )
+    }
+
+    pub fn record_apple_music_track_format_in_context(
+        &self,
+        song_id: &str,
+        album_id: Option<&str>,
+        storefront: Option<&str>,
+        codec: &str,
+        sample_rate: u32,
+        bit_depth: Option<u32>,
+        format_context_fingerprint: Option<&str>,
+    ) -> Result<(), String> {
         let song_id = song_id.trim();
         if song_id.is_empty() || sample_rate == 0 {
             return Ok(());
@@ -56,16 +78,18 @@ impl Library {
         conn.execute(
             r#"
             INSERT INTO apple_music_track_formats (
-                song_id, album_id, storefront, codec, sample_rate, bit_depth, observed_at
+                song_id, album_id, storefront, codec, sample_rate, bit_depth, observed_at,
+                format_context_fingerprint
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
             ON CONFLICT(song_id) DO UPDATE SET
                 album_id = COALESCE(excluded.album_id, album_id),
                 storefront = COALESCE(excluded.storefront, storefront),
                 codec = excluded.codec,
                 sample_rate = excluded.sample_rate,
                 bit_depth = excluded.bit_depth,
-                observed_at = excluded.observed_at
+                observed_at = excluded.observed_at,
+                format_context_fingerprint = excluded.format_context_fingerprint
             "#,
             params![
                 song_id,
@@ -75,10 +99,49 @@ impl Library {
                 i64::from(sample_rate),
                 bit_depth.map(i64::from),
                 super::now_secs(),
+                normalized_catalog_id(format_context_fingerprint),
             ],
         )
         .map(|_| ())
         .map_err(|error| format!("record Apple Music verified format: {error}"))
+    }
+
+    /// A recent decoder observation usable for the exact current runtime and
+    /// storefront. Rows written before v5 have no context and intentionally do
+    /// not qualify.
+    pub fn apple_music_track_verified_format_in_context(
+        &self,
+        song_id: &str,
+        storefront: Option<&str>,
+        format_context_fingerprint: &str,
+    ) -> Result<Option<AppleMusicVerifiedFormat>, String> {
+        let song_id = song_id.trim();
+        let context = format_context_fingerprint.trim();
+        if song_id.is_empty() || context.is_empty() {
+            return Ok(None);
+        }
+        let storefront = normalized_catalog_id(storefront);
+        let oldest = super::now_secs().saturating_sub(7 * 24 * 60 * 60);
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT codec, sample_rate, bit_depth
+             FROM apple_music_track_formats
+             WHERE song_id = ?1
+               AND format_context_fingerprint = ?2
+               AND observed_at >= ?3
+               AND (?4 IS NULL OR storefront = ?4)
+             LIMIT 1",
+            params![song_id, context, oldest, storefront],
+            |row| {
+                Ok(AppleMusicVerifiedFormat {
+                    codec: row.get(0)?,
+                    sample_rate: row.get(1)?,
+                    bit_depth: row.get(2)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|error| format!("contextual Apple Music verified track format: {error}"))
     }
 
     /// The best format verified so far for a catalog album, mirroring how a
@@ -139,7 +202,8 @@ impl Library {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
             .prepare(
-                "SELECT song_id, storefront, codec, sample_rate, bit_depth, observed_at
+                "SELECT song_id, storefront, codec, sample_rate, bit_depth, observed_at,
+                        format_context_fingerprint
                  FROM apple_music_track_formats
                  WHERE song_id = ?1",
             )
@@ -158,6 +222,7 @@ impl Library {
                         sample_rate: row.get(3)?,
                         bit_depth: row.get(4)?,
                         observed_at: row.get(5)?,
+                        format_context_fingerprint: row.get(6)?,
                     })
                 })
                 .optional()

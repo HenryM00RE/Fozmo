@@ -46,8 +46,10 @@ final class MusicSessionController {
             "lookup_album",
             "search_songs",
             "library_status",
-            "sync_queue",
             "stage_or_adopt_queue",
+            "targeted_library_playlist",
+            "owned_playlist_inventory",
+            "ensure_queue_folder",
         ]
         sendEvent(event)
     }
@@ -121,10 +123,14 @@ final class MusicSessionController {
             searchSongs(command)
         case "library_status":
             reportLibraryStatus(command)
-        case "sync_queue":
-            syncQueue(command)
         case "stage_or_adopt_queue":
             stageOrAdoptQueue(command)
+        case "get_library_playlist":
+            getLibraryPlaylist(command)
+        case "queue_playlist_inventory":
+            queuePlaylistInventory(command)
+        case "ensure_queue_folder":
+            ensureQueueFolder(command)
         case "shutdown":
             var event = HelperEvent(type: "will_exit")
             event.commandID = command.id
@@ -336,68 +342,129 @@ final class MusicSessionController {
             event.libraryStatus = LibraryStatusPayload(
                 canPlayCatalogContent: subscriptionCanPlay == true,
                 canWriteLibrary: canWrite,
-                playlistName: fozmoQueuePlaylistName,
+                playlistName: "Fozmo A/B",
                 blockedReason: blockedReason
             )
             sendAndCache(event, commandID: command.id)
         }
     }
 
-    /// Rebuild the Fozmo playlist so it holds exactly `song_ids`, in order.
-    ///
-    /// Fozmo always starts this playlist from the top, so the first entry is the
-    /// track to play and the rest are the queue behind it. The Web API can only
-    /// append to a library playlist, so a sync deletes the old playlist and
-    /// creates a fresh one with the tracks attached — one round trip, and no
-    /// window where Fozmo could observe a half-built queue.
-    private func syncQueue(_ command: IncomingCommand) {
+    private func getLibraryPlaylist(_ command: IncomingCommand) {
         guard validateCatalogAccess(commandID: command.id) else { return }
-        guard let songIDs = CatalogInput.normalizedQueueSongIDs(command.songIDs) else {
+        guard let playlistID = CatalogInput.normalizedID(command.webPlaylistID) else {
             sendError(
                 commandID: command.id,
-                code: "queue_sync_invalid",
-                message:
-                    "Provide between 1 and \(CatalogInput.maximumQueueLength) Apple Music song IDs to queue.",
+                code: "queue_playlist_id_invalid",
+                message: "A Web playlist ID is required.",
                 retryable: false
             )
             return
         }
         Task { @MainActor in
             do {
-                let songs = try await catalogSongs(for: songIDs)
-                guard !songs.isEmpty else { throw HelperMusicError.songNotFound }
-                let playlistID = try await AppleMusicWebAPI.createPlaylist(
-                    name: fozmoQueuePlaylistName,
-                    description: fozmoQueuePlaylistDescription,
-                    catalogSongIDs: songs.map(\.id.rawValue)
-                )
-                let resolved = Set(songs.map(\.id.rawValue))
-                var event = statusEvent(type: "queue_synced", commandID: command.id)
-                event.queueSync = QueueSyncPayload(
-                    playlistName: fozmoQueuePlaylistName,
-                    playlistID: playlistID,
-                    entries: songs.map { song in
-                        QueueEntryPayload(
-                            songID: song.id.rawValue,
-                            title: song.title,
-                            artist: song.artistName,
-                            durationSecs: song.duration
-                        )
-                    },
-                    rejected: songIDs.filter { !resolved.contains($0) }
-                )
+                let playlist = try await AppleMusicWebAPI.playlist(playlistID: playlistID)
+                var event = statusEvent(type: "library_playlist", commandID: command.id)
+                if let playlist {
+                    event.libraryPlaylist = LibraryPlaylistPayload(
+                        id: playlist.id,
+                        name: playlist.name,
+                        description: playlist.description,
+                        canEdit: playlist.canEdit
+                    )
+                }
                 sendAndCache(event, commandID: command.id)
-            } catch HelperMusicError.songNotFound {
-                sendError(
-                    commandID: command.id,
-                    code: "song_not_found",
-                    message: "Apple Music could not find any of the queued songs.",
-                    retryable: false
-                )
             } catch {
                 sendError(
                     commandID: command.id,
-                    code: "queue_sync_failed",
+                    code: "queue_playlist_lookup_failed",
+                    message: Self.libraryWriteFailureReason(error),
+                    retryable: true
+                )
+            }
+        }
+    }
+
+    private func queuePlaylistInventory(_ command: IncomingCommand) {
+        guard validateCatalogAccess(commandID: command.id) else { return }
+        Task { @MainActor in
+            do {
+                let candidates = try await AppleMusicWebAPI.playlists().filter { playlist in
+                    playlist.name == "Fozmo"
+                        || playlist.name == "Fozmo A"
+                        || playlist.name == "Fozmo B"
+                        || playlist.description?.hasPrefix("fozmo.queue.v") == true
+                }
+                var event = statusEvent(
+                    type: "queue_playlist_inventory",
+                    commandID: command.id
+                )
+                event.playlistInventory = candidates.map { playlist in
+                    LibraryPlaylistPayload(
+                        id: playlist.id,
+                        name: playlist.name,
+                        description: playlist.description,
+                        canEdit: playlist.canEdit
+                    )
+                }
+                sendAndCache(event, commandID: command.id)
+            } catch {
+                sendError(
+                    commandID: command.id,
+                    code: "queue_playlist_inventory_failed",
+                    message: Self.libraryWriteFailureReason(error),
+                    retryable: true
+                )
+            }
+        }
+    }
+
+    private func ensureQueueFolder(_ command: IncomingCommand) {
+        guard validateCatalogAccess(commandID: command.id) else { return }
+        guard let owner = CatalogInput.normalizedID(command.installationOwner) else {
+            sendError(
+                commandID: command.id,
+                code: "queue_folder_owner_invalid",
+                message: "The installation owner is required for the Fozmo folder.",
+                retryable: false
+            )
+            return
+        }
+        let description = "fozmo.queue.folder.v1;owner=\(owner)"
+        Task { @MainActor in
+            do {
+                let matches = try await AppleMusicWebAPI.playlistFolders().filter {
+                    $0.name == "Fozmo" && $0.description == description
+                }
+                guard matches.count <= 1 else {
+                    sendError(
+                        commandID: command.id,
+                        code: "queue_folder_ambiguous",
+                        message: "Apple Music exposed duplicate owned Fozmo folders.",
+                        retryable: false
+                    )
+                    return
+                }
+                let folderID: String
+                if let existing = matches.first {
+                    folderID = existing.id
+                } else {
+                    folderID = try await AppleMusicWebAPI.createPlaylistFolder(
+                        name: "Fozmo",
+                        description: description
+                    )
+                }
+                var event = statusEvent(type: "queue_folder", commandID: command.id)
+                event.libraryPlaylist = LibraryPlaylistPayload(
+                    id: folderID,
+                    name: "Fozmo",
+                    description: description,
+                    canEdit: true
+                )
+                sendAndCache(event, commandID: command.id)
+            } catch {
+                sendError(
+                    commandID: command.id,
+                    code: "queue_folder_failed",
                     message: Self.libraryWriteFailureReason(error),
                     retryable: true
                 )
@@ -421,6 +488,7 @@ final class MusicSessionController {
             let rawSlot = CatalogInput.normalizedID(command.slot)?.lowercased(),
             rawSlot == "a" || rawSlot == "b",
             let fingerprint = CatalogInput.normalizedID(command.fingerprint),
+            let installationOwner = CatalogInput.normalizedID(command.installationOwner),
             let allowCreate = command.allowCreate
         else {
             sendError(
@@ -434,11 +502,15 @@ final class MusicSessionController {
         let slot = rawSlot.uppercased()
         let slotName = "Fozmo \(slot)"
         let description =
-            "fozmo.queue.v4;slot=\(slot);generation=\(generation);fingerprint=\(fingerprint)"
+            "fozmo.queue.v5;owner=\(installationOwner);slot=\(slot);generation=\(generation);fingerprint=\(fingerprint)"
 
         Task { @MainActor in
             do {
+                let taskStarted = ContinuousClock.now
+                var phaseTimingsMS: [String: Int] = [:]
                 let songs = try await catalogSongs(for: songIDs)
+                phaseTimingsMS["catalog_resolution"] =
+                    Self.elapsedMilliseconds(since: taskStarted)
                 guard !songs.isEmpty else { throw HelperMusicError.songNotFound }
                 let resolved = Set(songs.map(\.id.rawValue))
                 let acceptedEntries = songs.map { song in
@@ -456,43 +528,85 @@ final class MusicSessionController {
                 }
                 let rejected = songIDs.filter { !resolved.contains($0) }
                 let deadline = ContinuousClock.now.advanced(by: .seconds(60))
-                var playlistID: String?
-                var createAttempted = false
+                var playlistID = CatalogInput.normalizedID(command.knownWebPlaylistID)
                 var lastError: Error?
+                let initialAction = QueueStagePlan.initialAction(
+                    allowCreate: allowCreate,
+                    knownWebPlaylistID: playlistID
+                )
+                var mustEnumerate = initialAction == .enumerateForAdoption
 
-                while ContinuousClock.now < deadline {
+                if initialAction == .targetedLookup, let knownID = playlistID {
                     do {
-                        let playlists = try await AppleMusicWebAPI.playlists()
-                        let matches = playlists.filter {
-                            $0.name == slotName && $0.description == description
-                        }
-                        if matches.count > 1 {
-                            sendError(
-                                commandID: command.id,
-                                code: "queue_generation_ambiguous",
-                                message:
-                                    "Apple Music exposed more than one playlist for the same Fozmo queue generation.",
-                                retryable: false
-                            )
-                            return
-                        }
-                        if let adopted = matches.first {
-                            playlistID = adopted.id
+                        let known = try await AppleMusicWebAPI.playlist(playlistID: knownID)
+                        if known?.name != slotName || known?.description != description {
+                            playlistID = nil
+                            mustEnumerate = true
                         }
                     } catch {
                         lastError = error
+                        playlistID = nil
+                        mustEnumerate = true
                     }
+                }
 
-                    if playlistID == nil, allowCreate, !createAttempted {
-                        // Marked before awaiting the POST: any error after this
-                        // point is ambiguous and must fall through to adoption.
-                        createAttempted = true
+                if playlistID == nil, initialAction == .create {
+                    // Fresh generations create first. Account-wide enumeration
+                    // is reserved for the ambiguous-response recovery path.
+                    do {
+                        playlistID = try await AppleMusicWebAPI.createPlaylist(
+                            name: slotName,
+                            description: description,
+                            catalogSongIDs: songs.map(\.id.rawValue),
+                            parentFolderID: CatalogInput.normalizedID(command.parentFolderID)
+                        )
+                        phaseTimingsMS["playlist_create"] =
+                            Self.elapsedMilliseconds(since: taskStarted)
+                        var created = statusEvent(
+                            type: "queue_generation_created",
+                            commandID: command.id
+                        )
+                        created.stageOrAdopt = StageOrAdoptPayload(
+                            slotName: slotName,
+                            generation: generation,
+                            operationID: operationID,
+                            fingerprint: fingerprint,
+                            requestedCount: songIDs.count,
+                            acceptedEntries: acceptedEntries,
+                            rejectedSongIDs: rejected,
+                            webPlaylistID: playlistID,
+                            serverCatalogIDs: [],
+                            phaseTimingsMS: phaseTimingsMS
+                        )
+                        sendEvent(created)
+                    } catch {
+                        lastError = error
+                        mustEnumerate = true
+                    }
+                }
+
+                while ContinuousClock.now < deadline {
+                    if playlistID == nil, mustEnumerate {
                         do {
-                            playlistID = try await AppleMusicWebAPI.createPlaylist(
-                                name: slotName,
-                                description: description,
-                                catalogSongIDs: songs.map(\.id.rawValue)
-                            )
+                            let playlists = try await AppleMusicWebAPI.playlists()
+                            let matches = playlists.filter {
+                                $0.name == slotName && $0.description == description
+                            }
+                            if matches.count > 1 {
+                                sendError(
+                                    commandID: command.id,
+                                    code: "queue_generation_ambiguous",
+                                    message:
+                                        "Apple Music exposed more than one playlist for the same Fozmo queue generation.",
+                                    retryable: false
+                                )
+                                return
+                            }
+                            if let adopted = matches.first {
+                                playlistID = adopted.id
+                                phaseTimingsMS["playlist_adoption"] =
+                                    Self.elapsedMilliseconds(since: taskStarted)
+                            }
                         } catch {
                             lastError = error
                         }
@@ -504,6 +618,8 @@ final class MusicSessionController {
                                 playlistID: playlistID
                             )
                             if tracks.count == songs.count {
+                                phaseTimingsMS["server_verification"] =
+                                    Self.elapsedMilliseconds(since: taskStarted)
                                 var event = statusEvent(
                                     type: "queue_generation_staged",
                                     commandID: command.id
@@ -517,7 +633,8 @@ final class MusicSessionController {
                                     acceptedEntries: acceptedEntries,
                                     rejectedSongIDs: rejected,
                                     webPlaylistID: playlistID,
-                                    serverCatalogIDs: tracks.map(\.catalogID)
+                                    serverCatalogIDs: tracks.map(\.catalogID),
+                                    phaseTimingsMS: phaseTimingsMS
                                 )
                                 sendAndCache(event, commandID: command.id)
                                 return
@@ -556,6 +673,15 @@ final class MusicSessionController {
                 )
             }
         }
+    }
+
+    private static func elapsedMilliseconds(
+        since start: ContinuousClock.Instant
+    ) -> Int {
+        let components = start.duration(to: ContinuousClock.now).components
+        let millisecondsFromSeconds = components.seconds * 1_000
+        let millisecondsFromAttoseconds = components.attoseconds / 1_000_000_000_000_000
+        return Int(millisecondsFromSeconds + millisecondsFromAttoseconds)
     }
 
     /// Catalog songs for `songIDs`, in the requested order.

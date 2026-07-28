@@ -67,7 +67,12 @@ pub(crate) fn app_state_with_pairing(
             #[cfg(feature = "apple_music_musickit")]
             apple_music_playback: Arc::new(AppleMusicPlaybackService::new(Arc::clone(&player))),
             #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
-            apple_music: Arc::new(AppleMusicService::new(&root, &root.join("cache"))),
+            apple_music: Arc::new(AppleMusicService::new(
+                &root,
+                &root,
+                &root.join("cache"),
+                "00000000-0000-4000-8000-000000000001",
+            )),
             airplay: Arc::new(airplay::AirPlayRegistry::new()),
             sonos: Arc::new(
                 sonos::SonosService::new(root.join("sonos-cache"), "http://core.test".to_string())

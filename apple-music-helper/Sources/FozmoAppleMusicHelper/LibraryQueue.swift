@@ -15,6 +15,8 @@ import MusicKit
 /// owns.
 enum AppleMusicWebAPI {
     private static let base = URL(string: "https://api.music.apple.com/v1/me/library/playlists")!
+    private static let folderBase =
+        URL(string: "https://api.music.apple.com/v1/me/library/playlist-folders")!
 
     /// Catalog songs are added to a library playlist by catalog ID under the
     /// `songs` type; `library-songs` would require an already-imported item.
@@ -29,6 +31,12 @@ enum AppleMusicWebAPI {
 
     struct PlaylistTrack: Equatable {
         let catalogID: String?
+    }
+
+    struct PlaylistFolder: Equatable {
+        let id: String
+        let name: String
+        let description: String?
     }
 
     enum Failure: Error {
@@ -68,6 +76,68 @@ enum AppleMusicWebAPI {
             }
         }
         return found
+    }
+
+    /// Fetch one known Web playlist without enumerating the listener's
+    /// library. A 404 is a normal reconciliation result.
+    static func playlist(playlistID: String) async throws -> Playlist? {
+        let url = base.appendingPathComponent(playlistID)
+        do {
+            let json = try await requestJSON(url: url, method: "GET", body: nil)
+            guard let data = json["data"] as? [[String: Any]] else {
+                throw Failure.malformedResponse
+            }
+            guard let entry = data.first else { return nil }
+            return playlist(from: entry)
+        } catch Failure.http(let status, _) where status == 404 {
+            return nil
+        }
+    }
+
+    static func playlistFolders() async throws -> [PlaylistFolder] {
+        var found: [PlaylistFolder] = []
+        var next: URL? = URL(string: "\(folderBase.absoluteString)?limit=100")
+        while let url = next {
+            let json = try await requestJSON(url: url, method: "GET", body: nil)
+            guard let data = json["data"] as? [[String: Any]] else {
+                throw Failure.malformedResponse
+            }
+            for entry in data {
+                guard
+                    let id = entry["id"] as? String,
+                    let attributes = entry["attributes"] as? [String: Any],
+                    let name = attributes["name"] as? String
+                else { continue }
+                found.append(
+                    PlaylistFolder(
+                        id: id,
+                        name: name,
+                        description: descriptionText(attributes["description"])
+                    )
+                )
+            }
+            next = (json["next"] as? String).flatMap {
+                URL(string: $0.hasPrefix("http") ? $0 : "https://api.music.apple.com\($0)")
+            }
+        }
+        return found
+    }
+
+    static func createPlaylistFolder(name: String, description: String) async throws -> String {
+        let body: [String: Any] = [
+            "attributes": [
+                "name": name,
+                "description": description,
+            ]
+        ]
+        let json = try await requestJSON(url: folderBase, method: "POST", body: body)
+        guard
+            let data = json["data"] as? [[String: Any]],
+            let id = data.first?["id"] as? String
+        else {
+            throw Failure.malformedResponse
+        }
+        return id
     }
 
     /// Ordered tracks Apple actually stored for a library playlist.
@@ -110,19 +180,29 @@ enum AppleMusicWebAPI {
     static func createPlaylist(
         name: String,
         description: String,
-        catalogSongIDs: [String]
+        catalogSongIDs: [String],
+        parentFolderID: String? = nil
     ) async throws -> String {
+        var relationships: [String: Any] = [
+            "tracks": [
+                "data": catalogSongIDs.map { ["id": $0, "type": catalogSongType] }
+            ]
+        ]
+        if let parentFolderID {
+            relationships["parent"] = [
+                "data": [
+                    "id": parentFolderID,
+                    "type": "library-playlist-folders",
+                ]
+            ]
+        }
         let body: [String: Any] = [
             "attributes": [
                 "name": name,
                 "description": description,
                 "isPublic": false,
             ],
-            "relationships": [
-                "tracks": [
-                    "data": catalogSongIDs.map { ["id": $0, "type": catalogSongType] }
-                ]
-            ],
+            "relationships": relationships,
         ]
         let json = try await requestJSON(url: base, method: "POST", body: body)
         guard
@@ -132,14 +212,6 @@ enum AppleMusicWebAPI {
             throw Failure.malformedResponse
         }
         return id
-    }
-
-    static func addTracks(playlistID: String, catalogSongIDs: [String]) async throws {
-        let url = base.appendingPathComponent(playlistID).appendingPathComponent("tracks")
-        let body: [String: Any] = [
-            "data": catalogSongIDs.map { ["id": $0, "type": catalogSongType] }
-        ]
-        _ = try await requestJSON(url: url, method: "POST", body: body)
     }
 
     @discardableResult
@@ -181,5 +253,19 @@ enum AppleMusicWebAPI {
             return value["standard"] as? String
         }
         return nil
+    }
+
+    private static func playlist(from entry: [String: Any]) -> Playlist? {
+        guard
+            let id = entry["id"] as? String,
+            let attributes = entry["attributes"] as? [String: Any],
+            let name = attributes["name"] as? String
+        else { return nil }
+        return Playlist(
+            id: id,
+            name: name,
+            description: descriptionText(attributes["description"]),
+            canEdit: attributes["canEdit"] as? Bool ?? false
+        )
     }
 }

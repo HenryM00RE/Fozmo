@@ -34,10 +34,10 @@ html[data-browser-rendering="safari"] .react-app {
 }
 
 html[data-theme="neutral"] .react-app {
-  --sidebar-divider-color: rgb(230, 230, 229);
-  --settings-card-bg: rgb(245, 245, 244);
-  --app-select-bg: rgb(246, 246, 245);
-  --player-bar-bg: rgb(246, 246, 245);
+  --sidebar-divider-color: rgb(226, 226, 221);
+  --settings-card-bg: rgb(242, 242, 237);
+  --app-select-bg: rgb(243, 243, 238);
+  --player-bar-bg: rgb(242, 242, 237);
 }
 
 html[data-theme="dark"] .react-app {
@@ -331,11 +331,7 @@ html[data-theme="dark"] .react-app .app-sidebar-brand {
 }
 
 .react-app .app-toolbar {
-  border-bottom: var(--divider-line-width) solid var(--sidebar-divider-render-color);
-}
-
-.react-app .app-toolbar.is-scrolled {
-  border-bottom-color: var(--sidebar-divider-render-color);
+  border-bottom: 0;
 }
 
 .react-app .app-sidebar-main-mode,

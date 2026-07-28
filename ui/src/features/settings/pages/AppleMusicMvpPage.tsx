@@ -16,6 +16,8 @@ export function AppleMusicMvpPage({
   const [storefront, setStorefront] = useState('nz');
   const [searchTerm, setSearchTerm] = useState('');
   const [songs, setSongs] = useState<JsonRecord[]>([]);
+  const [playlistInventory, setPlaylistInventory] = useState<JsonRecord | null>(null);
+  const [selectedLegacy, setSelectedLegacy] = useState<string[]>([]);
 
   const activeZoneID = String(activeZoneStatus.active_zone_id || '');
   const activeZoneName = String(activeZoneStatus.active_zone_name || 'the active output');
@@ -85,6 +87,26 @@ export function AppleMusicMvpPage({
       }.`
     );
 
+  const previewPlaylists = () =>
+    run(
+      'playlist-preview',
+      async () => {
+        setPlaylistInventory(await endpoints.appleMusicQueuePlaylists());
+        setSelectedLegacy([]);
+      },
+      'Managed playlist inventory refreshed.'
+    );
+
+  const cleanupPlaylists = () =>
+    run(
+      'playlist-cleanup',
+      async () => {
+        setPlaylistInventory(await endpoints.cleanupAppleMusicQueuePlaylists(selectedLegacy));
+        setSelectedLegacy([]);
+      },
+      'Unreferenced owned playlists were cleaned up; selected legacy candidates were requested explicitly.'
+    );
+
   return (
     <section className="settings-panel apple-music-page">
       <div className="settings-section-heading">
@@ -152,6 +174,82 @@ export function AppleMusicMvpPage({
         >
           Stop helper
         </button>
+      </div>
+
+      <div className="settings-section-block">
+        <div className="settings-section-heading">
+          <div>
+            <span className="section-label">Queue playlists</span>
+            <h3>Managed playlist cleanup</h3>
+            <p>
+              Fozmo owns at most two warm A/B generations. Legacy playlists are previewed here and
+              are never removed unless you select them.
+            </p>
+          </div>
+        </div>
+        <div className="settings-summary-grid">
+          <StatusItem
+            label="Warm generations"
+            value={String((status?.managed_playlists as JsonRecord | undefined)?.active_slots ?? 0)}
+          />
+          <StatusItem
+            label="Cleanup pending"
+            value={String(
+              (status?.managed_playlists as JsonRecord | undefined)?.cleanup_pending ?? 0
+            )}
+          />
+          <StatusItem
+            label="Latest TTFS"
+            value={
+              numberValue((status?.latest_startup as JsonRecord | undefined)?.total_ttfs_ms) ===
+              null
+                ? 'Not measured'
+                : `${numberValue(
+                    (status?.latest_startup as JsonRecord | undefined)?.total_ttfs_ms
+                  )} ms`
+            }
+          />
+        </div>
+        <div className="settings-actions">
+          <button
+            className="pill"
+            disabled={Boolean(busy) || !authorized}
+            onClick={previewPlaylists}
+            type="button"
+          >
+            Preview playlists
+          </button>
+          <button
+            className="pill"
+            disabled={Boolean(busy) || !authorized || !playlistInventory}
+            onClick={cleanupPlaylists}
+            type="button"
+          >
+            Clean unreferenced
+          </button>
+        </div>
+        {recordArray(playlistInventory?.legacy_candidates).map((playlist) => {
+          const webID = String(playlist.web_playlist_id || '');
+          return (
+            <label className="settings-list-row" key={webID}>
+              <input
+                checked={selectedLegacy.includes(webID)}
+                onChange={(event) =>
+                  setSelectedLegacy((current) =>
+                    event.target.checked
+                      ? [...current, webID]
+                      : current.filter((id) => id !== webID)
+                  )
+                }
+                type="checkbox"
+              />
+              <span>
+                <strong>{String(playlist.name || 'Legacy Fozmo playlist')}</strong>
+                <small>{String(playlist.description || 'No owner metadata')}</small>
+              </span>
+            </label>
+          );
+        })}
       </div>
 
       <div className="settings-section-block">

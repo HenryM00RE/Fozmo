@@ -115,6 +115,7 @@ pub async fn transfer_zone(
                 radio_auto: source.is_radio(),
                 guard: PlaybackGuard::none(),
                 qobuz_request: None,
+                startup_id: None,
             },
         )
         .await?;

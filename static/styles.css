@@ -57,20 +57,20 @@ body {
 }
 
 :root[data-theme="neutral"] {
-    --floating-menu-glass-bg: rgba(250, 250, 249, 0.7);
+    --floating-menu-glass-bg: rgba(246, 246, 241, 0.7);
     --floating-menu-glass-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.65),
         0 0 0 1px var(--line-12),
         0 10px 28px rgba(45, 45, 42, 0.08),
         0 2px 6px rgba(45, 45, 42, 0.04);
-    --app-sidebar-bg: rgb(245, 245, 244);
+    --app-sidebar-bg: rgb(241, 241, 236);
     --sidebar-active-bg: linear-gradient(
         180deg,
         color-mix(in srgb, var(--app-sidebar-bg) 94%, var(--ink) 6%),
         color-mix(in srgb, var(--app-sidebar-bg) 91%, var(--ink) 9%)
     );
-    --player-bar-bg: rgb(246, 246, 245);
-    --sidebar-divider-color: rgb(230, 230, 229);
+    --player-bar-bg: rgb(242, 242, 237);
+    --sidebar-divider-color: rgb(226, 226, 221);
 }
 
 :root[data-theme="dark"] {
@@ -4626,21 +4626,10 @@ svg {
     justify-content: space-between;
     gap: 18px;
     padding: 5px 26px;
-    border-bottom: var(--divider-line-width) solid var(--sidebar-divider-render-color);
+    border-bottom: 0;
     background: transparent;
-    transition: background var(--dur) var(--ease-paper), border-color var(--dur) var(--ease-paper), backdrop-filter var(--dur) var(--ease-paper);
+    transition: background var(--dur) var(--ease-paper), backdrop-filter var(--dur) var(--ease-paper);
     z-index: 20;
-}
-
-.app-toolbar.is-scrolled {
-    border-bottom-color: var(--sidebar-divider-render-color);
-    background: var(--canvas);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-}
-
-:root[data-theme="dark"] .app-toolbar.is-scrolled {
-    background: var(--canvas);
 }
 
 .toolbar-left,
@@ -5038,12 +5027,54 @@ body:has(#exclusive-toggle:checked) .signal-led.clipping {
     overflow: hidden;
 }
 
+/* Rows dissolve as they pass beneath the header instead of being cut by a
+   hairline. Ported from T3 Code (apps/web/src/index.css, .chat-timeline-scroll-fade).
+
+   The mask is on the scroller itself rather than a tinted overlay above it,
+   which is what makes this hold up: a mask lowers the content's own alpha, so
+   it dissolves into whatever is behind. An overlay only blends while its
+   colour matches the canvas exactly, and smears the wrong colour the moment
+   they diverge.
+
+   The fade height matches the content-free space at the top of every view
+   (20px here plus 20px on each page's first block), so at rest the ramp falls
+   entirely on empty space and the header shows no divider — no scroll
+   listener needed.
+
+   T3 Code splits this across two mask layers because its stops are
+   percentages, which need mask-size to hold the ramp to the fade height. We
+   use absolute stops in a single layer instead: a gradient keeps its final
+   colour past the last stop, so everything below is opaque for free. That
+   matters because .react-app is zoomed to 0.92 — two layers meeting at 40px
+   abut at 36.8 device pixels, and the sub-pixel gap on that seam shows up as
+   a light line across the content. One layer has no seam to misalign. */
 .view {
+    --topbar-scroll-fade-height: 40px;
     grid-row: 2;
     min-height: 0;
     height: 100%;
     overflow: auto;
-    padding: 0 40px;
+    padding: 20px 40px 0;
+    -webkit-mask-image: linear-gradient(
+        to bottom,
+        transparent 0,
+        rgb(0 0 0 / 10%) calc(var(--topbar-scroll-fade-height) * 0.1),
+        rgb(0 0 0 / 30%) calc(var(--topbar-scroll-fade-height) * 0.24),
+        rgb(0 0 0 / 58%) calc(var(--topbar-scroll-fade-height) * 0.42),
+        rgb(0 0 0 / 82%) calc(var(--topbar-scroll-fade-height) * 0.62),
+        rgb(0 0 0 / 96%) calc(var(--topbar-scroll-fade-height) * 0.82),
+        black var(--topbar-scroll-fade-height)
+    );
+    mask-image: linear-gradient(
+        to bottom,
+        transparent 0,
+        rgb(0 0 0 / 10%) calc(var(--topbar-scroll-fade-height) * 0.1),
+        rgb(0 0 0 / 30%) calc(var(--topbar-scroll-fade-height) * 0.24),
+        rgb(0 0 0 / 58%) calc(var(--topbar-scroll-fade-height) * 0.42),
+        rgb(0 0 0 / 82%) calc(var(--topbar-scroll-fade-height) * 0.62),
+        rgb(0 0 0 / 96%) calc(var(--topbar-scroll-fade-height) * 0.82),
+        black var(--topbar-scroll-fade-height)
+    );
 }
 
 .settings-view {
@@ -6183,7 +6214,7 @@ body.playlist-selection-mode #playlist-grid .album-cover-play {
 
 :root[data-theme="neutral"] .dropdown-menu,
 :root[data-theme="neutral"] .menu {
-    background: rgba(250, 250, 249, 0.7);
+    background: rgba(246, 246, 241, 0.7);
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.65),
         0 0 0 1px var(--line-12),

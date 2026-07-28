@@ -1,4 +1,4 @@
-//! Immutable, generation-scoped Apple Music queue playlists (protocol v4).
+//! Immutable, generation-scoped Apple Music queue playlists (protocol v5).
 //!
 //! The v3 design kept one playlist called `Fozmo` and rebuilt it in place. Two
 //! things went wrong with that, both of them unfixable without changing the
@@ -13,13 +13,14 @@
 //!   a new one, so the identity Fozmo was playing from could be destroyed by a
 //!   background queue edit in another zone.
 //!
-//! v4 fixes both by making a playlist generation *immutable and named after
+//! v5 fixes both by making a playlist generation *immutable and named after
 //! itself*. Two slots, `Fozmo A` and `Fozmo B`, alternate so a new generation
 //! never touches the one currently playing. Each generation carries an opaque
-//! token and a fingerprint of its contents in the playlist description, which
-//! gives a retry something exact to search for. A retry is therefore a
-//! read-only adoption, never a second create — and if an ambiguous create never
-//! becomes discoverable, the generation is quarantined rather than duplicated.
+//! installation owner, token, and content fingerprint in the playlist
+//! description, which gives a retry something exact to search for. A retry is
+//! therefore a read-only adoption, never a second create — and if an ambiguous
+//! create never becomes discoverable, the generation is quarantined rather
+//! than duplicated.
 //!
 //! Nothing here appends. The whole safe island goes into the create request, so
 //! there is no second POST whose lost response would raise the same ambiguity a
@@ -28,13 +29,14 @@
 use super::model::AppleQueueEntry;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// Protocol tag embedded in every generation description.
-pub(crate) const QUEUE_PROTOCOL_TAG: &str = "fozmo.queue.v4";
+pub(crate) const QUEUE_PROTOCOL_TAG: &str = "fozmo.queue.v5";
+pub(crate) const LEGACY_QUEUE_PROTOCOL_TAG: &str = "fozmo.queue.v4";
 
 /// Transport timeout for a stage-or-adopt round trip.
 ///
@@ -138,6 +140,12 @@ pub(crate) struct AppleQueueSlotRecord {
     pub operation_id: String,
     pub generation: String,
     pub fingerprint: String,
+    /// Installation UUID embedded in v5 descriptions. Empty denotes a
+    /// migrated v4 record, retained for explicit legacy cleanup only.
+    #[serde(default)]
+    pub installation_owner: String,
+    #[serde(default)]
+    pub parent_folder_id: Option<String>,
     pub requested_song_ids: Vec<String>,
     #[serde(default)]
     pub accepted_entries: Vec<AppleQueueEntry>,
@@ -160,6 +168,10 @@ pub(crate) struct AppleQueueSlotRecord {
     /// Positional Music.app database IDs, for transport matching.
     #[serde(default)]
     pub music_app_database_ids: Vec<String>,
+    #[serde(default)]
+    pub idle_since: Option<u64>,
+    #[serde(default)]
+    pub cleanup_pending: bool,
 }
 
 impl AppleQueueSlotRecord {
@@ -168,6 +180,8 @@ impl AppleQueueSlotRecord {
         slot: AppleQueueSlot,
         requested_song_ids: Vec<String>,
         format_context_fingerprint: &str,
+        installation_owner: &str,
+        parent_folder_id: Option<String>,
     ) -> Self {
         let generation = new_generation_token();
         let fingerprint = content_fingerprint(&requested_song_ids, format_context_fingerprint);
@@ -176,6 +190,8 @@ impl AppleQueueSlotRecord {
             operation_id: format!("stage-{generation}"),
             generation,
             fingerprint,
+            installation_owner: installation_owner.to_string(),
+            parent_folder_id,
             requested_song_ids,
             accepted_entries: Vec::new(),
             rejected_song_ids: Vec::new(),
@@ -185,12 +201,51 @@ impl AppleQueueSlotRecord {
             active_references: Vec::new(),
             prepared_references: Vec::new(),
             music_app_database_ids: Vec::new(),
+            idle_since: None,
+            cleanup_pending: false,
+        }
+    }
+
+    pub(crate) fn untracked_cleanup_tombstone(
+        installation_owner: String,
+        slot: AppleQueueSlot,
+        generation: String,
+        fingerprint: String,
+        web_playlist_id: String,
+    ) -> Self {
+        Self {
+            slot,
+            operation_id: format!("reconcile-{generation}"),
+            generation,
+            fingerprint,
+            installation_owner,
+            parent_folder_id: None,
+            requested_song_ids: Vec::new(),
+            accepted_entries: Vec::new(),
+            rejected_song_ids: Vec::new(),
+            web_playlist_id: Some(web_playlist_id),
+            music_app_persistent_id: None,
+            lifecycle: AppleQueueLifecycle::Retired,
+            active_references: Vec::new(),
+            prepared_references: Vec::new(),
+            music_app_database_ids: Vec::new(),
+            idle_since: None,
+            cleanup_pending: true,
         }
     }
 
     /// The exact playlist description that identifies this generation.
     pub(crate) fn description(&self) -> String {
-        generation_description(self.slot, &self.generation, &self.fingerprint)
+        if self.installation_owner.is_empty() {
+            legacy_generation_description(self.slot, &self.generation, &self.fingerprint)
+        } else {
+            generation_description(
+                &self.installation_owner,
+                self.slot,
+                &self.generation,
+                &self.fingerprint,
+            )
+        }
     }
 
     pub(crate) fn is_referenced(&self) -> bool {
@@ -203,29 +258,42 @@ impl AppleQueueSlotRecord {
 /// The retry path searches for this verbatim, so it must be built in one place
 /// and never reformatted.
 pub(crate) fn generation_description(
+    installation_owner: &str,
     slot: AppleQueueSlot,
     generation: &str,
     fingerprint: &str,
 ) -> String {
     format!(
-        "{QUEUE_PROTOCOL_TAG};slot={};generation={generation};fingerprint={fingerprint}",
+        "{QUEUE_PROTOCOL_TAG};owner={installation_owner};slot={};generation={generation};fingerprint={fingerprint}",
         slot.as_str()
     )
 }
 
-/// Parse a description back into its parts, or `None` when it is not a v4
+fn legacy_generation_description(
+    slot: AppleQueueSlot,
+    generation: &str,
+    fingerprint: &str,
+) -> String {
+    format!(
+        "{LEGACY_QUEUE_PROTOCOL_TAG};slot={};generation={generation};fingerprint={fingerprint}",
+        slot.as_str()
+    )
+}
+
+/// Parse a description back into its parts, or `None` when it is not a v5
 /// generation description at all.
 pub(crate) fn parse_generation_description(
     description: &str,
-) -> Option<(AppleQueueSlot, String, String)> {
+) -> Option<(String, AppleQueueSlot, String, String)> {
     let mut parts = description.trim().split(';');
     if parts.next()? != QUEUE_PROTOCOL_TAG {
         return None;
     }
-    let (mut slot, mut generation, mut fingerprint) = (None, None, None);
+    let (mut owner, mut slot, mut generation, mut fingerprint) = (None, None, None, None);
     for part in parts {
         let (key, value) = part.split_once('=')?;
         match key {
+            "owner" if !value.is_empty() => owner = Some(value.to_string()),
             "slot" => {
                 slot = match value {
                     "A" => Some(AppleQueueSlot::A),
@@ -238,7 +306,7 @@ pub(crate) fn parse_generation_description(
             _ => return None,
         }
     }
-    Some((slot?, generation?, fingerprint?))
+    Some((owner?, slot?, generation?, fingerprint?))
 }
 
 /// An opaque, unguessable generation token.
@@ -286,6 +354,9 @@ pub(crate) struct StageOrAdoptAttempt {
     pub slot: AppleQueueSlot,
     pub fingerprint: String,
     pub requested_song_ids: Vec<String>,
+    pub installation_owner: String,
+    pub parent_folder_id: Option<String>,
+    pub known_web_playlist_id: Option<String>,
     /// True only for the very first attempt at this generation. Every later
     /// attempt is a read-only adoption, which is what makes a lost create
     /// response survivable without risking a duplicate.
@@ -309,6 +380,8 @@ pub(crate) struct StageOrAdoptResult {
     /// two is what proves Apple stored the complete requested order.
     #[serde(default)]
     pub server_catalog_ids: Vec<Option<String>>,
+    #[serde(default)]
+    pub phase_timings_ms: BTreeMap<String, u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -342,6 +415,8 @@ pub(crate) struct DeletionRequest {
     pub fingerprint: String,
     pub web_playlist_id: String,
     pub music_app_persistent_id: String,
+    pub installation_owner: String,
+    pub parent_folder_id: Option<String>,
     /// Whether any coordinator transition still names this generation.
     pub referenced_by_transition: bool,
     /// Whether Apple transport cleanup has finished for this generation.
@@ -370,6 +445,9 @@ impl AppleQueueSlotRecord {
             slot: self.slot,
             fingerprint: self.fingerprint.clone(),
             requested_song_ids: self.requested_song_ids.clone(),
+            installation_owner: self.installation_owner.clone(),
+            parent_folder_id: self.parent_folder_id.clone(),
+            known_web_playlist_id: self.web_playlist_id.clone(),
             allow_create,
         })
     }
@@ -456,6 +534,12 @@ impl AppleQueueSlotRecord {
         if request.fingerprint != self.fingerprint {
             return Err(DeletionRefusal::FingerprintMismatch);
         }
+        if self.installation_owner.is_empty()
+            || request.installation_owner != self.installation_owner
+            || request.parent_folder_id != self.parent_folder_id
+        {
+            return Err(DeletionRefusal::GenerationMismatch);
+        }
         let (Some(web_playlist_id), Some(persistent_id)) = (
             self.web_playlist_id.as_deref(),
             self.music_app_persistent_id.as_deref(),
@@ -499,7 +583,8 @@ impl AppleQueueSlotRecord {
 /// Persisted before the helper is contacted so that a crash mid-create still
 /// leaves behind a record that forbids a second create. Holds no credentials —
 /// only generation identities, accepted entries, references, and the format
-/// context — so it lives in the cache directory rather than anywhere secret.
+/// context. It lives in Application Support because deleting a rebuildable
+/// cache must never erase Fozmo's knowledge of playlists it owns.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct AppleQueueGenerationCache {
     #[serde(default)]
@@ -508,15 +593,45 @@ pub(crate) struct AppleQueueGenerationCache {
     pub slot_a: Option<AppleQueueSlotRecord>,
     #[serde(default)]
     pub slot_b: Option<AppleQueueSlotRecord>,
+    #[serde(default)]
+    pub retired: Vec<AppleQueueSlotRecord>,
+    /// Persistent empty Fozmo folder. Child placement remains disabled until
+    /// nested playback/deletion qualification succeeds on this installation.
+    #[serde(default)]
+    pub folder_web_id: Option<String>,
+    #[serde(default)]
+    pub nested_folder_qualified: bool,
+    /// Disabled until the current installation proves that a muted,
+    /// rate-correct capture can survive selection and decoder verification
+    /// without losing the track head.
+    #[serde(default)]
+    pub single_pass_cached_format_qualified: bool,
     /// Fingerprint of the macOS/Music.app/helper/driver context these records
     /// were staged under.
     #[serde(default)]
     pub format_context_fingerprint: String,
 }
 
-const CACHE_FILE_VERSION: u32 = 4;
+const CACHE_FILE_VERSION: u32 = 5;
 
 impl AppleQueueGenerationCache {
+    /// Make records from an older runtime context ineligible without losing
+    /// their cleanup identities.
+    pub(crate) fn retain_records_for_new_context(&mut self, context: String) -> bool {
+        if self.format_context_fingerprint == context {
+            return false;
+        }
+        for slot in AppleQueueSlot::ALL {
+            if let Some(mut record) = self.slot_mut(slot).take() {
+                record.lifecycle = AppleQueueLifecycle::Retired;
+                record.cleanup_pending = true;
+                self.retired.push(record);
+            }
+        }
+        self.format_context_fingerprint = context;
+        true
+    }
+
     pub(crate) fn slot(&self, slot: AppleQueueSlot) -> Option<&AppleQueueSlotRecord> {
         match slot {
             AppleQueueSlot::A => self.slot_a.as_ref(),
@@ -551,13 +666,17 @@ impl AppleQueueGenerationCache {
 /// File-backed store for the generation cache.
 pub(crate) struct AppleQueueGenerationStore {
     path: PathBuf,
+    legacy_path: PathBuf,
 }
 
 impl AppleQueueGenerationStore {
-    /// `<cache>/apple-music/queue-generations-v4.json`.
-    pub(crate) fn new(cache_dir: &Path) -> Self {
+    /// `<data>/apple-music/queue-generations-v5.json`.
+    pub(crate) fn new(data_dir: &Path, cache_dir: &Path) -> Self {
         Self {
-            path: cache_dir
+            path: data_dir
+                .join("apple-music")
+                .join("queue-generations-v5.json"),
+            legacy_path: cache_dir
                 .join("apple-music")
                 .join("queue-generations-v4.json"),
         }
@@ -573,13 +692,32 @@ impl AppleQueueGenerationStore {
     /// generation is re-staged, and the exact-description search will adopt any
     /// playlist the lost record described rather than duplicating it.
     pub(crate) fn load(&self) -> AppleQueueGenerationCache {
-        let Ok(bytes) = fs::read(&self.path) else {
+        if let Ok(bytes) = fs::read(&self.path) {
+            return serde_json::from_slice::<AppleQueueGenerationCache>(&bytes)
+                .ok()
+                .filter(|cache| cache.file_version == CACHE_FILE_VERSION)
+                .unwrap_or_default();
+        }
+        let Ok(bytes) = fs::read(&self.legacy_path) else {
             return AppleQueueGenerationCache::default();
         };
-        serde_json::from_slice::<AppleQueueGenerationCache>(&bytes)
-            .ok()
-            .filter(|cache| cache.file_version == CACHE_FILE_VERSION)
-            .unwrap_or_default()
+        let Some(mut migrated) = serde_json::from_slice::<AppleQueueGenerationCache>(&bytes).ok()
+        else {
+            return AppleQueueGenerationCache::default();
+        };
+        if migrated.file_version != 4 {
+            return AppleQueueGenerationCache::default();
+        }
+        for record in [&mut migrated.slot_a, &mut migrated.slot_b]
+            .into_iter()
+            .flatten()
+        {
+            record.installation_owner.clear();
+            record.cleanup_pending = false;
+        }
+        migrated.file_version = CACHE_FILE_VERSION;
+        let _ = self.save(&migrated);
+        migrated
     }
 
     /// Write through a temporary file, flush, then rename.
@@ -755,6 +893,8 @@ mod tests {
             AppleQueueSlot::A,
             song_ids.iter().map(|id| id.to_string()).collect(),
             "context-1",
+            "00000000-0000-4000-8000-000000000001",
+            None,
         )
     }
 
@@ -774,6 +914,7 @@ mod tests {
                 .collect(),
             web_playlist_id: Some("p.web-1".to_string()),
             server_catalog_ids: accepted.iter().map(|id| Some((*id).to_string())).collect(),
+            phase_timings_ms: BTreeMap::new(),
         }
     }
 
@@ -899,6 +1040,7 @@ mod tests {
         assert_eq!(
             parse_generation_description(&description),
             Some((
+                record.installation_owner.clone(),
                 AppleQueueSlot::A,
                 record.generation.clone(),
                 record.fingerprint.clone()
@@ -954,6 +1096,8 @@ mod tests {
             fingerprint: record.fingerprint.clone(),
             web_playlist_id: "p.web-1".to_string(),
             music_app_persistent_id: "PID-1".to_string(),
+            installation_owner: record.installation_owner.clone(),
+            parent_folder_id: None,
             referenced_by_transition: false,
             transport_cleanup_complete: true,
         };
@@ -1144,10 +1288,33 @@ mod tests {
     }
 
     #[test]
+    fn a_context_upgrade_retires_records_without_forgetting_cleanup_identity() {
+        let mut cache = AppleQueueGenerationCache {
+            format_context_fingerprint: "context-1".to_string(),
+            ..AppleQueueGenerationCache::default()
+        };
+        let mut existing = record(&["1"]);
+        existing.web_playlist_id = Some("p.web-1".to_string());
+        existing.music_app_persistent_id = Some("PID-1".to_string());
+        cache.put(existing);
+
+        assert!(cache.retain_records_for_new_context("context-2".to_string()));
+        assert!(cache.slot_a.is_none());
+        assert_eq!(cache.retired.len(), 1);
+        assert_eq!(cache.retired[0].web_playlist_id.as_deref(), Some("p.web-1"));
+        assert_eq!(
+            cache.retired[0].music_app_persistent_id.as_deref(),
+            Some("PID-1")
+        );
+        assert!(cache.retired[0].cleanup_pending);
+        assert_eq!(cache.retired[0].lifecycle, AppleQueueLifecycle::Retired);
+    }
+
+    #[test]
     fn the_cache_round_trips_through_an_atomic_write() {
         let directory =
             std::env::temp_dir().join(format!("fozmo-queue-generations-{}", rand::random::<u64>()));
-        let store = AppleQueueGenerationStore::new(&directory);
+        let store = AppleQueueGenerationStore::new(&directory, &directory);
         let mut cache = AppleQueueGenerationCache {
             format_context_fingerprint: "context-1".to_string(),
             ..AppleQueueGenerationCache::default()
@@ -1162,7 +1329,7 @@ mod tests {
         assert!(
             store
                 .path()
-                .ends_with("apple-music/queue-generations-v4.json")
+                .ends_with("apple-music/queue-generations-v5.json")
         );
         let _ = fs::remove_dir_all(&directory);
     }
@@ -1173,11 +1340,49 @@ mod tests {
             "fozmo-queue-generations-bad-{}",
             rand::random::<u64>()
         ));
-        let store = AppleQueueGenerationStore::new(&directory);
+        let store = AppleQueueGenerationStore::new(&directory, &directory);
         fs::create_dir_all(store.path().parent().unwrap()).unwrap();
         fs::write(store.path(), b"{ not json").unwrap();
 
         assert_eq!(store.load(), AppleQueueGenerationCache::default());
+        let _ = fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn a_v4_cache_is_migrated_to_the_durable_v5_ledger_without_claiming_ownership() {
+        let directory = std::env::temp_dir().join(format!(
+            "fozmo-queue-generations-migration-{}",
+            rand::random::<u64>()
+        ));
+        let data_dir = directory.join("data");
+        let cache_dir = directory.join("cache");
+        let legacy_path = cache_dir
+            .join("apple-music")
+            .join("queue-generations-v4.json");
+        fs::create_dir_all(legacy_path.parent().unwrap()).unwrap();
+        let mut legacy_record = record(&["1", "2"]);
+        legacy_record.installation_owner.clear();
+        legacy_record.web_playlist_id = Some("p.v4".to_string());
+        legacy_record.music_app_persistent_id = Some("PID-V4".to_string());
+        let legacy = AppleQueueGenerationCache {
+            file_version: 4,
+            slot_a: Some(legacy_record),
+            format_context_fingerprint: "context-v4".to_string(),
+            ..AppleQueueGenerationCache::default()
+        };
+        fs::write(&legacy_path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+
+        let store = AppleQueueGenerationStore::new(&data_dir, &cache_dir);
+        let migrated = store.load();
+        let migrated_record = migrated.slot_a.expect("the v4 identity is retained");
+        assert_eq!(migrated_record.web_playlist_id.as_deref(), Some("p.v4"));
+        assert_eq!(
+            migrated_record.music_app_persistent_id.as_deref(),
+            Some("PID-V4")
+        );
+        assert!(migrated_record.installation_owner.is_empty());
+        assert!(store.path().is_file());
+        assert_eq!(migrated.file_version, 5);
         let _ = fs::remove_dir_all(&directory);
     }
 }

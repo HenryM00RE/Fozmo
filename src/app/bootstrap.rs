@@ -162,8 +162,22 @@ pub(crate) fn build_app_state(
     #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
     let apple_music = Arc::new(AppleMusicService::new(
         &paths.resource_dir,
+        &paths.data_dir,
         &paths.cache_dir,
+        install.installation_id.clone(),
     ));
+    if settings.apple_music_playback_settings().enabled {
+        let warm_apple_music = Arc::clone(&apple_music);
+        tokio::spawn(async move {
+            if let Err(error) = warm_apple_music.launch().await {
+                tracing::debug!(
+                    event = "apple_music_helper_prewarm_deferred",
+                    error = %error.message,
+                    "Apple Music helper prewarm will retry on playback"
+                );
+            }
+        });
+    }
     let airplay = Arc::new(AirPlayRegistry::new());
     let sonos = Arc::new(
         SonosService::new(paths.sonos_cache_dir.clone(), public_base_url.clone())

@@ -40,28 +40,6 @@ const MUSIC_STATUS_SCRIPT: &[&str] = &[
     "end tell",
 ];
 
-/// The queue playlist name as an AppleScript-embeddable literal.
-///
-/// `concat!` only accepts literals, so the name lives here and
-/// [`model::QUEUE_PLAYLIST_NAME`] is derived from it. A test pins the two
-/// together.
-macro_rules! queue_playlist_name {
-    () => {
-        "Fozmo"
-    };
-}
-
-/// AppleScript reference to the Fozmo playlist.
-///
-/// Addressed directly rather than by scanning `every user playlist`: with a
-/// realistic library the scan costs about 0.65 s per call against 0.13 s here,
-/// and the readiness poll runs it repeatedly. Callers wrap the reference in
-/// `try` because it raises when the playlist does not exist.
-const QUEUE_PLAYLIST_REFERENCE: &str = concat!("user playlist \"", queue_playlist_name!(), "\"");
-
-const PLAY_QUEUE_PLAYLIST_STATEMENT: &str =
-    concat!("play playlist \"", queue_playlist_name!(), "\"");
-
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct MusicAppSnapshot {
     pub running: bool,
@@ -110,32 +88,6 @@ pub(crate) fn pause() -> Result<(), String> {
     run_music_command("pause")
 }
 
-/// Start the Fozmo queue playlist from its first track.
-///
-/// Music.app only advances a queue gaplessly when playback started from a
-/// container it owns. `play track N of playlist` starts a single-track
-/// transport that stops at the end of that track, so Fozmo keeps the playlist
-/// equal to the upcoming run and always enters it at the top. Shuffle and
-/// repeat are cleared because either one would make Music.app's next track
-/// disagree with Fozmo's queue.
-#[allow(dead_code)]
-pub(crate) fn play_queue_playlist() -> Result<(), String> {
-    run_music_script_with_retry(&[
-        "tell application \"Music\"",
-        "pause",
-        "try",
-        "set shuffle enabled to false",
-        "end try",
-        "try",
-        "set song repeat to off",
-        "end try",
-        PLAY_QUEUE_PLAYLIST_STATEMENT,
-        "set player position to 0",
-        "end tell",
-    ])
-    .map(|_| ())
-}
-
 /// Start one immutable queue generation by Music.app persistent identity.
 ///
 /// Slot names are deliberately reusable, so a name alone is not sufficient:
@@ -180,26 +132,38 @@ pub(crate) fn queue_generation_observation(
     playlist_name: &str,
     description: &str,
     persistent_id: Option<&str>,
+    maximum_tracks: Option<usize>,
 ) -> Result<Option<QueueGenerationObservation>, String> {
     let playlist_name = apple_script_string(playlist_name);
     let description = apple_script_string(description);
     let persistent_id = persistent_id.map(apple_script_string);
-    let predicate = persistent_id.map_or_else(
-        || format!("name of p is {playlist_name} and description of p is {description}"),
+    let find = persistent_id.map_or_else(
+        || {
+            format!(
+                "repeat with p in user playlists\n\
+                 try\n\
+                 if name of p is {playlist_name} and description of p is {description} then\n\
+                 set targetPlaylist to p\n\
+                 exit repeat\n\
+                 end if\n\
+                 end try\n\
+                 end repeat"
+            )
+        },
         |persistent_id| {
-            format!("name of p is {playlist_name} and persistent ID of p is {persistent_id}")
+            format!(
+                "try\n\
+                 set targetPlaylist to first user playlist whose persistent ID is {persistent_id} and name is {playlist_name}\n\
+                 end try"
+            )
         },
     );
-    let find = format!(
-        "repeat with p in user playlists\n\
-         try\n\
-         if {predicate} then\n\
-         set targetPlaylist to p\n\
-         exit repeat\n\
-         end if\n\
-         end try\n\
-         end repeat"
-    );
+    let stop_after_prefix = maximum_tracks
+        .filter(|count| *count > 0)
+        .map(|count| {
+            format!("if observedTracks is greater than or equal to {count} then exit repeat")
+        })
+        .unwrap_or_default();
     let output = run_music_script_with_retry_timeout(
         &[
             "tell application \"Music\"",
@@ -209,6 +173,7 @@ pub(crate) fn queue_generation_observation(
             find.as_str(),
             "if targetPlaylist is missing value then return \"\"",
             "set out to (persistent ID of targetPlaylist) & rowSeparator",
+            "set observedTracks to 0",
             "repeat with t in tracks of targetPlaylist",
             "set databaseID to \"\"",
             "set trackName to \"\"",
@@ -239,6 +204,8 @@ pub(crate) fn queue_generation_observation(
             "set trackValue to (track number of t) as string",
             "end try",
             "set out to out & databaseID & fieldSeparator & trackName & fieldSeparator & artistName & fieldSeparator & albumName & fieldSeparator & durationValue & fieldSeparator & discValue & fieldSeparator & trackValue & rowSeparator",
+            "set observedTracks to observedTracks + 1",
+            stop_after_prefix.as_str(),
             "end repeat",
             "return out",
             "end tell",
@@ -296,12 +263,18 @@ fn parse_queue_generation_observation(output: &str) -> Option<QueueGenerationObs
     })
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum QueueGenerationDeletion {
+    Deleted,
+    NotFound,
+}
+
 /// Delete one superseded generation only when all Music.app identities match.
 pub(crate) fn delete_queue_generation(
     playlist_name: &str,
     description: &str,
     persistent_id: &str,
-) -> Result<bool, String> {
+) -> Result<QueueGenerationDeletion, String> {
     let playlist_name = apple_script_string(playlist_name);
     let description = apple_script_string(description);
     let persistent_id = apple_script_string(persistent_id);
@@ -323,86 +296,13 @@ pub(crate) fn delete_queue_generation(
         "return deletedGeneration as string",
         "end tell",
     ])
-    .map(|output| output.trim().eq_ignore_ascii_case("true"))
-}
-
-/// `database ID` of every queue-playlist track, in playback order.
-///
-/// These are the identities Fozmo matches `current track` against. Music.app
-/// assigns them when the catalog songs land in the library, so they cannot be
-/// known before the sync.
-#[allow(dead_code)]
-pub(crate) fn queue_playlist_track_keys() -> Result<Vec<String>, String> {
-    let read_keys = format!(
-        "repeat with t in (tracks of {QUEUE_PLAYLIST_REFERENCE})\n\
-         set out to out & (database ID of t) & linefeed\n\
-         end repeat"
-    );
-    let output = run_music_script_with_retry(&[
-        "tell application \"Music\"",
-        "set out to \"\"",
-        "try",
-        read_keys.as_str(),
-        "end try",
-        "return out",
-        "end tell",
-    ])?;
-    Ok(output
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(str::to_string)
-        .collect())
-}
-
-/// Track count of the queue playlist, or `None` when it does not exist.
-///
-/// Apple documents that "there may be a delay before a new resource appears in
-/// a user's library", so Fozmo polls this after a sync rather than assuming the
-/// playlist is playable the moment the Web API returns.
-#[allow(dead_code)]
-pub(crate) fn queue_playlist_track_count() -> Result<Option<usize>, String> {
-    let read_count = format!("set c to (count of tracks of {QUEUE_PLAYLIST_REFERENCE})");
-    let output = run_music_script_with_retry(&[
-        "tell application \"Music\"",
-        "set c to -1",
-        "try",
-        read_count.as_str(),
-        "end try",
-        "return c as string",
-        "end tell",
-    ])?;
-    let count: i64 = output
-        .trim()
-        .parse()
-        .map_err(|_| format!("Music.app returned an unreadable playlist count: {output:?}"))?;
-    Ok(usize::try_from(count).ok())
-}
-
-/// Remove every playlist named `Fozmo`.
-///
-/// The Apple Music Web API can only append to a library playlist, so a queue
-/// change is applied by deleting the playlist and creating it afresh. The loop
-/// is bounded because deleting inside an AppleScript iteration invalidates the
-/// collection, and a duplicate name is possible after an interrupted sync.
-#[allow(dead_code)]
-pub(crate) fn delete_queue_playlist() -> Result<(), String> {
-    // Deleting by direct reference raises once the last one is gone, which is
-    // the loop's exit condition. Bounded because an interrupted sync can leave
-    // more than one playlist sharing the name.
-    let delete_one = format!("delete {QUEUE_PLAYLIST_REFERENCE}");
-    run_music_script_with_retry(&[
-        "tell application \"Music\"",
-        "repeat 8 times",
-        "try",
-        delete_one.as_str(),
-        "on error",
-        "exit repeat",
-        "end try",
-        "end repeat",
-        "end tell",
-    ])
-    .map(|_| ())
+    .map(|output| {
+        if output.trim().eq_ignore_ascii_case("true") {
+            QueueGenerationDeletion::Deleted
+        } else {
+            QueueGenerationDeletion::NotFound
+        }
+    })
 }
 
 pub(crate) fn prepare_bit_perfect() -> Result<(), String> {
@@ -655,32 +555,6 @@ mod tests {
                 track_number: 5,
             }]
         );
-    }
-
-    /// The AppleScript embeds the playlist name as a literal while the helper
-    /// protocol carries it as a constant. If they drift, Fozmo builds one
-    /// playlist and plays another.
-    #[test]
-    fn queue_playlist_scripts_use_the_protocol_playlist_name() {
-        let name = super::super::model::QUEUE_PLAYLIST_NAME;
-        assert_eq!(queue_playlist_name!(), name);
-        assert_eq!(
-            QUEUE_PLAYLIST_REFERENCE,
-            format!("user playlist \"{name}\"")
-        );
-        assert_eq!(
-            PLAY_QUEUE_PLAYLIST_STATEMENT,
-            format!("play playlist \"{name}\"")
-        );
-    }
-
-    /// `play track N of playlist` starts a single-track transport that stops at
-    /// the end of that track. Only entering the container advances the queue,
-    /// which is the whole reason the playlist exists.
-    #[test]
-    fn queue_playlist_playback_enters_the_container_rather_than_a_track() {
-        assert!(!PLAY_QUEUE_PLAYLIST_STATEMENT.contains("play track"));
-        assert!(PLAY_QUEUE_PLAYLIST_STATEMENT.starts_with("play playlist"));
     }
 
     #[test]
