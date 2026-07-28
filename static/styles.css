@@ -45,11 +45,11 @@ body {
     --floating-menu-glass-filter: none;
     --floating-menu-glass-shadow: var(--modal-floating);
     --app-sidebar-bg: rgb(241, 238, 228);
-    --sidebar-active-bg: linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--app-sidebar-bg) 94%, var(--ink) 6%),
-        color-mix(in srgb, var(--app-sidebar-bg) 91%, var(--ink) 9%)
-    );
+    /* Flat, not a gradient: at this size the 6%->9% ramp read as a smudge
+       rather than a surface. 4.6% ink lands 9 below --app-sidebar-bg on every
+       channel in both light and neutral, and stays relative so it follows any
+       future change to the sidebar colour. Dark sets its own value below. */
+    --sidebar-active-bg: color-mix(in srgb, var(--app-sidebar-bg) 95.4%, var(--ink) 4.6%);
     --player-bar-bg: rgb(242, 239, 230);
     --custom-display-font-scale: 1;
     --divider-line-width: 1.4px;
@@ -58,14 +58,9 @@ body {
 }
 
 :root[data-theme="neutral"] {
-    --app-sidebar-bg: rgb(241, 241, 236);
-    --sidebar-active-bg: linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--app-sidebar-bg) 94%, var(--ink) 6%),
-        color-mix(in srgb, var(--app-sidebar-bg) 91%, var(--ink) 9%)
-    );
-    --player-bar-bg: rgb(242, 242, 237);
-    --sidebar-divider-color: rgb(226, 226, 221);
+    --app-sidebar-bg: rgb(246, 246, 241);
+    --player-bar-bg: rgb(247, 247, 242);
+    --sidebar-divider-color: rgb(231, 231, 226);
 }
 
 :root[data-theme="dark"] {
@@ -79,7 +74,10 @@ body {
     --ink-faint: rgba(230, 228, 222, 0.48);
     --ink-whisper: rgba(230, 228, 222, 0.28);
     --app-sidebar-bg: rgb(23, 23, 23);
-    --sidebar-active-bg: rgb(36, 36, 36);
+    /* Same construction as light, inverted by --ink: mixing toward the theme's
+       ink lightens here instead of darkening. 4.8% lands 10 above
+       --app-sidebar-bg on every channel. */
+    --sidebar-active-bg: color-mix(in srgb, var(--app-sidebar-bg) 95.2%, var(--ink) 4.8%);
     --player-bar-bg: var(--canvas-tint);
     --sidebar-divider-color: rgb(37, 37, 37);
 }
@@ -258,7 +256,7 @@ html[data-custom-display-font="on"] .app-sidebar-brand {
 .app-sidebar .settings-nav-item {
     min-height: 37px;
     padding: 8px 14px;
-    border-radius: var(--r-pill);
+    border-radius: var(--r-nav-item);
     color: var(--ink-muted);
     font-size: 16px;
     font-weight: 500;
@@ -6545,7 +6543,7 @@ html[data-custom-display-font="on"] .settings-sidebar .section-label {
     min-height: 37px;
     padding: 8px 14px;
     border: 0;
-    border-radius: var(--r-pill);
+    border-radius: var(--r-nav-item);
     background: transparent;
     color: var(--ink-muted);
     text-align: left;
