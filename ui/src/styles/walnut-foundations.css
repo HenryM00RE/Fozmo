@@ -16,9 +16,9 @@
   background: var(--canvas);
 
   /* ----- Canvas — warm fibrous paper ----- */
-  --canvas: rgb(240, 237, 227);
-  --canvas-tint: rgb(235, 232, 221);
-  --canvas-raised: rgb(244, 241, 232);
+  --canvas: rgb(240, 237, 228);
+  --canvas-tint: rgb(235, 232, 222);
+  --canvas-raised: rgb(244, 241, 233);
 
   /* ----- Ink — walnut charcoal ----- */
   --ink: rgb(45, 45, 42);
@@ -32,8 +32,8 @@
   --line-12: rgba(45, 45, 42, 0.12);
   --line-15: rgba(45, 45, 42, 0.15);
   --line-20: rgba(45, 45, 42, 0.2);
-  --modal-line: rgb(220, 217, 207);
-  --modal-line-soft: rgba(220, 217, 207, 0.72);
+  --modal-line: rgb(220, 217, 208);
+  --modal-line-soft: rgba(220, 217, 208, 0.72);
 
   --specular: rgba(255, 255, 255, 0.6);
   --specular-soft: rgba(255, 255, 255, 0.35);
@@ -80,9 +80,9 @@
   --r-panel: 18px;
   --r-panel-sm: 8px;
   --r-input: 8px;
-  /* Sidebar rows. Matches T3 Code's rounded-lg (--radius: 0.625rem), which it
-     uses for every sidebar element rather than a pill. */
-  --r-nav-item: 10px;
+  /* Sidebar rows, and the track-row surface that was matched to them. Started
+     at T3 Code's rounded-lg (10px) and opened up slightly from there. */
+  --r-nav-item: 12.5px;
 
   /* ----- Shadow / depth ----- */
   --molded-pill:
@@ -120,7 +120,7 @@
   --row-selected-hover: rgba(45, 45, 42, 0.055);
   --stamp-ink-fill: rgba(45, 45, 42, 0.04);
   --select-menu-shade: rgba(45, 45, 42, 0.42);
-  --select-menu-fade: linear-gradient(rgba(244, 241, 232, 0), rgba(244, 241, 232, 0.92));
+  --select-menu-fade: linear-gradient(rgba(244, 241, 233, 0), rgba(244, 241, 233, 0.92));
   /* Washing toward the canvas rather than dimming with ink is what drops the
      contrast behind a modal without darkening the room. Ported from T3 Code
      (apps/web/src/index.css, .dialog-backdrop). The wash does the contrast

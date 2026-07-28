@@ -1,14 +1,14 @@
 .react-app {
   --app-ui-scale: 0.92;
   --divider-line-width: 1.4px;
-  --sidebar-divider-color: rgb(226, 223, 213);
+  --sidebar-divider-color: rgb(226, 223, 214);
   --sidebar-divider-render-color: color-mix(in srgb, var(--sidebar-divider-color) 88%, transparent);
-  --settings-card-bg: rgb(241, 238, 228);
+  --settings-card-bg: rgb(241, 238, 229);
   --track-row-divider-color: color-mix(in srgb, var(--ink, #2d2d2a) 12%, var(--canvas, #f2efe6));
   /* Counteract the app-level zoom so track rules rasterize at one physical pixel. */
   --track-row-divider-size: calc(1px / var(--app-ui-scale));
-  --app-select-bg: rgb(242, 239, 230);
-  --player-bar-bg: rgb(242, 239, 230);
+  --app-select-bg: rgb(242, 239, 231);
+  --player-bar-bg: rgb(242, 239, 231);
   --app-modal-backdrop-filter: blur(4px) var(--modal-backdrop-open-filter);
   --app-select-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.52), 0 0 0 1px var(--line-12, rgba(45, 45, 42, 0.12)),
@@ -3386,6 +3386,10 @@ html[data-custom-display-font="on"]
   gap: 0;
 }
 
+.react-app .global-search-recent-head {
+  padding-inline: 8px;
+}
+
 .react-app .global-search-recent-row {
   min-height: 52px;
   display: grid;
@@ -3408,20 +3412,9 @@ html[data-custom-display-font="on"]
   min-height: 52px;
   padding: 7px 8px;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
   text-align: left;
-}
-
-.react-app .global-search-recent-query svg {
-  width: 17px;
-  height: 17px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 
 .react-app .global-search-recent-query span {
@@ -8984,6 +8977,20 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
 .react-app .service-settings-actions .pill.service-settings-danger:hover,
 .react-app .service-settings-actions .pill.service-settings-danger:focus-visible {
   color: var(--terracotta-ink, #f4b0a8);
+}
+
+.react-app .service-settings-actions .pill.service-settings-experimental {
+  background: var(--terracotta-ink, #b25f47);
+  color: var(--canvas, #fff);
+  box-shadow: none;
+}
+
+.react-app .service-settings-actions .pill.service-settings-experimental:hover,
+.react-app .service-settings-actions .pill.service-settings-experimental:focus-visible {
+  background: color-mix(in srgb, var(--terracotta-ink, #b25f47) 88%, #000 12%);
+  color: var(--canvas, #fff);
+  box-shadow: none;
+  outline: 0;
 }
 
 .react-app .apple-music-page .settings-summary-grid {

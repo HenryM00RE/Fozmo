@@ -274,6 +274,9 @@ export function GlobalSearch({
                 className="global-search-section global-search-recent-section"
                 aria-label="Recently searched"
               >
+                <div className="global-search-section-head global-search-recent-head">
+                  <span className="section-label">Recently searched</span>
+                </div>
                 {recentSearches.length ? (
                   recentSearches.map((recentQuery) => (
                     <div className="global-search-recent-row" key={recentQuery}>
@@ -285,7 +288,6 @@ export function GlobalSearch({
                           inputRef.current?.focus();
                         }}
                       >
-                        <Icon path="M10.5 17a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13Z M16 16l4 4" />
                         <span>{recentQuery}</span>
                       </button>
                       <button

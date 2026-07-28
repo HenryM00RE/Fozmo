@@ -10,22 +10,30 @@ export type SettingsTabId =
   | 'dsp'
   | 'eq'
   | 'qobuz'
-  | 'apple-music'
   | 'metabrainz'
   | 'remote'
   | 'profiles';
 
 export const settingsSections: Array<{ id: SettingsTabId; label: string; path: string }> = [
-  { id: 'general', label: 'General', path: 'M4 6h16M4 12h10M4 18h7' },
-  { id: 'zones', label: 'Outputs', path: 'M7 7h10v10H7zM2 12h5M17 12h5M12 2v5M12 17v5' },
-  { id: 'dsp', label: 'DSP', path: 'M4 7h10M4 17h10M18 5v4M18 15v4M14 7h8M14 17h8' },
+  {
+    id: 'general',
+    label: 'General',
+    path: 'M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915M15 12a3 3 0 1 1-6 0 3 3 0 1 1 6 0'
+  },
+  {
+    id: 'zones',
+    label: 'Outputs',
+    path: 'M17 19a1 1 0 0 1-1-1v-2a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a1 1 0 0 1-1 1zM17 21v-2M19 14V6.5a1 1 0 0 0-7 0v11a1 1 0 0 1-7 0V10M21 21v-2M3 5V3M4 10a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2a2 2 0 0 1-2 2zM7 5V3'
+  },
+  // Lucide's settings-2. Its two circles are arc pairs here because Icon
+  // renders a single <path>.
+  {
+    id: 'dsp',
+    label: 'DSP',
+    path: 'M14 17H5M19 7h-9M20 17a3 3 0 1 1-6 0 3 3 0 1 1 6 0M10 7a3 3 0 1 1-6 0 3 3 0 1 1 6 0'
+  },
   { id: 'eq', label: 'EQ', path: 'M5 20V10M12 20V4M19 20v-7' },
   { id: 'qobuz', label: 'Services', path: 'M12 3 4 7l8 4 8-4-8-4M4 12l8 4 8-4M4 17l8 4 8-4' },
-  {
-    id: 'apple-music',
-    label: 'Apple Music',
-    path: 'M9 18V5l12-2v13M9 18a3 3 0 1 1-2-2.83M21 16a3 3 0 1 1-2-2.83M9 9l12-2'
-  },
   {
     id: 'metabrainz',
     label: 'Metadata',
@@ -45,9 +53,10 @@ export const settingsSections: Array<{ id: SettingsTabId; label: string; path: s
 
 export function visibleSettingsSections(status: JsonRecord | null | undefined) {
   return settingsSections.filter((section) => {
-    if (section.id === 'qobuz') return capabilityEnabled(status, 'qobuz');
-    if (section.id === 'apple-music') {
-      return capabilityEnabled(status, 'apple_music_musickit');
+    if (section.id === 'qobuz') {
+      return (
+        capabilityEnabled(status, 'qobuz') || capabilityEnabled(status, 'apple_music_musickit')
+      );
     }
     return true;
   });
@@ -58,8 +67,8 @@ export function settingsTabFromValue(
   fallback: SettingsTabId = 'general',
   status?: JsonRecord | null
 ): SettingsTabId {
-  if (value === 'apple_music' || value === 'appleMusic') {
-    return settingsTabFromValue('apple-music', fallback, status);
+  if (value === 'apple-music' || value === 'apple_music' || value === 'appleMusic') {
+    return settingsTabFromValue('qobuz', fallback, status);
   }
   if (value === 'media' || value === 'appearance' || value === 'data') return 'general';
   return visibleSettingsSections(status).some((section) => section.id === value)

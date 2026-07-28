@@ -7,10 +7,14 @@ import { errorMessage } from '../model/metadataAssignerModel';
 import { qobuzAccountSummary } from '../model/qobuzSettingsModel';
 
 export function QobuzSettingsPage({
+  appleMusicAvailable,
   onRefresh,
+  qobuzAvailable,
   qobuzStatus
 }: {
+  appleMusicAvailable: boolean;
   onRefresh: () => Promise<void>;
+  qobuzAvailable: boolean;
   qobuzStatus: JsonRecord | null;
 }) {
   const [qobuzSnapshot, setQobuzSnapshot] = useState<JsonRecord | null>(qobuzStatus);
@@ -22,8 +26,13 @@ export function QobuzSettingsPage({
   const [lastfmKeyDraft, setLastfmKeyDraft] = useState('');
   const [lastfmSaving, setLastfmSaving] = useState(false);
   const [lastfmMessage, setLastfmMessage] = useState('');
+  const [appleMusicOpen, setAppleMusicOpen] = useState(false);
+  const [appleMusicStatus, setAppleMusicStatus] = useState<JsonRecord | null>(null);
+  const [appleMusicBusy, setAppleMusicBusy] = useState(false);
+  const [appleMusicMessage, setAppleMusicMessage] = useState('');
   const connected = Boolean(qobuzSnapshot?.logged_in || qobuzSnapshot?.authenticated);
   const lastfmConnected = Boolean(lastfmStatus?.configured);
+  const appleMusicRunning = appleMusicHelperRunning(appleMusicStatus);
 
   useEffect(() => {
     setQobuzSnapshot(qobuzStatus);
@@ -43,6 +52,28 @@ export function QobuzSettingsPage({
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!appleMusicAvailable) {
+      setAppleMusicStatus(null);
+      return;
+    }
+    let active = true;
+    endpoints
+      .appleMusicStatus()
+      .then((status) => {
+        if (active) setAppleMusicStatus(status);
+      })
+      .catch((error) => {
+        if (active) {
+          setAppleMusicStatus(null);
+          setAppleMusicMessage(`Apple Music status is unavailable. ${errorMessage(error)}`);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [appleMusicAvailable]);
 
   const signOutQobuz = async () => {
     if (qobuzSigningOut) return;
@@ -91,6 +122,29 @@ export function QobuzSettingsPage({
     }
   };
 
+  const toggleAppleMusicHelper = async () => {
+    if (appleMusicBusy || !appleMusicStatus) return;
+    const wasRunning = appleMusicHelperRunning(appleMusicStatus);
+    setAppleMusicBusy(true);
+    setAppleMusicMessage('');
+    try {
+      const nextStatus = wasRunning
+        ? await endpoints.shutdownAppleMusicHelper()
+        : await endpoints.launchAppleMusicHelper();
+      setAppleMusicStatus(nextStatus);
+      setAppleMusicMessage(
+        wasRunning ? 'Apple Music helper disabled.' : 'Apple Music helper enabled.'
+      );
+      await onRefresh().catch(() => undefined);
+    } catch (error) {
+      setAppleMusicMessage(
+        `Apple Music helper could not be ${wasRunning ? 'disabled' : 'enabled'}. ${errorMessage(error)}`
+      );
+    } finally {
+      setAppleMusicBusy(false);
+    }
+  };
+
   return (
     <section className="settings-panel">
       <div className="settings-grid">
@@ -99,15 +153,28 @@ export function QobuzSettingsPage({
             <div className="section-label">Services</div>
           </div>
           <div className="panel raised qobuz-provider-panel">
-            <ServiceProviderRow
-              connected={connected}
-              name="Qobuz"
-              onSettings={() => {
-                setQobuzMessage('');
-                setQobuzOpen(true);
-              }}
-              summary={qobuzAccountSummary(qobuzSnapshot)}
-            />
+            {qobuzAvailable ? (
+              <ServiceProviderRow
+                connected={connected}
+                name="Qobuz"
+                onSettings={() => {
+                  setQobuzMessage('');
+                  setQobuzOpen(true);
+                }}
+                summary={qobuzAccountSummary(qobuzSnapshot)}
+              />
+            ) : null}
+            {appleMusicAvailable ? (
+              <ServiceProviderRow
+                connected={appleMusicRunning}
+                name="Apple Music"
+                onSettings={() => {
+                  setAppleMusicMessage('');
+                  setAppleMusicOpen(true);
+                }}
+                summary={appleMusicServiceSummary(appleMusicStatus)}
+              />
+            ) : null}
             <ServiceProviderRow
               connected={lastfmConnected}
               name="Last.fm"
@@ -129,6 +196,14 @@ export function QobuzSettingsPage({
         signingOut={qobuzSigningOut}
         summary={qobuzAccountSummary(qobuzSnapshot)}
       />
+      <AppleMusicServiceModal
+        busy={appleMusicBusy}
+        message={appleMusicMessage}
+        onClose={() => setAppleMusicOpen(false)}
+        onToggle={toggleAppleMusicHelper}
+        open={appleMusicOpen}
+        status={appleMusicStatus}
+      />
       <LastFmServiceModal
         keyDraft={lastfmKeyDraft}
         message={lastfmMessage}
@@ -141,6 +216,85 @@ export function QobuzSettingsPage({
         status={lastfmStatus}
       />
     </section>
+  );
+}
+
+function AppleMusicServiceModal({
+  busy,
+  message,
+  onClose,
+  onToggle,
+  open,
+  status
+}: {
+  busy: boolean;
+  message: string;
+  onClose: () => void;
+  onToggle: () => void;
+  open: boolean;
+  status: JsonRecord | null;
+}) {
+  if (!open) return null;
+  const running = appleMusicHelperRunning(status);
+  const helperAvailable = status?.helper_present !== false;
+  return (
+    <Modal
+      open
+      className="metadata-assigner-backdrop service-settings-backdrop"
+      ariaLabelledBy="apple-music-service-title"
+      onClose={onClose}
+    >
+      <section
+        className="metadata-assigner-panel service-settings-panel app-modal-surface"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="metadata-assigner-head">
+          <div>
+            <strong id="apple-music-service-title">Apple Music</strong>
+            <span className={`service-settings-status${running ? ' is-connected' : ''}`}>
+              {appleMusicServiceSummary(status)}
+            </span>
+          </div>
+          <button
+            className="metadata-assigner-close"
+            type="button"
+            aria-label="Close"
+            onClick={onClose}
+          >
+            <Icon path="M18 6 6 18M6 6l12 12" />
+          </button>
+        </header>
+        <div className="metadata-assigner-body service-settings-body">
+          <p className="service-settings-notice">
+            Apple Music support is experimental. Enabling it launches the Apple Music helper on this
+            Mac.
+          </p>
+          {message ? (
+            <div className="metadata-assigner-message" data-testid="apple-music-service-message">
+              {message}
+            </div>
+          ) : null}
+          <div className="service-settings-actions is-centered">
+            <button
+              className="pill service-settings-experimental"
+              type="button"
+              onClick={onToggle}
+              disabled={busy || !status || !helperAvailable}
+            >
+              {busy
+                ? running
+                  ? 'Disabling...'
+                  : 'Enabling...'
+                : running
+                  ? 'Disable'
+                  : helperAvailable
+                    ? 'Enable'
+                    : 'Unavailable'}
+            </button>
+          </div>
+        </div>
+      </section>
+    </Modal>
   );
 }
 
@@ -361,4 +515,16 @@ function lastfmServiceSummary(status: JsonRecord | null) {
     return 'API key needed before radio can run.';
   }
   return 'API key not configured.';
+}
+
+function appleMusicHelperRunning(status: JsonRecord | null) {
+  const helperPid = Number(status?.helper_pid);
+  return Number.isFinite(helperPid) && helperPid > 0;
+}
+
+function appleMusicServiceSummary(status: JsonRecord | null) {
+  if (!status) return 'Checking experimental helper.';
+  if (status.helper_present === false) return 'Experimental helper is unavailable in this build.';
+  if (appleMusicHelperRunning(status)) return 'Experimental helper enabled.';
+  return 'Experimental helper disabled.';
 }

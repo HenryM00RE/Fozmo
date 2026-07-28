@@ -44,16 +44,16 @@ body {
     --floating-menu-glass-bg: var(--canvas-raised);
     --floating-menu-glass-filter: none;
     --floating-menu-glass-shadow: var(--modal-floating);
-    --app-sidebar-bg: rgb(241, 238, 228);
+    --app-sidebar-bg: rgb(241, 238, 229);
     /* Flat, not a gradient: at this size the 6%->9% ramp read as a smudge
        rather than a surface. 4.6% ink lands 9 below --app-sidebar-bg on every
        channel in both light and neutral, and stays relative so it follows any
        future change to the sidebar colour. Dark sets its own value below. */
     --sidebar-active-bg: color-mix(in srgb, var(--app-sidebar-bg) 95.4%, var(--ink) 4.6%);
-    --player-bar-bg: rgb(242, 239, 230);
+    --player-bar-bg: rgb(242, 239, 231);
     --custom-display-font-scale: 1;
     --divider-line-width: 1.4px;
-    --sidebar-divider-color: rgb(226, 223, 213);
+    --sidebar-divider-color: rgb(226, 223, 214);
     --sidebar-divider-render-color: color-mix(in srgb, var(--sidebar-divider-color) 88%, transparent);
 }
 

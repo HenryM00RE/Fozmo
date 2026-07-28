@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { capabilityEnabled } from '../../shared/lib/capabilities';
-import type { JsonRecord, QueueItem, ZoneProfile } from '../../shared/types';
+import type { JsonRecord, ZoneProfile } from '../../shared/types';
 import {
   loadDspTargetZoneId,
   resolveSettingsTargetZoneId,
@@ -15,7 +15,6 @@ import { useProfileSettings } from './hooks/useProfileSettings';
 import { useQobuzCache } from './hooks/useQobuzCache';
 import { useSettingsInitialLoad } from './hooks/useSettingsInitialLoad';
 import { useZonesSettings } from './hooks/useZonesSettings';
-import { AppleMusicMvpPage } from './pages/AppleMusicMvpPage';
 import { DspSettingsPage } from './pages/DspSettingsPage';
 import { EqSettingsPage } from './pages/EqSettingsPage';
 import { GeneralSettingsPage } from './pages/GeneralSettingsPage';
@@ -35,7 +34,6 @@ import {
 } from './settingsModel';
 
 export function SettingsView({
-  addItemsToQueue,
   status,
   qobuzStatus,
   zones,
@@ -47,7 +45,6 @@ export function SettingsView({
   onProfileScopedRefresh,
   selectActiveProfile
 }: {
-  addItemsToQueue: (items: QueueItem[], placement: 'next' | 'end') => Promise<boolean>;
   status: JsonRecord;
   qobuzStatus: JsonRecord | null;
   zones: ZoneProfile[];
@@ -316,11 +313,12 @@ export function SettingsView({
       ) : null}
 
       {activeTab === 'qobuz' ? (
-        <QobuzSettingsPage onRefresh={onRefresh} qobuzStatus={qobuzStatus} />
-      ) : null}
-
-      {activeTab === 'apple-music' ? (
-        <AppleMusicMvpPage activeZoneStatus={status} addItemsToQueue={addItemsToQueue} />
+        <QobuzSettingsPage
+          appleMusicAvailable={capabilityEnabled(status, 'apple_music_musickit')}
+          onRefresh={onRefresh}
+          qobuzAvailable={capabilityEnabled(status, 'qobuz')}
+          qobuzStatus={qobuzStatus}
+        />
       ) : null}
 
       {activeTab === 'metabrainz' ? (

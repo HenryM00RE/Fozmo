@@ -11,7 +11,6 @@ type SettingsRouteViewProps = {
 export function SettingsRouteView({ route, settingsRoute }: SettingsRouteViewProps) {
   return (
     <SettingsView
-      addItemsToQueue={settingsRoute.addItemsToQueue}
       status={settingsRoute.status}
       qobuzStatus={settingsRoute.qobuzStatus}
       zones={settingsRoute.zones}

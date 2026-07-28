@@ -197,18 +197,24 @@ describe('settings navigation', () => {
   });
 
   it('falls back safely for legacy and invalid settings tabs', () => {
-    expect(settingsTabFromValue('apple-music', 'general', {})).toBe('general');
+    expect(
+      settingsTabFromValue('apple-music', 'general', {
+        capabilities: { apple_music_musickit: false, qobuz: false }
+      })
+    ).toBe('general');
     expect(settingsTabFromValue('unknown', 'zones', {})).toBe('zones');
   });
 
-  it('shows the Apple Music tab only for the MusicKit product build', () => {
+  it('consolidates Apple Music into Services for the MusicKit product build', () => {
     const helperEnabled = { capabilities: { apple_music_musickit: true } };
-    expect(
-      visibleSettingsSections(helperEnabled).some((section) => section.id === 'apple-music')
-    ).toBe(true);
-    expect(visibleSettingsSections({}).some((section) => section.id === 'apple-music')).toBe(false);
-    expect(settingsTabFromValue('apple-music', 'general', helperEnabled)).toBe('apple-music');
-    expect(settingsTabFromValue('apple_music', 'general', helperEnabled)).toBe('apple-music');
+    expect(visibleSettingsSections(helperEnabled).map((section) => section.label)).not.toContain(
+      'Apple Music'
+    );
+    expect(visibleSettingsSections(helperEnabled).some((section) => section.id === 'qobuz')).toBe(
+      true
+    );
+    expect(settingsTabFromValue('apple-music', 'general', helperEnabled)).toBe('qobuz');
+    expect(settingsTabFromValue('apple_music', 'general', helperEnabled)).toBe('qobuz');
   });
 });
 
