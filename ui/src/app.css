@@ -2440,6 +2440,24 @@ body.recently-played-selection-mode .react-app .home-qobuz-grid .album-cover-pla
   line-height: 1.15;
 }
 
+.react-app .album-detail-about-placeholder {
+  display: none;
+}
+
+@media (min-width: 761px) {
+  .react-app .album-detail-info > .album-detail-about {
+    min-height: 72px;
+  }
+
+  .react-app .album-detail-about-placeholder {
+    display: block;
+    width: 100%;
+    max-width: 68ch;
+    height: 40px;
+    margin-top: 16px;
+  }
+}
+
 .react-app .album-detail-title {
   position: relative;
   left: -1px;
@@ -4302,7 +4320,11 @@ html[data-theme="dark"] .seek-slider {
 .react-app .album-quality-stamp .album-source-icon.is-apple-music {
   width: 20px;
   height: 20px;
-  transform: translateY(-1px);
+  transform: translateY(-2.25px);
+}
+
+.react-app .version-title .album-source-icon.is-apple-music {
+  transform: translateY(-1.5px);
 }
 
 @media (max-width: 1180px) {

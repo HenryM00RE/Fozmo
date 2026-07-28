@@ -102,7 +102,9 @@ export function AlbumDetailHeader({
               More
             </span>
           </button>
-        ) : null}
+        ) : (
+          <div className="album-detail-about-placeholder" aria-hidden="true" />
+        )}
         <div className="album-actions">
           <div className="album-play-split" role="group" aria-label="Album playback actions">
             <button className="album-play-main" type="button" onClick={onPlay}>
