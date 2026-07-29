@@ -277,7 +277,11 @@ export function SongsPage({
               selectedKeys={selectedTrackKeys}
               selectionActive={selectionActive}
               onOpenMenu={(index, rect) =>
-                setTrackMenu({ index, ...actionMenuPosition(rect, { menuHeight: 193 }) })
+                setTrackMenu((current) =>
+                  current?.index === index
+                    ? null
+                    : { index, ...actionMenuPosition(rect, { menuHeight: 193 }) }
+                )
               }
             />
             {!pageTracks.length ? (

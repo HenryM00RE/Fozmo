@@ -64,7 +64,7 @@ export function HegelSettingsForm({
             )}
           </button>
         </div>
-        <div className="panel raised">
+        <div className="settings-flush-group">
           <div className="settings-list compact-list">
             <div className="setting-row control-row">
               <span>

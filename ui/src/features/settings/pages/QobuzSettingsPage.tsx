@@ -152,7 +152,7 @@ export function QobuzSettingsPage({
           <div className="settings-section-heading">
             <div className="section-label">Services</div>
           </div>
-          <div className="panel raised qobuz-provider-panel">
+          <div className="settings-flush-group qobuz-provider-panel">
             {qobuzAvailable ? (
               <ServiceProviderRow
                 connected={connected}

@@ -103,7 +103,7 @@ export function DspSettingsPage({
             onChange={onSelectedZoneChange}
           />
         </div>
-        <div className="panel raised dsp-card">
+        <div className="settings-flush-group dsp-card">
           {!dspAvailable ? (
             <div className="dsp-card-message" role="status">
               DSP is not available for this device. Choose another output above to adjust its DSP

@@ -134,7 +134,7 @@ export function GeneralSettingsPage({
           <div className="settings-section-heading">
             <div className="section-label">General</div>
           </div>
-          <div className="panel raised">
+          <div className="settings-flush-group">
             <div className="settings-list">
               {libraryManagementAvailable ? (
                 <>

@@ -998,7 +998,11 @@ export function AlbumDetailPage({
                     playbackStatus={playbackStatus}
                     onPlay={(index) => playVisibleTracks(index)}
                     onOpenMenu={(index, rect) =>
-                      setTrackMenu({ index, ...actionMenuPosition(rect, { menuHeight: 156 }) })
+                      setTrackMenu((current) =>
+                        current?.index === index
+                          ? null
+                          : { index, ...actionMenuPosition(rect, { menuHeight: 156 }) }
+                      )
                     }
                     selectedKeys={selectedTrackKeys}
                     selectionActive={selectionActive}
@@ -1018,7 +1022,11 @@ export function AlbumDetailPage({
                 playbackStatus={playbackStatus}
                 onPlay={(index) => playVisibleTracks(index)}
                 onOpenMenu={(index, rect) =>
-                  setTrackMenu({ index, ...actionMenuPosition(rect, { menuHeight: 156 }) })
+                  setTrackMenu((current) =>
+                    current?.index === index
+                      ? null
+                      : { index, ...actionMenuPosition(rect, { menuHeight: 156 }) }
+                  )
                 }
                 selectedKeys={selectedTrackKeys}
                 selectionActive={selectionActive}

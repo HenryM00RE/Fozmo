@@ -2044,15 +2044,43 @@ body.recently-played-selection-mode .react-app .home-qobuz-grid .album-cover-pla
   list-style: none;
 }
 
+/* Same row treatment as the album and songs lists: a rounded hover surface
+   behind the content instead of a rule under it, so the dividers come out. */
 .react-app .artist-top-tracks-list .file-item.artist-top-track-row {
+  position: relative;
   grid-template-columns: 50px minmax(0, 1fr) 32px;
   gap: 12px;
   min-height: 58px;
   padding: 0;
-  border-bottom: 1px solid var(--line-12, rgba(255, 255, 255, 0.12));
+  border-bottom: 0;
+  border-radius: 10px;
   background: transparent;
   color: var(--ink-muted, #a8a297);
   cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease,
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+/* The rows carry no horizontal padding of their own — the art has to stay lined
+   up with the section heading — so the surface reaches past them instead. The
+   column gap is at least 24px, which leaves the neighbouring surfaces clear. */
+.react-app .artist-top-tracks-list .artist-top-track-row .track-row-hover-surface {
+  inset: 0.5px -10px 1.25px;
+}
+
+.react-app .artist-top-tracks-list .artist-top-track-row:hover .track-row-hover-surface,
+.react-app .artist-top-tracks-list .artist-top-track-row:focus-within .track-row-hover-surface {
+  opacity: 1;
+}
+
+.react-app
+  .artist-top-tracks-list
+  .artist-top-track-skeleton-row:hover
+  .track-row-hover-surface {
+  opacity: 0;
 }
 
 .react-app .artist-top-tracks-list .file-item.artist-top-track-row:hover,
@@ -2140,9 +2168,7 @@ body.recently-played-selection-mode .react-app .home-qobuz-grid .album-cover-pla
   box-shadow: none;
 }
 
-.react-app .artist-top-tracks-list .btn-item-more:hover,
 .react-app .artist-top-tracks-list .btn-item-more:active {
-  background: transparent;
   color: var(--ink-strong, #fff);
 }
 
@@ -2237,6 +2263,24 @@ body.recently-played-selection-mode .react-app .home-qobuz-grid .album-cover-pla
   background: var(--glass-fill-strong, rgba(255, 255, 255, 0.12));
 }
 
+/* Every row's three-dot button gets the album track list's hover treatment: a
+   soft circular fill. Explicitly no --molded-pill here — its 1px ring and
+   specular insets read as a raised pill rather than a hover target. */
+.react-app .btn-item-more:hover,
+.react-app .btn-item-more:focus-visible,
+.react-app .global-search-menu-button:hover,
+.react-app .global-search-menu-button:focus-visible {
+  background: var(--glass-fill, rgba(255, 255, 255, 0.08));
+  color: var(--ink, #f5f0e8);
+  box-shadow: none;
+  outline: 0;
+}
+
+.react-app .btn-item-more:active,
+.react-app .global-search-menu-button:active {
+  background: var(--glass-fill-strong, rgba(255, 255, 255, 0.12));
+}
+
 .react-app .songs-empty-state {
   min-height: 96px;
   display: grid;
@@ -2304,7 +2348,7 @@ body.recently-played-selection-mode .react-app .home-qobuz-grid .album-cover-pla
 }
 
 .react-app .dsp-card-message {
-  padding: 22px 28px;
+  padding: 22px var(--settings-row-inset, 28px);
   color: var(--ink-muted, #b9b4ab);
   font-size: 14px;
   line-height: 1.45;
@@ -3346,19 +3390,57 @@ html[data-custom-display-font="on"]
   padding: min(6vh, 48px) 24px 24px;
 }
 
-/* Field proportions follow T3 Code's command input: a compact row with a
-   leading search glyph, rather than a tall banner with oversized text. */
+/* Field proportions follow T3 Code's command input (apps/web/src/components/ui
+   /command.tsx): the glyph sits at the field's leading edge and the query text
+   starts 19px further in, which is their icon box plus optical gap. */
 .react-app .global-search-head,
 .react-app .global-search-field {
-  min-height: 48px;
+  min-height: 52px;
 }
 
 .react-app .global-search-head {
-  padding: 0 12px 0 22px;
+  padding: 0 22px;
+}
+
+.react-app .global-search-field {
+  gap: 6px;
+}
+
+/* T3 renders lucide's SearchIcon at 16px against 14px text and leaves lucide's
+   default stroke-width of 2 alone. Our query text is 18px, so the glyph is
+   scaled to keep their icon-to-text ratio rather than their absolute size. */
+.react-app .global-search-field > svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  stroke-width: 2;
 }
 
 .react-app .global-search-field input {
   font-size: 18px;
+}
+
+/* Escape and the backdrop close the palette on desktop, so the X is redundant
+   there. Touch has neither, so it stays below the breakpoint. */
+.react-app .global-search-close {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .react-app .global-search-close {
+    display: grid;
+  }
+
+  /* Room for the close button, and T3's larger touch-size glyph. */
+  .react-app .global-search-head {
+    padding: 0 10px 0 18px;
+  }
+
+  .react-app .global-search-field > svg {
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
+  }
 }
 
 .react-app .global-search-status {
@@ -3433,12 +3515,28 @@ html[data-custom-display-font="on"]
   outline: 0;
 }
 
+/* One X at a time: the remove control belongs to the row you are pointing at,
+   so a full column of them never stacks up. */
 .react-app .global-search-recent-remove {
   width: 34px;
   height: 34px;
   border-radius: var(--r-pill, 999px);
   display: grid;
   place-items: center;
+  opacity: 0;
+  transition: opacity var(--dur-fast, 120ms) var(--ease-paper, ease);
+}
+
+.react-app .global-search-recent-row:hover .global-search-recent-remove,
+.react-app .global-search-recent-row:focus-within .global-search-recent-remove {
+  opacity: 1;
+}
+
+/* Touch has no hover to reveal it, so it stays visible there. */
+@media (hover: none) {
+  .react-app .global-search-recent-remove {
+    opacity: 1;
+  }
 }
 
 .react-app .global-search-recent-remove:hover,
@@ -3448,8 +3546,8 @@ html[data-custom-display-font="on"]
 }
 
 .react-app .global-search-recent-remove svg {
-  width: 15px;
-  height: 15px;
+  width: 18px;
+  height: 18px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.8;
@@ -4655,6 +4753,7 @@ html[data-theme="dark"] .seek-slider {
   .track-row-hover-surface,
 .react-app .playlist-detail-view .playlist-track-row:hover .track-row-hover-surface,
 .react-app .playlist-detail-view .playlist-track-row:focus-within .track-row-hover-surface,
+.react-app .playlist-detail-view .playlist-track-row.is-current .track-row-hover-surface,
 .react-app .playlist-detail-view .playlist-track-row.is-dragging .track-row-hover-surface,
 .react-app .react-now-playing-queue .queue-item:hover .track-row-hover-surface,
 .react-app .react-now-playing-queue .queue-item:focus-within .track-row-hover-surface,
@@ -4729,6 +4828,7 @@ html[data-theme="dark"] .seek-slider {
 .react-app .album-track-panel .song-list .file-item.album-track-item.is-selected,
 .react-app .playlist-detail-view .playlist-track-row:hover,
 .react-app .playlist-detail-view .playlist-track-row:focus-within,
+.react-app .playlist-detail-view .playlist-track-row.is-current,
 .react-app .playlist-detail-view .playlist-track-row.is-dragging,
 .react-app .playlist-detail-view .playlist-track-row.drop-above,
 .react-app .playlist-detail-view .playlist-track-row.drop-below,
@@ -4834,14 +4934,27 @@ html[data-theme="dark"] .seek-slider {
 }
 
 .react-app .playlist-detail-view .playlist-track-row:hover .playlist-track-index,
-.react-app .playlist-detail-view .playlist-track-row:focus-within .playlist-track-index {
+.react-app .playlist-detail-view .playlist-track-row:focus-within .playlist-track-index,
+.react-app .playlist-detail-view .playlist-track-row.is-current .playlist-track-index {
   opacity: 0;
 }
 
 .react-app .playlist-detail-view .playlist-track-row:hover .playlist-track-play,
+.react-app .playlist-detail-view .playlist-track-row.is-current .playlist-track-play,
 .react-app .playlist-detail-view .playlist-track-play:focus-visible {
   opacity: 1;
   pointer-events: auto;
+}
+
+/* Matches the album track list: the playing row's title goes to full strength
+   and the play control becomes the equalizer. */
+.react-app .playlist-detail-view .playlist-track-row.is-current .playlist-track-text > strong {
+  color: var(--ink-strong, #fff);
+}
+
+.react-app .playlist-detail-view .playlist-track-play.is-playing {
+  color: var(--ink-strong, #fff);
+  cursor: default;
 }
 
 .react-app .playlist-detail-view .playlist-track-grip {
@@ -5870,7 +5983,7 @@ html[data-theme="dark"] .react-app .album-description-panel {
 }
 
 .react-app .metadata-settings-card .metadata-assigner-message {
-  margin: 0 28px 18px;
+  margin: 0 var(--settings-row-inset, 28px) 18px;
 }
 
 .react-app .lastfm-key-row {
@@ -6692,7 +6805,7 @@ html[data-custom-display-font="on"] .react-app .settings-sidebar .section-label 
 }
 
 .react-app .settings-content {
-  width: min(100%, 900px);
+  width: min(100%, 860px);
   min-width: 0;
   height: auto;
   box-sizing: border-box;
@@ -6984,39 +7097,47 @@ html[data-custom-display-font="on"] .react-app .settings-sidebar .section-label 
   opacity: 0.86;
 }
 
-.react-app .settings-panel .panel.raised:not(.eq-panel) {
+/* Settings sections render without a card surface: the group is a plain run of
+   rows on the page, and the hairlines between them carry the structure the card
+   border used to. --settings-row-inset is what the card padding became, so
+   flipping it back to 28px restores an inset-in-a-card layout. */
+.react-app .settings-panel {
+  --settings-row-inset: 0px;
+}
+
+.react-app .settings-panel .settings-flush-group {
   min-width: 0;
   overflow: visible;
   padding: 0;
   border: 0;
-  border-radius: var(--r-panel, 14px);
-  background: var(--settings-card-bg, var(--canvas-raised, #202020));
-  box-shadow: var(--panel-raised, 0 12px 30px rgba(0, 0, 0, 0.22));
+  background: none;
+  box-shadow: none;
 }
 
-.react-app .settings-panel .panel.raised:not(.eq-panel) > .section-label {
-  margin: 24px 28px 0;
+.react-app .settings-panel .settings-flush-group > .section-label {
+  margin: 24px var(--settings-row-inset) 0;
 }
 
-.react-app .settings-panel .panel.raised:not(.eq-panel) > .section-label + .settings-list,
-.react-app .settings-panel .panel.raised:not(.eq-panel) > .section-label + .profile-settings-list {
+.react-app .settings-panel .settings-flush-group > .section-label + .settings-list,
+.react-app .settings-panel .settings-flush-group > .section-label + .profile-settings-list {
   margin-top: 18px;
 }
 
-.react-app .settings-panel .panel.raised:not(.eq-panel) > h3 {
-  margin: 4px 28px 20px;
+.react-app .settings-panel .settings-flush-group > h3 {
+  margin: 4px var(--settings-row-inset) 20px;
 }
 
-.react-app .settings-panel .panel.raised:not(.eq-panel) > .field {
+.react-app .settings-panel .settings-flush-group > .field {
   margin: 0;
-  padding: 0 28px 22px;
+  padding: 0 var(--settings-row-inset) 22px;
 }
 
-.react-app .settings-panel .panel.raised:not(.eq-panel) > .section-label + .field {
+.react-app .settings-panel .settings-flush-group > .section-label + .field {
   padding-top: 18px;
 }
 
-.react-app .settings-panel .panel.raised:not(.eq-panel) > .settings-list {
+.react-app .settings-panel .settings-flush-group > .settings-list {
+  min-width: 0;
   border-top: 0;
 }
 
@@ -7024,7 +7145,7 @@ html[data-custom-display-font="on"] .react-app .settings-sidebar .section-label 
   border-top: 0;
 }
 
-.react-app .settings-panel .panel.raised:not(.eq-panel) > .profile-settings-list {
+.react-app .settings-panel .settings-flush-group > .profile-settings-list {
   display: grid;
   gap: 0;
   border-top: 0;
@@ -7032,15 +7153,15 @@ html[data-custom-display-font="on"] .react-app .settings-sidebar .section-label 
 
 .react-app .settings-panel .panel-heading.compact {
   margin: 0;
-  padding: 24px 28px 20px;
-  border-bottom: 1px solid var(--line-08, rgba(255, 255, 255, 0.08));
+  padding: 24px var(--settings-row-inset) 20px;
+  border-bottom: 1.5px solid var(--line-08, rgba(255, 255, 255, 0.08));
 }
 
 .react-app .settings-panel .panel-heading.compact h3 {
   margin-top: 4px;
 }
 
-.react-app .settings-panel .panel.raised:not(.eq-panel) .settings-list {
+.react-app .settings-panel .settings-flush-group .settings-list {
   min-width: 0;
 }
 
@@ -7056,43 +7177,83 @@ html[data-custom-display-font="on"] .react-app .settings-sidebar .section-label 
   margin-top: 0;
 }
 
-.react-app .settings-panel .panel.raised:not(.eq-panel) .settings-list > .setting-row,
-.react-app .settings-panel .panel.raised:not(.eq-panel) .settings-list > .settings-kv {
-  min-height: 70px;
-  padding: 14px 28px;
+/* Rows sit flush to the column edge so the hairlines, the row text and the
+   section heading above them all share one left edge. */
+.react-app .settings-panel .settings-flush-group .settings-list > .setting-row,
+.react-app .settings-panel .settings-flush-group .settings-list > .settings-kv {
+  min-height: 72px;
+  padding: 14px var(--settings-row-inset);
+  border-bottom-width: 1.5px;
 }
 
-.react-app .settings-panel .panel.raised:not(.eq-panel) > .field:first-child {
+.react-app .settings-panel .settings-flush-group > .field:first-child {
   padding-top: 22px;
 }
 
-.react-app .settings-panel .panel.raised:not(.eq-panel) .settings-list > .library-folder-row,
-.react-app .settings-panel .panel.raised:not(.eq-panel) .settings-list > .qobuz-oauth-copy {
-  padding: 20px 28px;
-  border-bottom: 1px solid var(--line-08, rgba(255, 255, 255, 0.08));
+.react-app .settings-panel .settings-flush-group .settings-list > .library-folder-row,
+.react-app .settings-panel .settings-flush-group .settings-list > .qobuz-oauth-copy {
+  padding: 20px var(--settings-row-inset);
+  border-bottom: 1.5px solid var(--line-08, rgba(255, 255, 255, 0.08));
 }
 
-.react-app .settings-panel .panel.raised:not(.eq-panel) .settings-list > .library-folder-list {
+.react-app .settings-panel .settings-flush-group .settings-list > .library-folder-list {
   margin: 0;
-  padding: 18px 28px;
-  border-bottom: 1px solid var(--line-08, rgba(255, 255, 255, 0.08));
+  padding: 18px var(--settings-row-inset);
+  border-bottom: 1.5px solid var(--line-08, rgba(255, 255, 255, 0.08));
 }
 
-.react-app .settings-panel .panel.raised:not(.eq-panel) .settings-list > .profile-create-row {
-  padding: 20px 28px;
+.react-app .settings-panel .settings-flush-group .settings-list > .profile-create-row {
+  padding: 20px var(--settings-row-inset);
 }
 
-.react-app .settings-panel .panel.raised:not(.eq-panel) .settings-list > .pill {
+.react-app .settings-panel .settings-flush-group .settings-list > .pill {
   justify-self: start;
-  margin: 18px 28px;
+  margin: 18px var(--settings-row-inset);
 }
 
-.react-app .settings-panel .panel.raised:not(.eq-panel) .settings-list > :last-child {
+.react-app .settings-panel .settings-flush-group .settings-list > :last-child {
   border-bottom: 0;
 }
 
-.react-app .settings-panel .panel.raised:not(.eq-panel) .settings-list.compact-list {
+.react-app .settings-panel .settings-flush-group .settings-list.compact-list {
   margin-top: 0;
+}
+
+/* Row type is scaled to the wider measure so copy fills the column instead of
+   wrapping early against it. */
+.react-app .settings-panel .settings-flush-group .setting-row strong,
+.react-app .settings-panel .settings-flush-group .settings-kv strong {
+  font-size: 16px;
+}
+
+.react-app .settings-panel .settings-flush-group .setting-row small:not(.scan-progress-meta),
+.react-app .settings-panel .settings-flush-group .settings-kv small {
+  max-width: 58ch;
+  margin-top: 4px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Without a card the section heading is the only thing marking the group, so it
+   reads as a real header: full-strength ink, sentence case, no leading rule. */
+.react-app .settings-panel .settings-section-heading {
+  min-height: 0;
+  margin-bottom: 2px;
+  padding: 0;
+}
+
+.react-app .settings-panel .settings-section-heading .section-label {
+  color: var(--ink, #f5f0e8);
+  font-family: var(--font-ui, inherit);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.25;
+  text-transform: none;
+}
+
+.react-app .settings-panel .settings-section-heading .section-label::before {
+  display: none;
 }
 
 .react-app .settings-panel .pill,
@@ -7909,7 +8070,7 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
 .react-app .remote-host-required-list {
   display: grid;
   gap: 10px;
-  margin: 0 28px 18px;
+  margin: 0 var(--settings-row-inset, 28px) 18px;
   padding: 14px;
   border: 1px solid var(--line-08, rgba(255, 255, 255, 0.08));
   border-radius: 8px;
@@ -7937,7 +8098,7 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   display: grid;
   gap: 8px;
   margin: 0;
-  padding: 22px 28px 12px 50px;
+  padding: 22px var(--settings-row-inset, 28px) 12px calc(var(--settings-row-inset, 28px) + 22px);
   color: var(--ink, #f5f0e8);
   font-size: 14px;
   line-height: 1.5;
@@ -7945,7 +8106,7 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
 
 .react-app .remote-note {
   margin: 0;
-  padding: 0 28px 22px;
+  padding: 0 var(--settings-row-inset, 28px) 22px;
   color: var(--ink-muted, #a8a297);
   font-size: 13px;
   line-height: 1.45;
@@ -7955,7 +8116,7 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 180px;
   gap: 14px;
-  padding: 18px 28px 22px;
+  padding: 18px var(--settings-row-inset, 28px) 22px;
 }
 
 .react-app .remote-link-code,
@@ -8022,8 +8183,8 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
   justify-content: space-between;
   gap: 18px;
   min-height: 74px;
-  padding: 14px 28px;
-  border-bottom: 1px solid var(--line-08, rgba(255, 255, 255, 0.08));
+  padding: 14px var(--settings-row-inset, 28px);
+  border-bottom: 1.5px solid var(--line-08, rgba(255, 255, 255, 0.08));
 }
 
 .react-app .remote-session-row:last-child {
@@ -8053,7 +8214,7 @@ html[data-theme="dark"] .app-select-menu .app-select-option svg.dsp-filter-favor
 }
 
 .react-app .remote-empty-state {
-  padding: 22px 28px;
+  padding: 22px var(--settings-row-inset, 28px);
   color: var(--ink-muted, #a8a297);
   font-size: 13px;
 }
@@ -8349,9 +8510,9 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
   gap: 8px;
   width: 100%;
   min-height: 74px;
-  padding: 10px 14px 10px 18px;
+  padding: 10px var(--settings-row-inset, 18px);
   border: 0;
-  border-bottom: 1px solid var(--line-08, rgba(255, 255, 255, 0.08));
+  border-bottom: 1.5px solid var(--line-08, rgba(255, 255, 255, 0.08));
   border-radius: 0;
   background: transparent;
   color: inherit;
@@ -8752,8 +8913,8 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 24px;
-  padding: 15px 28px;
-  border-bottom: 1px solid var(--line-08, rgba(255, 255, 255, 0.08));
+  padding: 15px var(--settings-row-inset, 28px);
+  border-bottom: 1.5px solid var(--line-08, rgba(255, 255, 255, 0.08));
 }
 
 .react-app .qobuz-provider-row:last-child {
@@ -9404,11 +9565,23 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
 
 .react-app .zone-settings-group-heading {
   align-items: center;
-  padding: 0 4px;
+  padding: 0;
 }
 
-.react-app .zone-settings-group-heading .section-label {
-  color: var(--ink-muted, #a8a297);
+/* Zones has no page-level section heading, so its group labels are the headers
+   and take the same treatment as every other settings section. */
+.react-app .zones-settings-panel .zone-settings-group-heading .section-label {
+  color: var(--ink, #f5f0e8);
+  font-family: var(--font-ui, inherit);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.25;
+  text-transform: none;
+}
+
+.react-app .zones-settings-panel .zone-settings-group-heading .section-label::before {
+  display: none;
 }
 
 .react-app .zones-panel-card .zone-output-sections {
@@ -9421,8 +9594,8 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
 .react-app .zones-panel-card .zone-output-section {
   display: grid;
   gap: 0;
-  padding: 18px 28px 0;
-  border-bottom: 1px solid var(--line-08, rgba(255, 255, 255, 0.08));
+  padding: 18px var(--settings-row-inset, 28px) 0;
+  border-bottom: 1.5px solid var(--line-08, rgba(255, 255, 255, 0.08));
 }
 
 .react-app .zones-panel-card .zone-output-section:last-child {
@@ -9447,14 +9620,14 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
 
 .react-app .zones-panel-card .zone-output-card {
   min-width: 0;
-  min-height: 70px;
+  min-height: 72px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
-  padding: 12px 22px;
+  padding: 14px var(--settings-row-inset, 22px);
   border: 0;
-  border-top: 1px solid var(--line-08, rgba(255, 255, 255, 0.08));
+  border-top: 1.5px solid var(--line-08, rgba(255, 255, 255, 0.08));
   border-radius: 0;
   background: transparent;
   opacity: 1;
@@ -9483,18 +9656,19 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
 }
 
 .react-app .zones-panel-card.zone-empty-card .zone-empty {
-  padding: 16px 22px;
+  padding: 16px var(--settings-row-inset, 22px);
 }
 
+/* Icon and name share the first line; the format label drops to a second line
+   that starts back at the icon's left edge rather than indenting past it. */
 .react-app .zones-panel-card .zone-output-main {
   min-width: 0;
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr);
+  grid-template-columns: 24px minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
+  gap: 3px 10px;
 }
 
-.react-app .zones-panel-card .zone-output-logo,
 .react-app .zone-settings-panel .zone-output-logo {
   width: 36px;
   height: 36px;
@@ -9507,8 +9681,18 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
   color: var(--ink-muted, #a8a297);
 }
 
-.react-app .zones-panel-card .zone-output-card.is-active .zone-output-logo {
-  border-color: color-mix(in srgb, var(--ink, #2d2d2a) 32%, transparent);
+/* In the list the icon is just a glyph: the framed box only made sense while
+   the row itself was a card. */
+.react-app .zones-panel-card .zone-output-logo {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--ink, #f5f0e8);
 }
 
 .react-app .zones-panel-card .zone-output-logo svg,
@@ -9522,35 +9706,27 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
   stroke-linejoin: round;
 }
 
-.react-app .zones-panel-card .zone-output-copy {
+.react-app .zones-panel-card .zone-output-name {
   min-width: 0;
-  display: block;
-}
-
-.react-app .zones-panel-card .zone-output-copy strong {
-  min-width: 0;
-  display: block;
+  grid-column: 2;
   overflow: hidden;
   color: var(--ink-strong, #fff);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 650;
-  line-height: 1.2;
+  line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.react-app .zones-panel-card .zone-output-copy small {
-  display: block;
-  margin-top: 3px;
-  overflow: hidden;
+.react-app .zones-panel-card .zone-output-format {
+  min-width: 0;
+  grid-column: 1 / -1;
   color: var(--ink-muted, #a8a297);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  line-height: 1.2;
-  text-transform: uppercase;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 450;
+  letter-spacing: var(--tracking-ui, -0.011em);
+  line-height: 1.5;
+  text-transform: none;
 }
 
 .react-app .zones-panel-card .zone-output-action {
@@ -9606,9 +9782,26 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
   color: var(--ink-muted, #a8a297);
 }
 
+.react-app .zones-panel-card .zone-output-actions {
+  gap: 14px;
+  flex-wrap: nowrap;
+}
+
+/* The cog is a secondary affordance next to the toggle, so it sits between the
+   faint and muted ink tiers (~rgb(135) on the neutral surface) and only firms up
+   on hover. A cog is a dense glyph; at full muted weight it reads heavier than
+   the toggle it accompanies, and at faint it reads disabled. Mixing the two
+   tokens rather than hardcoding an alpha keeps the step correct in dark mode,
+   where both tiers are set higher. */
 .react-app .zones-panel-card .zone-output-icon-action {
   width: 32px;
   height: 32px;
+  flex: 0 0 32px;
+  color: color-mix(in srgb, var(--ink-muted, #a8a297) 67%, var(--ink-faint, rgba(45, 45, 42, 0.4)));
+}
+
+.react-app .zones-panel-card .zone-output-actions .toggle {
+  flex: 0 0 auto;
 }
 
 .react-app .zones-panel-card .zone-output-icon-action:hover,
@@ -9621,7 +9814,7 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
 .react-app .zones-panel-card .zone-output-icon-action svg {
   width: 18px;
   height: 18px;
-  stroke-width: 1.8;
+  stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -10301,6 +10494,14 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
   height: 18px;
 }
 
+/* The Chrome mark is a filled circle that fills its box edge to edge, while the
+   other output glyphs are wider than tall and sit well inside theirs. Matching
+   the box sizes makes it read noticeably larger, so it gets a smaller one. */
+.react-app .zones-panel-card .zone-output-logo .chrome-zone-icon {
+  width: 18px;
+  height: 18px;
+}
+
 .react-app .zone-output-logo .chrome-zone-icon {
   width: 22px;
   height: 22px;
@@ -10532,7 +10733,7 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
   .react-app .settings-content {
     height: auto;
     overflow: visible;
-    padding: 24px 1px 0;
+    padding: 24px 18px 0;
   }
 
   .react-app .settings-grid.two-col {
@@ -10638,11 +10839,11 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
 
   .react-app .remote-link-grid {
     grid-template-columns: 1fr;
-    padding-inline: 18px;
+    padding-inline: var(--settings-row-inset, 18px);
   }
 
   .react-app .remote-steps {
-    padding-inline: 40px 18px;
+    padding-inline: calc(var(--settings-row-inset, 18px) + 22px) var(--settings-row-inset, 18px);
   }
 
   .react-app .remote-note,
@@ -10650,7 +10851,7 @@ html[data-theme="dark"] .react-app .settings-panel .toggle:not(.on) {
   .react-app .remote-session-row,
   .react-app .remote-empty-state {
     margin-inline: 0;
-    padding-inline: 18px;
+    padding-inline: var(--settings-row-inset, 18px);
   }
 
   .react-app .remote-session-row {

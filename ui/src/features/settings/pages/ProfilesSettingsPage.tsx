@@ -129,7 +129,7 @@ export function ProfilesSettingsPage({
           <div className="settings-section-heading">
             <div className="section-label">Listening profiles</div>
           </div>
-          <div className="panel raised">
+          <div className="settings-flush-group">
             <div className="profile-settings-list">
               {profiles.map((profile) => {
                 const profileId = String(profile.id || '');
@@ -169,7 +169,7 @@ export function ProfilesSettingsPage({
           <div className="settings-section-heading">
             <div className="section-label">Create profile</div>
           </div>
-          <div className="panel raised">
+          <div className="settings-flush-group">
             <div className="settings-list">
               <div className="library-folder-row profile-create-row">
                 <label className="field">

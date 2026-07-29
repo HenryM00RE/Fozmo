@@ -52,7 +52,7 @@ export function ZonesSettingsPage({
   refreshZoneHegelStatus,
   saveZoneHegelSettings,
   saveZoneSettings,
-  selectSettingsZone,
+  setZoneEnabled,
   setSettingsZoneId,
   setZoneBrowserStreamDraft,
   setZoneDefaultVolumePercent,
@@ -90,7 +90,7 @@ export function ZonesSettingsPage({
   refreshZoneHegelStatus: () => Promise<void>;
   saveZoneHegelSettings: () => Promise<void>;
   saveZoneSettings: () => Promise<void>;
-  selectSettingsZone: (zone: ZoneProfile) => Promise<void>;
+  setZoneEnabled: (zone: ZoneProfile, enabled: boolean) => Promise<void>;
   setSettingsZoneId: Dispatch<SetStateAction<string | null>>;
   setZoneBrowserStreamDraft: Dispatch<SetStateAction<ZoneBrowserStreamDraft>>;
   setZoneDefaultVolumePercent: Dispatch<SetStateAction<string>>;
@@ -188,7 +188,7 @@ export function ZonesSettingsPage({
     <section className="settings-panel zones-settings-panel">
       <div className="settings-zone-groups">
         {!zones.length ? (
-          <div className="panel raised zones-panel-card zone-empty-card">
+          <div className="settings-flush-group zones-panel-card zone-empty-card">
             <div className="zone-empty">No outputs discovered.</div>
           </div>
         ) : null}
@@ -213,7 +213,7 @@ export function ZonesSettingsPage({
                 </button>
               ) : null}
             </div>
-            <div className="panel raised zones-panel-card">
+            <div className="settings-flush-group zones-panel-card">
               <div className="zone-output-grid">
                 {group.zones.map((zone) => {
                   const enabled = zone.enabled !== false;
@@ -228,37 +228,35 @@ export function ZonesSettingsPage({
                         <span className="zone-output-logo">
                           <ZoneOutputIcon zone={zone} />
                         </span>
-                        <div className="zone-output-copy">
-                          <strong>{zoneDisplayName(zone)}</strong>
-                          <small>{zoneFormatLabel(zone)}</small>
-                        </div>
+                        <strong className="zone-output-name">{zoneDisplayName(zone)}</strong>
+                        <small className="zone-output-format">{zoneFormatLabel(zone)}</small>
                       </div>
                       <div className="zone-output-actions">
                         <button
-                          className={
-                            enabled ? 'zone-output-icon-action' : 'zone-output-action primary'
-                          }
+                          className="zone-output-icon-action"
+                          type="button"
+                          title={`Settings for ${zoneDisplayName(zone)}`}
+                          aria-label={`Settings for ${zoneDisplayName(zone)}`}
+                          onClick={() => openZoneSettings(zone)}
+                        >
+                          <Icon path="M9.67 4.14a2.34 2.34 0 0 1 4.66 0 2.34 2.34 0 0 0 3.32 1.91 2.34 2.34 0 0 1 2.33 4.03 2.34 2.34 0 0 0 0 3.84 2.34 2.34 0 0 1-2.33 4.03 2.34 2.34 0 0 0-3.32 1.91 2.34 2.34 0 0 1-4.66 0 2.34 2.34 0 0 0-3.32-1.91 2.34 2.34 0 0 1-2.33-4.03 2.34 2.34 0 0 0 0-3.84 2.34 2.34 0 0 1 2.33-4.03 2.34 2.34 0 0 0 3.32-1.91ZM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" />
+                        </button>
+                        <button
+                          className={`toggle${enabled ? ' on' : ''}`}
                           type="button"
                           title={
                             enabled
-                              ? `Settings for ${zoneDisplayName(zone)}`
+                              ? `Disable ${zoneDisplayName(zone)}`
                               : `Enable ${zoneDisplayName(zone)}`
                           }
                           aria-label={
                             enabled
-                              ? `Settings for ${zoneDisplayName(zone)}`
+                              ? `Disable ${zoneDisplayName(zone)}`
                               : `Enable ${zoneDisplayName(zone)}`
                           }
-                          onClick={() =>
-                            enabled ? openZoneSettings(zone) : selectSettingsZone(zone)
-                          }
-                        >
-                          {enabled ? (
-                            <Icon path="M9.67 4.14a2.34 2.34 0 0 1 4.66 0 2.34 2.34 0 0 0 3.32 1.91 2.34 2.34 0 0 1 2.33 4.03 2.34 2.34 0 0 0 0 3.84 2.34 2.34 0 0 1-2.33 4.03 2.34 2.34 0 0 0-3.32 1.91 2.34 2.34 0 0 1-4.66 0 2.34 2.34 0 0 0-3.32-1.91 2.34 2.34 0 0 1-2.33-4.03 2.34 2.34 0 0 0 0-3.84 2.34 2.34 0 0 1 2.33-4.03 2.34 2.34 0 0 0 3.32-1.91ZM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z" />
-                          ) : (
-                            <span>Enable</span>
-                          )}
-                        </button>
+                          aria-pressed={enabled}
+                          onClick={() => void setZoneEnabled(zone, !enabled)}
+                        />
                       </div>
                     </div>
                   );
@@ -578,13 +576,6 @@ export function ZonesSettingsPage({
                   Disable
                 </button>
                 <span className="zone-settings-spacer" />
-                <button
-                  className="zone-settings-pill"
-                  type="button"
-                  onClick={() => setSettingsZoneId(null)}
-                >
-                  Close
-                </button>
                 <button
                   className="zone-settings-pill primary"
                   type="button"

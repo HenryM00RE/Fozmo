@@ -343,6 +343,7 @@ export function ArtistDetailPage({
                       )}
                       onClick={() => playTopItem(item)}
                     >
+                      <span className="track-row-hover-surface" aria-hidden="true" />
                       <div className="album-track-index songs-track-art-cell">
                         <span
                           className={`songs-track-art${cover ? ' has-cover' : ''}`}
@@ -388,12 +389,12 @@ export function ArtistDetailPage({
                         aria-label={`More options for ${title}`}
                         onClick={(event) => {
                           event.stopPropagation();
-                          setTrackMenu({
-                            index,
-                            ...actionMenuPosition(event.currentTarget.getBoundingClientRect(), {
-                              menuHeight: 84
-                            })
-                          });
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          setTrackMenu((current) =>
+                            current?.index === index
+                              ? null
+                              : { index, ...actionMenuPosition(rect, { menuHeight: 84 }) }
+                          );
                         }}
                       >
                         <svg
@@ -577,6 +578,7 @@ function ArtistTopTracksSkeleton() {
           className="file-item album-track-item songs-track-row artist-top-track-row artist-top-track-skeleton-row"
           key={index}
         >
+          <span className="track-row-hover-surface" aria-hidden="true" />
           <span className="songs-track-art skeleton-shimmer" />
           <span className="artist-top-track-skeleton-copy" aria-hidden="true">
             <span className="artist-top-track-skeleton-title skeleton-shimmer" />

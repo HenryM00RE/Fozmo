@@ -310,9 +310,18 @@ export function useZonesSettings(zones: ZoneProfile[], onRefresh: () => Promise<
     await onRefresh();
   };
 
+  // The output list toggles a zone in place, so enabling and disabling both have
+  // to work from a zone the settings modal has not been opened on.
+  const setZoneEnabled = async (zone: ZoneProfile, enabled: boolean) => {
+    if (enabled) await endpoints.enableZone(zone.id);
+    else await endpoints.disableZone(zone.id);
+    await onRefresh();
+  };
+
   return {
     calibrateZoneCapabilities,
     disableSettingsZone,
+    setZoneEnabled,
     openZoneSettings,
     saveZoneSettings,
     selectSettingsZone,

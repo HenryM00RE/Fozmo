@@ -205,7 +205,7 @@ export function RemoteAccessPage({ appStatus }: { appStatus: JsonRecord }) {
           <div className="settings-section-heading">
             <div className="section-label">Remote Access</div>
           </div>
-          <div className="panel raised remote-host-required-panel">
+          <div className="settings-flush-group remote-host-required-panel">
             <div className="settings-list">
               <div className="setting-row remote-access-readonly">
                 <span>
@@ -232,7 +232,7 @@ export function RemoteAccessPage({ appStatus }: { appStatus: JsonRecord }) {
             <div className="settings-section-heading">
               <div className="section-label">Remote Access</div>
             </div>
-            <div className="panel raised">
+            <div className="settings-flush-group">
               <div className="settings-list">
                 <div className="setting-row remote-access-warning">
                   <span>
@@ -269,7 +269,7 @@ export function RemoteAccessPage({ appStatus }: { appStatus: JsonRecord }) {
             <div className="settings-section-heading">
               <div className="section-label">Port and Host</div>
             </div>
-            <div className="panel raised">
+            <div className="settings-flush-group">
               <div className="settings-list">
                 <div className="setting-row control-row">
                   <span>
@@ -326,7 +326,7 @@ export function RemoteAccessPage({ appStatus }: { appStatus: JsonRecord }) {
           <div className="settings-section-heading">
             <div className="section-label">Port Forwarding</div>
           </div>
-          <div className="panel raised">
+          <div className="settings-flush-group">
             <ol className="remote-steps">
               <li>Reserve this computer's LAN IP in the router DHCP settings.</li>
               <li>Forward external TCP port {port || 8443} to this computer's same TCP port.</li>
@@ -345,7 +345,7 @@ export function RemoteAccessPage({ appStatus }: { appStatus: JsonRecord }) {
         <div className="settings-section-heading">
           <div className="section-label">Device Linking</div>
         </div>
-        <div className="panel raised">
+        <div className="settings-flush-group">
           <div className="settings-list">
             <div className="setting-row">
               <span>
@@ -416,7 +416,7 @@ export function RemoteAccessPage({ appStatus }: { appStatus: JsonRecord }) {
               Refresh
             </button>
           </div>
-          <div className="panel raised">
+          <div className="settings-flush-group">
             {sessions.length ? (
               <div className="remote-session-list">
                 {sessions.map((session) => (

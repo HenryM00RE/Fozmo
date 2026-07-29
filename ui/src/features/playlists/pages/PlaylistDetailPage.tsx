@@ -10,15 +10,21 @@ import { formatLongDuration, sourceTrack } from '../../../shared/lib/appSupport'
 import { displayTitleUsesFallbackFont } from '../../../shared/lib/displayTitle';
 import { formatTime } from '../../../shared/lib/format';
 import type { CustomDisplayFontSettings } from '../../../shared/lib/theme';
-import type { QueueItem } from '../../../shared/types';
+import type { LibraryTrack, QueueItem } from '../../../shared/types';
 import { Icon } from '../../../shared/ui/Icon';
 import { Menu } from '../../../shared/ui/Menu';
 import { Modal } from '../../../shared/ui/Modal';
 import { actionMenuPosition } from '../../../shared/ui/menuPosition';
 import { PlaybarPlayIcon } from '../../../shared/ui/PlaybarPlayIcon';
+import { PlayingEqualizer } from '../../../shared/ui/PlayingEqualizer';
 import { PlayNextIcon } from '../../../shared/ui/PlayNextIcon';
 import { ShuffleIcon } from '../../../shared/ui/ShuffleIcon';
 import { useActionMenuScrollLock } from '../../../shared/ui/useActionMenuScrollLock';
+import {
+  albumTrackPlaybackMatchContext,
+  albumTrackPlaybackState
+} from '../../albums/components/AlbumTrackList';
+import { usePlaybackSnapshot } from '../../playback/model/playbackStore';
 import { PlaylistCover } from '../components/PlaylistCover';
 import { PlaylistTrackArt } from '../components/PlaylistTrackArt';
 import {
@@ -67,6 +73,24 @@ type PointerReorderState = {
   pointerId: number;
 } | null;
 
+function playbackFilenameOfTrack(track: LibraryTrack) {
+  return String(track.file_name || '');
+}
+
+function playlistItemAsPlaybackTrack(item: QueueItem): LibraryTrack {
+  const trackId = item.ref?.track_id;
+  return {
+    id: trackId,
+    track_id: trackId,
+    file_name: item.filename || item.ref?.file_name || '',
+    title: item.title,
+    artist: item.artist,
+    album: item.album,
+    album_artist: item.albumArtist,
+    qobuz_track: item.qobuzTrack
+  } as unknown as LibraryTrack;
+}
+
 export function PlaylistDetailPage({
   id,
   playlists,
@@ -94,6 +118,7 @@ export function PlaylistDetailPage({
     placement: 'above' | 'below';
   } | null>(null);
   const pointerReorderRef = useRef<PointerReorderState>(null);
+  const playbackStatus = usePlaybackSnapshot().status;
   useActionMenuScrollLock(Boolean(trackMenu || queueMenu));
 
   useEffect(() => {
@@ -126,6 +151,26 @@ export function PlaylistDetailPage({
   }
 
   const items = playlistItems(playlist, tracks);
+  // The album track list already resolves "is this row the one playing" across
+  // source id, filename and metadata. Playlist rows are QueueItems rather than
+  // library tracks, so they get mapped into the shape that matcher expects.
+  const playbackTracks = items.map(playlistItemAsPlaybackTrack);
+  const playbackMatchContexts = {
+    local: albumTrackPlaybackMatchContext({
+      allTracks: playbackTracks,
+      isQobuz: false,
+      playbackStatus,
+      getPlaybackFilename: playbackFilenameOfTrack
+    }),
+    // A playlist can mix local and Qobuz items, and the source-id match is
+    // gated on the playing source's kind, so each kind needs its own context.
+    qobuz: albumTrackPlaybackMatchContext({
+      allTracks: playbackTracks,
+      isQobuz: true,
+      playbackStatus,
+      getPlaybackFilename: playbackFilenameOfTrack
+    })
+  };
   const titleLengthClass =
     playlist.name.length > 58
       ? ' is-extra-long-title'
@@ -366,9 +411,16 @@ export function PlaylistDetailPage({
             {items.length ? (
               items.map((item, index) => {
                 const dropClass = dragState?.over === index ? ` drop-${dragState.placement}` : '';
+                const { active, playing } = albumTrackPlaybackState({
+                  track: playbackTracks[index],
+                  playbackFilename: playbackFilenameOfTrack(playbackTracks[index]),
+                  context: item.qobuzTrack
+                    ? playbackMatchContexts.qobuz
+                    : playbackMatchContexts.local
+                });
                 return (
                   <li
-                    className={`playlist-track-row${dragState?.from === index ? ' is-dragging' : ''}${dropClass}`}
+                    className={`playlist-track-row${active ? ' is-current' : ''}${dragState?.from === index ? ' is-dragging' : ''}${dropClass}`}
                     data-playlist-track={index}
                     draggable
                     key={`${item.title}-${item.filename || item.qobuzTrack?.id || index}-${index}`}
@@ -432,7 +484,7 @@ export function PlaylistDetailPage({
                     <span className="playlist-track-index-control">
                       <span className="playlist-track-index">{index + 1}</span>
                       <button
-                        className="playlist-track-play"
+                        className={`playlist-track-play${playing ? ' is-playing' : ''}`}
                         type="button"
                         title="Play"
                         aria-label={`Play ${item.title || 'Untitled'}`}
@@ -441,7 +493,11 @@ export function PlaylistDetailPage({
                           playPlaylist(playlist, playItems, false, index, tracks);
                         }}
                       >
-                        <PlaybarPlayIcon className="playlist-track-play-icon" />
+                        {playing ? (
+                          <PlayingEqualizer />
+                        ) : (
+                          <PlaybarPlayIcon className="playlist-track-play-icon" />
+                        )}
                       </button>
                     </span>
                     <div className="playlist-track-art">
@@ -462,7 +518,11 @@ export function PlaylistDetailPage({
                       onClick={(event) => {
                         event.stopPropagation();
                         const rect = event.currentTarget.getBoundingClientRect();
-                        setTrackMenu({ index, ...actionMenuPosition(rect, { menuHeight: 231 }) });
+                        setTrackMenu((current) =>
+                          current?.index === index
+                            ? null
+                            : { index, ...actionMenuPosition(rect, { menuHeight: 231 }) }
+                        );
                       }}
                     >
                       <svg

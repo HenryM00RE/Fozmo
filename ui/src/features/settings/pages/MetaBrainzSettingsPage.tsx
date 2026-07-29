@@ -168,7 +168,7 @@ export function MetaBrainzSettingsPage({ onRefresh, qobuzStatus }: MetaBrainzSet
           <div className="settings-section-heading">
             <div className="section-label">AutoMetadata</div>
           </div>
-          <div className="panel raised metadata-settings-card">
+          <div className="settings-flush-group metadata-settings-card">
             <div className="settings-list">
               <div className="setting-row">
                 <span>
@@ -196,7 +196,7 @@ export function MetaBrainzSettingsPage({ onRefresh, qobuzStatus }: MetaBrainzSet
           <div className="settings-section-heading">
             <div className="section-label">Radio providers</div>
           </div>
-          <div className="panel raised metadata-settings-card">
+          <div className="settings-flush-group metadata-settings-card">
             <div className="settings-list">
               <div className="setting-row">
                 <span>

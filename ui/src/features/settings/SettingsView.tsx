@@ -151,7 +151,7 @@ export function SettingsView({
     refreshZoneHegelStatus,
     saveZoneHegelSettings,
     saveZoneSettings,
-    selectSettingsZone,
+    setZoneEnabled,
     setSettingsZoneId,
     setZoneDefaultVolumePercent,
     setZoneMaxVolumePercent,
@@ -240,7 +240,7 @@ export function SettingsView({
           refreshZoneHegelStatus={refreshZoneHegelStatus}
           saveZoneHegelSettings={saveZoneHegelSettings}
           saveZoneSettings={saveZoneSettings}
-          selectSettingsZone={selectSettingsZone}
+          setZoneEnabled={setZoneEnabled}
           setSettingsZoneId={setSettingsZoneId}
           setZoneDefaultVolumePercent={setZoneDefaultVolumePercent}
           setZoneMaxVolumePercent={setZoneMaxVolumePercent}

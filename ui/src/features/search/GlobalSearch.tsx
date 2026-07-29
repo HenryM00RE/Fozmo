@@ -247,6 +247,7 @@ export function GlobalSearch({
         <header className="global-search-head">
           <label className="global-search-field">
             <span className="sr-only">Search library and Qobuz</span>
+            <Icon path="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm10 2-4.3-4.3" />
             <input
               ref={inputRef}
               type="search"
