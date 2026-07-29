@@ -17,8 +17,12 @@ signed MusicKit helper (authorization, catalog, queue playlist)
         v
 SourceRef::AppleMusicTrack -> PlaybackRouter
         |
-        v
-Music.app "Fozmo" playlist -> Fozmo Capture -> Player -> DSP -> local output
+        +---- local zone ----> Fozmo Capture -> Player -> DSP -> local output
+        |
+        +---- remote zone ---> Fozmo Capture -> /api/stream/apple-music/:song_id
+                                                        |
+                                                        v
+                                        agent or browser -> its DSP -> its output
 ```
 
 Fozmo rebuilds a dedicated Music.app playlist named `Fozmo` so it holds exactly
@@ -74,9 +78,42 @@ Because Fozmo rewrites the `Fozmo` playlist, edits made to it by hand are lost,
 and queued tracks are added to the user's Apple Music library and sync to their
 other devices.
 
-The Apple Music source is restricted to an explicit local physical Core Audio
-output. Fozmo rejects the system-default output, Fozmo Capture itself, virtual
-outputs, and network renderers to prevent feedback and unsupported routing.
+### Outputs
+
+A local zone must use an explicit local physical Core Audio output. Fozmo
+rejects the system-default output, Fozmo Capture itself, and virtual outputs,
+all of which would feed capture back into itself.
+
+A remote zone — a Windows or macOS agent, or a browser — instead pulls the
+capture as a live stream from `/api/stream/apple-music/:song_id` and applies
+its own DSP, exactly as it does for a local file or a Qobuz track. The stream
+is integer PCM at Apple's verified depth in a WAV container with no length:
+that is bit-exact for 16- and 24-bit Apple Lossless, and unlike the 32-bit
+float capture carrier it decodes in every browser. It is not seekable and not
+range-requestable, so a seek restarts the stream at the new position.
+
+Sonos and UPnP renderers remain unsupported. They fetch a finished resource
+over the network, which a capture that exists only while Music.app is decoding
+is not.
+
+Two constraints follow from Fozmo capturing Music.app by taking over the Mac's
+default output:
+
+- **One stream at a time.** The Mac produces a single Apple Music stream, so
+  the zone that starts playback holds it until playback there ends. A request
+  from another zone is refused with `apple_music_stream_in_use`, which the UI
+  turns into a banner naming the output that has it, rather than silently
+  taking the music away from whoever is listening.
+- **Not a browser on the capturing Mac.** A page renders through the system
+  default output, which is Fozmo Capture while Apple Music plays, so relaying
+  there would feed the capture its own audio. A browser zone that connected
+  over loopback is refused with `apple_music_host_browser_loop`. A page opened
+  on the same Mac by LAN address is indistinguishable from any other LAN
+  device and is not caught by this check.
+
+A relayed stream carries no server-side EQ. Local and Qobuz browser streams
+bake the zone's EQ in server-side; the Apple relay is whatever Music.app is
+decoding, and the remote agent applies its own DSP to it.
 
 The helper protocol exposes only:
 

@@ -531,6 +531,32 @@ impl ZoneManager {
         AgentZoneBridge::register_agent(&mut guard, agent_id, name, capabilities, tx)
     }
 
+    /// Record that this agent connected from the machine running the core.
+    ///
+    /// Set from the socket's peer address after registration rather than from
+    /// anything the agent claims about itself.
+    pub fn mark_agent_host_local(&self, agent_id: &str) {
+        let mut guard = self.inner.lock().unwrap();
+        for agent in guard.agents.values_mut() {
+            if agent.agent_id == agent_id {
+                agent.host_local = true;
+            }
+        }
+    }
+
+    /// Whether this zone is a browser page on the Mac running the core.
+    ///
+    /// A page renders through the system default output, which is exactly the
+    /// device Apple Music capture takes over, so such a zone cannot be given a
+    /// relayed Apple Music stream without feeding capture its own output.
+    pub fn zone_is_host_local_browser(&self, zone_id: &str) -> bool {
+        let guard = self.inner.lock().unwrap();
+        guard
+            .agents
+            .get(zone_id)
+            .is_some_and(|agent| agent.browser && agent.host_local)
+    }
+
     /// Unregisters the agent's zones regardless of which connection made the
     /// registration.
     #[allow(dead_code)]

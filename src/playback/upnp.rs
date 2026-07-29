@@ -850,9 +850,9 @@ async fn upnp_source_from_ref(
                 asset_registration_ms: Some(asset_registration_ms),
             })
         }
-        SourceRef::AppleMusicTrack { .. } => Err(PlaybackError::bad_request(
-            "apple_music_local_output_required",
-        )),
+        SourceRef::AppleMusicTrack { .. } => {
+            Err(PlaybackError::bad_request("apple_music_output_unsupported"))
+        }
     }
 }
 

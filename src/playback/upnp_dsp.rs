@@ -867,7 +867,7 @@ async fn source_request(
                 source_bits,
             })
         }
-        SourceRef::AppleMusicTrack { .. } => Err("apple_music_local_output_required".to_string()),
+        SourceRef::AppleMusicTrack { .. } => Err("apple_music_output_unsupported".to_string()),
     }
 }
 

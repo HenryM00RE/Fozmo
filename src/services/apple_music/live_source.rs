@@ -12,6 +12,9 @@ pub(super) type CaptureProducer = Producer<f32, Arc<SharedRb<f32, Vec<MaybeUnini
 pub(super) type CaptureConsumer = Consumer<f32, Arc<SharedRb<f32, Vec<MaybeUninit<f32>>>>>;
 
 pub(super) const LIVE_CHANNELS: u16 = 2;
+/// Width of the capture carrier itself. The wire width is chosen per consumer
+/// by [`LiveWireFormat`], which derives it from that consumer's bit depth.
+#[cfg(test)]
 const BYTES_PER_SAMPLE: usize = 4;
 const STAGE_SAMPLES: usize = 4096;
 const EMPTY_RING_POLL: Duration = Duration::from_millis(2);
@@ -91,13 +94,71 @@ pub(super) fn live_capture_ring(capacity_samples: usize) -> (CaptureProducer, Ca
     HeapRb::<f32>::new(capacity_samples).split()
 }
 
-/// WAV header for a stereo IEEE-float stream with an effectively unbounded
-/// data chunk.
-pub(super) fn wav_header_ieee_f32(rate_hz: u32) -> Vec<u8> {
-    const WAVE_FORMAT_IEEE_FLOAT: u16 = 3;
+/// How captured frames are serialized for whoever consumes the live source.
+///
+/// Capture itself is always F32, because that is the only format the HAL
+/// driver publishes. The local Player takes those samples untouched. A remote
+/// consumer instead takes integer PCM at Apple's own precision: `<audio>`
+/// elements and off-the-shelf decoders handle integer WAV everywhere, and the
+/// conversion is exact — an F32 capture holds an integer sample of 24 bits or
+/// fewer without loss, which the round-trip test below pins down.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum LiveWireFormat {
+    Float32,
+    /// 16 or 24 bits per sample. Anything else is not a lossless Apple format.
+    Integer(u32),
+}
+
+impl LiveWireFormat {
+    fn bits(self) -> u32 {
+        match self {
+            Self::Float32 => 32,
+            Self::Integer(bits) => bits,
+        }
+    }
+
+    fn bytes_per_sample(self) -> usize {
+        (self.bits() / 8) as usize
+    }
+
+    fn tag(self) -> u16 {
+        const WAVE_FORMAT_PCM: u16 = 1;
+        const WAVE_FORMAT_IEEE_FLOAT: u16 = 3;
+        match self {
+            Self::Float32 => WAVE_FORMAT_IEEE_FLOAT,
+            Self::Integer(_) => WAVE_FORMAT_PCM,
+        }
+    }
+
+    fn encode(self, sample: f32, out: &mut Vec<u8>) {
+        match self {
+            Self::Float32 => out.extend_from_slice(&sample.to_le_bytes()),
+            Self::Integer(bits) => {
+                let bytes = integer_sample_le_bytes(sample, bits);
+                out.extend_from_slice(&bytes[..self.bytes_per_sample()]);
+            }
+        }
+    }
+}
+
+/// Little-endian integer sample, low bytes first, so a 24-bit write is simply
+/// the first three bytes.
+fn integer_sample_le_bytes(sample: f32, bits: u32) -> [u8; 4] {
+    let scale = f64::from(1_i32 << (bits - 1));
+    // The positive side reaches only `scale - 1`, so a full-scale sample must
+    // clamp rather than wrap into the negative range.
+    let value = (f64::from(sample) * scale)
+        .round()
+        .clamp(-scale, scale - 1.0) as i32;
+    value.to_le_bytes()
+}
+
+/// WAV header for a stereo stream with an effectively unbounded data chunk.
+pub(super) fn wav_header(rate_hz: u32, format: LiveWireFormat) -> Vec<u8> {
     let channels = u32::from(LIVE_CHANNELS);
-    let byte_rate = rate_hz * channels * BYTES_PER_SAMPLE as u32;
-    let block_align = (channels * BYTES_PER_SAMPLE as u32) as u16;
+    let bytes_per_sample = format.bytes_per_sample() as u32;
+    let byte_rate = rate_hz * channels * bytes_per_sample;
+    let block_align = (channels * bytes_per_sample) as u16;
 
     let mut header = Vec::with_capacity(44);
     header.extend_from_slice(b"RIFF");
@@ -105,12 +166,12 @@ pub(super) fn wav_header_ieee_f32(rate_hz: u32) -> Vec<u8> {
     header.extend_from_slice(b"WAVE");
     header.extend_from_slice(b"fmt ");
     header.extend_from_slice(&16u32.to_le_bytes());
-    header.extend_from_slice(&WAVE_FORMAT_IEEE_FLOAT.to_le_bytes());
+    header.extend_from_slice(&format.tag().to_le_bytes());
     header.extend_from_slice(&LIVE_CHANNELS.to_le_bytes());
     header.extend_from_slice(&rate_hz.to_le_bytes());
     header.extend_from_slice(&byte_rate.to_le_bytes());
     header.extend_from_slice(&block_align.to_le_bytes());
-    header.extend_from_slice(&(BYTES_PER_SAMPLE as u16 * 8).to_le_bytes());
+    header.extend_from_slice(&(format.bits() as u16).to_le_bytes());
     header.extend_from_slice(b"data");
     header.extend_from_slice(&(u32::MAX - 44).to_le_bytes());
     header
@@ -124,6 +185,7 @@ pub(super) struct LiveCaptureSource {
     stage: Vec<f32>,
     pending: Vec<u8>,
     pending_pos: usize,
+    format: LiveWireFormat,
     flow: Arc<CaptureFlow>,
     received_audio: bool,
     empty_since: Option<Instant>,
@@ -147,14 +209,25 @@ impl LiveCaptureSource {
         shutdown: Arc<AtomicBool>,
         flow: Arc<CaptureFlow>,
     ) -> Self {
+        Self::new_with_format(rate_hz, LiveWireFormat::Float32, consumer, shutdown, flow)
+    }
+
+    pub(super) fn new_with_format(
+        rate_hz: u32,
+        format: LiveWireFormat,
+        consumer: CaptureConsumer,
+        shutdown: Arc<AtomicBool>,
+        flow: Arc<CaptureFlow>,
+    ) -> Self {
         Self {
-            header: wav_header_ieee_f32(rate_hz),
+            header: wav_header(rate_hz, format),
             header_pos: 0,
             consumer,
             shutdown,
             stage: vec![0.0; STAGE_SAMPLES],
             pending: Vec::new(),
             pending_pos: 0,
+            format,
             flow,
             received_audio: false,
             empty_since: None,
@@ -181,9 +254,10 @@ impl LiveCaptureSource {
         let popped = self.consumer.pop_slice(&mut self.stage);
         if popped > 0 {
             self.flow.record_consumed_samples(popped);
-            self.pending.reserve(popped * BYTES_PER_SAMPLE);
-            for sample in &self.stage[..popped] {
-                self.pending.extend_from_slice(&sample.to_le_bytes());
+            self.pending
+                .reserve(popped * self.format.bytes_per_sample());
+            for index in 0..popped {
+                self.format.encode(self.stage[index], &mut self.pending);
             }
         }
         popped
@@ -357,6 +431,58 @@ mod tests {
                 assert_eq!(recovered, sample);
             }
         }
+    }
+
+    /// The remote wire format must reconstruct Apple's own integer samples
+    /// exactly; a relayed stream is the same audio as the local one, not a
+    /// rendition of it.
+    #[test]
+    fn the_integer_wire_format_round_trips_every_sample_it_carries() {
+        for bits in [16_u32, 24] {
+            let scale = 1_i32 << (bits - 1);
+            for sample in [-scale, -scale + 1, -1, 0, 1, scale / 3, scale - 1] {
+                let captured = sample as f32 / scale as f32;
+                let mut encoded = Vec::new();
+                LiveWireFormat::Integer(bits).encode(captured, &mut encoded);
+
+                assert_eq!(encoded.len(), (bits / 8) as usize);
+                let mut widened = [0_u8; 4];
+                widened[..encoded.len()].copy_from_slice(&encoded);
+                // Sign-extend the 24-bit case back to `i32` the way a decoder
+                // does before comparing.
+                let recovered = i32::from_le_bytes(widened) << (32 - bits) >> (32 - bits);
+                assert_eq!(recovered, sample, "{bits}-bit sample {sample}");
+            }
+        }
+    }
+
+    /// A sample that reaches +1.0 has no positive integer counterpart, so it
+    /// must saturate rather than wrap round to full negative scale.
+    #[test]
+    fn a_full_scale_positive_sample_saturates_instead_of_wrapping() {
+        let mut encoded = Vec::new();
+        LiveWireFormat::Integer(16).encode(1.0, &mut encoded);
+
+        assert_eq!(i16::from_le_bytes([encoded[0], encoded[1]]), i16::MAX);
+    }
+
+    #[test]
+    fn the_wav_header_describes_the_wire_format_it_precedes() {
+        let float = wav_header(96_000, LiveWireFormat::Float32);
+        assert_eq!(u16::from_le_bytes([float[20], float[21]]), 3);
+        assert_eq!(u16::from_le_bytes([float[34], float[35]]), 32);
+
+        let integer = wav_header(44_100, LiveWireFormat::Integer(24));
+        assert_eq!(u16::from_le_bytes([integer[20], integer[21]]), 1);
+        assert_eq!(u16::from_le_bytes([integer[34], integer[35]]), 24);
+        assert_eq!(
+            u32::from_le_bytes([integer[28], integer[29], integer[30], integer[31]]),
+            44_100 * u32::from(LIVE_CHANNELS) * 3
+        );
+        assert_eq!(
+            u16::from_le_bytes([integer[32], integer[33]]),
+            LIVE_CHANNELS * 3
+        );
     }
 
     #[test]

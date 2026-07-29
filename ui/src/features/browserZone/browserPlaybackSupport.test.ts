@@ -27,6 +27,15 @@ const qobuzTrack: QueueItem = {
   qobuzTrack: { id: 987654, title: 'Qobuz Song' }
 };
 
+const appleMusicTrack: QueueItem = {
+  title: 'Apple Song',
+  artist: 'Artist',
+  album: 'Album',
+  durationSecs: 240,
+  filename: 'apple_music:1109715066',
+  resolvedSource: { kind: 'apple_music_track', song_id: '1109715066' }
+};
+
 // The per-device output preference is the single source of truth for quality:
 // FLAC (or no saved preference) is best/lossless, Opus is data-saver.
 const bestPrefs: BrowserStreamPrefs = { format: 'flac', opusKbps: 256 };
@@ -47,6 +56,30 @@ describe('browserStreamUrlForItem', () => {
 
   it('maps Qobuz tracks to the server proxy, never a CDN URL', () => {
     expect(browserStreamUrlForItem(qobuzTrack)).toBe('/api/stream/qobuz/987654');
+  });
+
+  it('maps Apple Music tracks to the live capture endpoint', () => {
+    expect(browserStreamUrlForItem(appleMusicTrack)).toBe('/api/stream/apple-music/1109715066');
+  });
+
+  /// Apple Music arrives as whatever Music.app is decoding right now: there is
+  /// no derivative to transcode and no smaller variant to fall back to.
+  it('never downgrades Apple Music for the data-saver preference', () => {
+    expect(browserStreamUrlForItem(appleMusicTrack, { streamPrefs: dataSaverPrefs })).toBe(
+      '/api/stream/apple-music/1109715066'
+    );
+    expect(
+      browserStreamSelectionForItem(appleMusicTrack, probe(true), {
+        streamPrefs: dataSaverPrefs,
+        zoneId: 'browser-abc',
+        eqActive: true,
+        eqSignature: 'sig'
+      })
+    ).toEqual({
+      url: '/api/stream/apple-music/1109715066',
+      mime: 'audio/wav',
+      variant: 'original'
+    });
   });
 
   it('maps data-saver Qobuz tracks to the lossy same-origin server proxy', () => {

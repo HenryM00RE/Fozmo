@@ -4,6 +4,8 @@ pub mod airplay_volume;
 pub mod apple_island;
 #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
 pub(crate) mod apple_music_native;
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+pub(crate) mod apple_music_relay;
 pub mod apply_settings;
 pub mod artist_radio;
 pub mod auto_advance;

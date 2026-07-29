@@ -44,6 +44,13 @@ pub(super) struct AgentEntry {
     pub(super) capabilities: AgentCapabilities,
     pub(super) tx: mpsc::UnboundedSender<CoreToAgentCommand>,
     pub(super) browser: bool,
+    /// The agent connected from the machine running the core.
+    ///
+    /// Only a browser zone acts on this: a page renders through the system
+    /// default output, which is the very device Apple Music capture takes
+    /// over, so relaying Apple Music to a page on this Mac would feed the
+    /// capture its own output.
+    pub(super) host_local: bool,
     pub(super) enabled: bool,
     pub(super) playback: Option<AgentPlaybackState>,
     pub(super) buffer: Option<AgentBufferState>,

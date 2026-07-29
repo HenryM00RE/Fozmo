@@ -115,7 +115,9 @@ export function AppleMusicMvpPage({
           <h2>Music.app playback</h2>
           <p>
             MusicKit supplies the catalog and authorization. Music.app decodes lossless audio into
-            Fozmo Capture, then Fozmo sends it through the selected local output and DSP.
+            Fozmo Capture, which Fozmo sends to the zone you are playing to — a local output, an
+            agent, or a browser. Capturing Music.app takes over this Mac&rsquo;s output, so one zone
+            at a time can play Apple Music.
           </p>
         </div>
         <button

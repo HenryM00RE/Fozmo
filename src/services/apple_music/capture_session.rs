@@ -1,17 +1,20 @@
 //! CPAL capture stream and live Player session for the Fozmo Capture device.
 
 use super::live_source::{
-    CaptureFlow, CaptureProducer, LIVE_CHANNELS, LiveCaptureSource, live_capture_ring,
-    ring_capacity_samples,
+    CaptureFlow, CaptureProducer, LIVE_CHANNELS, LiveCaptureSource, LiveWireFormat,
+    live_capture_ring, ring_capacity_samples,
 };
 use crate::audio::player::{Player, PreparedStream, TrackTags};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, StreamConfig};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, mpsc};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 
 pub(super) const LIVE_DISPLAY_NAME: &str = "Apple Music (Live)";
+
+/// The blocking byte reader an HTTP response drains a relayed session through.
+pub(super) type RelayReader = LiveCaptureSource;
 
 /// Holds a capture stream open on a worker thread (cpal streams are not Send).
 pub(super) struct CaptureWorker {
@@ -179,6 +182,106 @@ impl LiveSession {
 impl Drop for LiveSession {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::Release);
+    }
+}
+
+/// A capture session whose consumer is an HTTP reader rather than the local
+/// Player: the same Music.app PCM, handed to whichever agent or browser owns
+/// the zone the listener chose.
+///
+/// The reader is taken exactly once. Only one output may stream Apple Music at
+/// a time — Fozmo reroutes the whole Mac's output into Fozmo Capture, so there
+/// is one Apple stream in existence, not one per listener — and a ring with two
+/// readers would simply split that stream's frames between them.
+pub(super) struct RelaySession {
+    shutdown: Arc<AtomicBool>,
+    _worker: CaptureWorker,
+    rate_hz: u32,
+    wire_bits: u32,
+    flow: Arc<CaptureFlow>,
+    reader: Mutex<Option<LiveCaptureSource>>,
+}
+
+impl RelaySession {
+    pub(super) fn rate_hz(&self) -> u32 {
+        self.rate_hz
+    }
+
+    pub(super) fn wire_bits(&self) -> u32 {
+        self.wire_bits
+    }
+
+    pub(super) fn buffered_audio_secs(&self) -> f64 {
+        self.flow.buffered_frames() as f64 / f64::from(self.rate_hz.max(1))
+    }
+
+    pub(super) fn set_capture_gate_open(&self, open: bool) {
+        self.flow.set_capture_gate_open(open);
+    }
+
+    /// Hand the single live reader to the HTTP response that will drain it.
+    pub(super) fn take_reader(&self) -> Option<LiveCaptureSource> {
+        self.reader.lock().unwrap().take()
+    }
+
+    pub(super) fn reader_taken(&self) -> bool {
+        self.reader.lock().unwrap().is_none()
+    }
+}
+
+impl Drop for RelaySession {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::Release);
+    }
+}
+
+/// Open capture for a relayed zone. Nothing is sent anywhere until
+/// [`RelaySession::take_reader`] is called, so the caller can confirm the track
+/// and its decoder format while the ring is still gated shut.
+pub(super) fn start_relay_session(params: &LiveSessionParams) -> Result<RelaySession, String> {
+    let capacity = ring_capacity_samples(params.rate_hz, params.buffer_ms);
+    let (producer, consumer) = live_capture_ring(capacity);
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let flow = Arc::new(CaptureFlow::default());
+    // As on the Player path, catalog navigation and paused transport must not
+    // reach the listener's timeline before the caller confirms the track.
+    flow.set_capture_gate_open(false);
+
+    let device_name = params.device_name.clone();
+    let rate_hz = params.rate_hz;
+    let worker_flow = Arc::clone(&flow);
+    let worker = spawn_capture_worker("fozmo-capture-relay", move || {
+        open_fozmo_capture_stream(&device_name, rate_hz, producer, worker_flow)
+    })?;
+
+    let wire_bits = relay_wire_bits(params.source_bit_depth);
+    let reader = LiveCaptureSource::new_with_format(
+        params.rate_hz,
+        LiveWireFormat::Integer(wire_bits),
+        consumer,
+        Arc::clone(&shutdown),
+        Arc::clone(&flow),
+    );
+    Ok(RelaySession {
+        shutdown,
+        _worker: worker,
+        rate_hz: params.rate_hz,
+        wire_bits,
+        flow,
+        reader: Mutex::new(Some(reader)),
+    })
+}
+
+/// Wire width for a relayed stream.
+///
+/// 24 bits is the default rather than 32: it carries every Apple Lossless
+/// sample exactly, and unlike the F32 carrier it decodes in every browser. A
+/// verified 16-bit source is sent as 16 bits, which is equally exact and half
+/// the bandwidth.
+fn relay_wire_bits(source_bit_depth: Option<u32>) -> u32 {
+    match source_bit_depth {
+        Some(16) => 16,
+        _ => 24,
     }
 }
 
@@ -357,8 +460,18 @@ pub(super) fn open_fozmo_capture_stream(
 
 #[cfg(test)]
 mod tests {
-    use super::{CaptureFlow, source_bit_depth_for_tags};
+    use super::{CaptureFlow, relay_wire_bits, source_bit_depth_for_tags};
     use std::sync::Arc;
+
+    /// A relayed stream carries Apple's own precision, and never the 32-bit
+    /// capture carrier, which browsers cannot be relied on to decode.
+    #[test]
+    fn a_relayed_stream_uses_apple_precision_and_defaults_to_24_bits() {
+        assert_eq!(relay_wire_bits(Some(16)), 16);
+        assert_eq!(relay_wire_bits(Some(24)), 24);
+        assert_eq!(relay_wire_bits(None), 24);
+        assert_eq!(relay_wire_bits(Some(32)), 24);
+    }
 
     #[test]
     fn live_source_reports_detected_precision_not_float_container_width() {

@@ -26,11 +26,28 @@ const PLAYBACK_CAPTURE_BUFFER_MS: u32 = 20_000;
 const MAX_PLAYBACK_CAPTURE_BUFFER_MS: u32 = 30_000;
 const LOCAL_DEVICE_REFRESH_SETTLE_MS: u64 = 15_000;
 
+/// Where a catalog track's captured PCM is going.
+///
+/// There is only ever one of these active at a time. Music.app has a single
+/// output, and Fozmo owns it by rerouting the Mac's default output into Fozmo
+/// Capture, so the choice is which single zone hears it — not how many.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum AppleMusicDelivery {
+    /// Capture feeds the local Player, its DSP, and a local physical output.
+    LocalPlayer,
+    /// Capture is relayed over HTTP to a remote agent or browser zone, which
+    /// applies its own DSP and renders on its own hardware.
+    Relay,
+}
+
 /// Fozmo-owned identity and timeline for a catalog track playing through the
-/// native Music.app -> Fozmo Capture -> local Player path.
+/// native Music.app -> Fozmo Capture -> Player-or-relay path.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct AppleMusicPlaybackSnapshot {
     pub(crate) zone_id: String,
+    pub(crate) delivery: AppleMusicDelivery,
+    /// Player epoch that owns this session on the local path. A relayed
+    /// session has no local Player, and leaves this zero.
     pub(crate) player_epoch: u64,
     pub(crate) generation: u64,
     pub(crate) source: SourceRef,
@@ -89,6 +106,12 @@ struct CaptureRuntime {
     next_prefetch_revision: u64,
     prepared_control: Option<PreparedAppleMusicControl>,
     prepared_session: Option<capture_session::PreparedLiveSession>,
+    /// Set instead of `session` when the zone that asked for Apple Music
+    /// renders somewhere other than this Mac.
+    relay: Option<capture_session::RelaySession>,
+    /// The zone a retained capture route belongs to, so the gap between two of
+    /// its tracks still reads as that zone owning the stream.
+    route_retained_zone: Option<String>,
 }
 
 impl Default for CaptureRuntime {
@@ -106,7 +129,35 @@ impl Default for CaptureRuntime {
             next_prefetch_revision: 1,
             prepared_control: None,
             prepared_session: None,
+            relay: None,
+            route_retained_zone: None,
         }
+    }
+}
+
+/// The live Apple Music stream, as bytes an HTTP response can write.
+///
+/// Reads block until Music.app produces more PCM, and return zero only once
+/// the session is torn down, so this must be drained on a blocking thread.
+pub struct AppleMusicRelayStream {
+    rate_hz: u32,
+    bits: u32,
+    reader: capture_session::RelayReader,
+}
+
+impl AppleMusicRelayStream {
+    pub fn rate_hz(&self) -> u32 {
+        self.rate_hz
+    }
+
+    pub fn bits(&self) -> u32 {
+        self.bits
+    }
+}
+
+impl std::io::Read for AppleMusicRelayStream {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        std::io::Read::read(&mut self.reader, buf)
     }
 }
 
@@ -161,17 +212,16 @@ impl AppleMusicPlaybackService {
         Ok(false)
     }
 
+    /// Take over the Mac's default output so Music.app decodes into Fozmo
+    /// Capture, remembering the device to hand back afterwards.
+    ///
+    /// Shared by the Player and relay paths: which zone hears the result does
+    /// not change how the route is claimed.
     #[cfg(target_os = "macos")]
-    fn start_macos(
-        self: &Arc<Self>,
-        player: Arc<Player>,
-        settings: &AppleMusicPlaybackSettings,
-        verified_format: Option<(u32, Option<u32>)>,
-    ) -> Result<(), String> {
-        self.guard_against_feedback_loop(&player)?;
-        let configured_output_device_name = player
-            .selected_device_name()
-            .or_else(|| normalize_optional(settings.output_device_name.as_deref()));
+    fn acquire_capture_route(
+        &self,
+        configured_output_device_name: Option<&str>,
+    ) -> Result<(coreaudio_sys::AudioDeviceID, Option<String>), String> {
         let device_id = coreaudio::device_id_for_uid(CAPTURE_DEVICE_UID).ok_or_else(|| {
             "Fozmo Capture HAL driver is not visible to CoreAudio. Install the driver first."
                 .to_string()
@@ -192,7 +242,6 @@ impl AppleMusicPlaybackService {
         let saved_default_output_uid = if already_routed_to_capture {
             retained_output_uid.or_else(|| {
                 configured_output_device_name
-                    .as_deref()
                     .and_then(coreaudio::local_physical_device_uid_for_name)
             })
         } else {
@@ -203,6 +252,22 @@ impl AppleMusicPlaybackService {
                 format!("Could not route macOS output to Fozmo Capture: {error}")
             })?;
         }
+        Ok((device_id, saved_default_output_uid))
+    }
+
+    #[cfg(target_os = "macos")]
+    fn start_macos(
+        self: &Arc<Self>,
+        player: Arc<Player>,
+        settings: &AppleMusicPlaybackSettings,
+        verified_format: Option<(u32, Option<u32>)>,
+    ) -> Result<(), String> {
+        self.guard_against_feedback_loop(&player)?;
+        let configured_output_device_name = player
+            .selected_device_name()
+            .or_else(|| normalize_optional(settings.output_device_name.as_deref()));
+        let (device_id, saved_default_output_uid) =
+            self.acquire_capture_route(configured_output_device_name.as_deref())?;
 
         let restore_on_error = |saved: &Option<String>| {
             if let Some(uid) = saved.as_deref()
@@ -444,6 +509,239 @@ impl AppleMusicPlaybackService {
             .ok_or_else(|| "Apple Music capture started without a Player session.".to_string())
     }
 
+    /// Open capture for a zone that renders elsewhere: a Windows or macOS
+    /// agent, or a browser. Music.app still decodes into Fozmo Capture on this
+    /// Mac; only the consumer of that PCM changes.
+    ///
+    /// Returns the rate the session actually opened at, which is the capture
+    /// device's nominal rate and therefore the rate the caller must have set
+    /// before Music.app started decoding.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn start_relay_capture(
+        &self,
+        settings: &AppleMusicPlaybackSettings,
+        verified_format: Option<(u32, Option<u32>)>,
+    ) -> Result<u32, String> {
+        {
+            let runtime = self.runtime.lock().unwrap();
+            if runtime.running {
+                return Err(
+                    "Apple Music capture is already running for another output.".to_string()
+                );
+            }
+        }
+        let (device_id, saved_default_output_uid) = self.acquire_capture_route(
+            normalize_optional(settings.output_device_name.as_deref()).as_deref(),
+        )?;
+        let restore_on_error = |saved: &Option<String>| {
+            if let Some(uid) = saved.as_deref()
+                && let Some(previous) = coreaudio::device_id_for_uid(uid)
+            {
+                let _ = coreaudio::set_default_output_device(previous);
+            }
+        };
+        if let Some((rate_hz, _)) = verified_format {
+            if !rate_control::is_supported_capture_rate(rate_hz) {
+                restore_on_error(&saved_default_output_uid);
+                return Err(format!(
+                    "Cached Apple Music format uses unsupported native rate {rate_hz} Hz."
+                ));
+            }
+            rate_control::set_nominal_rate(device_id, rate_hz).inspect_err(|_| {
+                restore_on_error(&saved_default_output_uid);
+            })?;
+        }
+        let rate_hz = coreaudio::read_f64(
+            device_id,
+            coreaudio_sys::kAudioDevicePropertyNominalSampleRate,
+        )
+        .map(|rate| rate.round().max(0.0) as u32)
+        .filter(|rate| *rate > 0)
+        .ok_or_else(|| {
+            restore_on_error(&saved_default_output_uid);
+            "Could not read the Fozmo Capture nominal sample rate.".to_string()
+        })?;
+        let params = LiveSessionParams {
+            device_name: CAPTURE_DEVICE_NAME.to_string(),
+            rate_hz,
+            buffer_ms: normalized_buffer_ms(settings.buffer_ms.max(PLAYBACK_CAPTURE_BUFFER_MS)),
+            source_bit_depth: verified_format.and_then(|(_, bits)| bits),
+        };
+        let session = capture_session::start_relay_session(&params)
+            .inspect_err(|_| restore_on_error(&saved_default_output_uid))?;
+
+        let previous = {
+            let mut runtime = self.runtime.lock().unwrap();
+            runtime.running = true;
+            runtime.route_retained = false;
+            runtime.stopped_unix_ms = None;
+            runtime.session_params = Some(params);
+            runtime.saved_default_output_uid = saved_default_output_uid;
+            runtime.relay.replace(session)
+        };
+        drop(previous);
+        Ok(rate_hz)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn start_relay_capture(
+        &self,
+        _settings: &AppleMusicPlaybackSettings,
+        _verified_format: Option<(u32, Option<u32>)>,
+    ) -> Result<u32, String> {
+        Err("Apple Music capture is only available on macOS.".to_string())
+    }
+
+    /// Reopen the relayed capture session — at a corrected rate, or simply to
+    /// discard everything a seek left behind — while keeping the capture route
+    /// and the session's identity.
+    ///
+    /// The route matters: handing the Mac's default output back to the user's
+    /// device and taking it away again a moment later makes Music.app rebuild
+    /// its output chain twice. The identity matters because the listener is
+    /// still on the same track; only the bytes start again.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn restart_relay_capture(
+        &self,
+        generation: u64,
+        settings: &AppleMusicPlaybackSettings,
+        verified_format: Option<(u32, Option<u32>)>,
+    ) -> Result<u32, String> {
+        let owns_generation = |runtime: &CaptureRuntime| {
+            runtime
+                .playback
+                .as_ref()
+                .is_some_and(|playback| playback.generation == generation)
+        };
+        let previous = {
+            let mut runtime = self.runtime.lock().unwrap();
+            if !owns_generation(&runtime) {
+                return Err("Playback changed during the Apple Music relay restart.".to_string());
+            }
+            runtime.relay.take()
+        };
+        drop(previous);
+
+        let device_id = coreaudio::device_id_for_uid(CAPTURE_DEVICE_UID)
+            .ok_or_else(|| "Fozmo Capture disappeared during the format switch.".to_string())?;
+        if let Some((rate_hz, _)) = verified_format {
+            if !rate_control::is_supported_capture_rate(rate_hz) {
+                return Err(format!(
+                    "Apple Music selected unsupported native rate {rate_hz} Hz."
+                ));
+            }
+            rate_control::set_nominal_rate(device_id, rate_hz)?;
+        }
+        let rate_hz = coreaudio::read_f64(
+            device_id,
+            coreaudio_sys::kAudioDevicePropertyNominalSampleRate,
+        )
+        .map(|rate| rate.round().max(0.0) as u32)
+        .filter(|rate| *rate > 0)
+        .ok_or_else(|| "Could not read the Fozmo Capture nominal sample rate.".to_string())?;
+        let params = LiveSessionParams {
+            device_name: CAPTURE_DEVICE_NAME.to_string(),
+            rate_hz,
+            buffer_ms: normalized_buffer_ms(settings.buffer_ms.max(PLAYBACK_CAPTURE_BUFFER_MS)),
+            source_bit_depth: verified_format.and_then(|(_, bits)| bits),
+        };
+        let session = capture_session::start_relay_session(&params)?;
+
+        let mut runtime = self.runtime.lock().unwrap();
+        if !owns_generation(&runtime) {
+            return Err("Playback changed during the Apple Music relay restart.".to_string());
+        }
+        runtime.running = true;
+        runtime.session_params = Some(params);
+        runtime.relay = Some(session);
+        Ok(rate_hz)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn restart_relay_capture(
+        &self,
+        _generation: u64,
+        _settings: &AppleMusicPlaybackSettings,
+        _verified_format: Option<(u32, Option<u32>)>,
+    ) -> Result<u32, String> {
+        Err("Apple Music capture is only available on macOS.".to_string())
+    }
+
+    pub(crate) fn relay_running(&self) -> bool {
+        let runtime = self.runtime.lock().unwrap();
+        runtime.running && runtime.relay.is_some()
+    }
+
+    pub(crate) fn set_relay_gate_open(&self, open: bool) -> bool {
+        let runtime = self.runtime.lock().unwrap();
+        let Some(session) = runtime.relay.as_ref() else {
+            return false;
+        };
+        session.set_capture_gate_open(open);
+        true
+    }
+
+    pub(crate) fn relay_buffered_audio_secs(&self) -> Option<f64> {
+        self.runtime
+            .lock()
+            .unwrap()
+            .relay
+            .as_ref()
+            .map(capture_session::RelaySession::buffered_audio_secs)
+    }
+
+    /// Whether the relayed consumer has already collected its stream. A zone
+    /// that never connects leaves this false, which is how the caller notices
+    /// an agent that failed to fetch.
+    pub(crate) fn relay_stream_claimed(&self) -> bool {
+        self.runtime
+            .lock()
+            .unwrap()
+            .relay
+            .as_ref()
+            .is_some_and(capture_session::RelaySession::reader_taken)
+    }
+
+    /// Take the live stream for the HTTP response that will drain it. The
+    /// second caller gets `None`: there is one Apple stream, and splitting its
+    /// frames between two readers would corrupt both.
+    pub(crate) fn open_relay_stream(&self) -> Option<AppleMusicRelayStream> {
+        let runtime = self.runtime.lock().unwrap();
+        let session = runtime.relay.as_ref()?;
+        let rate_hz = session.rate_hz();
+        let bits = session.wire_bits();
+        let reader = session.take_reader()?;
+        Some(AppleMusicRelayStream {
+            rate_hz,
+            bits,
+            reader,
+        })
+    }
+
+    /// The zone that currently holds the single Apple Music stream, if any.
+    ///
+    /// Rerouting the Mac's output is machine-wide, so a second zone cannot
+    /// start Apple Music while this one is live; callers turn this into the
+    /// listener-facing explanation of why.
+    ///
+    /// A zone between two tracks of its own owns the stream just as firmly as
+    /// one mid-track: it has deliberately kept the capture route for the
+    /// successor it is about to start, and handing that to another zone in the
+    /// gap would break the boundary the retention exists to protect.
+    pub(crate) fn streaming_zone_id(&self) -> Option<String> {
+        let runtime = self.runtime.lock().unwrap();
+        runtime
+            .playback
+            .as_ref()
+            .map(|playback| playback.zone_id.clone())
+            .or_else(|| {
+                runtime
+                    .route_retained
+                    .then(|| runtime.route_retained_zone.clone())
+                    .flatten()
+            })
+    }
+
     /// The local zone must use a local physical output so capture cannot feed
     /// back into itself or escape to a network renderer.
     fn guard_against_feedback_loop(&self, player: &Player) -> Result<(), String> {
@@ -470,10 +768,11 @@ impl AppleMusicPlaybackService {
 
     /// Tear down capture and restore the user's previous macOS default output.
     pub(crate) fn stop_runtime(&self, stop_player: bool) -> Option<u64> {
-        let (session, prepared_session, player, saved_default_output_uid) = {
+        let (session, prepared_session, relay, player, saved_default_output_uid) = {
             let mut runtime = self.runtime.lock().unwrap();
             runtime.running = false;
             runtime.route_retained = false;
+            runtime.route_retained_zone = None;
             runtime.stopped_unix_ms = Some(now_unix_ms());
             runtime.session_params = None;
             runtime.playback = None;
@@ -481,12 +780,16 @@ impl AppleMusicPlaybackService {
             (
                 runtime.session.take(),
                 runtime.prepared_session.take(),
+                runtime.relay.take(),
                 runtime.player.take(),
                 runtime.saved_default_output_uid.take(),
             )
         };
         drop(session);
         drop(prepared_session);
+        // Dropping the relay signals its reader to EOF, which ends the HTTP
+        // response the remote zone is playing.
+        drop(relay);
         let player = player.unwrap_or_else(|| Arc::clone(&self.player));
         if stop_player {
             player.stop();
@@ -511,6 +814,10 @@ impl AppleMusicPlaybackService {
             let mut runtime = self.runtime.lock().unwrap();
             runtime.running = false;
             runtime.route_retained = true;
+            runtime.route_retained_zone = runtime
+                .playback
+                .as_ref()
+                .map(|playback| playback.zone_id.clone());
             runtime.stopped_unix_ms = Some(now_unix_ms());
             runtime.session_params = None;
             runtime.playback = None;
@@ -531,6 +838,7 @@ impl AppleMusicPlaybackService {
                 return;
             }
             runtime.route_retained = false;
+            runtime.route_retained_zone = None;
             runtime.prepared_control = None;
             runtime.session_params = None;
             (
@@ -587,11 +895,27 @@ impl AppleMusicPlaybackService {
         player_epoch: u64,
         source: SourceRef,
     ) -> AppleMusicPlaybackSnapshot {
+        self.activate_playback_with_delivery(
+            zone_id,
+            AppleMusicDelivery::LocalPlayer,
+            player_epoch,
+            source,
+        )
+    }
+
+    pub(crate) fn activate_playback_with_delivery(
+        &self,
+        zone_id: String,
+        delivery: AppleMusicDelivery,
+        player_epoch: u64,
+        source: SourceRef,
+    ) -> AppleMusicPlaybackSnapshot {
         let mut runtime = self.runtime.lock().unwrap();
         let generation = runtime.next_playback_generation.max(1);
         runtime.next_playback_generation = generation.wrapping_add(1).max(1);
         let snapshot = AppleMusicPlaybackSnapshot {
             zone_id,
+            delivery,
             player_epoch,
             generation,
             duration_secs: source.duration_secs().unwrap_or(0.0),

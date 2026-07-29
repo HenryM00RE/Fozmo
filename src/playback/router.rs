@@ -57,6 +57,15 @@ struct SelectedQobuzStream {
 
 const HEGEL_DOP_SEEK_MEDIA_EVIDENCE_TIMEOUT: Duration = Duration::from_secs(4);
 
+/// The zone asked for Apple Music, but its output cannot consume a live
+/// capture at all.
+pub(crate) const APPLE_MUSIC_OUTPUT_UNSUPPORTED: &str = "apple_music_output_unsupported";
+/// Another zone already holds the one Apple Music stream this Mac can produce.
+pub(crate) const APPLE_MUSIC_STREAM_IN_USE: &str = "apple_music_stream_in_use";
+/// The zone is a browser page on the Mac Fozmo is capturing, so playing Apple
+/// Music there would route the capture back into itself.
+pub(crate) const APPLE_MUSIC_HOST_BROWSER_LOOP: &str = "apple_music_host_browser_loop";
+
 impl ZoneSink {
     fn as_str(&self) -> &'static str {
         match self {
@@ -176,10 +185,20 @@ impl<'a> PlaybackRouter<'a> {
         let track_id = source.local_track_id();
         let qobuz_track_id = source.qobuz_track_id();
         let sink = self.sink_for_zone(zone_id)?;
-        if source.apple_music_song_id().is_some() && !matches!(&sink, ZoneSink::Local) {
-            return Err(PlaybackError::bad_request(
-                "apple_music_local_output_required",
-            ));
+        if source.apple_music_song_id().is_some() {
+            // A Sonos or UPnP renderer pulls a finished file over the network;
+            // it has no way to consume a capture that only exists while
+            // Music.app is decoding it right now.
+            if matches!(&sink, ZoneSink::Sonos | ZoneSink::Upnp) {
+                return Err(PlaybackError::bad_request(APPLE_MUSIC_OUTPUT_UNSUPPORTED));
+            }
+            // A browser page renders through the system default output, and on
+            // this Mac that output is Fozmo Capture for as long as Apple Music
+            // is playing. Relaying to it would feed capture its own audio.
+            if self.state.zones().zone_is_host_local_browser(zone_id) {
+                return Err(PlaybackError::bad_request(APPLE_MUSIC_HOST_BROWSER_LOOP));
+            }
+            self.ensure_apple_music_stream_available(zone_id)?;
         }
         if !guard.is_current(self.state) {
             return Err(PlaybackError::conflict("Playback changed"));
@@ -187,6 +206,10 @@ impl<'a> PlaybackRouter<'a> {
         #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
         if source.apple_music_song_id().is_none() {
             crate::playback::apple_music_native::stop_replaced_session_if_current(
+                self.state, zone_id, &guard,
+            )
+            .await?;
+            crate::playback::apple_music_relay::stop_replaced_relay_if_current(
                 self.state, zone_id, &guard,
             )
             .await?;
@@ -205,6 +228,14 @@ impl<'a> PlaybackRouter<'a> {
         );
         match sink {
             ZoneSink::RemoteAgent => {
+                #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+                if matches!(source, SourceRef::AppleMusicTrack { .. }) {
+                    return crate::playback::apple_music_relay::play_apple_music_source_relayed(
+                        self.state, zone_id, profile_id, source, queue, radio_auto, guard,
+                        startup_id,
+                    )
+                    .await;
+                }
                 self.play_remote_agent(zone_id, profile_id, source, queue, radio_auto, guard)
             }
             ZoneSink::Sonos => {
@@ -277,6 +308,27 @@ impl<'a> PlaybackRouter<'a> {
         }
     }
 
+    /// Refuse a second Apple Music stream.
+    ///
+    /// Fozmo captures Music.app by taking over the Mac's default output, so
+    /// the Mac produces one Apple stream and one only. Whichever zone claimed
+    /// it keeps it until playback there ends; a second zone is told why rather
+    /// than silently interrupting a room someone else is listening in.
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    fn ensure_apple_music_stream_available(&self, zone_id: &str) -> Result<(), PlaybackError> {
+        match self.state.apple_music_playback().streaming_zone_id() {
+            Some(owner) if owner != zone_id => {
+                Err(PlaybackError::conflict(APPLE_MUSIC_STREAM_IN_USE))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    #[cfg(not(all(target_os = "macos", feature = "apple_music_musickit")))]
+    fn ensure_apple_music_stream_available(&self, _zone_id: &str) -> Result<(), PlaybackError> {
+        Ok(())
+    }
+
     async fn next(&self, zone_id: &str) -> Result<PlaybackOutcome, PlaybackError> {
         let profile_id = self
             .state
@@ -284,7 +336,9 @@ impl<'a> PlaybackRouter<'a> {
             .profile_id(zone_id)
             .unwrap_or_else(|| crate::settings::DEFAULT_PROFILE_ID.to_string());
         #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
-        if crate::playback::apple_music_native::next(self.state, zone_id).await? {
+        if crate::playback::apple_music_native::next(self.state, zone_id).await?
+            || crate::playback::apple_music_relay::next(self.state, zone_id).await?
+        {
             return Ok(PlaybackOutcome::Completed);
         }
         let active_source = self.state.listening().active_source(zone_id);
@@ -570,11 +624,16 @@ impl<'a> PlaybackRouter<'a> {
 
     async fn pause(&self, zone_id: &str) -> Result<PlaybackOutcome, PlaybackError> {
         match self.sink_for_zone(zone_id)? {
-            ZoneSink::RemoteAgent => self
-                .state
-                .zones()
-                .send_to_zone(zone_id, CoreToAgentCommand::Pause)
-                .map_err(PlaybackError::integration)?,
+            ZoneSink::RemoteAgent => {
+                #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+                if crate::playback::apple_music_relay::pause(self.state, zone_id).await? {
+                    return Ok(PlaybackOutcome::Completed);
+                }
+                self.state
+                    .zones()
+                    .send_to_zone(zone_id, CoreToAgentCommand::Pause)
+                    .map_err(PlaybackError::integration)?;
+            }
             ZoneSink::Sonos => {
                 let target = sonos_target_for_zone(self.state, zone_id)?;
                 self.state
@@ -611,11 +670,16 @@ impl<'a> PlaybackRouter<'a> {
 
     async fn resume(&self, zone_id: &str) -> Result<PlaybackOutcome, PlaybackError> {
         match self.sink_for_zone(zone_id)? {
-            ZoneSink::RemoteAgent => self
-                .state
-                .zones()
-                .send_to_zone(zone_id, CoreToAgentCommand::Resume)
-                .map_err(PlaybackError::integration)?,
+            ZoneSink::RemoteAgent => {
+                #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+                if crate::playback::apple_music_relay::resume(self.state, zone_id).await? {
+                    return Ok(PlaybackOutcome::Completed);
+                }
+                self.state
+                    .zones()
+                    .send_to_zone(zone_id, CoreToAgentCommand::Resume)
+                    .map_err(PlaybackError::integration)?;
+            }
             ZoneSink::Sonos => {
                 let target = sonos_target_for_zone(self.state, zone_id)?;
                 self.state
@@ -653,11 +717,17 @@ impl<'a> PlaybackRouter<'a> {
 
     async fn stop(&self, zone_id: &str) -> Result<PlaybackOutcome, PlaybackError> {
         match self.sink_for_zone(zone_id)? {
-            ZoneSink::RemoteAgent => self
-                .state
-                .zones()
-                .send_to_zone(zone_id, CoreToAgentCommand::Stop)
-                .map_err(PlaybackError::integration)?,
+            ZoneSink::RemoteAgent => {
+                #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+                if crate::playback::apple_music_relay::stop(self.state, zone_id).await? {
+                    self.state.listening().stop(self.state.library(), zone_id);
+                    return Ok(PlaybackOutcome::Completed);
+                }
+                self.state
+                    .zones()
+                    .send_to_zone(zone_id, CoreToAgentCommand::Stop)
+                    .map_err(PlaybackError::integration)?;
+            }
             ZoneSink::Sonos => {
                 let target = sonos_target_for_zone(self.state, zone_id)?;
                 self.state
@@ -696,11 +766,16 @@ impl<'a> PlaybackRouter<'a> {
 
     async fn seek(&self, zone_id: &str, seconds: f64) -> Result<PlaybackOutcome, PlaybackError> {
         match self.sink_for_zone(zone_id)? {
-            ZoneSink::RemoteAgent => self
-                .state
-                .zones()
-                .send_to_zone(zone_id, CoreToAgentCommand::Seek { seconds })
-                .map_err(PlaybackError::integration)?,
+            ZoneSink::RemoteAgent => {
+                #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+                if crate::playback::apple_music_relay::seek(self.state, zone_id, seconds).await? {
+                    return Ok(PlaybackOutcome::Completed);
+                }
+                self.state
+                    .zones()
+                    .send_to_zone(zone_id, CoreToAgentCommand::Seek { seconds })
+                    .map_err(PlaybackError::integration)?;
+            }
             ZoneSink::Sonos => {
                 let target = sonos_target_for_zone(self.state, zone_id)?;
                 self.state
@@ -1540,25 +1615,9 @@ mod tests {
     }
 
     #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
-    #[tokio::test]
-    async fn apple_music_source_is_rejected_before_helper_work_on_remote_agent() {
-        let state = app_state("apple-music-rejects-remote-agent");
-        let (tx, _rx) = mpsc::unbounded_channel();
-        state.zones().register_agent(
-            "apple-test-agent".to_string(),
-            "Remote Mac".to_string(),
-            agent_capabilities("Remote DAC"),
-            tx,
-        );
-        let zone_id = state
-            .zones()
-            .list_zones()
-            .into_iter()
-            .find(|zone| zone.agent_name.as_deref() == Some("Remote Mac"))
-            .unwrap()
-            .id;
-        let source = SourceRef::AppleMusicTrack {
-            song_id: "song-1".to_string(),
+    fn apple_music_source(song_id: &str) -> SourceRef {
+        SourceRef::AppleMusicTrack {
+            song_id: song_id.to_string(),
             storefront: Some("nz".to_string()),
             title: Some("Song".to_string()),
             artist: Some("Artist".to_string()),
@@ -1573,14 +1632,21 @@ mod tests {
             radio: false,
             radio_context: None,
             playlist_context: None,
-        };
+        }
+    }
 
-        let error = PlaybackRouter::new(&state)
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    async fn play_apple_music(
+        state: &crate::app::state::AppState,
+        zone_id: &str,
+        song_id: &str,
+    ) -> Result<PlaybackOutcome, PlaybackError> {
+        PlaybackRouter::new(state)
             .execute(
-                &zone_id,
+                zone_id,
                 PlaybackIntent::Play {
                     profile_id: state.settings().active_profile_id(),
-                    source,
+                    source: apple_music_source(song_id),
                     queue: Vec::new(),
                     radio_auto: false,
                     guard: PlaybackGuard::none(),
@@ -1589,9 +1655,130 @@ mod tests {
                 },
             )
             .await
+    }
+
+    /// A renderer that pulls a finished file over the network cannot consume a
+    /// capture that only exists while Music.app is decoding it, so this is
+    /// refused before any helper work happens.
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    #[tokio::test]
+    async fn apple_music_source_is_rejected_before_helper_work_on_a_network_renderer() {
+        let state = app_state("apple-music-rejects-upnp");
+        let zone_id = "upnp-zone";
+        state
+            .library()
+            .upsert_zone_definition(
+                zone_id,
+                "Living Room",
+                "upnp_av_renderer",
+                Some("UPnP AV Renderer:living-room"),
+                true,
+            )
+            .unwrap();
+        state.zones().sync_saved_local_zone(
+            zone_id,
+            "Living Room",
+            "UPnP AV Renderer:living-room",
+            true,
+            "Ready",
+        );
+
+        let error = play_apple_music(&state, zone_id, "song-1")
+            .await
             .unwrap_err();
 
-        assert_eq!(error.message(), "apple_music_local_output_required");
+        assert_eq!(error.message(), "apple_music_output_unsupported");
+    }
+
+    /// Fozmo captures Music.app by taking over the Mac's default output, so
+    /// the Mac has one Apple stream to give. A second zone is told that rather
+    /// than silently taking the stream away from whoever is listening.
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    #[tokio::test]
+    async fn a_second_zone_cannot_take_the_apple_music_stream_from_the_zone_playing_it() {
+        let state = app_state("apple-music-single-stream");
+        let (tx, _rx) = mpsc::unbounded_channel();
+        state.zones().register_agent(
+            "apple-test-agent".to_string(),
+            "Remote Mac".to_string(),
+            agent_capabilities("Remote DAC"),
+            tx,
+        );
+        let remote_zone_id = state
+            .zones()
+            .list_zones()
+            .into_iter()
+            .find(|zone| zone.agent_name.as_deref() == Some("Remote Mac"))
+            .unwrap()
+            .id;
+        let local_zone_id = state.zones().active_zone_id();
+        state.apple_music_playback().activate_playback(
+            local_zone_id.clone(),
+            state.zones().active_player().playback_epoch(),
+            apple_music_source("song-1"),
+        );
+
+        let error = play_apple_music(&state, &remote_zone_id, "song-2")
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.message(), "apple_music_stream_in_use");
+        assert_eq!(
+            state.apple_music_playback().streaming_zone_id().as_deref(),
+            Some(local_zone_id.as_str()),
+            "a refused request must not disturb the session that owns the stream"
+        );
+    }
+
+    /// A page plays through the system default output, and on the capturing
+    /// Mac that output is Fozmo Capture for as long as Apple Music is running,
+    /// so relaying there would feed the capture its own audio.
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    #[tokio::test]
+    async fn apple_music_is_refused_for_a_browser_on_the_capturing_mac() {
+        let state = app_state("apple-music-host-browser-loop");
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let agent_id = "browser-abcdef0123456789";
+        state.zones().register_agent(
+            agent_id.to_string(),
+            "This Browser".to_string(),
+            crate::protocol::AgentCapabilities {
+                browser: true,
+                // A browser zone renders in the page, so it advertises no
+                // selectable devices and its zone id is the agent id itself.
+                output_devices: Vec::new(),
+                output_device_capabilities: Vec::new(),
+                ..agent_capabilities("Browser")
+            },
+            tx,
+        );
+        state.zones().mark_agent_host_local(agent_id);
+
+        let error = play_apple_music(&state, agent_id, "song-1")
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.message(), "apple_music_host_browser_loop");
+    }
+
+    /// The zone already playing Apple Music is not competing with itself: a
+    /// next track, or simply a different album, has to be able to start.
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    #[test]
+    fn the_zone_holding_the_stream_may_start_another_apple_track() {
+        let state = app_state("apple-music-same-zone-restart");
+        let zone_id = state.zones().active_zone_id();
+        state.apple_music_playback().activate_playback(
+            zone_id.clone(),
+            state.zones().active_player().playback_epoch(),
+            apple_music_source("song-1"),
+        );
+
+        assert!(
+            PlaybackRouter::new(&state)
+                .ensure_apple_music_stream_available(&zone_id)
+                .is_ok()
+        );
     }
 
     #[tokio::test]

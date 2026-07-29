@@ -197,6 +197,16 @@ pub struct StatusResponse {
     pub remote_connected: bool,
     pub remote_signal_path: Option<SyncSignalPath>,
     pub remote_buffer_state: Option<AgentBufferState>,
+    /// The zone currently holding this Mac's one Apple Music stream, if any.
+    ///
+    /// Fozmo captures Music.app by taking over the Mac's default output, so
+    /// only one zone can play Apple Music at a time. Clients read this to
+    /// explain a refused Apple Music request by naming the output that already
+    /// has it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub apple_music_stream_zone_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub apple_music_stream_zone_name: Option<String>,
     /// Server-side chain for the active browser-zone stream, when known.
     #[serde(default)]
     pub browser_stream_signal: Option<BrowserStreamSignal>,
@@ -608,22 +618,46 @@ pub fn build_status_response_for_zone(
 }
 
 #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+fn apple_music_streaming_zone_id(state: &AppState) -> Option<String> {
+    state.apple_music_playback().streaming_zone_id()
+}
+
+#[cfg(not(all(target_os = "macos", feature = "apple_music_musickit")))]
+fn apple_music_streaming_zone_id(_state: &AppState) -> Option<String> {
+    None
+}
+
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
 fn apply_native_apple_music_status_overlay(
     state: &AppState,
     zone_id: &str,
     response: &mut StatusResponse,
 ) {
+    use crate::services::apple_music::AppleMusicDelivery;
+
     let Some(snapshot) = state
         .apple_music_playback()
         .playback_snapshot_for_zone(zone_id)
     else {
         return;
     };
-    let Some(player) = state.zones().player_for_zone(zone_id) else {
-        return;
-    };
-    if player.playback_epoch() != snapshot.player_epoch {
-        return;
+    match snapshot.delivery {
+        // A relayed session has no local Player to agree with. The remote zone
+        // is the transport, and it reports its own timeline, which the overlay
+        // reads below exactly as it reads the Player's.
+        AppleMusicDelivery::Relay => {
+            if !state.apple_music_playback().relay_running() {
+                return;
+            }
+        }
+        AppleMusicDelivery::LocalPlayer => {
+            let Some(player) = state.zones().player_for_zone(zone_id) else {
+                return;
+            };
+            if player.playback_epoch() != snapshot.player_epoch {
+                return;
+            }
+        }
     }
     response.state = match snapshot.playback_state.as_str() {
         "playing" => "Playing",
@@ -1937,6 +1971,7 @@ fn build_status_response_for_player(
     };
     let remote_signal_path = remote.as_ref().and_then(|r| r.signal_path.clone());
     let remote_buffer_state = remote.as_ref().and_then(|r| r.buffer.clone());
+    let apple_music_stream_zone_id = apple_music_streaming_zone_id(state);
     let browser_stream_signal = state.zones().browser_stream_signal(&active_zone_id);
     let mut response = StatusResponse {
         surface: "local".to_string(),
@@ -2110,6 +2145,9 @@ fn build_status_response_for_player(
         remote_signal_path,
         remote_buffer_state,
         browser_stream_signal,
+        apple_music_stream_zone_id: apple_music_stream_zone_id.clone(),
+        apple_music_stream_zone_name: apple_music_stream_zone_id
+            .map(|zone_id| state.zones().zone_name(&zone_id)),
     };
 
     if let Some(remote) = remote.and_then(|r| r.playback) {

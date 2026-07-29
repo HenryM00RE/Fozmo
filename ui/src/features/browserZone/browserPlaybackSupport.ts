@@ -88,6 +88,31 @@ function localStreamTrackId(item: QueueItem) {
 }
 
 /**
+ * The catalog song id when this item is an Apple Music track.
+ *
+ * Apple Music is not a file the server can hand out ranges of: the core
+ * captures Music.app as it decodes, so the browser receives one live WAV
+ * response that ends when the track run does. There is no derivative, no
+ * data-saver variant, and no server-side EQ to bake in — the stream is
+ * whatever Apple is decoding right now.
+ */
+function appleMusicStreamSongId(item: QueueItem) {
+  const source = item.resolvedSource;
+  if (source?.kind !== 'apple_music_track' && source?.kind !== 'apple_music') return '';
+  return String(source.song_id ?? '').trim();
+}
+
+const APPLE_MUSIC_STREAM_MIME = 'audio/wav';
+
+function appleMusicStreamSelection(songId: string): BrowserStreamSelection {
+  return {
+    url: `/api/stream/apple-music/${encodeURIComponent(songId)}`,
+    mime: APPLE_MUSIC_STREAM_MIME,
+    variant: 'original'
+  };
+}
+
+/**
  * Same-origin authenticated stream URL for a queue item. Cookies carry auth
  * on both the LAN and remote surfaces, so URLs never embed tokens, and Qobuz
  * items always map to the server proxy — never a CDN URL.
@@ -97,6 +122,8 @@ export function browserStreamUrlForItem(
   options: BrowserStreamOptions = {}
 ): string | null {
   if (!item) return null;
+  const appleSongId = appleMusicStreamSongId(item);
+  if (appleSongId) return appleMusicStreamSelection(appleSongId).url;
   const qobuzId = qobuzStreamTrackId(item);
   if (qobuzId) {
     const query = isDataSaver(options) ? '?quality=lossy' : '';
@@ -112,6 +139,7 @@ export function expectedStreamMime(
   item: QueueItem,
   options: BrowserStreamOptions = {}
 ): string | null {
+  if (appleMusicStreamSongId(item)) return APPLE_MUSIC_STREAM_MIME;
   if (qobuzStreamTrackId(item)) {
     return isDataSaver(options) ? 'audio/mpeg' : 'audio/flac';
   }
@@ -163,6 +191,8 @@ export function browserStreamSelectionForItem(
   options: BrowserStreamOptions = {}
 ): BrowserStreamSelection | null {
   if (!item) return null;
+  const appleSongId = appleMusicStreamSongId(item);
+  if (appleSongId) return appleMusicStreamSelection(appleSongId);
   const dataSaver = isDataSaver(options);
   const qobuzId = qobuzStreamTrackId(item);
   if (qobuzId) {

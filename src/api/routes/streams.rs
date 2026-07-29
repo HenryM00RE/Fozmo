@@ -79,7 +79,14 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/stream/local/:track_id", get(stream_local_track))
         .route("/api/stream/qobuz/:track_id", get(stream_qobuz_track))
+        .route(
+            "/api/stream/apple-music/:song_id",
+            get(stream_apple_music_track),
+        )
 }
+
+/// Bytes handed to the response per read of the live capture.
+const APPLE_MUSIC_RELAY_CHUNK_BYTES: usize = 16 * 1024;
 
 enum StreamAuthDecision {
     Allowed,
@@ -280,6 +287,156 @@ async fn stream_local_track(
         )
             .into_response(),
     }
+}
+
+/// The live Apple Music capture, as a stream the zone's own output can play.
+///
+/// This is not a file. It exists only while Music.app is decoding into Fozmo
+/// Capture, has no length and no seekable history, and there is exactly one of
+/// it: the Mac produces a single Apple stream, which the zone that started
+/// playback claims here. A second fetch — a stray reload, a prefetch, a second
+/// listener — is refused rather than served, because two readers of one ring
+/// would split its frames and corrupt both.
+///
+/// The song ID identifies which track the caller believes it is fetching. It
+/// is checked against the session so a stale URL cannot silently play whatever
+/// is streaming now.
+async fn stream_apple_music_track(
+    State(state): State<AppState>,
+    Path(song_id): Path<String>,
+    surface: Option<Extension<RequestSurface>>,
+    remote_auth: Option<Extension<RemoteAuthenticated>>,
+    headers: HeaderMap,
+    peer: Option<ConnectInfo<SocketAddr>>,
+) -> impl IntoResponse {
+    let decision = apple_music_stream_auth(
+        &state,
+        &headers,
+        peer.as_ref().map(|ConnectInfo(addr)| *addr),
+        surface.map(|Extension(surface)| surface),
+        remote_auth.is_some(),
+    );
+    if let StreamAuthDecision::Denied(status, message) = decision {
+        return (status, message).into_response();
+    }
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+    {
+        apple_music_relay_response(&state, &song_id)
+    }
+    #[cfg(not(all(target_os = "macos", feature = "apple_music_musickit")))]
+    {
+        let _ = (state, song_id);
+        (
+            StatusCode::NOT_FOUND,
+            "Apple Music playback is not available in this build",
+        )
+            .into_response()
+    }
+}
+
+/// A live capture carries the user's Apple Music subscription audio, so it
+/// takes the same explicit authorization as the Qobuz proxy rather than the
+/// looser posture of a local file the user already owns.
+fn apple_music_stream_auth(
+    state: &AppState,
+    headers: &HeaderMap,
+    peer: Option<SocketAddr>,
+    surface: Option<RequestSurface>,
+    remote_authenticated: bool,
+) -> StreamAuthDecision {
+    if matches!(surface, Some(RequestSurface::Remote)) {
+        return remote_stream_auth(remote_authenticated);
+    }
+    if lan_stream_token_or_cookie_authorized(state, headers)
+        || crate::app::auth::same_origin_browser_request_allowed(headers)
+        || crate::app::auth::local_filesystem_request_allowed(headers, peer)
+    {
+        StreamAuthDecision::Allowed
+    } else {
+        StreamAuthDecision::Denied(
+            StatusCode::FORBIDDEN,
+            "Apple Music streaming is only available locally or with a paired session",
+        )
+    }
+}
+
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+fn apple_music_relay_response(state: &AppState, song_id: &str) -> Response {
+    use std::io::Read;
+
+    let session_song_id = state
+        .apple_music_playback()
+        .playback_snapshot()
+        .and_then(|snapshot| snapshot.source.apple_music_song_id().map(str::to_string));
+    match session_song_id.as_deref() {
+        Some(current) if current == song_id.trim() => {}
+        Some(_) | None => {
+            return (
+                StatusCode::NOT_FOUND,
+                "That Apple Music track is not the one currently streaming",
+            )
+                .into_response();
+        }
+    }
+    let Some(mut stream) = state.apple_music_playback().open_relay_stream() else {
+        return (
+            StatusCode::CONFLICT,
+            "The Apple Music stream is already being played by an output",
+        )
+            .into_response();
+    };
+
+    let content_type = format!(
+        "audio/wav; rate={}; bits={}",
+        stream.rate_hz(),
+        stream.bits()
+    );
+    // Reads block until Music.app produces more PCM, so the pump owns a
+    // blocking thread. A closed channel — the listener stopped, or the
+    // response was dropped — ends it on the next chunk.
+    let (sender, receiver) = tokio::sync::mpsc::channel::<Result<Bytes, IoError>>(4);
+    std::thread::Builder::new()
+        .name("fozmo-apple-music-relay".to_string())
+        .spawn(move || {
+            let mut buffer = vec![0_u8; APPLE_MUSIC_RELAY_CHUNK_BYTES];
+            loop {
+                match stream.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(count) => {
+                        if sender
+                            .blocking_send(Ok(Bytes::copy_from_slice(&buffer[..count])))
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Err(error) => {
+                        let _ = sender.blocking_send(Err(error));
+                        break;
+                    }
+                }
+            }
+        })
+        .map_or_else(
+            |error| {
+                ApiError::internal(format!("Apple Music relay thread: {error}")).into_response()
+            },
+            |_| {
+                let body = Body::from_stream(stream::unfold(receiver, |mut receiver| async move {
+                    receiver.recv().await.map(|chunk| (chunk, receiver))
+                }));
+                (
+                    StatusCode::OK,
+                    [
+                        (header::CONTENT_TYPE, content_type),
+                        (header::CACHE_CONTROL, "no-store".to_string()),
+                        (header::ACCEPT_RANGES, "none".to_string()),
+                    ],
+                    body,
+                )
+                    .into_response()
+            },
+        )
 }
 
 /// Record the server-side chain for the zone's signal-path UI. Only requests

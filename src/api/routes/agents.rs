@@ -98,6 +98,7 @@ async fn browser_agent_ws_handler(
     State(state): State<AppState>,
     trusted_origins: Option<Extension<TrustedWebOrigins>>,
     headers: axum::http::HeaderMap,
+    peer: Option<ConnectInfo<SocketAddr>>,
 ) -> impl IntoResponse {
     if !websocket_origin_allowed(
         &headers,
@@ -112,7 +113,10 @@ async fn browser_agent_ws_handler(
         );
         return StatusCode::FORBIDDEN.into_response();
     }
-    ws.on_upgrade(move |socket| handle_browser_agent_socket(socket, state))
+    // A page served over loopback is running on the Mac hosting the core, and
+    // so renders through the very output Apple Music capture takes over.
+    let host_local = peer.is_some_and(|ConnectInfo(peer)| peer.ip().is_loopback());
+    ws.on_upgrade(move |socket| handle_browser_agent_socket(socket, state, host_local))
         .into_response()
 }
 
@@ -198,10 +202,10 @@ async fn handle_agent_socket(
     // Native agents can never claim browser privacy semantics.
     capabilities.browser = false;
 
-    run_agent_socket(ws_tx, ws_rx, state, agent_id, name, capabilities).await;
+    run_agent_socket(ws_tx, ws_rx, state, agent_id, name, capabilities, false).await;
 }
 
-async fn handle_browser_agent_socket(socket: WebSocket, state: AppState) {
+async fn handle_browser_agent_socket(socket: WebSocket, state: AppState, host_local: bool) {
     let (ws_tx, mut ws_rx) = socket.split();
     let Some(first) = read_text_message(&mut ws_rx).await else {
         warn!(
@@ -244,7 +248,16 @@ async fn handle_browser_agent_socket(socket: WebSocket, state: AppState) {
     capabilities.output_devices = Vec::new();
     capabilities.output_device_capabilities = Vec::new();
 
-    run_agent_socket(ws_tx, ws_rx, state, agent_id, name, capabilities).await;
+    run_agent_socket(
+        ws_tx,
+        ws_rx,
+        state,
+        agent_id,
+        name,
+        capabilities,
+        host_local,
+    )
+    .await;
 }
 
 /// A stable, URL-safe browser agent id. Browser zone ids double as ownership
@@ -267,6 +280,7 @@ async fn run_agent_socket(
     agent_id: String,
     name: String,
     capabilities: AgentCapabilities,
+    host_local: bool,
 ) {
     let agent_ref = agent_log_ref(&agent_id);
     info!(
@@ -289,6 +303,9 @@ async fn run_agent_socket(
     };
     let connection_id =
         register_remote_agent_playback_zones(&state, agent_id.clone(), name, capabilities, cmd_tx);
+    if host_local {
+        state.zones().mark_agent_host_local(&agent_id);
+    }
 
     let writer = tokio::spawn(async move {
         let mut heartbeat = tokio::time::interval(Duration::from_secs(5));

@@ -75,10 +75,37 @@ const AGENT_STREAM_RANGE_BYTES: u64 = 8 * 1024 * 1024;
 const AGENT_MAX_PREFETCHED_STREAMS: usize = 2;
 
 struct AgentStreamHandle {
-    source: AgentStreamSource,
+    source: AgentSource,
     ext_hint: Option<String>,
     display_name: String,
     fallback_tags: TrackTags,
+}
+
+/// How this agent reads a track's bytes.
+///
+/// Nearly everything is a finished resource the core can serve any byte range
+/// of. Apple Music is not: it exists only while Music.app is decoding it on
+/// the core's Mac, so it arrives as one sequential response with no length and
+/// no way back.
+enum AgentSource {
+    Ranged(AgentStreamSource),
+    Live(AgentLiveStreamSource),
+}
+
+impl AgentSource {
+    fn byte_len(&self) -> Option<u64> {
+        match self {
+            Self::Ranged(source) => source.byte_len,
+            Self::Live(_) => None,
+        }
+    }
+
+    fn into_media_source(self) -> Box<dyn MediaSource> {
+        match self {
+            Self::Ranged(source) => Box::new(source),
+            Self::Live(source) => Box::new(source),
+        }
+    }
 }
 
 struct EnginePrefetchedSource {
@@ -89,12 +116,12 @@ struct EnginePrefetchedSource {
 
 impl AgentStreamHandle {
     fn byte_len(&self) -> u64 {
-        self.source.byte_len.unwrap_or(0)
+        self.source.byte_len().unwrap_or(0)
     }
 
     fn into_stream_queue_item(self) -> StreamQueueItem {
         StreamQueueItem {
-            source: Box::new(self.source),
+            source: self.source.into_media_source(),
             ext_hint: self.ext_hint,
             display_name: self.display_name,
             fallback_cover: None,
@@ -199,6 +226,104 @@ impl MediaSource for AgentStreamSource {
 
     fn byte_len(&self) -> Option<u64> {
         self.byte_len
+    }
+}
+
+/// One sequential HTTP response, read as it arrives.
+///
+/// This is the shape of live audio: the core is capturing Music.app as the
+/// agent plays it, so there is no length to report, nothing behind the read
+/// position to seek back to, and a read simply waits when the producer has not
+/// got there yet.
+struct AgentLiveStreamSource {
+    runtime: tokio::runtime::Handle,
+    response: Option<reqwest::Response>,
+    pending: Vec<u8>,
+    pending_pos: usize,
+}
+
+impl AgentLiveStreamSource {
+    async fn open(token: &str, url: Url) -> Result<Self, String> {
+        let client = Client::new();
+        let headers = agent_auth_headers(token)?;
+        let response = client
+            .get(url)
+            .headers(headers)
+            .send()
+            .await
+            .map_err(|e| format!("agent live stream request failed: {e}"))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(format!("agent live stream returned HTTP {status}"));
+        }
+        Ok(Self {
+            runtime: tokio::runtime::Handle::current(),
+            response: Some(response),
+            pending: Vec::new(),
+            pending_pos: 0,
+        })
+    }
+}
+
+impl Read for AgentLiveStreamSource {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        loop {
+            let available = self.pending.len().saturating_sub(self.pending_pos);
+            if available > 0 {
+                let count = available.min(buf.len());
+                buf[..count]
+                    .copy_from_slice(&self.pending[self.pending_pos..self.pending_pos + count]);
+                self.pending_pos += count;
+                if self.pending_pos == self.pending.len() {
+                    self.pending.clear();
+                    self.pending_pos = 0;
+                }
+                return Ok(count);
+            }
+            let Some(response) = self.response.as_mut() else {
+                return Ok(0);
+            };
+            match self.runtime.block_on(response.chunk()) {
+                Ok(Some(chunk)) if chunk.is_empty() => continue,
+                Ok(Some(chunk)) => {
+                    self.pending = chunk.to_vec();
+                    self.pending_pos = 0;
+                }
+                // The core closed the capture: an ordinary end of stream.
+                Ok(None) => {
+                    self.response = None;
+                    return Ok(0);
+                }
+                Err(error) => {
+                    self.response = None;
+                    return Err(io::Error::other(format!(
+                        "live stream read failed: {error}"
+                    )));
+                }
+            }
+        }
+    }
+}
+
+impl Seek for AgentLiveStreamSource {
+    fn seek(&mut self, _pos: SeekFrom) -> std::io::Result<u64> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "a live stream cannot be seeked",
+        ))
+    }
+}
+
+impl MediaSource for AgentLiveStreamSource {
+    fn is_seekable(&self) -> bool {
+        false
+    }
+
+    fn byte_len(&self) -> Option<u64> {
+        None
     }
 }
 
@@ -1046,7 +1171,7 @@ async fn play_source(
     }
     if !player.play_stream_if_epoch(
         play_epoch,
-        Box::new(handle.source),
+        handle.source.into_media_source(),
         handle.ext_hint,
         handle.display_name,
         None,
@@ -1255,7 +1380,11 @@ async fn open_stream_source(
 ) -> Result<AgentStreamHandle, String> {
     let url = source_stream_url(base_url, source);
     let url = Url::parse(&url).map_err(|e| format!("parse stream URL: {e}"))?;
-    let source_handle = AgentStreamSource::open(token, url).await?;
+    let source_handle = if source_is_live(source) {
+        AgentSource::Live(AgentLiveStreamSource::open(token, url).await?)
+    } else {
+        AgentSource::Ranged(AgentStreamSource::open(token, url).await?)
+    };
     Ok(AgentStreamHandle {
         source: source_handle,
         ext_hint: source_ext_hint(source),
@@ -1297,11 +1426,19 @@ fn url_uses_loopback(url: &str) -> bool {
     host.eq_ignore_ascii_case("localhost") || host == "::1" || host.starts_with("127.")
 }
 
+/// Whether the core will serve this source as live capture rather than as a
+/// resource it can hand out byte ranges of.
+fn source_is_live(source: &SourceRef) -> bool {
+    matches!(source, SourceRef::AppleMusicTrack { .. })
+}
+
 fn source_ext_hint(source: &SourceRef) -> Option<String> {
     match source {
         SourceRef::LocalTrack { ext_hint, .. } => ext_hint.clone(),
         SourceRef::QobuzTrack { .. } => Some("flac".to_string()),
-        SourceRef::AppleMusicTrack { .. } => None,
+        // The core relays Music.app's decoded output as integer PCM in a WAV
+        // container whose data chunk never ends.
+        SourceRef::AppleMusicTrack { .. } => Some("wav".to_string()),
     }
 }
 

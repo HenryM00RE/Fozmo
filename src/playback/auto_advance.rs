@@ -2039,6 +2039,8 @@ mod tests {
             remote_signal_path: None,
             remote_buffer_state: None,
             browser_stream_signal: None,
+            apple_music_stream_zone_id: None,
+            apple_music_stream_zone_name: None,
         }
     }
 }

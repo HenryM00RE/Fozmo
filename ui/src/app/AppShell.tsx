@@ -7,6 +7,7 @@ import { SettingsSidebarNav } from '../features/settings/SettingsSidebarNav';
 import { storageKey } from '../shared/identity';
 import { capabilityEnabled } from '../shared/lib/capabilities';
 import type { JsonRecord, RouteState } from '../shared/types';
+import { AppAlertBanner } from '../shared/ui/AppAlertBanner';
 import { Icon } from '../shared/ui/Icon';
 import { SelectionActionsToolbar } from '../shared/ui/SelectionActionsToolbar';
 import type { SelectionToolbarState } from '../shared/ui/selectionToolbar';
@@ -25,11 +26,13 @@ const SIDEBAR_LIBRARY_OPEN_KEY = storageKey('SidebarLibraryOpen');
 type MobileNavMode = 'main' | 'settings';
 
 type AppShellProps = {
+  alert?: string;
   children: ReactNode;
   chrome?: ReactNode;
   globalSearchOpen: boolean;
   notice: string;
   noticeKey: number;
+  onDismissAlert?: () => void;
   onNavigate: (next: RouteState) => void;
   onOpenSearch: () => void;
   onNotice: (message: string) => void;
@@ -42,11 +45,13 @@ type AppShellProps = {
 };
 
 export function AppShell({
+  alert,
   children,
   chrome,
   globalSearchOpen,
   notice,
   noticeKey,
+  onDismissAlert,
   onNavigate,
   onOpenSearch,
   onNotice,
@@ -89,6 +94,7 @@ export function AppShell({
 
   return (
     <div className="react-app app-shell">
+      {alert ? <AppAlertBanner message={alert} onDismiss={() => onDismissAlert?.()} /> : null}
       <MobileTopBar
         globalSearchOpen={globalSearchOpen}
         notice={notice}

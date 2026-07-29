@@ -39,7 +39,16 @@ import { useAppRouteEffects } from './useAppRouteEffects';
 
 export default function App() {
   const { customDisplayFont } = useAppearanceSettings();
-  const { notice, noticeKey, setNotice, setToolbarAction, toolbarAction } = useAppNotices();
+  const {
+    alert,
+    dismissAlert,
+    notice,
+    noticeKey,
+    setAlertStatus,
+    setNotice,
+    setToolbarAction,
+    toolbarAction
+  } = useAppNotices();
   const { authMessage, authState, retryRemoteAuth } = useRemoteLinkExchange(setNotice);
 
   if (authState !== 'authorised') {
@@ -54,8 +63,11 @@ export default function App() {
 
   return (
     <AuthenticatedApp
+      alert={alert}
+      dismissAlert={dismissAlert}
       notice={notice}
       noticeKey={noticeKey}
+      setAlertStatus={setAlertStatus}
       setNotice={setNotice}
       setToolbarAction={setToolbarAction}
       toolbarAction={toolbarAction}
@@ -65,15 +77,21 @@ export default function App() {
 }
 
 function AuthenticatedApp({
+  alert,
+  dismissAlert,
   notice,
   noticeKey,
+  setAlertStatus,
   setNotice,
   setToolbarAction,
   toolbarAction,
   customDisplayFont
 }: {
+  alert: string;
+  dismissAlert: () => void;
   notice: string;
   noticeKey: number;
+  setAlertStatus: ReturnType<typeof useAppNotices>['setAlertStatus'];
   setNotice: (message: string) => void;
   setToolbarAction: ReturnType<typeof useAppNotices>['setToolbarAction'];
   toolbarAction: ReturnType<typeof useAppNotices>['toolbarAction'];
@@ -140,6 +158,9 @@ function AuthenticatedApp({
     [playbackZones, status]
   );
   const settingsStatus = useSettingsStatus(status);
+  // The banner names the output holding the Apple Music stream, which only
+  // status knows.
+  useEffect(() => setAlertStatus(status), [setAlertStatus, status]);
   const { loading, refreshCore } = useAppRefresh({
     refreshHistoryStats,
     refreshLibraryData,
@@ -331,9 +352,11 @@ function AuthenticatedApp({
 
   return (
     <AppShell
+      alert={alert}
       globalSearchOpen={globalSearch.open}
       notice={notice}
       noticeKey={noticeKey}
+      onDismissAlert={dismissAlert}
       onNavigate={navigate}
       onNotice={setNotice}
       onOpenSearch={() => globalSearch.setOpen(true)}

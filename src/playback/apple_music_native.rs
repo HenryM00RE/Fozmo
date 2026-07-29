@@ -30,24 +30,24 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use tracing::{debug, info, warn};
 
-const TRACK_ACTIVATION_TIMEOUT: Duration = Duration::from_secs(10);
-const TRACK_ACTIVATION_POLL: Duration = Duration::from_millis(75);
+pub(super) const TRACK_ACTIVATION_TIMEOUT: Duration = Duration::from_secs(10);
+pub(super) const TRACK_ACTIVATION_POLL: Duration = Duration::from_millis(75);
 const TRACK_TRANSPORT_SETTLE_TIMEOUT: Duration = Duration::from_secs(3);
-const TRACK_START_POSITION_TOLERANCE_SECS: f64 = 1.0;
+pub(super) const TRACK_START_POSITION_TOLERANCE_SECS: f64 = 1.0;
 const TRACK_PARK_POSITION_TOLERANCE_SECS: f64 = 0.250;
 const START_PREFILL_MIN_SECS: f64 = 0.250;
 const RESUME_PREFILL_TARGET_SECS: f64 = 0.080;
 const RESUME_PREFILL_MIN_SECS: f64 = 0.030;
 const RESUME_PREFILL_TIMEOUT: Duration = Duration::from_millis(1_000);
-const MUSIC_NOTIFICATION_FALLBACK: Duration = Duration::from_secs(2);
-const MUSIC_STOP_CONFIRMATION_DELAY: Duration = Duration::from_millis(100);
-const MUSIC_TRACK_CHANGE_CONFIRMATION_DELAY: Duration = Duration::from_millis(200);
+pub(super) const MUSIC_NOTIFICATION_FALLBACK: Duration = Duration::from_secs(2);
+pub(super) const MUSIC_STOP_CONFIRMATION_DELAY: Duration = Duration::from_millis(100);
+pub(super) const MUSIC_TRACK_CHANGE_CONFIRMATION_DELAY: Duration = Duration::from_millis(200);
 const STARTUP_TRANSPORT_STATUS_POLL: Duration = Duration::from_millis(350);
 const STARTUP_TRANSPORT_RECOVERY_TIMEOUT: Duration = Duration::from_secs(5);
 const STARTUP_STALL_POSITION_MAX_SECS: f64 = 1.0;
 const PLAYLIST_PLAY_ATTEMPTS: usize = 3;
 const PLAYLIST_PLAY_RETRY_DELAY: Duration = Duration::from_millis(300);
-const PLAYLIST_SELECTION_RETRY_DELAY: Duration = Duration::from_secs(2);
+pub(super) const PLAYLIST_SELECTION_RETRY_DELAY: Duration = Duration::from_secs(2);
 const PLAYER_PAUSE_TIMEOUT: Duration = Duration::from_secs(4);
 const PLAYER_OUTPUT_START_TIMEOUT: Duration = Duration::from_secs(25);
 const PLAYER_EOF_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
@@ -59,7 +59,7 @@ const CROSS_PROVIDER_PREWARM_SECS: f64 = 8.0;
 const CROSS_PROVIDER_HANDOFF_WINDOW_SECS: f64 = 1.5;
 const CROSS_PROVIDER_ENDPOINT_TOLERANCE_SECS: f64 = 0.100;
 
-fn apple_music_boundary_lead_secs(configured: f64) -> f64 {
+pub(super) fn apple_music_boundary_lead_secs(configured: f64) -> f64 {
     if configured.is_finite() {
         configured.clamp(0.5, 5.0)
     } else {
@@ -67,7 +67,7 @@ fn apple_music_boundary_lead_secs(configured: f64) -> f64 {
     }
 }
 
-fn apple_music_startup_prefill_secs(startup_prefill_ms: u32, buffer_ms: u32) -> f64 {
+pub(super) fn apple_music_startup_prefill_secs(startup_prefill_ms: u32, buffer_ms: u32) -> f64 {
     f64::from(startup_prefill_ms.clamp(250, 2_000).max(buffer_ms)) / 1_000.0
 }
 
@@ -1174,7 +1174,7 @@ pub(crate) async fn next(state: &AppState, zone_id: &str) -> Result<bool, Playba
     Ok(true)
 }
 
-async fn hydrate_catalog_source(
+pub(super) async fn hydrate_catalog_source(
     state: &AppState,
     source: SourceRef,
 ) -> Result<SourceRef, PlaybackError> {
@@ -1213,7 +1213,7 @@ async fn hydrate_catalog_source(
 /// IDs alone, so a track with no album metadata — a single, or a radio pick —
 /// is still playable. Storefront and album are used for the verified-format
 /// record and for logging.
-fn catalog_identity(
+pub(super) fn catalog_identity(
     source: &SourceRef,
 ) -> Result<(String, Option<String>, Option<String>), PlaybackError> {
     let SourceRef::AppleMusicTrack {
@@ -1375,7 +1375,7 @@ fn native_apple_music_playlist_pair(current: &SourceRef, next: &SourceRef) -> bo
 /// the tracks were library items, AppleScript could not report a catalog track
 /// at all and Fozmo had to guess from title and artist. Metadata comparison
 /// stays only as a fallback for the moment before a sync has produced keys.
-fn music_track_matches_expected(
+pub(super) fn music_track_matches_expected(
     snapshot: &MusicAppSnapshot,
     source: &SourceRef,
     expected_key: Option<&str>,
@@ -1420,7 +1420,10 @@ fn music_track_matches_source(snapshot: &MusicAppSnapshot, source: &SourceRef) -
 /// blocks. During transport changes it can therefore return a key with no
 /// title/artist for a single snapshot. That is an unknown observation, not an
 /// interruption.
-fn music_track_definitively_differs(snapshot: &MusicAppSnapshot, source: &SourceRef) -> bool {
+pub(super) fn music_track_definitively_differs(
+    snapshot: &MusicAppSnapshot,
+    source: &SourceRef,
+) -> bool {
     let Some(actual_title) = snapshot.track.title.as_deref() else {
         return false;
     };
@@ -2263,7 +2266,7 @@ fn should_recover_startup_stall(last_position_secs: f64, already_attempted: bool
             || last_position_secs <= STARTUP_STALL_POSITION_MAX_SECS)
 }
 
-fn projected_music_position(last_position_secs: f64, elapsed: Option<Duration>) -> f64 {
+pub(super) fn projected_music_position(last_position_secs: f64, elapsed: Option<Duration>) -> f64 {
     if !last_position_secs.is_finite() || last_position_secs < 0.0 {
         return 0.0;
     }
@@ -2274,7 +2277,7 @@ fn projected_music_position(last_position_secs: f64, elapsed: Option<Duration>) 
             .unwrap_or_default()
 }
 
-fn native_track_completed(last_position_secs: f64, duration_secs: f64) -> bool {
+pub(super) fn native_track_completed(last_position_secs: f64, duration_secs: f64) -> bool {
     duration_secs.is_finite()
         && duration_secs > 0.0
         && last_position_secs.is_finite()
@@ -2407,7 +2410,7 @@ async fn finish_native_playback(
     .await;
 }
 
-fn schedule_queue_cleanup(state: &AppState) {
+pub(super) fn schedule_queue_cleanup(state: &AppState) {
     let state = state.clone();
     let idle_secs = state
         .settings()
@@ -2429,7 +2432,7 @@ fn schedule_queue_cleanup(state: &AppState) {
     });
 }
 
-fn promote_gapless_listening_boundary(
+pub(super) fn promote_gapless_listening_boundary(
     state: &AppState,
     zone_id: &str,
     previous: &SourceRef,
@@ -2588,7 +2591,7 @@ fn retains_capture_route(completed: bool, queue: &[SourceRef]) -> bool {
             .is_some_and(|next| matches!(next, SourceRef::AppleMusicTrack { .. }))
 }
 
-fn zone_queue_sources(state: &AppState, zone_id: &str) -> Vec<SourceRef> {
+pub(super) fn zone_queue_sources(state: &AppState, zone_id: &str) -> Vec<SourceRef> {
     state
         .library()
         .zone_queue(zone_id)
@@ -2596,7 +2599,7 @@ fn zone_queue_sources(state: &AppState, zone_id: &str) -> Vec<SourceRef> {
         .unwrap_or_default()
 }
 
-async fn music_status_blocking() -> Result<MusicAppSnapshot, PlaybackError> {
+pub(super) async fn music_status_blocking() -> Result<MusicAppSnapshot, PlaybackError> {
     tokio::task::spawn_blocking(music_app_status)
         .await
         .map_err(|error| {
@@ -2605,7 +2608,7 @@ async fn music_status_blocking() -> Result<MusicAppSnapshot, PlaybackError> {
         .map_err(PlaybackError::integration)
 }
 
-async fn wait_for_music_notification_blocking(timeout: Duration) {
+pub(super) async fn wait_for_music_notification_blocking(timeout: Duration) {
     let _ = tokio::task::spawn_blocking(move || wait_for_music_app_notification(timeout)).await;
 }
 
@@ -2613,7 +2616,7 @@ async fn wait_for_music_notification_blocking(timeout: Duration) {
 ///
 /// Music.app can restore its previous global player position while it builds a
 /// transport, so the position is reasserted until the reported timeline agrees.
-async fn restart_queue_playlist_from_start(
+pub(super) async fn restart_queue_playlist_from_start(
     state: &AppState,
     source: &SourceRef,
     expected_key: Option<&str>,
@@ -2666,7 +2669,7 @@ async fn restart_queue_playlist_from_start(
 /// advance through its own playlist; a Qobuz or local successor is handed to
 /// the engine instead. It also stops at a sample-rate change, since a new rate
 /// needs a fresh capture session and cannot be crossed inside one playlist.
-fn queue_playlist_song_ids(
+pub(super) fn queue_playlist_song_ids(
     state: &AppState,
     source: &SourceRef,
     queue: &[SourceRef],
@@ -2734,7 +2737,7 @@ fn cached_track_rate_hz(state: &AppState, source: &SourceRef) -> Option<u32> {
 /// Returns the playlist's `database ID`s in playback order. Those are the
 /// identities the verification loops match against: Music.app's `current track`
 /// only became readable at all because these are now library items.
-async fn stage_queue_generation_blocking(
+pub(super) async fn stage_queue_generation_blocking(
     state: &AppState,
     song_ids: Vec<String>,
     startup_id: Option<&str>,
@@ -2747,7 +2750,9 @@ async fn stage_queue_generation_blocking(
         .map_err(playback_error)
 }
 
-fn selected_queue_target(state: &AppState) -> Result<AppleQueuePlaybackTarget, PlaybackError> {
+pub(super) fn selected_queue_target(
+    state: &AppState,
+) -> Result<AppleQueuePlaybackTarget, PlaybackError> {
     state.apple_music().current_queue_target().ok_or_else(|| {
         PlaybackError::internal_invariant(
             "No immutable Apple Music queue generation is selected.".to_string(),
@@ -2755,7 +2760,7 @@ fn selected_queue_target(state: &AppState) -> Result<AppleQueuePlaybackTarget, P
     })
 }
 
-async fn play_queue_playlist_blocking(
+pub(super) async fn play_queue_playlist_blocking(
     target: &AppleQueuePlaybackTarget,
 ) -> Result<(), PlaybackError> {
     let mut last_error = None;
@@ -2790,7 +2795,7 @@ async fn play_queue_playlist_blocking(
     )))
 }
 
-async fn prepare_music_blocking() -> Result<(), PlaybackError> {
+pub(super) async fn prepare_music_blocking() -> Result<(), PlaybackError> {
     tokio::task::spawn_blocking(prepare_music_app)
         .await
         .map_err(|error| {
@@ -2801,7 +2806,7 @@ async fn prepare_music_blocking() -> Result<(), PlaybackError> {
         .map_err(PlaybackError::integration)
 }
 
-async fn pause_music_blocking() -> Result<(), PlaybackError> {
+pub(super) async fn pause_music_blocking() -> Result<(), PlaybackError> {
     tokio::task::spawn_blocking(pause_music_app)
         .await
         .map_err(|error| {
@@ -2810,7 +2815,7 @@ async fn pause_music_blocking() -> Result<(), PlaybackError> {
         .map_err(PlaybackError::integration)
 }
 
-async fn play_music_blocking() -> Result<(), PlaybackError> {
+pub(super) async fn play_music_blocking() -> Result<(), PlaybackError> {
     tokio::task::spawn_blocking(play_music_app)
         .await
         .map_err(|error| {
@@ -2819,7 +2824,7 @@ async fn play_music_blocking() -> Result<(), PlaybackError> {
         .map_err(PlaybackError::integration)
 }
 
-async fn set_music_position_blocking(seconds: f64) -> Result<(), PlaybackError> {
+pub(super) async fn set_music_position_blocking(seconds: f64) -> Result<(), PlaybackError> {
     tokio::task::spawn_blocking(move || set_music_app_position(seconds))
         .await
         .map_err(|error| {
@@ -2828,7 +2833,7 @@ async fn set_music_position_blocking(seconds: f64) -> Result<(), PlaybackError> 
         .map_err(PlaybackError::integration)
 }
 
-fn playback_error(error: AppleMusicMvpError) -> PlaybackError {
+pub(super) fn playback_error(error: AppleMusicMvpError) -> PlaybackError {
     match error.code.as_str() {
         "music_authorization_not_determined"
         | "music_authorization_denied"

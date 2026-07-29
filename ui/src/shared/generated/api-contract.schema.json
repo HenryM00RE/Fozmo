@@ -3572,6 +3572,19 @@
           "description": "Runtime state of the separately built direct-AirPlay process.",
           "type": "string"
         },
+        "apple_music_stream_zone_id": {
+          "description": "The zone currently holding this Mac's one Apple Music stream, if any.\n\nFozmo captures Music.app by taking over the Mac's default output, so only one zone can play Apple Music at a time. Clients read this to explain a refused Apple Music request by naming the output that already has it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "apple_music_stream_zone_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "block_duration_ns": {
           "format": "uint64",
           "minimum": 0.0,
