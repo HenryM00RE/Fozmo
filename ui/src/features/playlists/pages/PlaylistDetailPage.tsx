@@ -10,7 +10,7 @@ import { formatLongDuration, sourceTrack } from '../../../shared/lib/appSupport'
 import { displayTitleUsesFallbackFont } from '../../../shared/lib/displayTitle';
 import { formatTime } from '../../../shared/lib/format';
 import type { CustomDisplayFontSettings } from '../../../shared/lib/theme';
-import type { LibraryTrack, QueueItem } from '../../../shared/types';
+import type { QueueItem } from '../../../shared/types';
 import { Icon } from '../../../shared/ui/Icon';
 import { Menu } from '../../../shared/ui/Menu';
 import { Modal } from '../../../shared/ui/Modal';
@@ -24,13 +24,15 @@ import {
   albumTrackPlaybackMatchContext,
   albumTrackPlaybackState
 } from '../../albums/components/AlbumTrackList';
-import { usePlaybackSnapshot } from '../../playback/model/playbackStore';
+import type { PlaybackStatus } from '../../playback/model/playbackStore';
 import { PlaylistCover } from '../components/PlaylistCover';
 import { PlaylistTrackArt } from '../components/PlaylistTrackArt';
 import {
   playlistCreatedAt,
   playlistCsv,
   playlistCsvFilename,
+  playbackFilenameOfTrack,
+  playlistItemAsPlaybackTrack,
   playlistItems,
   playlistUpdatedAt,
   playPlaylist,
@@ -52,6 +54,7 @@ type PlaylistDetailProps = Pick<
   onOpenAlbum: (id: string | number) => void;
   onOpenQobuzAlbum: (id: string | number) => void;
   onOpenArtist: (name: string) => void;
+  playbackStatus: PlaybackStatus;
   customDisplayFont: CustomDisplayFontSettings | null;
 };
 
@@ -73,23 +76,6 @@ type PointerReorderState = {
   pointerId: number;
 } | null;
 
-function playbackFilenameOfTrack(track: LibraryTrack) {
-  return String(track.file_name || '');
-}
-
-function playlistItemAsPlaybackTrack(item: QueueItem): LibraryTrack {
-  const trackId = item.ref?.track_id;
-  return {
-    id: trackId,
-    track_id: trackId,
-    file_name: item.filename || item.ref?.file_name || '',
-    title: item.title,
-    artist: item.artist,
-    album: item.album,
-    album_artist: item.albumArtist,
-    qobuz_track: item.qobuzTrack
-  } as unknown as LibraryTrack;
-}
 
 export function PlaylistDetailPage({
   id,
@@ -102,6 +88,7 @@ export function PlaylistDetailPage({
   onOpenAlbum,
   onOpenQobuzAlbum,
   onOpenArtist,
+  playbackStatus,
   customDisplayFont
 }: PlaylistDetailProps) {
   const playlist = playlists.find((item) => item.id === id);
@@ -118,7 +105,6 @@ export function PlaylistDetailPage({
     placement: 'above' | 'below';
   } | null>(null);
   const pointerReorderRef = useRef<PointerReorderState>(null);
-  const playbackStatus = usePlaybackSnapshot().status;
   useActionMenuScrollLock(Boolean(trackMenu || queueMenu));
 
   useEffect(() => {

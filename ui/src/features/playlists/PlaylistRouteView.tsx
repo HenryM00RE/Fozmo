@@ -1,3 +1,4 @@
+import type { PlaybackStatus } from '../playback/model/playbackStore';
 import type { CustomDisplayFontSettings } from '../../shared/lib/theme';
 import type { RouteState } from '../../shared/types';
 import type { PlaylistRouteState, PlaylistSelectionRouteState } from './model/playlistModel';
@@ -7,6 +8,7 @@ import { PlaylistsPage } from './pages/PlaylistsPage';
 type PlaylistRouteViewProps = {
   navigate: (next: RouteState) => void;
   openArtistName: (rawName: unknown) => void;
+  playbackStatus: PlaybackStatus;
   playlistRoute: PlaylistRouteState;
   playlistSelection: PlaylistSelectionRouteState;
   route: RouteState;
@@ -16,6 +18,7 @@ type PlaylistRouteViewProps = {
 export function PlaylistRouteView({
   navigate,
   openArtistName,
+  playbackStatus,
   playlistRoute,
   playlistSelection,
   route,
@@ -49,6 +52,7 @@ export function PlaylistRouteView({
       onOpenAlbum={(id) => navigate({ view: 'album', id })}
       onOpenQobuzAlbum={(id) => navigate({ view: 'qobuz-album', id })}
       onOpenArtist={openArtistName}
+      playbackStatus={playbackStatus}
       customDisplayFont={customDisplayFont}
     />
   );

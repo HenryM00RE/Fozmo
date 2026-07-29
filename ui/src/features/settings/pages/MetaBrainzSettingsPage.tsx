@@ -183,9 +183,7 @@ export function MetaBrainzSettingsPage({ onRefresh, qobuzStatus }: MetaBrainzSet
                 >
                   {autoMetaRunning ? (
                     <span className="autometa-button-spinner" aria-hidden="true" />
-                  ) : (
-                    <Icon path="M4 6h11M4 12h8M4 18h11M17 8l2 2 4-5M17 18l2 2 4-5" />
-                  )}
+                  ) : null}
                   {autoMetaRunning ? 'AutoMetadata running' : 'AutoMetadata'}
                 </button>
               </div>
@@ -392,15 +390,6 @@ function AutoMetaPanel({
         total
       });
   const statusLabel = autometaStatusLabel(progress, running, processed, total, etaLabel, percent);
-  const resultLabel = autometaResultLabel(
-    progress,
-    running,
-    processed,
-    total,
-    skipped,
-    errors,
-    noProper
-  );
   const countLabel =
     total > 0 ? `${processed} / ${total}` : running ? 'Preparing' : 'No queued albums';
   const providerMetric = runLinksQobuz ? 'Qobuz linked' : 'Tagged this run';
@@ -424,13 +413,17 @@ function AutoMetaPanel({
       ) : null}
       <div className="setting-row autometa-toggle-row">
         <span>
-          <strong>AutoMetadata</strong>
-          <small>{autometaPanelSummary(status, runLinksQobuz)}</small>
+          <strong>Link Qobuz matches</strong>
+          <small>
+            {running || paused
+              ? 'Locked while a run is in progress.'
+              : 'After MusicBrainz tagging, link safe Qobuz matches.'}
+          </small>
         </span>
         <button
           className={`toggle${linkQobuz ? ' on' : ''}`}
           type="button"
-          aria-label="Toggle Qobuz linking"
+          aria-label="Link Qobuz matches"
           aria-pressed={linkQobuz}
           disabled={running || paused}
           onClick={() => onLinkQobuzChange(!linkQobuz)}
@@ -464,9 +457,7 @@ function AutoMetaPanel({
           label="Last update"
           value={progress?.updated_at ? timeLabel(numberValue(progress.updated_at)) : 'No job yet'}
         />
-        <AutoMetaDetail label="Summary" value={resultLabel} />
       </div>
-      <RecentAutoMetaResults progress={progress} />
       <div className="metadata-assigner-actions autometa-actions">
         <button
           className={`pill primary${action === 'remaining' ? ' is-busy' : ''}`}
@@ -517,33 +508,6 @@ function AutoMetaPanel({
   );
 }
 
-function RecentAutoMetaResults({ progress }: { progress: AutoMetaProgress | null }) {
-  const results = Array.isArray(progress?.recent_results)
-    ? progress.recent_results.slice(0, 4)
-    : [];
-  if (!results.length) return null;
-  return (
-    <div className="autometa-current-work autometa-recent-results">
-      {results.map((item) => (
-        <AutoMetaDetail
-          key={item.id}
-          label={item.status}
-          value={`${item.album_title} / ${item.message || item.phase}`}
-        />
-      ))}
-    </div>
-  );
-}
-
-function autometaPanelSummary(status: string, linkQobuz: boolean) {
-  if (status === 'running')
-    return linkQobuz ? 'Running MusicBrainz and Qobuz matching.' : 'Running MusicBrainz matching.';
-  if (status === 'paused') return 'Paused. Resume continues from stored job state.';
-  if (status === 'interrupted') return 'Interrupted by restart. Resume continues remaining items.';
-  if (status === 'completed') return 'Complete. Remaining runs skip finished versions.';
-  return 'Tag local versions with MusicBrainz first, then optionally link Qobuz.';
-}
-
 function autoMetaLauncherText(progress: AutoMetaProgress | null, fallbackLinkQobuz: boolean) {
   const status = stringValue(progress?.status) || 'idle';
   const running = Boolean(progress?.running);
@@ -567,8 +531,8 @@ function timeLabel(epochSeconds: number) {
 function AutoMetaMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="autometa-metric">
-      <strong>{value}</strong>
       <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }
@@ -648,33 +612,6 @@ function autometaStatusLabel(
   if (total > 0 && processed >= total) return 'Complete';
   if (total === 0 && progress) return 'Nothing queued';
   return 'No run started';
-}
-
-function autometaResultLabel(
-  progress: AutoMetaProgress | null,
-  running: boolean,
-  processed: number,
-  total: number,
-  skipped: number | null,
-  errors: number | null,
-  noProper: number
-) {
-  const lastResult = stringValue(progress?.last_result);
-  if (running) return lastResult || 'Starting';
-  if (stringValue(progress?.error)) return stringValue(progress?.error);
-  if (lastResult) return lastResult;
-  if (total === 0 && progress) return 'No albums queued.';
-  if (total > 0 && processed >= total) {
-    return [
-      `${processed} processed`,
-      skipped === null ? '' : `${skipped} skipped`,
-      `${noProper} needs review`,
-      errors === null ? '' : `${errors} errors`
-    ]
-      .filter(Boolean)
-      .join(', ');
-  }
-  return progress ? 'Stopped before finishing.' : 'No run started.';
 }
 
 function autometaEtaLabel({

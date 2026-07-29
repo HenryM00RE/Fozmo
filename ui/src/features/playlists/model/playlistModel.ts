@@ -51,6 +51,39 @@ export function playlistItems(playlist: Playlist, tracks?: LibraryTrack[]) {
     .map((item) => enrichPlaylistItemAlbum(item as QueueItem, tracksById)) as QueueItem[];
 }
 
+/**
+ * A playlist row is a QueueItem, but the playback matcher in AlbumTrackList
+ * works on library tracks. The mapping is not one-to-one: a Qobuz item keeps
+ * its id under `qobuzTrack` and has no `ref` at all, and `filename` is only a
+ * real path for local items — for Qobuz it holds a display name, and for a
+ * local source with no file name it holds the track id as a string. Feeding
+ * either of those in as a file name matches nothing, which is why the row never
+ * lit up.
+ */
+export function playlistItemAsPlaybackTrack(item: QueueItem): LibraryTrack {
+  const qobuz = item.qobuzTrack;
+  const source = item.resolvedSource;
+  const id = item.ref?.track_id ?? qobuz?.id ?? qobuz?.track_id ?? source?.track_id;
+  // Only take `filename` when it can actually be a path: a resolved source
+  // without a file name puts the track id there instead.
+  const fileName =
+    item.ref?.file_name || source?.file_name || (qobuz || source ? '' : item.filename) || '';
+  return {
+    id,
+    track_id: id,
+    file_name: fileName,
+    title: item.title,
+    artist: item.artist,
+    album: item.album,
+    album_artist: item.albumArtist,
+    qobuz_track: qobuz
+  } as unknown as LibraryTrack;
+}
+
+export function playbackFilenameOfTrack(track: LibraryTrack) {
+  return String(track.file_name || '');
+}
+
 export function playlistCreatedAt(playlist: Playlist) {
   return Number(playlist.createdAt || playlist.created_at || Date.now());
 }

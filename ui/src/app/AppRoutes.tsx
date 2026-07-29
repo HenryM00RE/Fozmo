@@ -149,6 +149,7 @@ export function AppRoutes({
           route={route}
           navigate={navigate}
           openArtistName={openArtistName}
+          playbackStatus={playbackStatus}
           playlistRoute={playlistRoute}
           playlistSelection={playlistSelection}
           customDisplayFont={customDisplayFont}

@@ -4952,8 +4952,10 @@ html[data-theme="dark"] .seek-slider {
   color: var(--ink-strong, #fff);
 }
 
+/* The album track list drops the equalizer to muted ink — at full strength the
+   animated bars pull more attention than the row title they sit beside. */
 .react-app .playlist-detail-view .playlist-track-play.is-playing {
-  color: var(--ink-strong, #fff);
+  color: var(--ink-muted, #a8a297);
   cursor: default;
 }
 
@@ -5863,7 +5865,7 @@ html[data-theme="dark"] .react-app .album-description-panel {
 .react-app .autometa-progress-fill {
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--ink-muted, #a8a297), var(--ink, #f5f0e8));
+  background: var(--ink, #f5f0e8);
   transition: width 180ms ease;
 }
 
@@ -5873,17 +5875,27 @@ html[data-theme="dark"] .react-app .album-description-panel {
   gap: 8px;
 }
 
+/* Label above, figure below — the same stack the zone capability controls use,
+   rather than a number and a wrapping caption fighting for the same line. */
 .react-app .autometa-metric {
   min-width: 0;
-  min-height: 48px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: baseline;
-  gap: 10px;
-  padding: 9px 12px;
+  align-content: start;
+  gap: 7px;
+  padding: 11px 12px;
   border: 1px solid var(--line-08, rgba(255, 255, 255, 0.08));
   border-radius: 10px;
   background: color-mix(in srgb, var(--canvas-tint, rgba(255, 255, 255, 0.04)) 58%, transparent);
+}
+
+.react-app .autometa-metric span {
+  min-width: 0;
+  color: var(--ink-muted, #a8a297);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  text-transform: uppercase;
 }
 
 .react-app .autometa-metric strong {
@@ -5894,23 +5906,9 @@ html[data-theme="dark"] .react-app .album-description-panel {
   line-height: 1;
 }
 
-.react-app .autometa-metric span {
-  min-width: 0;
-  color: var(--ink-muted, #a8a297);
-  font-size: 11px;
-  font-weight: 720;
-  letter-spacing: 0.04em;
-  line-height: 1.25;
-  text-transform: uppercase;
-}
-
 .react-app .autometa-current-work {
   display: grid;
   border-top: 1px solid var(--line-08, rgba(255, 255, 255, 0.08));
-}
-
-.react-app .autometa-recent-results {
-  border-top-style: dashed;
 }
 
 .react-app .autometa-actions {

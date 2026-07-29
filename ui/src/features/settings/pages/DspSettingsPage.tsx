@@ -2,7 +2,7 @@ import { capabilityEnabled } from '../../../shared/lib/capabilities';
 import type { JsonRecord, ZoneProfile } from '../../../shared/types';
 import { SelectMenu } from '../../../shared/ui/SelectMenu';
 import { SettingsZoneSelect } from '../components/SettingsZoneSelect';
-import { zoneIsPlaying } from '../dspTargetZone';
+import { zoneIsPlayingNow } from '../dspTargetZone';
 import type { DspApplyState } from '../hooks/useDspSettings';
 import {
   configFromStatus,
@@ -57,9 +57,9 @@ export function DspSettingsPage({
   const dspAvailable = zoneSupportsDsp(selectedZone);
   const applyStatusLine = dspApplyStatusLine(applyState);
   const playingElsewhere = settingsZones.find(
-    (zone) => zone.id !== selectedZoneId && zoneIsPlaying(zone)
+    (zone) => zone.id !== selectedZoneId && zoneIsPlayingNow(zone, status)
   );
-  const selectedZonePlaying = selectedZone ? zoneIsPlaying(selectedZone) : false;
+  const selectedZonePlaying = selectedZone ? zoneIsPlayingNow(selectedZone, status) : false;
   const experimentalDsd256 = capabilityEnabled(status, 'experimental_dsd256');
   const nativeDsdAvailable = zoneSupportsNativeDsd(selectedZone);
   const dopDsdAvailable = zoneSupportsDopDsd(selectedZone);
@@ -216,11 +216,11 @@ export function DspSettingsPage({
               ) : null}
               <div className="setting-row control-row">
                 <span>
-                  <strong>Filter</strong>
+                  <strong>Upsampling Filter</strong>
                   <small>Choose the upsampling algorithm.</small>
                 </span>
                 <SelectMenu
-                  ariaLabel="Filter"
+                  ariaLabel="Upsampling Filter"
                   value={playbackConfig.filterType}
                   disabled={!playbackConfig.upsamplingEnabled}
                   onChange={(value) => updatePlaybackConfig('filterType', value)}
