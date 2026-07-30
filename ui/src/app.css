@@ -334,32 +334,22 @@ html[data-theme="dark"] .react-app .app-sidebar-brand {
   border-bottom: 0;
 }
 
-/* Frosted top bar. The 40px dissolve at the top of .view made content look
-   sheared off just below the toolbar, because the scroller stopped at the bar's
-   edge and had nothing to dissolve into but flat canvas. Instead the scroller
-   is pulled up under the bar by the bar's own height and pads itself back down,
-   so rows and headers pass *under* the bar, the way the mobile top bar already
-   works. The glass ends on a hard edge at the bar's own bottom — no feather, so
-   the boundary is where the pane is, rather than a gradient trying to hide it.
+/* Opaque top bar with a scroll-linked divider.
 
-   Blur radius trades glassiness against edge haze, and the haze is the binding
-   constraint. Measured in Chromium, the backdrop blur spreads a content edge
-   over roughly 2.2x the radius (14px → 32px, 40px → 88px), so wherever cover art
-   ends inside the bar, the surrounding canvas is pulled that far in as a pale
-   wash — it reads as the background leaking into the glass. At 10px the creep is
-   ~22px, tight enough to sit against the boundary instead of washing a third of
-   the bar. The tint carries most of the effect instead, which is also why
-   saturation is held down: a strong lift brightens pale backdrops and made that
-   same wash worse.
+   The bar used to be frosted glass, and before that the scroller wore a 40px
+   dissolve at its top edge. Both were attempts to blend content into the bar,
+   and both drew attention to the seam instead: rows read as sheared off part
+   way through, because the eye still resolves a half-erased row as a row.
 
-   There is no backdrop edge-dilution artifact to design around — over flat
-   content the band measures uniform top to bottom — and the wash is aligned with
-   its source to within half a pixel, fractional zoom included. */
+   So the bar is flat canvas and content simply disappears behind it. The
+   scroller is pulled up under the bar by the bar's own height and pads itself
+   back down, so rows and headers pass *under* an opaque pane rather than being
+   cut at its edge — the same arrangement the mobile top bar already uses.
 
-/* NOTE for anyone measuring this with Playwright: headless Chromium silently
-   ignores backdrop-filter: blur(), rendering the pane as a flat tint with a
-   pixel-sharp backdrop. Radius and edge behaviour must be checked with
-   `chromium.launch({ headless: false })` or the numbers are meaningless.
+   With nothing translucent left, the only thing marking the boundary is the
+   divider, and it is only needed when there is content behind the bar to
+   separate from. At the top of a page the ruling would be a line under empty
+   canvas, so it fades in on first scroll instead (see useWorkspaceScrolled).
 
    The overlap is a negative margin rather than a grid span because .workspace
    is a flex column: walnut-primitives.css sets `display: flex` on it after
@@ -371,47 +361,66 @@ html[data-theme="dark"] .react-app .app-sidebar-brand {
   .react-app .workspace {
     /* 36px profile avatar + the toolbar's 5px block padding. Pinned rather than
        left to content so the scroller's offset can't drift out of sync. */
-    --toolbar-glass-height: 46px;
-    --toolbar-glass-blur: 10px;
-    --toolbar-glass-saturate: 130%;
-    --toolbar-glass-tint: color-mix(in srgb, var(--canvas, rgb(242, 239, 230)) 88%, transparent);
+    --toolbar-height: 46px;
   }
 
   .react-app .app-toolbar {
     position: relative;
     box-sizing: border-box;
-    flex: 0 0 var(--toolbar-glass-height);
-    height: var(--toolbar-glass-height);
-    background: transparent;
+    flex: 0 0 var(--toolbar-height);
+    height: var(--toolbar-height);
+    background: var(--canvas, rgb(242, 239, 230));
   }
 
-  /* The glass stays on a pseudo-element rather than the bar's own background so
-     that backdrop-filter never sits on an ancestor of the toolbar's controls:
-     that would make the bar a containing block for the profile menu's popover
-     and risk clipping it. z-index: -1 keeps the layer behind those controls
-     while staying inside the bar's stacking context, hence still above the
-     scroller it overlaps. */
-  .react-app .app-toolbar::before {
-    content: '';
+  /* Same ruling as the sidebar's right edge, on a pseudo-element rather than a
+     border on the bar itself: the bar is box-sizing: border-box at a pinned
+     height, so its own border would eat into the content box and shift the
+     centred controls as the line came and went.
+
+     The line is still carried on the pseudo-element's *border* rather than as a
+     filled box, because that is what makes it match the sidebar rather than
+     merely share its token. 1.4px under the app's 0.92 zoom is 1.29 device
+     pixels; Chromium snaps border widths to whole device pixels, so the sidebar
+     renders a crisp 1px hairline while a 1.4px-tall filled box rasterizes
+     across two rows and reads visibly heavier and softer beside it. Measured
+     side by side, border and sidebar both come out as a single device-pixel row
+     of the same value; the filled box does not.
+
+     It stays on ::after so ::before is left free, and z-index keeps it above
+     the scroller passing underneath without escaping the bar's stacking
+     context. */
+  .react-app .app-toolbar::after {
+    content: "";
     position: absolute;
-    z-index: -1;
-    inset: 0;
+    z-index: 1;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 0;
     pointer-events: none;
-    background-color: var(--toolbar-glass-tint);
-    -webkit-backdrop-filter: blur(var(--toolbar-glass-blur)) saturate(var(--toolbar-glass-saturate));
-    backdrop-filter: blur(var(--toolbar-glass-blur)) saturate(var(--toolbar-glass-saturate));
+    border-bottom: var(--divider-line-width) solid var(--sidebar-divider-render-color);
+    opacity: 0;
+    transition: opacity var(--dur, 220ms) var(--ease-paper, ease);
   }
 
-  /* The scroller drops its own edge dissolve entirely: it erased content down to
-     bare canvas, and under the glass those two fades stacked into a near-white
-     band (measured 244,244,236 against 224,231,160 for the glass alone). The
-     bar's top edge is the window edge, so there is no seam left for a ramp to
-     soften either. */
+  .react-app .app-toolbar[data-scrolled="true"]::after {
+    opacity: 1;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .react-app .app-toolbar::after {
+      transition: none;
+    }
+  }
+
+  /* The scroller drops its own edge dissolve entirely: erasing content into
+     bare canvas is exactly the effect this replaces, and the bar's top edge is
+     the window edge, so there is no seam left for a ramp to soften either. */
   .react-app .workspace > .view {
     -webkit-mask-image: none;
     mask-image: none;
-    margin-top: calc(-1 * var(--toolbar-glass-height));
-    padding-top: calc(var(--toolbar-glass-height) + 20px);
+    margin-top: calc(-1 * var(--toolbar-height));
+    padding-top: calc(var(--toolbar-height) + 20px);
   }
 }
 

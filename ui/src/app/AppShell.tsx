@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useRef, useState } from 'react';
 import type { PlaylistShellState } from '../features/playlists/model/playlistShellState';
 import { PlaylistSidebarSection } from '../features/playlists/PlaylistSidebarSection';
 import type { ProfileShellState } from '../features/settings/model/profileShellState';
@@ -21,6 +21,7 @@ import {
   routeForNavItem,
   settingsNavItem
 } from './navigation';
+import { useWorkspaceScrolled } from './useWorkspaceScrolled';
 
 const SIDEBAR_LIBRARY_OPEN_KEY = storageKey('SidebarLibraryOpen');
 type MobileNavMode = 'main' | 'settings';
@@ -70,6 +71,8 @@ export function AppShell({
     clearRecentSelection
   } = selectionToolbar;
   const isSettingsRoute = route.view === 'settings';
+  const workspaceRef = useRef<HTMLElement | null>(null);
+  const workspaceScrolled = useWorkspaceScrolled(workspaceRef, `${route.view}:${route.id ?? ''}`);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileNavMode, setMobileNavMode] = useState<MobileNavMode>('main');
   const [sidebarLibraryOpen, setSidebarLibraryOpen] = useState(() => {
@@ -172,8 +175,12 @@ export function AppShell({
         )}
       </aside>
 
-      <main className="workspace">
-        <header className="app-toolbar" aria-label="Page controls">
+      <main className="workspace" ref={workspaceRef}>
+        <header
+          className="app-toolbar"
+          aria-label="Page controls"
+          data-scrolled={workspaceScrolled ? 'true' : 'false'}
+        >
           <div className="toolbar-left">
             <button
               className="btn-ghost"
