@@ -43,6 +43,54 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(command.storefront, "nz")
     }
 
+    func testBatchAlbumCommandDecodesStableWireFields() throws {
+        let command = try JSONDecoder().decode(
+            IncomingCommand.self,
+            from: Data(
+                """
+                {
+                  "v": \(helperProtocolVersion),
+                  "id": "cmd-batch",
+                  "type": "lookup_albums",
+                  "session_id": "am-test",
+                  "album_ids": ["album-2", "album-1"],
+                  "upc": "0-123456-789012"
+                }
+                """.utf8
+            )
+        )
+
+        XCTAssertEqual(command.albumIDs, ["album-2", "album-1"])
+        XCTAssertEqual(command.upc, "0-123456-789012")
+    }
+
+    func testAlbumLookupInputsPreserveOrderDeduplicateAndStayBounded() {
+        XCTAssertEqual(
+            CatalogInput.normalizedAlbumIDs([" album-2 ", "album-1", "album-2"]),
+            ["album-2", "album-1"]
+        )
+        XCTAssertNil(CatalogInput.normalizedAlbumIDs(nil))
+        XCTAssertNil(CatalogInput.normalizedAlbumIDs([]))
+        XCTAssertNil(
+            CatalogInput.normalizedAlbumIDs(
+                (0...CatalogInput.maximumAlbumLookupCount).map { "album-\($0)" }
+            )
+        )
+    }
+
+    func testUPCNormalizationIncludesAppleWidthVariant() {
+        XCTAssertEqual(
+            CatalogInput.normalizedUPCVariants(" 0-123456-789012 "),
+            ["0123456789012", "123456789012"]
+        )
+        XCTAssertEqual(
+            CatalogInput.normalizedUPCVariants("123456789012"),
+            ["123456789012"]
+        )
+        XCTAssertNil(CatalogInput.normalizedUPCVariants("UPC 123456789012"))
+        XCTAssertNil(CatalogInput.normalizedUPCVariants("1234"))
+    }
+
     func testAuthorizationLabelsAreStableProtocolValues() {
         XCTAssertEqual(AuthorizationLabel.string(for: .notDetermined), "not_determined")
         XCTAssertEqual(AuthorizationLabel.string(for: .denied), "denied")
@@ -212,6 +260,18 @@ final class ModelsTests: XCTestCase {
             (search["songs"] as? [[String: Any]])?.first?["song_id"] as? String, "song-1")
         XCTAssertEqual(
             (search["albums"] as? [[String: Any]])?.first?["album_id"] as? String,
+            "album-1"
+        )
+
+        var albumsEvent = HelperEvent(type: "catalog_albums")
+        albumsEvent.catalogAlbums = [album]
+        let albumsObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(albumsEvent))
+                as? [String: Any]
+        )
+        XCTAssertEqual(
+            (albumsObject["catalog_albums"] as? [[String: Any]])?.first?["album_id"]
+                as? String,
             "album-1"
         )
     }

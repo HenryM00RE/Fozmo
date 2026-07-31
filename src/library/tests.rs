@@ -5160,6 +5160,53 @@ fn apple_music_album_version_links_recordings_and_resolves_playback() {
         ],
     };
 
+    library
+        .save_apple_music_match_status(album_id, None, "fingerprint-current", "no_match")
+        .unwrap();
+    library
+        .save_apple_music_match_status(album_id, Some("nz"), "fingerprint-nz", "no_match")
+        .unwrap();
+    library
+        .save_apple_music_match_status(album_id, Some("us"), "fingerprint-us", "needs_review")
+        .unwrap();
+    assert_eq!(
+        library
+            .cached_apple_music_match_status(album_id, Some("current"), "fingerprint-current", 60,)
+            .unwrap()
+            .as_deref(),
+        Some("no_match"),
+        "an omitted storefront has a distinct current-storefront identity"
+    );
+    assert_eq!(
+        library
+            .cached_apple_music_match_status(album_id, Some("nz"), "fingerprint-nz", 60,)
+            .unwrap()
+            .as_deref(),
+        Some("no_match")
+    );
+    assert_eq!(
+        library
+            .cached_apple_music_match_status(album_id, Some("us"), "fingerprint-us", 60,)
+            .unwrap()
+            .as_deref(),
+        Some("needs_review"),
+        "storefront attempts do not overwrite each other"
+    );
+    assert!(
+        library
+            .cached_apple_music_match_status(album_id, Some("nz"), "changed-input", 60)
+            .unwrap()
+            .is_none(),
+        "metadata changes invalidate the cached outcome"
+    );
+    assert!(
+        library
+            .cached_apple_music_match_status(album_id, Some("nz"), "fingerprint-nz", 0)
+            .unwrap()
+            .is_none(),
+        "an expired cache entry is not reused"
+    );
+
     let preview = library
         .preview_apple_music_album_version(album_id, apple_album.clone())
         .unwrap()
@@ -5172,6 +5219,13 @@ fn apple_music_album_version_links_recordings_and_resolves_playback() {
         .link_apple_music_album(album_id, &apple_album)
         .unwrap()
         .unwrap();
+    assert!(
+        library
+            .cached_apple_music_match_status(album_id, Some("nz"), "fingerprint-nz", 60,)
+            .unwrap()
+            .is_none(),
+        "linking clears every cached miss for this album"
+    );
     assert_eq!(version.provider, "apple_music");
     assert_eq!(version.format.as_deref(), Some("Apple Music"));
     assert_eq!(version.sample_rate, None);
@@ -5199,6 +5253,13 @@ fn apple_music_album_version_links_recordings_and_resolves_playback() {
             .album
             .id,
         album_id
+    );
+    assert_eq!(
+        library
+            .cached_apple_music_album("apple-album-1")
+            .unwrap()
+            .unwrap(),
+        apple_album
     );
     let normalized_detail = library
         .album_version_detail(album_id, version.id)
@@ -5291,6 +5352,12 @@ fn apple_music_album_version_links_recordings_and_resolves_playback() {
     assert!(
         library
             .album_by_apple_music_id("apple-album-1")
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        library
+            .cached_apple_music_album("apple-album-1")
             .unwrap()
             .is_none()
     );
@@ -5645,8 +5712,8 @@ fn a_standalone_qobuz_album_matches_its_apple_music_edition() {
     );
 }
 
-/// Resolving a standalone Qobuz album's Apple edition costs a catalog search
-/// plus a lookup per candidate, so both the edition and the absence of one are
+/// Resolving a standalone Qobuz album's Apple edition costs catalog discovery
+/// and candidate hydration, so both the edition and the absence of one are
 /// remembered.
 #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
 #[test]
@@ -5668,7 +5735,7 @@ fn a_standalone_qobuz_apple_music_answer_is_remembered() {
         ..AppleCatalogAlbum::default()
     };
     library
-        .save_qobuz_apple_music_link("qobuz-homogenic", Some(&apple), 100)
+        .save_qobuz_apple_music_link("qobuz-homogenic", Some(&apple), 100, Some("nz"))
         .unwrap();
 
     let stored = library
@@ -5682,6 +5749,7 @@ fn a_standalone_qobuz_apple_music_answer_is_remembered() {
             .map(|album| album.album_id.as_str()),
         Some("apple-homogenic")
     );
+    assert_eq!(stored.storefront.as_deref(), Some("nz"));
     assert_eq!(
         stored
             .apple_album
@@ -5690,16 +5758,25 @@ fn a_standalone_qobuz_apple_music_answer_is_remembered() {
         Some("Apple Music editorial notes."),
         "the frozen catalog copy renders the version row without another lookup"
     );
+    assert_eq!(
+        library
+            .cached_apple_music_album("apple-homogenic")
+            .unwrap()
+            .unwrap(),
+        apple,
+        "the standalone Qobuz link is also a durable Apple catalog cache"
+    );
     assert!(stored.is_current(0), "a resolved edition never goes stale");
 
     library
-        .save_qobuz_apple_music_link("qobuz-nothing-on-apple", None, 0)
+        .save_qobuz_apple_music_link("qobuz-nothing-on-apple", None, 0, Some("us"))
         .unwrap();
     let miss = library
         .qobuz_apple_music_link("qobuz-nothing-on-apple")
         .unwrap()
         .unwrap();
     assert!(miss.apple_album.is_none());
+    assert_eq!(miss.storefront.as_deref(), Some("us"));
     assert!(
         miss.is_current(60),
         "a fresh miss stands instead of searching Apple again"

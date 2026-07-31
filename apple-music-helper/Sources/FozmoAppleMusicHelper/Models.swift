@@ -89,6 +89,49 @@ enum CatalogInput {
         return (1...25).contains(value) ? value : nil
     }
 
+    /// Catalog album IDs for one MusicKit resource request, in caller order.
+    static func normalizedAlbumIDs(_ value: [String]?) -> [String]? {
+        guard let value, !value.isEmpty, value.count <= maximumAlbumLookupCount else {
+            return nil
+        }
+        var seen = Set<String>()
+        var ordered: [String] = []
+        for raw in value {
+            guard let albumID = normalizedID(raw), albumID.count <= 256 else { return nil }
+            if seen.insert(albumID).inserted {
+                ordered.append(albumID)
+            }
+        }
+        return ordered
+    }
+
+    /// UPC-A, EAN, and GTIN values are sometimes formatted with spaces or dashes.
+    /// MusicKit expects the digits-only catalog value.
+    static func normalizedUPC(_ value: String?) -> String? {
+        guard let value = normalizedID(value) else { return nil }
+        guard value.unicodeScalars.allSatisfy({ scalar in
+            (48...57).contains(scalar.value)
+                || scalar.value == 45
+                || CharacterSet.whitespacesAndNewlines.contains(scalar)
+        }) else { return nil }
+        let digits = String(
+            decoding: value.utf8.filter { $0 >= 48 && $0 <= 57 },
+            as: UTF8.self
+        )
+        guard (8...14).contains(digits.count) else { return nil }
+        return digits
+    }
+
+    /// Apple often stores an EAN-13 beginning with zero as its UPC-12 form.
+    static func normalizedUPCVariants(_ value: String?) -> [String]? {
+        guard let exact = normalizedUPC(value) else { return nil }
+        var variants = [exact]
+        if exact.count == 13, exact.first == "0" {
+            variants.append(String(exact.dropFirst()))
+        }
+        return variants
+    }
+
     /// Song IDs for a queue sync, in Fozmo's order and free of duplicates.
     ///
     /// Music.app cannot distinguish two playlist entries that share a song, and
@@ -108,6 +151,9 @@ enum CatalogInput {
         return ordered
     }
 
+    // Album payloads include tracks and the IPC frame is capped at 1 MiB.
+    // The linker evaluates at most six catalog candidates.
+    static let maximumAlbumLookupCount = 6
     static let maximumQueueLength = 100
 }
 
@@ -138,6 +184,8 @@ struct IncomingCommand: Decodable, Equatable {
     let presentUI: Bool?
     let songID: String?
     let albumID: String?
+    let albumIDs: [String]?
+    let upc: String?
     let term: String?
     let limit: Int?
     let storefront: String?
@@ -162,6 +210,8 @@ struct IncomingCommand: Decodable, Equatable {
         case presentUI = "present_ui"
         case songID = "song_id"
         case albumID = "album_id"
+        case albumIDs = "album_ids"
+        case upc
         case term
         case limit
         case storefront
@@ -448,6 +498,7 @@ struct HelperEvent: Encodable, Equatable {
     var canPlayCatalogContent: Bool?
     var catalogSong: CatalogSongPayload?
     var catalogAlbum: CatalogAlbumPayload?
+    var catalogAlbums: [CatalogAlbumPayload]?
     var catalogSearch: CatalogSearchPayload?
     var stageOrAdopt: StageOrAdoptPayload?
     var libraryStatus: LibraryStatusPayload?
@@ -474,6 +525,7 @@ struct HelperEvent: Encodable, Equatable {
         case canPlayCatalogContent = "can_play_catalog_content"
         case catalogSong = "catalog_song"
         case catalogAlbum = "catalog_album"
+        case catalogAlbums = "catalog_albums"
         case catalogSearch = "catalog_search"
         case stageOrAdopt = "stage_or_adopt"
         case libraryStatus = "library_status"

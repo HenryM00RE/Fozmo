@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 5;
+pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 6;
 
 pub(super) fn migrate(conn: &Connection) -> Result<(), String> {
     let found = schema_version(conn)?;
@@ -46,6 +46,12 @@ pub(super) fn migrate(conn: &Connection) -> Result<(), String> {
             conn.pragma_update(None, "user_version", 5_u32)
                 .map_err(|error| format!("record library schema version 5: {error}"))?;
             version = 5;
+        }
+        if version < 6 {
+            migrate_to_v6(conn)?;
+            conn.pragma_update(None, "user_version", 6_u32)
+                .map_err(|error| format!("record library schema version 6: {error}"))?;
+            version = 6;
         }
         debug_assert_eq!(version, CURRENT_SCHEMA_VERSION);
         conn.execute_batch("COMMIT")
@@ -127,10 +133,33 @@ fn migrate_to_v5(conn: &Connection) -> Result<(), String> {
     )
 }
 
+/// Cache conclusive local Apple Music misses without making them permanent.
+/// The route supplies a fingerprint of every matching input, so rescans or
+/// metadata edits invalidate the row without relying on broad album timestamps.
+fn migrate_to_v6(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS apple_music_album_match_attempts (
+            album_id INTEGER NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+            storefront TEXT NOT NULL DEFAULT 'current',
+            input_fingerprint TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('no_match', 'needs_review')),
+            matched_at INTEGER NOT NULL,
+            PRIMARY KEY(album_id, storefront)
+        );
+        CREATE INDEX IF NOT EXISTS idx_album_versions_provider_identity
+            ON album_versions(provider, provider_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_qobuz_apple_music_links_apple_album_id
+            ON qobuz_apple_music_links(apple_album_id, matched_at DESC);
+        "#,
+    )
+    .map_err(|error| format!("create Apple Music album-match cache: {error}"))
+}
+
 /// A Qobuz album that no local album covers still deserves its Apple Music
 /// edition under Versions, but there is no `albums` row for an `album_versions`
-/// link to hang off. Resolving one costs a catalog search plus a lookup per
-/// candidate, so the outcome — including "Apple has nothing" — is remembered
+/// link to hang off. Resolving one costs catalog discovery plus full candidate
+/// hydration, so the outcome — including "Apple has nothing" — is remembered
 /// per Qobuz album ID instead of being rediscovered on every visit.
 fn migrate_to_v4(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(
@@ -992,6 +1021,86 @@ mod tests {
             )
             .unwrap(),
             1
+        );
+    }
+
+    #[test]
+    fn v6_migration_adds_the_fingerprinted_apple_album_match_cache() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+
+        assert_eq!(schema_version(&conn).unwrap(), CURRENT_SCHEMA_VERSION);
+        conn.execute(
+            r#"
+            INSERT INTO albums (
+                title, sort_key, confidence, match_status, track_count, created_at, updated_at
+            )
+            VALUES ('Dummy', 'dummy', 100, 'matched', 0, 1, 1)
+            "#,
+            [],
+        )
+        .unwrap();
+        let album_id = conn.last_insert_rowid();
+        conn.execute(
+            r#"
+            INSERT INTO apple_music_album_match_attempts (
+                album_id, storefront, input_fingerprint, status, matched_at
+            )
+            VALUES (?1, 'nz', 'fingerprint-v1', 'no_match', 1)
+            "#,
+            [album_id],
+        )
+        .unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO apple_music_album_match_attempts (
+                album_id, storefront, input_fingerprint, status, matched_at
+            )
+            VALUES (?1, 'us', 'fingerprint-v1-us', 'needs_review', 1)
+            "#,
+            [album_id],
+        )
+        .unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO apple_music_album_match_attempts (
+                album_id, input_fingerprint, status, matched_at
+            )
+            VALUES (?1, 'fingerprint-v1-current', 'no_match', 1)
+            "#,
+            [album_id],
+        )
+        .unwrap();
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM apple_music_album_match_attempts WHERE album_id = ?1",
+                [album_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            3
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT storefront FROM apple_music_album_match_attempts WHERE album_id = ?1 AND input_fingerprint = 'fingerprint-v1-current'",
+                [album_id],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "current"
+        );
+        assert!(
+            conn.execute(
+                r#"
+                INSERT INTO apple_music_album_match_attempts (
+                    album_id, storefront, input_fingerprint, status, matched_at
+                )
+                VALUES (?1, 'gb', 'fingerprint-v1-gb', 'unavailable', 1)
+                "#,
+                [album_id],
+            )
+            .is_err(),
+            "transient failures cannot be persisted as conclusive misses"
         );
     }
 

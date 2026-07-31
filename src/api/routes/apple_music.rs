@@ -23,6 +23,8 @@ use axum::{
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
+use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::{cmp::Ordering, collections::HashSet};
 
 type AppleMusicApiResult =
@@ -77,6 +79,7 @@ pub(super) fn routes() -> Router<AppState> {
 struct AppleMusicAlbumMatchResponse {
     status: String,
     linked_version: Option<AlbumVersionSummary>,
+    apple_album: Option<AppleCatalogAlbum>,
     candidates: Vec<AppleMusicAlbumMatchPreview>,
     message: Option<String>,
 }
@@ -87,6 +90,12 @@ struct AppleMusicAlbumMatchQuery {
     #[serde(default)]
     review: bool,
 }
+
+/// A conclusive miss is useful on repeat visits, but Apple does add catalog
+/// editions. Matching input changes invalidate it immediately through the
+/// fingerprint below; otherwise re-check after two weeks.
+const LOCAL_APPLE_MUSIC_MISS_RETRY_SECS: i64 = 14 * 24 * 60 * 60;
+const LOCAL_APPLE_MUSIC_MATCH_FINGERPRINT_SCHEMA: &str = "apple-album-match-v1";
 
 async fn launch(State(state): State<AppState>) -> AppleMusicApiResult {
     state
@@ -172,18 +181,54 @@ async fn lookup_album(
     Path(album_id): Path<String>,
     Query(query): Query<AppleMusicCatalogQuery>,
 ) -> Result<Json<AppleCatalogAlbum>, (StatusCode, Json<AppleMusicMvpError>)> {
-    let album = state
-        .apple_music()
-        .lookup_album(album_id, query.storefront)
-        .await
-        .map_err(api_error)?;
     let profile_id = profile
         .map(|Extension(profile)| profile.id)
         .unwrap_or_else(|| state.settings().active_profile_id());
+    let cached_album = {
+        let album_id = album_id.clone();
+        match state
+            .library()
+            .run_blocking(move |library| library.cached_apple_music_album(&album_id))
+            .await
+        {
+            Ok(album) => album,
+            Err(error) => {
+                tracing::warn!(
+                    event = "apple_music_catalog_cache_read_failed",
+                    %error,
+                    "Falling back to the live Apple Music catalog"
+                );
+                None
+            }
+        }
+    };
+    let cached_album = cached_album.filter(|album| {
+        storefront_matches(query.storefront.as_deref(), Some(album.storefront.as_str()))
+    });
+    let album = match cached_album {
+        Some(album) => album,
+        None => state
+            .apple_music()
+            .lookup_album(album_id, query.storefront)
+            .await
+            .map_err(api_error)?,
+    };
     let album = with_verified_formats(&state, album);
     Ok(Json(
         with_playback_summaries(&state, profile_id, album).await,
     ))
+}
+
+fn storefront_matches(requested: Option<&str>, cached: Option<&str>) -> bool {
+    normalized_storefront_identity(requested) == normalized_storefront_identity(cached)
+}
+
+fn normalized_storefront_identity(storefront: Option<&str>) -> String {
+    storefront
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("current")
+        .to_ascii_lowercase()
 }
 
 /// Apple reports nothing about how often this listener has played a track, so
@@ -278,9 +323,13 @@ async fn preview_album_version(
 
 async fn match_album_version(
     State(state): State<AppState>,
+    profile: Option<Extension<ProfileContext>>,
     Path(local_album_id): Path<i64>,
     Query(query): Query<AppleMusicAlbumMatchQuery>,
 ) -> Result<Json<AppleMusicAlbumMatchResponse>, (StatusCode, Json<AppleMusicMvpError>)> {
+    let profile_id = profile
+        .map(|Extension(profile)| profile.id)
+        .unwrap_or_else(|| state.settings().active_profile_id());
     let local_detail = state
         .library()
         .run_blocking(move |library| library.album_detail(local_album_id))
@@ -296,9 +345,48 @@ async fn match_album_version(
             return Ok(Json(AppleMusicAlbumMatchResponse {
                 status: "already_linked".to_string(),
                 linked_version: Some(version.clone()),
+                apple_album: None,
                 candidates: Vec::new(),
                 message: None,
             }));
+        }
+    }
+
+    let match_fingerprint =
+        local_apple_music_match_input_fingerprint(&local_detail, query.storefront.as_deref());
+    if !query.review {
+        let storefront = query.storefront.clone();
+        let fingerprint = match_fingerprint.clone();
+        let cached_status = state
+            .library()
+            .run_blocking(move |library| {
+                library.cached_apple_music_match_status(
+                    local_album_id,
+                    storefront.as_deref(),
+                    &fingerprint,
+                    LOCAL_APPLE_MUSIC_MISS_RETRY_SECS,
+                )
+            })
+            .await;
+        match cached_status {
+            Ok(Some(status)) if matches!(status.as_str(), "no_match" | "needs_review") => {
+                return Ok(Json(AppleMusicAlbumMatchResponse {
+                    status,
+                    linked_version: None,
+                    apple_album: None,
+                    candidates: Vec::new(),
+                    message: None,
+                }));
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(
+                    event = "apple_music_album_match_cache_read_failed",
+                    album_id = local_album_id,
+                    %error,
+                    "Continuing with live Apple Music matching"
+                );
+            }
         }
     }
 
@@ -313,39 +401,22 @@ async fn match_album_version(
     } else {
         format!("{artist} {}", local_detail.album.title)
     };
-    let search = match state
-        .apple_music()
-        .search_songs(term, query.storefront.clone(), 10)
-        .await
-    {
-        Ok(search) => search,
-        Err(error) => {
-            return Ok(Json(AppleMusicAlbumMatchResponse {
-                status: "unavailable".to_string(),
-                linked_version: None,
-                candidates: Vec::new(),
-                message: Some(error.message),
-            }));
-        }
-    };
-
     let mut candidates = Vec::new();
     let mut seen_album_ids = HashSet::new();
-    for candidate in search.albums.into_iter().take(6) {
-        if !seen_album_ids.insert(candidate.album_id.clone()) {
+    // Most matched local releases already have a MusicBrainz barcode. MusicKit
+    // can resolve that identifier directly, avoiding a text search and six
+    // individual candidate requests for the common case. The normal matcher
+    // still verifies every track before the result can be linked.
+    let barcode_albums = lookup_apple_albums_by_barcode(
+        &state,
+        local_detail.album.mb_barcode.as_deref(),
+        query.storefront.clone(),
+    )
+    .await;
+    for album in barcode_albums {
+        if !seen_album_ids.insert(album.album_id.clone()) {
             continue;
         }
-        let album = match state
-            .apple_music()
-            .lookup_album(
-                candidate.album_id,
-                Some(candidate.storefront).filter(|value| !value.trim().is_empty()),
-            )
-            .await
-        {
-            Ok(album) => album,
-            Err(_) => continue,
-        };
         let preview = state
             .library()
             .run_blocking(move |library| {
@@ -355,6 +426,38 @@ async fn match_album_version(
             .map_err(library_api_error)?;
         if let Some(preview) = preview {
             candidates.push(preview);
+        }
+    }
+
+    let direct_match_is_safe = candidates.iter().any(|candidate| candidate.safe_to_link);
+    if query.review || !direct_match_is_safe {
+        match search_and_hydrate_apple_albums(&state, term, query.storefront.clone(), 6).await {
+            Ok(albums) => {
+                for album in albums {
+                    if !seen_album_ids.insert(album.album_id.clone()) {
+                        continue;
+                    }
+                    let preview = state
+                        .library()
+                        .run_blocking(move |library| {
+                            library.preview_apple_music_album_version(local_album_id, album)
+                        })
+                        .await
+                        .map_err(library_api_error)?;
+                    if let Some(preview) = preview {
+                        candidates.push(preview);
+                    }
+                }
+            }
+            Err(error) => {
+                return Ok(Json(AppleMusicAlbumMatchResponse {
+                    status: "unavailable".to_string(),
+                    linked_version: None,
+                    apple_album: None,
+                    candidates: if query.review { candidates } else { Vec::new() },
+                    message: Some(error.message),
+                }));
+            }
         }
     }
     candidates.sort_by(compare_apple_match_candidates);
@@ -367,30 +470,140 @@ async fn match_album_version(
         && let Some(safe_candidate) = candidates.iter().find(|candidate| candidate.safe_to_link)
     {
         let album = safe_candidate.apple_album.clone();
+        let response_album = album.clone();
         let linked_version = state
             .library()
             .run_blocking(move |library| library.link_apple_music_album(local_album_id, &album))
             .await
             .map_err(library_api_error)?
             .ok_or_else(album_not_found)?;
+        let response_album = with_verified_formats(&state, response_album);
+        let response_album = with_playback_summaries(&state, profile_id, response_album).await;
         return Ok(Json(AppleMusicAlbumMatchResponse {
             status: "linked".to_string(),
             linked_version: Some(linked_version),
-            candidates,
+            apple_album: Some(response_album),
+            // The winning full album is already returned above. Echoing all
+            // hydrated candidates here can duplicate hundreds of tracks on
+            // the latency-sensitive automatic path.
+            candidates: Vec::new(),
             message: None,
         }));
     }
 
+    let status = if candidates.is_empty() {
+        "no_match"
+    } else {
+        "needs_review"
+    };
+    if !query.review {
+        let storefront = query.storefront.clone();
+        let fingerprint = match_fingerprint;
+        let status = status.to_string();
+        if let Err(error) = state
+            .library()
+            .run_blocking(move |library| {
+                library.save_apple_music_match_status(
+                    local_album_id,
+                    storefront.as_deref(),
+                    &fingerprint,
+                    &status,
+                )
+            })
+            .await
+        {
+            tracing::warn!(
+                event = "apple_music_album_match_cache_write_failed",
+                album_id = local_album_id,
+                %error,
+                "Returning the completed Apple Music match without caching it"
+            );
+        }
+    }
     Ok(Json(AppleMusicAlbumMatchResponse {
-        status: if candidates.is_empty() {
-            "no_match".to_string()
-        } else {
-            "needs_review".to_string()
-        },
+        status: status.to_string(),
         linked_version: None,
-        candidates,
+        apple_album: None,
+        candidates: if query.review { candidates } else { Vec::new() },
         message: None,
     }))
+}
+
+/// Hash only the metadata that can change the matcher outcome. Listening
+/// history and artwork are intentionally absent, so unrelated album-page
+/// updates do not throw away a useful catalog miss.
+fn local_apple_music_match_input_fingerprint(
+    detail: &AlbumDetail,
+    storefront: Option<&str>,
+) -> String {
+    let selected_local_version = detail
+        .album
+        .primary_version_id
+        .and_then(|primary_id| {
+            detail
+                .versions
+                .iter()
+                .find(|version| version.id == primary_id && version.provider == "local")
+        })
+        .or_else(|| {
+            detail
+                .versions
+                .iter()
+                .filter(|version| version.provider == "local")
+                .max_by(|left, right| {
+                    left.sample_rate
+                        .unwrap_or(0)
+                        .cmp(&right.sample_rate.unwrap_or(0))
+                        .then_with(|| {
+                            left.bit_depth
+                                .unwrap_or(0)
+                                .cmp(&right.bit_depth.unwrap_or(0))
+                        })
+                        // The library chooses the lower row ID when quality is
+                        // tied; reverse this final comparison for `max_by`.
+                        .then_with(|| right.id.cmp(&left.id))
+                })
+        });
+    let mut tracks = detail.tracks.iter().collect::<Vec<_>>();
+    tracks.sort_by(|left, right| {
+        left.disc_number
+            .unwrap_or(1)
+            .cmp(&right.disc_number.unwrap_or(1))
+            .then_with(|| {
+                left.track_number
+                    .unwrap_or(i64::MAX)
+                    .cmp(&right.track_number.unwrap_or(i64::MAX))
+            })
+            .then_with(|| left.title.cmp(&right.title))
+            .then_with(|| left.file_name.cmp(&right.file_name))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    let payload = json!({
+        "schema": LOCAL_APPLE_MUSIC_MATCH_FINGERPRINT_SCHEMA,
+        "storefront": normalized_storefront_identity(storefront),
+        "album": {
+            "title": detail.album.title,
+            "artist": detail.album.album_artist,
+            "barcode": detail.album.mb_barcode,
+        },
+        "selected_local_version": selected_local_version.map(|version| json!({
+            "provider_id": version.provider_id,
+            "title": version.title,
+            "artist": version.artist,
+            "track_count": version.track_count,
+            "sample_rate": version.sample_rate,
+            "bit_depth": version.bit_depth,
+        })),
+        "tracks": tracks.into_iter().map(|track| json!({
+            "file_name": track.file_name,
+            "title": track.title,
+            "artist": track.artist,
+            "track_number": track.track_number,
+            "disc_number": track.disc_number,
+            "duration_secs": track.duration_secs,
+        })).collect::<Vec<_>>(),
+    });
+    format!("{:x}", Sha256::digest(payload.to_string().as_bytes()))
 }
 
 fn compare_apple_match_candidates(
@@ -447,6 +660,112 @@ fn normalized_audio_variant(variant: &str) -> String {
         .filter(|character| character.is_ascii_alphanumeric())
         .flat_map(char::to_lowercase)
         .collect()
+}
+
+/// Resolve a release identifier through MusicKit before falling back to text
+/// search. Qobuz commonly publishes an EAN with a leading zero while Apple
+/// publishes the equivalent 12-digit UPC, so try the exact digits and their
+/// GTIN-normalized form. Failures are deliberately soft: catalog search below
+/// remains the compatibility and incomplete-metadata fallback.
+async fn lookup_apple_albums_by_barcode(
+    state: &AppState,
+    barcode: Option<&str>,
+    storefront: Option<String>,
+) -> Vec<AppleCatalogAlbum> {
+    let Some(value) = apple_barcode_lookup_value(barcode) else {
+        return Vec::new();
+    };
+    match state
+        .apple_music()
+        .lookup_albums_by_upc(value, storefront)
+        .await
+    {
+        Ok(albums) => albums,
+        Err(_) => Vec::new(),
+    }
+}
+
+fn apple_barcode_lookup_value(barcode: Option<&str>) -> Option<String> {
+    barcode
+        .map(|value| {
+            value
+                .chars()
+                .filter(|character| character.is_ascii_digit())
+                .collect::<String>()
+        })
+        .filter(|value| !value.is_empty())
+}
+
+/// Search returns lightweight album rows whose track relationship is normally
+/// absent. Hydrate every candidate in one `memberOf` MusicKit request rather
+/// than issuing up to six serialized helper round trips.
+async fn search_and_hydrate_apple_albums(
+    state: &AppState,
+    term: String,
+    storefront: Option<String>,
+    candidate_limit: usize,
+) -> Result<Vec<AppleCatalogAlbum>, AppleMusicMvpError> {
+    let search = state
+        .apple_music()
+        .search_albums(term, storefront.clone(), 10)
+        .await?;
+    let mut seen = HashSet::new();
+    let candidates = search
+        .albums
+        .into_iter()
+        .filter(|album| seen.insert(album.album_id.clone()))
+        .take(candidate_limit)
+        .collect::<Vec<_>>();
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut complete = candidates
+        .iter()
+        .filter(|album| !album.tracks.is_empty())
+        .cloned()
+        .collect::<Vec<_>>();
+    let ids = candidates
+        .iter()
+        .filter(|album| album.tracks.is_empty())
+        .map(|album| album.album_id.clone())
+        .collect::<Vec<_>>();
+    if ids.is_empty() {
+        return Ok(complete);
+    }
+    let batch_storefront = storefront
+        .or_else(|| (!search.storefront.trim().is_empty()).then_some(search.storefront.clone()));
+    // The service owns compatibility with helpers that predate batch lookup.
+    // Any error that escapes it is a real incomplete discovery attempt and
+    // must stay an error, or a partial result could become a cached false miss.
+    let hydrated = state
+        .apple_music()
+        .lookup_albums(ids.clone(), batch_storefront)
+        .await?;
+    if !catalog_album_batch_is_complete(&ids, &hydrated) {
+        return Err(apple_music_error(
+            "catalog_lookup_incomplete",
+            "Apple Music returned only part of the album candidate batch. Try again.",
+            true,
+            "catalog_lookup",
+            true,
+        ));
+    }
+    complete.extend(hydrated);
+    Ok(complete)
+}
+
+fn catalog_album_batch_is_complete(
+    requested_ids: &[String],
+    returned: &[AppleCatalogAlbum],
+) -> bool {
+    let returned_ids = returned
+        .iter()
+        .map(|album| album.album_id.as_str())
+        .collect::<HashSet<_>>();
+    requested_ids
+        .iter()
+        .all(|album_id| returned_ids.contains(album_id.as_str()))
 }
 
 async fn link_album_version(
@@ -514,9 +833,9 @@ async fn album_version_detail(
 /// adds catalog editions — but not on every visit.
 const QOBUZ_APPLE_MUSIC_MISS_RETRY_SECS: i64 = 14 * 24 * 60 * 60;
 
-/// How many search hits are looked up in full before the best is chosen. Each
-/// lookup is a helper round trip, and Apple orders search results well enough
-/// that the match is in the first handful when it exists at all.
+/// How many search hits are hydrated in the single batch before the best is
+/// chosen. Apple orders search results well enough that the match is in the
+/// first handful, and the bound keeps the helper IPC response comfortably small.
 const QOBUZ_APPLE_MUSIC_CANDIDATE_LIMIT: usize = 6;
 
 #[derive(Debug, Deserialize)]
@@ -528,6 +847,7 @@ struct QobuzAppleMusicVersionQuery {
 struct QobuzAppleMusicVersionResponse {
     status: String,
     version: Option<QobuzAppleMusicVersion>,
+    apple_album: Option<AppleCatalogAlbum>,
     message: Option<String>,
 }
 
@@ -561,12 +881,16 @@ struct QobuzAppleMusicVersion {
 /// A Qobuz album linked to a local album already inherits that album's Apple
 /// version through the local album's version list, so only the standalone case
 /// reaches here. The answer is remembered per Qobuz album because finding it
-/// costs a catalog search plus a lookup per candidate.
+/// still requires Apple catalog discovery and full candidate hydration.
 async fn qobuz_album_version(
     State(state): State<AppState>,
+    profile: Option<Extension<ProfileContext>>,
     Path(qobuz_album_id): Path<String>,
     Query(query): Query<QobuzAppleMusicVersionQuery>,
 ) -> Result<Json<QobuzAppleMusicVersionResponse>, (StatusCode, Json<AppleMusicMvpError>)> {
+    let profile_id = profile
+        .map(|Extension(profile)| profile.id)
+        .unwrap_or_else(|| state.settings().active_profile_id());
     let qobuz_album_id = qobuz_album_id.trim().to_string();
     if qobuz_album_id.is_empty() {
         return Ok(Json(no_match_response()));
@@ -582,14 +906,18 @@ async fn qobuz_album_version(
     };
     if let Some(link) = cached
         && link.is_current(QOBUZ_APPLE_MUSIC_MISS_RETRY_SECS)
+        && storefront_matches(query.storefront.as_deref(), link.storefront.as_deref())
     {
         return Ok(Json(match link.apple_album {
-            Some(album) => linked_response(&state, &album),
+            Some(album) => linked_response(&state, &profile_id, album).await,
             None => no_match_response(),
         }));
     }
 
-    let detail = match state.qobuz().album_detail(&qobuz_album_id).await {
+    // Linking needs identity and track positions, not the per-track credit
+    // enrichment used by the visible Qobuz page. The basic endpoint is one
+    // Qobuz request and lets Apple discovery run alongside that enrichment.
+    let detail = match state.qobuz().album_detail_basic(&qobuz_album_id).await {
         Ok(detail) => detail,
         Err(message) => return Ok(Json(unavailable_response(message))),
     };
@@ -599,35 +927,18 @@ async fn qobuz_album_version(
     } else {
         format!("{artist} {}", detail.album.title)
     };
-    let search = match state
-        .apple_music()
-        .search_songs(term, query.storefront.clone(), 10)
-        .await
-    {
-        Ok(search) => search,
-        Err(error) => return Ok(Json(unavailable_response(error.message))),
-    };
-
     let mut best: Option<(AppleCatalogAlbum, QobuzAppleMusicMatch)> = None;
     let mut seen_album_ids = HashSet::new();
-    for candidate in search
-        .albums
-        .into_iter()
-        .take(QOBUZ_APPLE_MUSIC_CANDIDATE_LIMIT)
-    {
-        if !seen_album_ids.insert(candidate.album_id.clone()) {
+    let barcode_albums = lookup_apple_albums_by_barcode(
+        &state,
+        detail.album.upc.as_deref(),
+        query.storefront.clone(),
+    )
+    .await;
+    for album in barcode_albums {
+        if !seen_album_ids.insert(album.album_id.clone()) {
             continue;
         }
-        let Ok(album) = state
-            .apple_music()
-            .lookup_album(
-                candidate.album_id,
-                Some(candidate.storefront).filter(|value| !value.trim().is_empty()),
-            )
-            .await
-        else {
-            continue;
-        };
         let assessment = apple_music_match_for_qobuz_album(&detail, &album);
         if best.as_ref().is_none_or(|(best_album, best_match)| {
             compare_qobuz_apple_candidates(&album, &assessment, best_album, best_match)
@@ -637,9 +948,44 @@ async fn qobuz_album_version(
         }
     }
 
+    // A barcode hit that survives the strict track matcher is conclusive. Only
+    // pay for text search when the identifier is absent, unavailable, or maps
+    // to an edition whose tracks do not actually match this Qobuz release.
+    let direct_match_is_safe = best
+        .as_ref()
+        .is_some_and(|(_, assessment)| assessment.safe_to_link);
+    if !direct_match_is_safe {
+        let albums = match search_and_hydrate_apple_albums(
+            &state,
+            term,
+            query.storefront.clone(),
+            QOBUZ_APPLE_MUSIC_CANDIDATE_LIMIT,
+        )
+        .await
+        {
+            Ok(albums) => albums,
+            Err(error) => {
+                return Ok(Json(unavailable_response(error.message)));
+            }
+        };
+        for album in albums {
+            if !seen_album_ids.insert(album.album_id.clone()) {
+                continue;
+            }
+            let assessment = apple_music_match_for_qobuz_album(&detail, &album);
+            if best.as_ref().is_none_or(|(best_album, best_match)| {
+                compare_qobuz_apple_candidates(&album, &assessment, best_album, best_match)
+                    == Ordering::Less
+            }) {
+                best = Some((album, assessment));
+            }
+        }
+    }
+
     let linked = best.filter(|(_, assessment)| assessment.safe_to_link);
     {
         let qobuz_album_id = qobuz_album_id.clone();
+        let requested_storefront = query.storefront.clone();
         let stored = linked
             .as_ref()
             .map(|(album, assessment)| (album.clone(), assessment.confidence));
@@ -650,13 +996,18 @@ async fn qobuz_album_version(
                     Some((album, confidence)) => (Some(album), *confidence),
                     None => (None, 0),
                 };
-                library.save_qobuz_apple_music_link(&qobuz_album_id, album, confidence)
+                library.save_qobuz_apple_music_link(
+                    &qobuz_album_id,
+                    album,
+                    confidence,
+                    requested_storefront.as_deref(),
+                )
             })
             .await
             .map_err(library_api_error)?;
     }
     Ok(Json(match linked {
-        Some((album, _)) => linked_response(&state, &album),
+        Some((album, _)) => linked_response(&state, &profile_id, album).await,
         None => no_match_response(),
     }))
 }
@@ -681,10 +1032,20 @@ fn compare_qobuz_apple_candidates(
         .then_with(|| left_album.album_id.cmp(&right_album.album_id))
 }
 
-fn linked_response(state: &AppState, album: &AppleCatalogAlbum) -> QobuzAppleMusicVersionResponse {
+async fn linked_response(
+    state: &AppState,
+    profile_id: &str,
+    album: AppleCatalogAlbum,
+) -> QobuzAppleMusicVersionResponse {
+    // The matcher already paid for the full catalog album and persisted it.
+    // Return that payload with the row so the UI can switch versions without
+    // immediately asking Apple for the exact same album again.
+    let album = with_verified_formats(state, album);
+    let album = with_playback_summaries(state, profile_id.to_string(), album).await;
     QobuzAppleMusicVersionResponse {
         status: "linked".to_string(),
-        version: Some(qobuz_apple_music_version(state, album)),
+        version: Some(qobuz_apple_music_version(state, &album)),
+        apple_album: Some(album),
         message: None,
     }
 }
@@ -693,6 +1054,7 @@ fn no_match_response() -> QobuzAppleMusicVersionResponse {
     QobuzAppleMusicVersionResponse {
         status: "no_match".to_string(),
         version: None,
+        apple_album: None,
         message: None,
     }
 }
@@ -701,6 +1063,7 @@ fn unavailable_response(message: String) -> QobuzAppleMusicVersionResponse {
     QobuzAppleMusicVersionResponse {
         status: "unavailable".to_string(),
         version: None,
+        apple_album: None,
         message: Some(message),
     }
 }
@@ -1150,6 +1513,41 @@ mod tests {
         candidates.sort_by(compare_apple_match_candidates);
 
         assert_eq!(candidates[0].apple_album.album_id, "safe");
+    }
+
+    #[test]
+    fn barcode_lookup_sends_only_digits_to_the_helper() {
+        assert_eq!(
+            apple_barcode_lookup_value(Some("0-602547-278067")),
+            Some("0602547278067".to_string())
+        );
+        assert_eq!(
+            apple_barcode_lookup_value(Some("602547278067")),
+            Some("602547278067".to_string())
+        );
+        assert_eq!(apple_barcode_lookup_value(Some("  ")), None);
+    }
+
+    #[test]
+    fn persisted_catalog_payloads_respect_an_explicit_storefront() {
+        assert!(storefront_matches(None, Some("current")));
+        assert!(storefront_matches(None, None));
+        assert!(!storefront_matches(None, Some("nz")));
+        assert!(storefront_matches(Some("NZ"), Some("nz")));
+        assert!(!storefront_matches(Some("us"), Some("nz")));
+        assert!(!storefront_matches(Some("us"), None));
+    }
+
+    #[test]
+    fn partial_catalog_batches_are_not_conclusive_matches() {
+        let requested = vec!["album-1".to_string(), "album-2".to_string()];
+        let returned = vec![AppleCatalogAlbum {
+            album_id: "album-1".to_string(),
+            ..AppleCatalogAlbum::default()
+        }];
+
+        assert!(!catalog_album_batch_is_complete(&requested, &returned));
+        assert!(catalog_album_batch_is_complete(&requested[..1], &returned));
     }
 
     #[test]

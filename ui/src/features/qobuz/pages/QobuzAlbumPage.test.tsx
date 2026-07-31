@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { invalidateAppleMusicCatalogAlbumCache } from '../../albums/model/albumData';
 import { QobuzAlbumPage } from './QobuzAlbumPage';
 
 const mocks = vi.hoisted(() => ({
@@ -69,26 +71,45 @@ const appleCatalogAlbum = {
   ]
 };
 
-function renderPage(id: string) {
+const appleVersion = {
+  id: 'apple_music:nz:1109714933',
+  provider: 'apple_music',
+  provider_id: '1109714933',
+  source_label: 'Apple Music',
+  title: 'In Rainbows',
+  artist: 'Radiohead',
+  year: 2007,
+  track_count: 2,
+  format: 'Apple Music',
+  storefront: 'nz',
+  audio_variants: ['lossless'],
+  is_primary: false
+};
+
+function renderPage(id: string, remoteSurface = false) {
   render(
-    <QobuzAlbumPage
-      id={id}
-      onOpenArtist={mocks.onOpenArtist}
-      playAlbum={mocks.playAlbum}
-      playItems={mocks.playItems}
-      addItemsToQueue={mocks.addItemsToQueue}
-      selectedTrackKeys={new Set()}
-      selectionActive={false}
-      onSelectionItemsChange={mocks.onSelectionItemsChange}
-      onToggleSelection={mocks.onToggleSelection}
-      openPlaylistPickerForItems={mocks.openPlaylistPickerForItems}
-      playbackStatus={{ state: 'Stopped' }}
-      customDisplayFont={null}
-    />
+    <StrictMode>
+      <QobuzAlbumPage
+        id={id}
+        onOpenArtist={mocks.onOpenArtist}
+        playAlbum={mocks.playAlbum}
+        playItems={mocks.playItems}
+        addItemsToQueue={mocks.addItemsToQueue}
+        selectedTrackKeys={new Set()}
+        selectionActive={false}
+        onSelectionItemsChange={mocks.onSelectionItemsChange}
+        onToggleSelection={mocks.onToggleSelection}
+        openPlaylistPickerForItems={mocks.openPlaylistPickerForItems}
+        remoteSurface={remoteSurface}
+        playbackStatus={{ state: 'Stopped' }}
+        customDisplayFont={null}
+      />
+    </StrictMode>
   );
 }
 
 beforeEach(() => {
+  invalidateAppleMusicCatalogAlbumCache();
   for (const mock of Object.values(mocks)) mock.mockReset();
   mocks.qobuzAlbum.mockImplementation(async (albumId: string) => ({
     album: {
@@ -130,44 +151,32 @@ beforeEach(() => {
   mocks.appleMusicCatalogAlbum.mockResolvedValue(appleCatalogAlbum);
   mocks.qobuzAppleMusicVersion.mockResolvedValue({
     status: 'linked',
-    version: {
-      id: 'apple_music:nz:1109714933',
-      provider: 'apple_music',
-      provider_id: '1109714933',
-      source_label: 'Apple Music',
-      title: 'In Rainbows',
-      artist: 'Radiohead',
-      year: 2007,
-      track_count: 2,
-      format: 'Apple Music',
-      storefront: 'nz',
-      audio_variants: ['lossless'],
-      is_primary: false
-    }
+    version: appleVersion,
+    apple_album: appleCatalogAlbum
   });
 });
 
 afterEach(cleanup);
 
 describe('QobuzAlbumPage', () => {
-  it('offers the Apple Music edition of a Qobuz album that no local album covers', async () => {
+  it('starts finding the Apple Music edition before Versions is opened', async () => {
     renderPage('qobuz-in-rainbows');
 
     expect(
       await screen.findByRole('heading', { level: 1, name: 'In Rainbows' })
     ).toBeInTheDocument();
-    expect(mocks.qobuzAppleMusicVersion).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Versions' }));
-
     await waitFor(() =>
       expect(mocks.qobuzAppleMusicVersion).toHaveBeenCalledWith('qobuz-in-rainbows')
     );
+    expect(mocks.qobuzAppleMusicVersion).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Versions' }));
+
     expect(await screen.findByText('Apple Music')).toBeInTheDocument();
     expect(screen.getByText('3 versions')).toBeInTheDocument();
   });
 
-  it('views and plays the Apple Music edition through the Apple catalog', async () => {
+  it('uses the matched Apple payload without refetching the catalog', async () => {
     renderPage('qobuz-in-rainbows-play');
 
     expect(
@@ -176,9 +185,7 @@ describe('QobuzAlbumPage', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Versions' }));
     expect(await screen.findByText('Apple Music')).toBeInTheDocument();
 
-    await waitFor(() =>
-      expect(mocks.appleMusicCatalogAlbum).toHaveBeenCalledWith('1109714933', 'nz')
-    );
+    expect(mocks.appleMusicCatalogAlbum).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByText('Apple Music'));
     fireEvent.click(screen.getByRole('button', { name: 'Play now' }));
@@ -206,6 +213,22 @@ describe('QobuzAlbumPage', () => {
     expect(mocks.playAlbum).not.toHaveBeenCalled();
   });
 
+  it('falls back to the catalog when an older match response has no album payload', async () => {
+    mocks.qobuzAppleMusicVersion.mockResolvedValue({
+      status: 'linked',
+      version: appleVersion
+    });
+
+    renderPage('qobuz-in-rainbows-fallback');
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'In Rainbows' })
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mocks.appleMusicCatalogAlbum).toHaveBeenCalledWith('1109714933', 'nz')
+    );
+  });
+
   it('leaves a Qobuz album that a local album covers to the local Apple link', async () => {
     mocks.albumByQobuzId.mockResolvedValue({
       album: { id: 7, title: 'In Rainbows', album_artist: 'Radiohead' },
@@ -230,6 +253,19 @@ describe('QobuzAlbumPage', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Versions' }));
 
     expect(await screen.findByText('Library')).toBeInTheDocument();
+    await waitFor(() => expect(mocks.appleMusicAlbumMatch).toHaveBeenCalledWith(7, undefined));
     expect(mocks.qobuzAppleMusicVersion).not.toHaveBeenCalled();
+  });
+
+  it('does not start background matching on a remote surface', async () => {
+    renderPage('qobuz-in-rainbows-remote', true);
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'In Rainbows' })
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Versions' }));
+
+    expect(mocks.qobuzAppleMusicVersion).not.toHaveBeenCalled();
+    expect(mocks.appleMusicAlbumMatch).not.toHaveBeenCalled();
   });
 });

@@ -39,6 +39,120 @@ pub struct AppleMusicTrackFormatRecord {
 }
 
 impl Library {
+    /// A catalog album Fozmo already persisted while linking either a local or
+    /// standalone Qobuz release. This is a durable catalog cache: opening the
+    /// Apple route should not launch the helper just to reload an identical
+    /// payload that playback already trusts as the linked version.
+    pub fn cached_apple_music_album(
+        &self,
+        apple_album_id: &str,
+    ) -> Result<Option<AppleCatalogAlbum>, String> {
+        let apple_album_id = apple_album_id.trim();
+        if apple_album_id.is_empty() {
+            return Ok(None);
+        }
+        let payload: Option<String> = {
+            let conn = self.conn.lock().unwrap();
+            conn.query_row(
+                r#"
+                SELECT payload_json
+                FROM (
+                    SELECT payload_json, updated_at AS cached_at
+                    FROM album_versions
+                    WHERE provider = ?1 AND provider_id = ?2
+                      AND status = 'available' AND payload_json IS NOT NULL
+                    UNION ALL
+                    SELECT payload_json, matched_at AS cached_at
+                    FROM qobuz_apple_music_links
+                    WHERE apple_album_id = ?2 AND payload_json IS NOT NULL
+                )
+                ORDER BY cached_at DESC
+                LIMIT 1
+                "#,
+                params![PROVIDER, apple_album_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| format!("cached Apple Music album lookup: {error}"))?
+        };
+        payload
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()
+            .map_err(|error| format!("parse cached Apple Music album: {error}"))
+    }
+
+    /// Reuse a conclusive local miss only while every matcher input and the
+    /// storefront are unchanged. The caller owns the fingerprint so matcher
+    /// rule changes can invalidate old answers by bumping its schema marker.
+    pub fn cached_apple_music_match_status(
+        &self,
+        album_id: i64,
+        storefront: Option<&str>,
+        input_fingerprint: &str,
+        retry_after_secs: i64,
+    ) -> Result<Option<String>, String> {
+        let storefront = normalized_match_storefront(storefront);
+        let input_fingerprint = input_fingerprint.trim();
+        if input_fingerprint.is_empty() || retry_after_secs <= 0 {
+            return Ok(None);
+        }
+        let oldest = super::now_secs().saturating_sub(retry_after_secs);
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            r#"
+            SELECT status
+            FROM apple_music_album_match_attempts
+            WHERE album_id = ?1 AND storefront = ?2
+              AND input_fingerprint = ?3 AND matched_at >= ?4
+            LIMIT 1
+            "#,
+            params![album_id, storefront, input_fingerprint, oldest],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| format!("cached Apple Music album match: {error}"))
+    }
+
+    pub fn save_apple_music_match_status(
+        &self,
+        album_id: i64,
+        storefront: Option<&str>,
+        input_fingerprint: &str,
+        status: &str,
+    ) -> Result<(), String> {
+        if !matches!(status, "no_match" | "needs_review") {
+            return Err("only conclusive Apple Music misses may be cached".to_string());
+        }
+        let storefront = normalized_match_storefront(storefront);
+        let input_fingerprint = input_fingerprint.trim();
+        if input_fingerprint.is_empty() {
+            return Ok(());
+        }
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO apple_music_album_match_attempts (
+                album_id, storefront, input_fingerprint, status, matched_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            ON CONFLICT(album_id, storefront) DO UPDATE SET
+                input_fingerprint = excluded.input_fingerprint,
+                status = excluded.status,
+                matched_at = excluded.matched_at
+            "#,
+            params![
+                album_id,
+                storefront,
+                input_fingerprint,
+                status,
+                super::now_secs()
+            ],
+        )
+        .map(|_| ())
+        .map_err(|error| format!("save Apple Music album match status: {error}"))
+    }
+
     /// Remember what Music.app's decoder reported for one catalog song.
     pub fn record_apple_music_track_format(
         &self,
@@ -279,6 +393,14 @@ fn normalized_catalog_id(value: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+fn normalized_match_storefront(storefront: Option<&str>) -> String {
+    storefront
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("current")
+        .to_ascii_lowercase()
 }
 
 /// The album an Apple Music candidate is judged against.
@@ -579,6 +701,11 @@ impl Library {
                 )
                 .map_err(|error| format!("preserve Apple Music primary version: {error}"))?;
             }
+            tx.execute(
+                "DELETE FROM apple_music_album_match_attempts WHERE album_id = ?1",
+                [album_id],
+            )
+            .map_err(|error| format!("clear cached Apple Music album match: {error}"))?;
             tx.commit()
                 .map_err(|error| format!("commit Apple Music version: {error}"))?;
             version_id
@@ -801,6 +928,7 @@ pub struct QobuzAppleMusicMatch {
 #[derive(Debug, Clone)]
 pub struct QobuzAppleMusicLink {
     pub apple_album: Option<AppleCatalogAlbum>,
+    pub storefront: Option<String>,
     /// Unix seconds.
     pub matched_at: i64,
 }
@@ -887,16 +1015,22 @@ impl Library {
         let row = conn
             .query_row(
                 r#"
-                SELECT payload_json, matched_at
+                SELECT payload_json, storefront, matched_at
                 FROM qobuz_apple_music_links
                 WHERE qobuz_album_id = ?1
                 "#,
                 [qobuz_album_id],
-                |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)?)),
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                },
             )
             .optional()
             .map_err(|error| format!("Qobuz Apple Music link lookup: {error}"))?;
-        let Some((payload_json, matched_at)) = row else {
+        let Some((payload_json, storefront, matched_at)) = row else {
             return Ok(None);
         };
         let apple_album = payload_json
@@ -906,19 +1040,21 @@ impl Library {
             .map_err(|error| format!("parse Qobuz Apple Music link payload: {error}"))?;
         Ok(Some(QobuzAppleMusicLink {
             apple_album,
+            storefront,
             matched_at,
         }))
     }
 
     /// Remember the Apple Music edition resolved for a standalone Qobuz album.
     /// `apple_album` of `None` records that the search found nothing, which is
-    /// worth keeping so the next visit does not repeat a catalog search and a
-    /// lookup per candidate.
+    /// worth keeping so the next visit does not repeat catalog discovery and
+    /// candidate hydration.
     pub fn save_qobuz_apple_music_link(
         &self,
         qobuz_album_id: &str,
         apple_album: Option<&AppleCatalogAlbum>,
         confidence: i64,
+        requested_storefront: Option<&str>,
     ) -> Result<(), String> {
         let qobuz_album_id = qobuz_album_id.trim();
         if qobuz_album_id.is_empty() {
@@ -949,7 +1085,11 @@ impl Library {
                 apple_album.map(|album| album.album_id.as_str()),
                 apple_album
                     .map(|album| album.storefront.as_str())
-                    .filter(|storefront| !storefront.trim().is_empty()),
+                    .filter(|storefront| !storefront.trim().is_empty())
+                    .or_else(|| requested_storefront
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty()))
+                    .or(Some("current")),
                 if apple_album.is_some() {
                     "linked"
                 } else {

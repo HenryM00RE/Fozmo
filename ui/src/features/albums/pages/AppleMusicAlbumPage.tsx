@@ -4,6 +4,7 @@ import { sourceRefToQueueItem } from '../../../shared/lib/queue';
 import type { CustomDisplayFontSettings } from '../../../shared/lib/theme';
 import type { JsonRecord, LibraryAlbum, QueueItem, SourceRef } from '../../../shared/types';
 import type { PlaybackStatus } from '../../playback/model/playbackStore';
+import { loadAppleMusicCatalogAlbumCached } from '../model/albumData';
 import type { AlbumSelectionItem } from '../model/albumModel';
 import {
   appleMusicAlbumToLibraryDetail,
@@ -66,7 +67,7 @@ export function AppleMusicAlbumPage({
     setLinkedDetail(null);
     setLoadError('');
     Promise.all([
-      endpoints.appleMusicCatalogAlbum(String(id), storefront || undefined),
+      loadAppleMusicCatalogAlbumCached(String(id), storefront || undefined),
       endpoints.albumByAppleMusicId(String(id)).catch(() => null)
     ])
       .then(([album, linked]) => {

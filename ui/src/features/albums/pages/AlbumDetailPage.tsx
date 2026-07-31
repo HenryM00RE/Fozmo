@@ -19,6 +19,7 @@ import {
   titleOf,
   versionQualityLabel
 } from '../../../shared/lib/appSupport';
+import { storedProfileId } from '../../../shared/lib/profileSelection';
 import {
   localTrackToQueueItem,
   qobuzTrackToQueueItem,
@@ -50,9 +51,11 @@ import { AlbumVersionsPanel } from '../components/AlbumVersionsPanel';
 import {
   addFavoriteAlbumCached,
   loadAlbumDetailCached,
+  loadAppleMusicCatalogAlbumCached,
   loadFavoriteAlbumsCached,
   removeFavoriteAlbumCached,
-  updateAlbumDetailCache
+  updateAlbumDetailCache,
+  updateAppleMusicCatalogAlbumCache
 } from '../model/albumData';
 import { favoriteAlbumKey, favoriteAlbumPayload } from '../model/albumFavorites';
 import {
@@ -102,6 +105,54 @@ function mergeAlbumVersionRows(current: JsonRecord[], additions: JsonRecord[]) {
     next.push(version);
   });
   return next;
+}
+
+function storedAppleMusicDetailKey(
+  profileId: string,
+  localAlbumId: string | number,
+  versionId: string | number
+) {
+  return `${profileId}:local:${String(localAlbumId)}:${String(versionId)}`;
+}
+
+function catalogAppleMusicDetailKey(
+  profileId: string,
+  albumId: string | number,
+  storefront?: string
+) {
+  return `${profileId}:catalog:${String(storefront || '')
+    .trim()
+    .toLowerCase()}:${String(albumId)}`;
+}
+
+function appleMusicMatchInputKey(
+  album: LibraryAlbum | null,
+  tracks: LibraryTrack[],
+  versions: JsonRecord[]
+) {
+  if (!album) return '';
+  return JSON.stringify({
+    title: album.title,
+    artist: album.album_artist,
+    barcode: album.mb_barcode,
+    primaryVersionId: album.primary_version_id,
+    localVersions: versions
+      .filter((version) => version.provider === 'local')
+      .map((version) => ({
+        id: version.id,
+        providerId: version.provider_id,
+        sampleRate: version.sample_rate,
+        bitDepth: version.bit_depth
+      })),
+    tracks: tracks.map((track) => ({
+      fileName: track.file_name,
+      title: track.title,
+      artist: track.artist,
+      trackNumber: track.track_number,
+      discNumber: track.disc_number,
+      durationSecs: track.duration_secs
+    }))
+  });
 }
 
 function detailDescription(detail: JsonRecord | null | undefined) {
@@ -375,9 +426,10 @@ export function AlbumDetailPage({
   const [favoriteKeys, setFavoriteKeys] = useState<Set<string>>(() => new Set());
   const [favoriteBusy, setFavoriteBusy] = useState(false);
   const [appleVersionDetail, setAppleVersionDetail] = useState<JsonRecord | null>(null);
+  const appleVersionDetailCache = useRef<Map<string, JsonRecord>>(new Map());
   const qobuzEnhancementAttempts = useRef<Set<string>>(new Set());
-  const appleMusicMatchAttempts = useRef<Set<string>>(new Set());
-  const qobuzAppleMusicAttempts = useRef<Set<string>>(new Set());
+  const appleMusicMatchRequests = useRef<Map<string, Promise<JsonRecord>>>(new Map());
+  const qobuzAppleMusicRequests = useRef<Map<string, Promise<JsonRecord>>>(new Map());
   const creditsRefreshKeyRef = useRef('');
   useActionMenuScrollLock(Boolean(albumQueueMenu || trackMenu));
   useEffect(() => {
@@ -496,6 +548,10 @@ export function AlbumDetailPage({
     [detail, isLocal, rawBaseTracks]
   );
   const versions = useMemo(() => safeArray<JsonRecord>(detail?.versions), [detail]);
+  const appleMatchInputKey = useMemo(
+    () => appleMusicMatchInputKey(album, rawBaseTracks, versions),
+    [album, rawBaseTracks, versions]
+  );
   const viewingVersion = useMemo(
     () => resolveViewingVersion(album, versions, viewingVersionId),
     [album, versions, viewingVersionId]
@@ -512,16 +568,36 @@ export function AlbumDetailPage({
   const isViewingQobuz = viewingProvider === 'qobuz';
   const hasQobuzStamp = isViewingQobuz && (showQobuzStamp ?? true);
   const linkedAppleMusicVersion = versions.find((version) => version.provider === 'apple_music');
+  const hasLinkedAppleMusicVersion = Boolean(linkedAppleMusicVersion);
+  const albumAvailable = Boolean(album);
+  const albumStorefront = String((album as JsonRecord | null)?.storefront || '');
+  const qobuzAppleMusicAlbumId = isQobuz && album ? normalizeQobuzAlbumId(album) : '';
   const appleMusicVersionId = positiveNumber(linkedAppleMusicVersion?.id);
   const appleMusicCatalogAlbumId = idValue(linkedAppleMusicVersion?.provider_id);
   const appleMusicStorefront = String(linkedAppleMusicVersion?.storefront || '');
+  const appleMusicProfileId = storedProfileId() || 'server-active';
+  const appleVersionDetailKey =
+    linkedLocalAlbumId && appleMusicVersionId
+      ? storedAppleMusicDetailKey(appleMusicProfileId, linkedLocalAlbumId, appleMusicVersionId)
+      : appleMusicCatalogAlbumId
+        ? catalogAppleMusicDetailKey(
+            appleMusicProfileId,
+            appleMusicCatalogAlbumId,
+            appleMusicStorefront
+          )
+        : '';
   useEffect(() => {
-    // A linked local album serves the frozen catalog payload it stored, which
-    // carries its own play history. A Qobuz album with no local counterpart has
-    // nothing stored, so its Apple row names the catalog album to load instead.
+    // A linked local album serves the frozen catalog payload it stored. A
+    // standalone Qobuz match normally supplies that same payload eagerly; this
+    // catalog path remains for older responses and direct version rows.
     const storedVersionId = linkedLocalAlbumId ? appleMusicVersionId : null;
-    if (!storedVersionId && !appleMusicCatalogAlbumId) {
+    if (!appleVersionDetailKey || (!storedVersionId && !appleMusicCatalogAlbumId)) {
       setAppleVersionDetail(null);
+      return undefined;
+    }
+    const cachedDetail = appleVersionDetailCache.current.get(appleVersionDetailKey);
+    if (cachedDetail) {
+      setAppleVersionDetail(cachedDetail);
       return undefined;
     }
     let cancelled = false;
@@ -530,14 +606,16 @@ export function AlbumDetailPage({
       ? endpoints
           .appleMusicAlbumVersionDetail(linkedLocalAlbumId, storedVersionId)
           .then((result) => result.apple_album as JsonRecord | undefined)
-      : endpoints.appleMusicCatalogAlbum(
+      : loadAppleMusicCatalogAlbumCached(
           String(appleMusicCatalogAlbumId),
           appleMusicStorefront || undefined
         );
     appleAlbum
       .then((album) => {
         if (cancelled) return;
-        setAppleVersionDetail(album ? appleMusicAlbumToLibraryDetail(album) : null);
+        const nextDetail = album ? appleMusicAlbumToLibraryDetail(album) : null;
+        if (nextDetail) appleVersionDetailCache.current.set(appleVersionDetailKey, nextDetail);
+        setAppleVersionDetail(nextDetail);
       })
       .catch(() => {
         if (!cancelled) setAppleVersionDetail(null);
@@ -545,7 +623,14 @@ export function AlbumDetailPage({
     return () => {
       cancelled = true;
     };
-  }, [appleMusicCatalogAlbumId, appleMusicStorefront, appleMusicVersionId, linkedLocalAlbumId]);
+  }, [
+    appleMusicCatalogAlbumId,
+    appleMusicProfileId,
+    appleMusicStorefront,
+    appleMusicVersionId,
+    appleVersionDetailKey,
+    linkedLocalAlbumId
+  ]);
   useEffect(() => {
     if (kind !== 'apple_music' || viewingVersionId !== null || !linkedAppleMusicVersion?.id) return;
     setViewingVersionId(linkedAppleMusicVersion.id as string | number);
@@ -740,23 +825,51 @@ export function AlbumDetailPage({
     };
   }, [canonicalAlbum?.description, linkedLocalAlbumId, linkedQobuzAlbumId, versions]);
   useEffect(() => {
-    const hasAppleMusic = versions.some((version) => version.provider === 'apple_music');
-    if (activeTab !== 'versions' || !linkedLocalAlbumId || hasAppleMusic || remoteSurface) {
+    if (!albumAvailable || !linkedLocalAlbumId || hasLinkedAppleMusicVersion || remoteSurface) {
       return undefined;
     }
-    const attemptKey = String(linkedLocalAlbumId);
-    if (appleMusicMatchAttempts.current.has(attemptKey)) return undefined;
-    appleMusicMatchAttempts.current.add(attemptKey);
+    const requestKey = `${appleMusicProfileId}:${String(linkedLocalAlbumId)}:${albumStorefront.trim().toLowerCase()}:${appleMatchInputKey}`;
+    let request = appleMusicMatchRequests.current.get(requestKey);
+    if (!request) {
+      request = endpoints.appleMusicAlbumMatch(linkedLocalAlbumId, albumStorefront || undefined);
+      appleMusicMatchRequests.current.set(requestKey, request);
+    }
     let cancelled = false;
-    endpoints
-      .appleMusicAlbumMatch(
-        linkedLocalAlbumId,
-        String((album as JsonRecord | null)?.storefront || '') || undefined
-      )
+    request
       .then((result) => {
         if (cancelled) return;
         const linkedVersion = result.linked_version as JsonRecord | undefined;
         if (linkedVersion) {
+          const appleAlbum = result.apple_album as JsonRecord | undefined;
+          if (appleAlbum) {
+            const nextAppleDetail = appleMusicAlbumToLibraryDetail(appleAlbum);
+            const storedVersionId = positiveNumber(linkedVersion.id);
+            const catalogAlbumId = idValue(
+              linkedVersion.provider_id,
+              appleAlbum.album_id,
+              appleAlbum.id
+            );
+            const storefront = String(linkedVersion.storefront || appleAlbum.storefront || '');
+            updateAppleMusicCatalogAlbumCache(
+              appleAlbum,
+              catalogAlbumId,
+              storefront,
+              appleMusicProfileId
+            );
+            if (storedVersionId) {
+              appleVersionDetailCache.current.set(
+                storedAppleMusicDetailKey(appleMusicProfileId, linkedLocalAlbumId, storedVersionId),
+                nextAppleDetail
+              );
+            }
+            if (catalogAlbumId) {
+              appleVersionDetailCache.current.set(
+                catalogAppleMusicDetailKey(appleMusicProfileId, catalogAlbumId, storefront),
+                nextAppleDetail
+              );
+            }
+            setAppleVersionDetail(nextAppleDetail);
+          }
           setCurrentDetail((current) =>
             current
               ? {
@@ -773,41 +886,77 @@ export function AlbumDetailPage({
           return;
         }
         if (result.status === 'unavailable') {
-          appleMusicMatchAttempts.current.delete(attemptKey);
+          if (appleMusicMatchRequests.current.get(requestKey) === request) {
+            appleMusicMatchRequests.current.delete(requestKey);
+          }
         }
       })
       .catch(() => {
-        if (!cancelled) appleMusicMatchAttempts.current.delete(attemptKey);
+        if (appleMusicMatchRequests.current.get(requestKey) === request) {
+          appleMusicMatchRequests.current.delete(requestKey);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [activeTab, album, linkedLocalAlbumId, remoteSurface, versions]);
+  }, [
+    albumAvailable,
+    albumStorefront,
+    appleMatchInputKey,
+    appleMusicProfileId,
+    hasLinkedAppleMusicVersion,
+    linkedLocalAlbumId,
+    remoteSurface
+  ]);
   useEffect(() => {
     // A Qobuz album that a local album covers inherits that album's Apple
     // version above, so only a standalone Qobuz release asks the server to find
     // its Apple edition.
-    const hasAppleMusic = versions.some((version) => version.provider === 'apple_music');
-    const qobuzAlbumId = isQobuz ? normalizeQobuzAlbumId(album || idValue(id)) : '';
     if (
-      activeTab !== 'versions' ||
       !isQobuz ||
       linkedLocalAlbumId ||
-      hasAppleMusic ||
+      hasLinkedAppleMusicVersion ||
       remoteSurface ||
-      !qobuzAlbumId
+      !albumAvailable ||
+      !qobuzAppleMusicAlbumId
     ) {
       return undefined;
     }
-    if (qobuzAppleMusicAttempts.current.has(qobuzAlbumId)) return undefined;
-    qobuzAppleMusicAttempts.current.add(qobuzAlbumId);
+    const requestKey = `${appleMusicProfileId}:${qobuzAppleMusicAlbumId}`;
+    let request = qobuzAppleMusicRequests.current.get(requestKey);
+    if (!request) {
+      request = endpoints.qobuzAppleMusicVersion(qobuzAppleMusicAlbumId);
+      qobuzAppleMusicRequests.current.set(requestKey, request);
+    }
     let cancelled = false;
-    endpoints
-      .qobuzAppleMusicVersion(qobuzAlbumId)
+    request
       .then((result) => {
         if (cancelled) return;
         const appleVersion = result.version as JsonRecord | undefined;
         if (appleVersion) {
+          const appleAlbum = result.apple_album as JsonRecord | undefined;
+          if (appleAlbum) {
+            const nextAppleDetail = appleMusicAlbumToLibraryDetail(appleAlbum);
+            const catalogAlbumId = idValue(
+              appleVersion.provider_id,
+              appleAlbum.album_id,
+              appleAlbum.id
+            );
+            const storefront = String(appleVersion.storefront || appleAlbum.storefront || '');
+            updateAppleMusicCatalogAlbumCache(
+              appleAlbum,
+              catalogAlbumId,
+              storefront,
+              appleMusicProfileId
+            );
+            if (catalogAlbumId) {
+              appleVersionDetailCache.current.set(
+                catalogAppleMusicDetailKey(appleMusicProfileId, catalogAlbumId, storefront),
+                nextAppleDetail
+              );
+            }
+            setAppleVersionDetail(nextAppleDetail);
+          }
           setCurrentDetail((current) =>
             current
               ? {
@@ -824,16 +973,28 @@ export function AlbumDetailPage({
           return;
         }
         if (result.status === 'unavailable') {
-          qobuzAppleMusicAttempts.current.delete(qobuzAlbumId);
+          if (qobuzAppleMusicRequests.current.get(requestKey) === request) {
+            qobuzAppleMusicRequests.current.delete(requestKey);
+          }
         }
       })
       .catch(() => {
-        if (!cancelled) qobuzAppleMusicAttempts.current.delete(qobuzAlbumId);
+        if (qobuzAppleMusicRequests.current.get(requestKey) === request) {
+          qobuzAppleMusicRequests.current.delete(requestKey);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [activeTab, album, id, isQobuz, linkedLocalAlbumId, remoteSurface, versions]);
+  }, [
+    albumAvailable,
+    appleMusicProfileId,
+    hasLinkedAppleMusicVersion,
+    isQobuz,
+    linkedLocalAlbumId,
+    qobuzAppleMusicAlbumId,
+    remoteSurface
+  ]);
   useEffect(() => {
     if (isAppleMusic) {
       setFavoriteKeys(new Set());

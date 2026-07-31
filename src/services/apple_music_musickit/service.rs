@@ -51,6 +51,7 @@ const MAX_QUEUE_PLAYLIST_LENGTH: usize = 100;
 // query with a leftover sliver that cannot reasonably finish.
 const SOURCE_FORMAT_PROBE_TIMEOUT: Duration = Duration::from_secs(6);
 const SOURCE_FORMAT_PROBE_RETRY_INTERVAL: Duration = Duration::from_millis(75);
+const MAX_CATALOG_ALBUM_LOOKUP_COUNT: usize = 6;
 
 pub(crate) struct AppleMusicService {
     helper_path: PathBuf,
@@ -108,6 +109,22 @@ pub(crate) trait AppleMusicHelperClient: Send + Sync {
         album_id: String,
         storefront: Option<String>,
     ) -> Result<AppleCatalogAlbum, AppleMusicMvpError>;
+    async fn lookup_albums(
+        &self,
+        album_ids: Vec<String>,
+        storefront: Option<String>,
+    ) -> Result<Vec<AppleCatalogAlbum>, AppleMusicMvpError>;
+    async fn lookup_albums_by_upc(
+        &self,
+        upc: String,
+        storefront: Option<String>,
+    ) -> Result<Vec<AppleCatalogAlbum>, AppleMusicMvpError>;
+    async fn search_albums(
+        &self,
+        term: String,
+        storefront: Option<String>,
+        limit: u32,
+    ) -> Result<AppleCatalogSearchResult, AppleMusicMvpError>;
     async fn search_songs(
         &self,
         term: String,
@@ -858,6 +875,13 @@ impl AppleMusicService {
         status.clone()
     }
 
+    fn helper_has_capability(&self, capability: &str) -> bool {
+        self.status()
+            .helper_capabilities
+            .iter()
+            .any(|candidate| candidate == capability)
+    }
+
     /// Probe the decoder owned by the native Music.app process. The query uses
     /// a strict per-track wall-clock boundary and accepts only a fresh ALAC
     /// decoder event for Music.app's exact PID.
@@ -1578,6 +1602,102 @@ impl AppleMusicService {
         })
     }
 
+    /// Load multiple catalog albums, including tracks, in one MusicKit request.
+    /// Older helpers transparently fall back to individual album lookups.
+    pub(crate) async fn lookup_albums(
+        &self,
+        album_ids: Vec<String>,
+        storefront: Option<String>,
+    ) -> Result<Vec<AppleCatalogAlbum>, AppleMusicMvpError> {
+        let album_ids = validate_catalog_ids(album_ids)?;
+        let storefront = validate_storefront(storefront)?;
+        self.ensure_ready().await?;
+        if !self.helper_has_capability("lookup_albums") {
+            let mut albums = Vec::with_capacity(album_ids.len());
+            for album_id in album_ids {
+                match self.lookup_album(album_id, storefront.clone()).await {
+                    Ok(album) => albums.push(album),
+                    Err(failure) if failure.code == "album_not_found" => {}
+                    Err(failure) => return Err(failure),
+                }
+            }
+            return Ok(albums);
+        }
+
+        let mut command = self.next_command("lookup_albums").await?;
+        command.album_ids = album_ids;
+        command.storefront = storefront;
+        let event = self.send_and_wait(command, &["catalog_albums"]).await?;
+        Ok(event.catalog_albums)
+    }
+
+    /// Find all catalog editions Apple associates with one UPC/EAN/GTIN.
+    pub(crate) async fn lookup_albums_by_upc(
+        &self,
+        upc: String,
+        storefront: Option<String>,
+    ) -> Result<Vec<AppleCatalogAlbum>, AppleMusicMvpError> {
+        let upc = validate_upc(upc)?;
+        let storefront = validate_storefront(storefront)?;
+        self.ensure_ready().await?;
+        if !self.helper_has_capability("lookup_albums_by_upc") {
+            return Err(error(
+                "helper_capability_unavailable",
+                "The installed Apple Music helper does not support UPC album lookup. Rebuild or update the helper.",
+                false,
+                "catalog_lookup",
+                true,
+            ));
+        }
+
+        let mut command = self.next_command("lookup_albums_by_upc").await?;
+        command.upc = Some(upc);
+        command.storefront = storefront;
+        let event = self.send_and_wait(command, &["catalog_albums"]).await?;
+        Ok(event.catalog_albums)
+    }
+
+    /// Search only the album catalog, avoiding the unused song search branch.
+    pub(crate) async fn search_albums(
+        &self,
+        term: String,
+        storefront: Option<String>,
+        limit: u32,
+    ) -> Result<AppleCatalogSearchResult, AppleMusicMvpError> {
+        let term = validate_catalog_search_term(term)?;
+        let storefront = validate_storefront(storefront)?;
+        if !(1..=25).contains(&limit) {
+            return Err(error(
+                "catalog_search_limit_invalid",
+                "Choose between 1 and 25 Apple Music search results.",
+                false,
+                "validating_request",
+                true,
+            ));
+        }
+        self.ensure_ready().await?;
+        if !self.helper_has_capability("search_albums") {
+            let mut result = self.search_songs(term, storefront, limit).await?;
+            result.songs.clear();
+            return Ok(result);
+        }
+
+        let mut command = self.next_command("search_albums").await?;
+        command.term = Some(term);
+        command.storefront = storefront;
+        command.limit = Some(limit);
+        let event = self.send_and_wait(command, &["catalog_search"]).await?;
+        event.catalog_search.ok_or_else(|| {
+            error(
+                "helper_protocol_mismatch",
+                "The Apple Music helper returned an empty album-search response.",
+                false,
+                "catalog_search",
+                true,
+            )
+        })
+    }
+
     pub(crate) async fn search_songs(
         &self,
         term: String,
@@ -2285,6 +2405,31 @@ impl AppleMusicHelperClient for AppleMusicService {
         AppleMusicService::lookup_album(self, album_id, storefront).await
     }
 
+    async fn lookup_albums(
+        &self,
+        album_ids: Vec<String>,
+        storefront: Option<String>,
+    ) -> Result<Vec<AppleCatalogAlbum>, AppleMusicMvpError> {
+        AppleMusicService::lookup_albums(self, album_ids, storefront).await
+    }
+
+    async fn lookup_albums_by_upc(
+        &self,
+        upc: String,
+        storefront: Option<String>,
+    ) -> Result<Vec<AppleCatalogAlbum>, AppleMusicMvpError> {
+        AppleMusicService::lookup_albums_by_upc(self, upc, storefront).await
+    }
+
+    async fn search_albums(
+        &self,
+        term: String,
+        storefront: Option<String>,
+        limit: u32,
+    ) -> Result<AppleCatalogSearchResult, AppleMusicMvpError> {
+        AppleMusicService::search_albums(self, term, storefront, limit).await
+    }
+
     async fn search_songs(
         &self,
         term: String,
@@ -2315,7 +2460,7 @@ fn apply_helper_event(status: &Arc<Mutex<AppleMusicMvpStatus>>, event: &HelperMe
                 AppleMusicMvpState::AwaitingAuthorization
             };
         }
-        "catalog_song" | "catalog_album" | "catalog_search" => {
+        "catalog_song" | "catalog_album" | "catalog_albums" | "catalog_search" => {
             status.state = AppleMusicMvpState::Ready
         }
         "helper_error" => {
@@ -2464,6 +2609,48 @@ fn validate_catalog_id(
         ));
     }
     Ok(value)
+}
+
+fn validate_catalog_ids(values: Vec<String>) -> Result<Vec<String>, AppleMusicMvpError> {
+    if values.is_empty() || values.len() > MAX_CATALOG_ALBUM_LOOKUP_COUNT {
+        return Err(error(
+            "album_ids_invalid",
+            format!("Choose between 1 and {MAX_CATALOG_ALBUM_LOOKUP_COUNT} Apple Music album IDs."),
+            false,
+            "validating_request",
+            true,
+        ));
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut album_ids = Vec::with_capacity(values.len());
+    for value in values {
+        let album_id = validate_catalog_id(value, "album_ids_invalid")?;
+        if seen.insert(album_id.clone()) {
+            album_ids.push(album_id);
+        }
+    }
+    Ok(album_ids)
+}
+
+fn validate_upc(value: String) -> Result<String, AppleMusicMvpError> {
+    let value = value.trim();
+    let formatting_is_valid = value.chars().all(|character| {
+        character.is_ascii_digit() || character == '-' || character.is_ascii_whitespace()
+    });
+    let digits = value
+        .chars()
+        .filter(char::is_ascii_digit)
+        .collect::<String>();
+    if !formatting_is_valid || !(8..=14).contains(&digits.len()) {
+        return Err(error(
+            "album_upc_invalid",
+            "Enter a valid UPC, EAN, or GTIN.",
+            false,
+            "validating_request",
+            true,
+        ));
+    }
+    Ok(digits)
 }
 
 fn validate_catalog_search_term(value: String) -> Result<String, AppleMusicMvpError> {
@@ -2742,6 +2929,59 @@ mod tests {
             })
         }
 
+        async fn lookup_albums(
+            &self,
+            album_ids: Vec<String>,
+            storefront: Option<String>,
+        ) -> Result<Vec<AppleCatalogAlbum>, AppleMusicMvpError> {
+            Ok(album_ids
+                .into_iter()
+                .map(|album_id| AppleCatalogAlbum {
+                    album_id,
+                    storefront: storefront.clone().unwrap_or_else(|| "nz".to_string()),
+                    title: "Fake album".to_string(),
+                    artist: "Fake artist".to_string(),
+                    ..AppleCatalogAlbum::default()
+                })
+                .collect())
+        }
+
+        async fn lookup_albums_by_upc(
+            &self,
+            upc: String,
+            storefront: Option<String>,
+        ) -> Result<Vec<AppleCatalogAlbum>, AppleMusicMvpError> {
+            Ok(vec![AppleCatalogAlbum {
+                album_id: "album-upc".to_string(),
+                storefront: storefront.unwrap_or_else(|| "nz".to_string()),
+                title: "Fake album".to_string(),
+                artist: "Fake artist".to_string(),
+                upc: Some(upc),
+                ..AppleCatalogAlbum::default()
+            }])
+        }
+
+        async fn search_albums(
+            &self,
+            term: String,
+            storefront: Option<String>,
+            _limit: u32,
+        ) -> Result<AppleCatalogSearchResult, AppleMusicMvpError> {
+            let storefront = storefront.unwrap_or_else(|| "nz".to_string());
+            Ok(AppleCatalogSearchResult {
+                term,
+                storefront: storefront.clone(),
+                songs: Vec::new(),
+                albums: vec![AppleCatalogAlbum {
+                    album_id: "album-0".to_string(),
+                    storefront,
+                    title: "Fake album".to_string(),
+                    artist: "Fake artist".to_string(),
+                    ..AppleCatalogAlbum::default()
+                }],
+            })
+        }
+
         async fn search_songs(
             &self,
             term: String,
@@ -2806,6 +3046,42 @@ mod tests {
         assert!(validate_catalog_search_term(" \n ".to_string()).is_err());
         assert!(validate_catalog_search_term("hello\u{0000}world".to_string()).is_err());
         assert!(validate_catalog_search_term("x".repeat(201)).is_err());
+    }
+
+    #[test]
+    fn album_id_batches_preserve_order_deduplicate_and_stay_bounded() {
+        assert_eq!(
+            validate_catalog_ids(vec![
+                " album-2 ".to_string(),
+                "album-1".to_string(),
+                "album-2".to_string(),
+            ])
+            .unwrap(),
+            vec!["album-2".to_string(), "album-1".to_string()]
+        );
+        assert!(validate_catalog_ids(Vec::new()).is_err());
+        assert!(
+            validate_catalog_ids(
+                (0..=MAX_CATALOG_ALBUM_LOOKUP_COUNT)
+                    .map(|index| format!("album-{index}"))
+                    .collect()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn upc_validation_normalizes_safe_formatting_without_losing_width() {
+        assert_eq!(
+            validate_upc(" 0-123456-789012 ".to_string()).unwrap(),
+            "0123456789012"
+        );
+        assert_eq!(
+            validate_upc("123456789012".to_string()).unwrap(),
+            "123456789012"
+        );
+        assert!(validate_upc("UPC 123456789012".to_string()).is_err());
+        assert!(validate_upc("1234".to_string()).is_err());
     }
 
     #[test]

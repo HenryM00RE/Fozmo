@@ -44,6 +44,9 @@ final class MusicSessionController {
             "authorize",
             "lookup_song",
             "lookup_album",
+            "lookup_albums",
+            "lookup_albums_by_upc",
+            "search_albums",
             "search_songs",
             "library_status",
             "stage_or_adopt_queue",
@@ -119,6 +122,12 @@ final class MusicSessionController {
             lookupSong(command)
         case "lookup_album":
             lookupAlbum(command)
+        case "lookup_albums":
+            lookupAlbums(command)
+        case "lookup_albums_by_upc":
+            lookupAlbumsByUPC(command)
+        case "search_albums":
+            searchAlbums(command)
         case "search_songs":
             searchSongs(command)
         case "library_status":
@@ -276,6 +285,136 @@ final class MusicSessionController {
                     commandID: command.id,
                     code: "catalog_lookup_failed",
                     message: "Apple Music could not load that album.",
+                    retryable: true
+                )
+            }
+        }
+    }
+
+    private func lookupAlbums(_ command: IncomingCommand) {
+        guard validateCatalogAccess(commandID: command.id) else { return }
+        guard let albumIDs = CatalogInput.normalizedAlbumIDs(command.albumIDs) else {
+            sendError(
+                commandID: command.id,
+                code: "album_ids_invalid",
+                message: "Enter between 1 and 6 valid Apple Music album IDs.",
+                retryable: false
+            )
+            return
+        }
+        let storefront = CatalogInput.normalizedStorefront(command.storefront)
+        Task { @MainActor in
+            do {
+                var request = MusicCatalogResourceRequest<Album>(
+                    matching: \.id,
+                    memberOf: albumIDs.map { MusicItemID($0) }
+                )
+                request.limit = albumIDs.count
+                request.properties = [.tracks, .audioVariants]
+                let response = try await request.response()
+                let albumsByID = Dictionary(
+                    response.items.map { ($0.id.rawValue, $0) },
+                    uniquingKeysWith: { first, _ in first }
+                )
+                var event = statusEvent(type: "catalog_albums", commandID: command.id)
+                event.catalogAlbums = albumIDs.compactMap { albumID in
+                    albumsByID[albumID].map {
+                        CatalogAlbumPayload(album: $0, storefront: storefront)
+                    }
+                }
+                sendAndCache(event, commandID: command.id)
+            } catch {
+                sendError(
+                    commandID: command.id,
+                    code: "catalog_lookup_failed",
+                    message: "Apple Music could not load those albums.",
+                    retryable: true
+                )
+            }
+        }
+    }
+
+    private func lookupAlbumsByUPC(_ command: IncomingCommand) {
+        guard validateCatalogAccess(commandID: command.id) else { return }
+        guard let upcVariants = CatalogInput.normalizedUPCVariants(command.upc) else {
+            sendError(
+                commandID: command.id,
+                code: "album_upc_invalid",
+                message: "Enter a valid UPC, EAN, or GTIN.",
+                retryable: false
+            )
+            return
+        }
+        let storefront = CatalogInput.normalizedStorefront(command.storefront)
+        Task { @MainActor in
+            do {
+                var resolved: [Album] = []
+                for upc in upcVariants {
+                    resolved = try await catalogAlbums(matchingUPC: upc)
+                    if !resolved.isEmpty { break }
+                }
+                let albums = resolved
+                    .prefix(CatalogInput.maximumAlbumLookupCount)
+                    .map { CatalogAlbumPayload(album: $0, storefront: storefront) }
+                var event = statusEvent(type: "catalog_albums", commandID: command.id)
+                event.catalogAlbums = albums
+                sendAndCache(event, commandID: command.id)
+            } catch {
+                sendError(
+                    commandID: command.id,
+                    code: "catalog_lookup_failed",
+                    message: "Apple Music could not look up that UPC.",
+                    retryable: true
+                )
+            }
+        }
+    }
+
+    private func catalogAlbums(matchingUPC upc: String) async throws -> [Album] {
+        var request = MusicCatalogResourceRequest<Album>(
+            matching: \.upc,
+            equalTo: upc
+        )
+        request.limit = CatalogInput.maximumAlbumLookupCount
+        request.properties = [.tracks, .audioVariants]
+        return Array(try await request.response().items)
+    }
+
+    private func searchAlbums(_ command: IncomingCommand) {
+        guard validateCatalogAccess(commandID: command.id) else { return }
+        guard
+            let term = CatalogInput.normalizedSearchTerm(command.term),
+            let limit = CatalogInput.normalizedSearchLimit(command.limit)
+        else {
+            sendError(
+                commandID: command.id,
+                code: "catalog_search_term_invalid",
+                message: "Enter a valid Apple Music search term and result limit.",
+                retryable: false
+            )
+            return
+        }
+        let storefront = CatalogInput.normalizedStorefront(command.storefront)
+        Task { @MainActor in
+            do {
+                var request = MusicCatalogSearchRequest(term: term, types: [Album.self])
+                request.limit = limit
+                let response = try await request.response()
+                var event = statusEvent(type: "catalog_search", commandID: command.id)
+                event.catalogSearch = CatalogSearchPayload(
+                    term: term,
+                    storefront: storefront,
+                    songs: [],
+                    albums: response.albums.map {
+                        CatalogAlbumPayload(album: $0, storefront: storefront)
+                    }
+                )
+                sendAndCache(event, commandID: command.id)
+            } catch {
+                sendError(
+                    commandID: command.id,
+                    code: "catalog_search_failed",
+                    message: "Apple Music could not search the album catalog.",
                     retryable: true
                 )
             }

@@ -2,6 +2,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { JsonRecord } from '../../../shared/types';
+import { invalidateAppleMusicCatalogAlbumCache } from '../../albums/model/albumData';
 import { useRecentlyPlayedSelection } from './useRecentlyPlayedSelection';
 
 const mocks = vi.hoisted(() => ({
@@ -50,6 +51,7 @@ function renderRecentSelection() {
 }
 
 beforeEach(() => {
+  invalidateAppleMusicCatalogAlbumCache();
   mocks.appleMusicCatalogAlbum.mockReset();
   mocks.appleMusicCatalogSong.mockReset();
   mocks.appleMusicCatalogAlbum.mockResolvedValue({

@@ -382,6 +382,10 @@ pub(crate) struct HelperMessage {
     pub song_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub album_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub album_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upc: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub term: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -392,6 +396,8 @@ pub(crate) struct HelperMessage {
     pub catalog_song: Option<AppleCatalogSong>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub catalog_album: Option<AppleCatalogAlbum>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub catalog_albums: Vec<AppleCatalogAlbum>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub catalog_search: Option<AppleCatalogSearchResult>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -452,11 +458,14 @@ impl HelperMessage {
             can_play_catalog_content: None,
             song_id: None,
             album_id: None,
+            album_ids: Vec::new(),
+            upc: None,
             term: None,
             limit: None,
             storefront: None,
             catalog_song: None,
             catalog_album: None,
+            catalog_albums: Vec::new(),
             catalog_search: None,
             song_ids: Vec::new(),
             operation_id: None,

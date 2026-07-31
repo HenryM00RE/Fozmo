@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { forgetProfileId, rememberProfileId } from '../../../shared/lib/profileSelection';
+import {
+  invalidateAppleMusicCatalogAlbumCache,
+  loadAppleMusicCatalogAlbumCached
+} from '../model/albumData';
 import { AppleMusicAlbumPage } from './AppleMusicAlbumPage';
 
 const mocks = vi.hoisted(() => ({
@@ -26,6 +31,8 @@ vi.mock('../../../shared/lib/api', () => ({
 }));
 
 beforeEach(() => {
+  forgetProfileId();
+  invalidateAppleMusicCatalogAlbumCache();
   for (const mock of Object.values(mocks)) mock.mockReset();
   mocks.appleMusicCatalogAlbum.mockResolvedValue({
     album_id: '1109714933',
@@ -69,9 +76,33 @@ beforeEach(() => {
   mocks.appleMusicAlbumVersionDetail.mockResolvedValue({ apple_album: null });
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  forgetProfileId();
+});
 
 describe('AppleMusicAlbumPage', () => {
+  it('coalesces catalog album loads while keeping an explicit refresh path', async () => {
+    const first = loadAppleMusicCatalogAlbumCached('1109714933', 'nz');
+    const duplicate = loadAppleMusicCatalogAlbumCached('1109714933', 'nz');
+
+    expect(duplicate).toBe(first);
+    await Promise.all([first, duplicate]);
+    expect(mocks.appleMusicCatalogAlbum).toHaveBeenCalledTimes(1);
+
+    await loadAppleMusicCatalogAlbumCached('1109714933', 'nz', { force: true });
+    expect(mocks.appleMusicCatalogAlbum).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not share play-history-enriched catalog albums between profiles', async () => {
+    rememberProfileId('listener-a');
+    await loadAppleMusicCatalogAlbumCached('1109714933', 'nz');
+    rememberProfileId('listener-b');
+    await loadAppleMusicCatalogAlbumCached('1109714933', 'nz');
+
+    expect(mocks.appleMusicCatalogAlbum).toHaveBeenCalledTimes(2);
+  });
+
   it('loads a routed catalog album and plays it through the normal queue actions', async () => {
     render(
       <AppleMusicAlbumPage

@@ -26,6 +26,7 @@ import type {
   RouteState,
   SourceRef
 } from '../../../shared/types';
+import { loadAppleMusicCatalogAlbumCached } from '../../albums/model/albumData';
 import {
   appleMusicAlbumToLibraryDetail,
   appleMusicSourceFromAlbumTrack
@@ -172,7 +173,7 @@ export function useRecentlyPlayedSelection({
       if (isAppleMusicRecent(item)) {
         const albumId = await appleMusicAlbumIdForRecent(item);
         if (!albumId) return [];
-        const catalogAlbum = await endpoints.appleMusicCatalogAlbum(
+        const catalogAlbum = await loadAppleMusicCatalogAlbumCached(
           albumId,
           String(item.storefront || '').trim() || undefined
         );
