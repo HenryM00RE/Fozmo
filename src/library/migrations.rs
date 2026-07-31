@@ -1,6 +1,6 @@
 use rusqlite::Connection;
 
-pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 6;
+pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 7;
 
 pub(super) fn migrate(conn: &Connection) -> Result<(), String> {
     let found = schema_version(conn)?;
@@ -52,6 +52,12 @@ pub(super) fn migrate(conn: &Connection) -> Result<(), String> {
             conn.pragma_update(None, "user_version", 6_u32)
                 .map_err(|error| format!("record library schema version 6: {error}"))?;
             version = 6;
+        }
+        if version < 7 {
+            migrate_to_v7(conn)?;
+            conn.pragma_update(None, "user_version", 7_u32)
+                .map_err(|error| format!("record library schema version 7: {error}"))?;
+            version = 7;
         }
         debug_assert_eq!(version, CURRENT_SCHEMA_VERSION);
         conn.execute_batch("COMMIT")
@@ -129,7 +135,7 @@ fn migrate_to_v5(conn: &Connection) -> Result<(), String> {
         conn,
         "apple_music_track_formats",
         "format_context_fingerprint",
-        "TEXT",
+        "format_context_fingerprint TEXT",
     )
 }
 
@@ -154,6 +160,27 @@ fn migrate_to_v6(conn: &Connection) -> Result<(), String> {
         "#,
     )
     .map_err(|error| format!("create Apple Music album-match cache: {error}"))
+}
+
+/// Version Qobuz-to-Apple match outcomes independently of their retry age.
+/// Linked catalog payloads remain valid across matcher changes, while a miss
+/// recorded by older rules must be rediscovered immediately.
+fn migrate_to_v7(conn: &Connection) -> Result<(), String> {
+    // The original v5 migration accidentally added a column literally named
+    // `TEXT` on databases that predated this field. Repair those shipped v6
+    // databases while leaving the harmless stray column in place.
+    add_column_if_missing(
+        conn,
+        "apple_music_track_formats",
+        "format_context_fingerprint",
+        "format_context_fingerprint TEXT",
+    )?;
+    add_column_if_missing(
+        conn,
+        "qobuz_apple_music_links",
+        "match_schema",
+        "match_schema TEXT",
+    )
 }
 
 /// A Qobuz album that no local album covers still deserves its Apple Music
@@ -882,7 +909,9 @@ mod tests {
             r#"
             CREATE TABLE album_versions (
                 id INTEGER PRIMARY KEY,
-                provider TEXT NOT NULL
+                provider TEXT NOT NULL,
+                provider_id TEXT NOT NULL DEFAULT '',
+                updated_at INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE version_tracks (
                 id INTEGER PRIMARY KEY,
@@ -1101,6 +1130,111 @@ mod tests {
             )
             .is_err(),
             "transient failures cannot be persisted as conclusive misses"
+        );
+    }
+
+    #[test]
+    fn v7_migration_versions_qobuz_apple_music_misses_without_losing_links() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE apple_music_track_formats (
+                song_id TEXT PRIMARY KEY,
+                album_id TEXT,
+                storefront TEXT,
+                codec TEXT NOT NULL,
+                sample_rate INTEGER NOT NULL,
+                bit_depth INTEGER,
+                observed_at INTEGER NOT NULL,
+                TEXT
+            );
+            INSERT INTO apple_music_track_formats (
+                song_id, album_id, storefront, codec, sample_rate, bit_depth,
+                observed_at, TEXT
+            )
+            VALUES ('song-existing', 'album-existing', 'nz', 'ALAC', 44100, 16, 9, 'legacy');
+            CREATE TABLE qobuz_apple_music_links (
+                qobuz_album_id TEXT PRIMARY KEY,
+                apple_album_id TEXT,
+                storefront TEXT,
+                status TEXT NOT NULL,
+                confidence INTEGER NOT NULL DEFAULT 0,
+                payload_json TEXT,
+                matched_at INTEGER NOT NULL
+            );
+            INSERT INTO qobuz_apple_music_links (
+                qobuz_album_id, apple_album_id, storefront, status,
+                confidence, payload_json, matched_at
+            )
+            VALUES
+                ('linked', 'apple-1', 'nz', 'linked', 100, '{}', 10),
+                ('miss', NULL, 'nz', 'no_match', 0, NULL, 11);
+            PRAGMA user_version = 6;
+            "#,
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        assert_eq!(schema_version(&conn).unwrap(), CURRENT_SCHEMA_VERSION);
+        assert!(has_column(&conn, "qobuz_apple_music_links", "match_schema").unwrap());
+        assert!(
+            has_column(
+                &conn,
+                "apple_music_track_formats",
+                "format_context_fingerprint"
+            )
+            .unwrap(),
+            "v7 repairs the malformed column created by the shipped v5 migration"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT album_id FROM apple_music_track_formats WHERE song_id = 'song-existing'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "album-existing",
+            "the repair preserves existing format observations"
+        );
+        conn.execute(
+            r#"
+            INSERT INTO apple_music_track_formats (
+                song_id, album_id, storefront, codec, sample_rate, bit_depth,
+                observed_at, format_context_fingerprint
+            )
+            VALUES ('song-new', 'album-new', 'nz', 'ALAC', 96000, 24, 12, 'context-v1')
+            "#,
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            conn.query_row(
+                "SELECT format_context_fingerprint FROM apple_music_track_formats WHERE song_id = 'song-new'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "context-v1",
+            "runtime format-context SQL works after repairing a shipped v6 database"
+        );
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM qobuz_apple_music_links", [], |row| {
+                row.get::<_, i64>(0)
+            },)
+                .unwrap(),
+            2,
+            "both durable links and old misses survive the schema migration"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT match_schema FROM qobuz_apple_music_links WHERE qobuz_album_id = 'miss'",
+                [],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .unwrap(),
+            None,
+            "a schema-less legacy miss is recognizable as stale"
         );
     }
 

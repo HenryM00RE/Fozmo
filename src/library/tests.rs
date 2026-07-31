@@ -5712,6 +5712,314 @@ fn a_standalone_qobuz_album_matches_its_apple_music_edition() {
     );
 }
 
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+fn cross_catalog_match_fixture(
+    qobuz_title: &str,
+    apple_title: &str,
+    qobuz_upc: &str,
+    apple_upc: &str,
+    tracks: &[(&str, &str, u32, f64, &str)],
+) -> QobuzAppleMusicMatch {
+    let mut qobuz_album = qalbum("qobuz-fixture", qobuz_title, "Fixture Artist", None);
+    qobuz_album.upc = Some(qobuz_upc.to_string());
+    let qobuz_tracks = tracks
+        .iter()
+        .enumerate()
+        .map(|(index, (qobuz_track_title, _, qobuz_duration, _, isrc))| {
+            let mut track = qtrack(
+                (index + 1) as u64,
+                qobuz_track_title,
+                qobuz_title,
+                "Fixture Artist",
+            );
+            track.track_number = Some((index + 1) as u32);
+            track.disc_number = Some(1);
+            track.duration = *qobuz_duration;
+            track.isrc = Some((*isrc).to_string());
+            track
+        })
+        .collect::<Vec<_>>();
+    let apple_tracks = tracks
+        .iter()
+        .enumerate()
+        .map(
+            |(index, (_, apple_track_title, _, apple_duration, isrc))| AppleCatalogSong {
+                song_id: format!("apple-song-{}", index + 1),
+                storefront: "nz".to_string(),
+                title: (*apple_track_title).to_string(),
+                artist: "Fixture Artist".to_string(),
+                duration_secs: Some(*apple_duration),
+                track_number: Some((index + 1) as u32),
+                disc_number: Some(1),
+                isrc: Some((*isrc).to_string()),
+                ..AppleCatalogSong::default()
+            },
+        )
+        .collect::<Vec<_>>();
+    apple_music_match_for_qobuz_album(
+        &QobuzAlbumDetail {
+            album: qobuz_album,
+            tracks: qobuz_tracks,
+        },
+        &AppleCatalogAlbum {
+            album_id: "apple-fixture".to_string(),
+            storefront: "nz".to_string(),
+            title: apple_title.to_string(),
+            artist: "Fixture Artist".to_string(),
+            upc: Some(apple_upc.to_string()),
+            tracks: apple_tracks,
+            ..AppleCatalogAlbum::default()
+        },
+    )
+}
+
+/// These are reduced versions of the live catalog disagreements that left the
+/// reported albums unlinked. In every case both providers publish the same
+/// ISRCs even though their display titles, durations, or UPC metadata drift.
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+#[test]
+fn qobuz_apple_matching_prefers_exact_isrc_identity_over_display_metadata() {
+    let cases = [
+        (
+            "All Is Full Of Love",
+            "All Is Full of Love - Single",
+            "5016958105600",
+            "5016958105600",
+            vec![
+                (
+                    "All Is Full Of Love (Choice Mix)",
+                    "All Is Full of Love (Choice Mix)",
+                    276,
+                    276.067,
+                    "GBBTF9700092",
+                ),
+                (
+                    "All Is Full Of Love (Plaid Mix)",
+                    "All Is Full of Love (Plaid Mix)",
+                    274,
+                    257.160,
+                    "GBBTF9800003",
+                ),
+                (
+                    "All Is Full Of Love (Guy Sigsworth Mix)",
+                    "All Is Full of Love (Guy Sigsworth Mix)",
+                    263,
+                    263.240,
+                    "GBBTF9800004",
+                ),
+            ],
+        ),
+        (
+            "Random Access Memories",
+            "Random Access Memories (10th Anniversary Edition)",
+            "0196589921154",
+            "196589921154",
+            vec![
+                (
+                    "Instant Crush (feat. Julian Casablancas)",
+                    "Instant Crush",
+                    337,
+                    337.548,
+                    "USQX91300105",
+                ),
+                (
+                    "Get Lucky (feat. Pharrell Williams and Nile Rodgers)",
+                    "Get Lucky",
+                    369,
+                    369.615,
+                    "USQX91300108",
+                ),
+                (
+                    "Touch (2021 Epilogue) [feat. Paul Williams]",
+                    "Touch (2021 Epilogue)",
+                    179,
+                    179.960,
+                    "GBDUW2300080",
+                ),
+            ],
+        ),
+        (
+            "Random Access Memories",
+            "Random Access Memories",
+            "0886443927087",
+            "886443919266",
+            vec![
+                (
+                    "Instant Crush (feat. Julian Casablancas)",
+                    "Instant Crush",
+                    337,
+                    337.562,
+                    "USQX91300105",
+                ),
+                (
+                    "Get Lucky (feat. Pharrell Williams and Nile Rodgers)",
+                    "Get Lucky",
+                    369,
+                    369.629,
+                    "USQX91300108",
+                ),
+                (
+                    "Doin' it Right (feat. Panda Bear)",
+                    "Doin' it Right",
+                    251,
+                    251.302,
+                    "USQX91300112",
+                ),
+            ],
+        ),
+        (
+            "Cobra And Phases Group Play Voltage In The Milky Night",
+            "Cobra and Phases Group Play Voltage in The Milky Night (Expanded Edition)",
+            "5060384616193",
+            "5060384616193",
+            vec![
+                ("Fuses", "Fuses", 217, 240.813, "USEE19900386"),
+                (
+                    "Blips Drips And Strips",
+                    "Blips Drips and Strips",
+                    267,
+                    293.853,
+                    "USEE19900389",
+                ),
+                ("Blue Milk", "Blue Milk", 688, 1017.667, "USEE19900396"),
+            ],
+        ),
+    ];
+
+    for (qobuz_title, apple_title, qobuz_upc, apple_upc, tracks) in cases {
+        let matched =
+            cross_catalog_match_fixture(qobuz_title, apple_title, qobuz_upc, apple_upc, &tracks);
+        assert!(
+            matched.safe_to_link,
+            "exact ISRC identity should safely link {qobuz_title} to {apple_title}: {:?}",
+            matched.evidence
+        );
+        assert_eq!(matched.paired_track_count, tracks.len());
+        assert!(
+            matched
+                .evidence
+                .iter()
+                .any(|item| item == "all_tracks_isrc_matched")
+        );
+    }
+}
+
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+#[test]
+fn a_different_recording_set_is_not_accepted_as_an_edition() {
+    let qobuz = {
+        let mut album = qalbum(
+            "ram-standard",
+            "Random Access Memories",
+            "Fixture Artist",
+            None,
+        );
+        album.upc = Some("0886443927087".to_string());
+        let tracks = [
+            ("Within", "USQX91300104"),
+            ("Beyond", "USQX91300109"),
+            ("Contact", "USQX91300113"),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (title, isrc))| {
+            let mut track = qtrack(
+                (index + 1) as u64,
+                title,
+                "Random Access Memories",
+                "Fixture Artist",
+            );
+            track.track_number = Some((index + 1) as u32);
+            track.disc_number = Some(1);
+            track.duration = [228, 290, 381][index];
+            track.isrc = Some(isrc.to_string());
+            track
+        })
+        .collect();
+        QobuzAlbumDetail { album, tracks }
+    };
+    let apple = AppleCatalogAlbum {
+        album_id: "ram-drumless".to_string(),
+        storefront: "nz".to_string(),
+        title: "Random Access Memories (Drumless Edition)".to_string(),
+        artist: "Fixture Artist".to_string(),
+        upc: Some("196871342049".to_string()),
+        tracks: [
+            ("Within (Drumless Edition)", "GBDUW2300120", 228.493),
+            ("Beyond (Drumless Edition)", "GBDUW2300170", 290.333),
+            ("Contact (Drumless Edition)", "GBDUW2300210", 381.507),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (title, isrc, duration))| AppleCatalogSong {
+            song_id: format!("drumless-{}", index + 1),
+            storefront: "nz".to_string(),
+            title: title.to_string(),
+            artist: "Fixture Artist".to_string(),
+            duration_secs: Some(duration),
+            track_number: Some((index + 1) as u32),
+            disc_number: Some(1),
+            isrc: Some(isrc.to_string()),
+            ..AppleCatalogSong::default()
+        })
+        .collect(),
+        ..AppleCatalogAlbum::default()
+    };
+
+    let matched = apple_music_match_for_qobuz_album(&qobuz, &apple);
+    assert!(!matched.safe_to_link);
+    assert!(
+        !matched
+            .evidence
+            .iter()
+            .any(|item| item == "isrc_track_identity")
+    );
+}
+
+#[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
+#[test]
+fn repeated_isrc_placeholders_do_not_override_conflicting_track_metadata() {
+    let tracks = [
+        (
+            "Reference One",
+            "Unrelated Apple One",
+            120,
+            300.0,
+            "ZZZZZ0000001",
+        ),
+        (
+            "Reference Two",
+            "Unrelated Apple Two",
+            140,
+            320.0,
+            "ZZZZZ0000001",
+        ),
+        (
+            "Reference Three",
+            "Unrelated Apple Three",
+            160,
+            340.0,
+            "ZZZZZ0000001",
+        ),
+    ];
+    let matched = cross_catalog_match_fixture(
+        "Placeholder Album",
+        "Placeholder Album",
+        "1111111111111",
+        "2222222222222",
+        &tracks,
+    );
+
+    assert!(!matched.safe_to_link);
+    assert!(
+        !matched
+            .evidence
+            .iter()
+            .any(|item| item == "isrc_track_identity"),
+        "a repeated provider placeholder must fall back to metadata matching"
+    );
+}
+
 /// Resolving a standalone Qobuz album's Apple edition costs catalog discovery
 /// and candidate hydration, so both the edition and the absence of one are
 /// remembered.
@@ -5768,6 +6076,23 @@ fn a_standalone_qobuz_apple_music_answer_is_remembered() {
     );
     assert!(stored.is_current(0), "a resolved edition never goes stale");
 
+    {
+        let conn = library.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE qobuz_apple_music_links SET match_schema = NULL WHERE qobuz_album_id = ?1",
+            ["qobuz-homogenic"],
+        )
+        .unwrap();
+    }
+    assert!(
+        library
+            .qobuz_apple_music_link("qobuz-homogenic")
+            .unwrap()
+            .unwrap()
+            .is_current(0),
+        "a resolved legacy link remains durable across matcher changes"
+    );
+
     library
         .save_qobuz_apple_music_link("qobuz-nothing-on-apple", None, 0, Some("us"))
         .unwrap();
@@ -5784,6 +6109,23 @@ fn a_standalone_qobuz_apple_music_answer_is_remembered() {
     assert!(
         !miss.is_current(0),
         "an expired miss lets the search run again"
+    );
+
+    {
+        let conn = library.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE qobuz_apple_music_links SET match_schema = 'old-rules' WHERE qobuz_album_id = ?1",
+            ["qobuz-nothing-on-apple"],
+        )
+        .unwrap();
+    }
+    assert!(
+        !library
+            .qobuz_apple_music_link("qobuz-nothing-on-apple")
+            .unwrap()
+            .unwrap()
+            .is_current(60),
+        "a fresh miss from older matching rules must be retried immediately"
     );
 }
 

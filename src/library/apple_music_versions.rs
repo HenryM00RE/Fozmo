@@ -16,6 +16,7 @@ use rusqlite::{OptionalExtension, params};
 use std::collections::{HashMap, HashSet};
 
 const PROVIDER: &str = "apple_music";
+const QOBUZ_APPLE_MUSIC_MATCH_SCHEMA: &str = "qobuz-apple-match-v2-isrc";
 
 /// A verified Apple Music decoder format with the context it was observed in.
 ///
@@ -414,6 +415,11 @@ pub(crate) struct AppleMatchReference<'a> {
     pub artist: Option<&'a str>,
     pub barcode: Option<&'a str>,
     pub tracks: &'a [super::TrackSummary],
+    /// Recording identities supplied by a catalog provider, keyed by the
+    /// corresponding reference track ID. Local files carry MusicBrainz
+    /// recording IDs rather than ISRCs, so this is currently populated only
+    /// for Qobuz-to-Apple matching.
+    pub recording_ids: Option<&'a HashMap<i64, String>>,
 }
 
 pub(crate) struct AppleMatchAssessment {
@@ -430,7 +436,11 @@ pub(crate) fn assess_apple_album_match(
     apple_album: &AppleCatalogAlbum,
 ) -> AppleMatchAssessment {
     let reference_tracks = reference.tracks;
-    let pairings = pair_apple_tracks(reference_tracks, &apple_album.tracks);
+    let pairings = pair_apple_tracks(
+        reference_tracks,
+        &apple_album.tracks,
+        reference.recording_ids,
+    );
     let paired_reference = pairings
         .iter()
         .map(|pairing| pairing.local_track_id)
@@ -535,6 +545,16 @@ pub(crate) fn assess_apple_album_match(
         confidence += 25;
         evidence.push("complete_track_evidence".to_string());
     }
+    let isrc_pair_count = pairings
+        .iter()
+        .filter(|pairing| pairing.match_kind == "isrc")
+        .count();
+    if isrc_pair_count > 0 {
+        evidence.push("isrc_track_identity".to_string());
+    }
+    if isrc_pair_count == apple_album.tracks.len() && !apple_album.tracks.is_empty() {
+        evidence.push("all_tracks_isrc_matched".to_string());
+    }
     let safe_to_link = (barcode_match != Some(false) || complete_release_evidence)
         && compatible_track_set
         && all_provider_tracks_paired
@@ -566,6 +586,7 @@ impl Library {
                 artist: local_album.album_artist.as_deref(),
                 barcode: local_album.mb_barcode.as_deref(),
                 tracks: &local_tracks,
+                recording_ids: None,
             },
             &apple_album,
         );
@@ -630,7 +651,7 @@ impl Library {
             return Ok(None);
         };
         let local_tracks = self.primary_local_album_tracks(&local_album)?;
-        let pairings = pair_apple_tracks(&local_tracks, &apple_album.tracks);
+        let pairings = pair_apple_tracks(&local_tracks, &apple_album.tracks, None);
         let payload_json = serde_json::to_string(apple_album)
             .map_err(|error| format!("serialize Apple Music album: {error}"))?;
         let year = apple_album
@@ -929,6 +950,7 @@ pub struct QobuzAppleMusicMatch {
 pub struct QobuzAppleMusicLink {
     pub apple_album: Option<AppleCatalogAlbum>,
     pub storefront: Option<String>,
+    match_schema: Option<String>,
     /// Unix seconds.
     pub matched_at: i64,
 }
@@ -936,9 +958,13 @@ pub struct QobuzAppleMusicLink {
 impl QobuzAppleMusicLink {
     /// Whether this answer should stand instead of searching Apple again. A
     /// resolved edition holds indefinitely; a remembered miss expires after
-    /// `miss_retry_secs`, because Apple does add catalog editions.
+    /// `miss_retry_secs`, because Apple does add catalog editions. Misses from
+    /// an older matcher are retried immediately so a rules fix cannot leave a
+    /// false negative cached for the full retry window.
     pub fn is_current(&self, miss_retry_secs: i64) -> bool {
-        self.apple_album.is_some() || super::now_secs() - self.matched_at < miss_retry_secs
+        self.apple_album.is_some()
+            || (self.match_schema.as_deref() == Some(QOBUZ_APPLE_MUSIC_MATCH_SCHEMA)
+                && super::now_secs() - self.matched_at < miss_retry_secs)
     }
 }
 
@@ -952,12 +978,24 @@ pub fn apple_music_match_for_qobuz_album(
         .enumerate()
         .map(|(index, track)| qobuz_reference_track(track, index))
         .collect::<Vec<_>>();
+    let recording_ids = qobuz
+        .tracks
+        .iter()
+        .filter_map(|track| {
+            track
+                .isrc
+                .as_deref()
+                .and_then(normalized_isrc)
+                .map(|isrc| (track.id as i64, isrc))
+        })
+        .collect::<HashMap<_, _>>();
     let assessment = assess_apple_album_match(
         &AppleMatchReference {
             title: &qobuz.album.title,
             artist: Some(&qobuz.album.artist),
             barcode: qobuz.album.upc.as_deref(),
             tracks: &tracks,
+            recording_ids: Some(&recording_ids),
         },
         apple_album,
     );
@@ -1015,7 +1053,7 @@ impl Library {
         let row = conn
             .query_row(
                 r#"
-                SELECT payload_json, storefront, matched_at
+                SELECT payload_json, storefront, match_schema, matched_at
                 FROM qobuz_apple_music_links
                 WHERE qobuz_album_id = ?1
                 "#,
@@ -1024,13 +1062,14 @@ impl Library {
                     Ok((
                         row.get::<_, Option<String>>(0)?,
                         row.get::<_, Option<String>>(1)?,
-                        row.get::<_, i64>(2)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, i64>(3)?,
                     ))
                 },
             )
             .optional()
             .map_err(|error| format!("Qobuz Apple Music link lookup: {error}"))?;
-        let Some((payload_json, storefront, matched_at)) = row else {
+        let Some((payload_json, storefront, match_schema, matched_at)) = row else {
             return Ok(None);
         };
         let apple_album = payload_json
@@ -1041,6 +1080,7 @@ impl Library {
         Ok(Some(QobuzAppleMusicLink {
             apple_album,
             storefront,
+            match_schema,
             matched_at,
         }))
     }
@@ -1069,15 +1109,16 @@ impl Library {
             r#"
             INSERT INTO qobuz_apple_music_links (
                 qobuz_album_id, apple_album_id, storefront, status, confidence,
-                payload_json, matched_at
+                payload_json, match_schema, matched_at
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
             ON CONFLICT(qobuz_album_id) DO UPDATE SET
                 apple_album_id = excluded.apple_album_id,
                 storefront = excluded.storefront,
                 status = excluded.status,
                 confidence = excluded.confidence,
                 payload_json = excluded.payload_json,
+                match_schema = excluded.match_schema,
                 matched_at = excluded.matched_at
             "#,
             params![
@@ -1097,6 +1138,7 @@ impl Library {
                 },
                 confidence,
                 payload_json,
+                QOBUZ_APPLE_MUSIC_MATCH_SCHEMA,
                 super::now_secs(),
             ],
         )
@@ -1122,51 +1164,168 @@ fn apple_version_track(track: &AppleCatalogSong, index: usize) -> ExternalVersio
 fn pair_apple_tracks(
     local_tracks: &[super::TrackSummary],
     apple_tracks: &[AppleCatalogSong],
+    recording_ids: Option<&HashMap<i64, String>>,
 ) -> Vec<ExternalTrackPairing> {
-    let remote_tracks = apple_tracks
+    let mut indexed_pairings = Vec::with_capacity(apple_tracks.len());
+    let mut used_local_indices = HashSet::new();
+    let mut used_apple_indices = HashSet::new();
+
+    // Catalog display metadata is not a stable recording identity. Qobuz may
+    // include a featured artist in the title where Apple puts it in the artist
+    // credit, and providers occasionally disagree on a duration by many
+    // seconds. An exact ISRC is stronger evidence than either field, so claim
+    // those pairs before falling back to the conservative metadata matcher.
+    if let Some(recording_ids) = recording_ids {
+        let local_isrcs = local_tracks
+            .iter()
+            .map(|track| {
+                recording_ids
+                    .get(&track.id)
+                    .and_then(|isrc| normalized_isrc(isrc))
+            })
+            .collect::<Vec<_>>();
+        let apple_isrcs = apple_tracks
+            .iter()
+            .map(|track| track.isrc.as_deref().and_then(normalized_isrc))
+            .collect::<Vec<_>>();
+        let mut local_isrc_counts = HashMap::new();
+        for isrc in local_isrcs.iter().flatten() {
+            *local_isrc_counts.entry(isrc.as_str()).or_insert(0_usize) += 1;
+        }
+        let mut apple_isrc_counts = HashMap::new();
+        for isrc in apple_isrcs.iter().flatten() {
+            *apple_isrc_counts.entry(isrc.as_str()).or_insert(0_usize) += 1;
+        }
+
+        for (apple_index, apple) in apple_tracks.iter().enumerate() {
+            let Some(apple_isrc) = apple_isrcs[apple_index].as_ref() else {
+                continue;
+            };
+            // Repeated catalog placeholders are not recording identity. Only
+            // let a valid ISRC override display metadata when it identifies
+            // exactly one track on each side of this album comparison.
+            if local_isrc_counts.get(apple_isrc.as_str()) != Some(&1)
+                || apple_isrc_counts.get(apple_isrc.as_str()) != Some(&1)
+            {
+                continue;
+            }
+            let matching_local = local_tracks
+                .iter()
+                .enumerate()
+                .filter(|(local_index, _)| {
+                    !used_local_indices.contains(local_index)
+                        && local_isrcs[*local_index].as_ref() == Some(apple_isrc)
+                })
+                .min_by_key(|(_, local)| {
+                    let same_position = local.disc_number.unwrap_or(1)
+                        == apple.disc_number.unwrap_or(1) as i64
+                        && local.track_number
+                            == Some(apple.track_number.unwrap_or((apple_index + 1) as u32) as i64);
+                    !same_position
+                });
+            let Some((local_index, local)) = matching_local else {
+                continue;
+            };
+            used_local_indices.insert(local_index);
+            used_apple_indices.insert(apple_index);
+            indexed_pairings.push((
+                apple_index,
+                ExternalTrackPairing {
+                    local_track_id: local.id,
+                    provider_track_id: apple.song_id.clone(),
+                    confidence: 100,
+                    match_kind: "isrc".to_string(),
+                },
+            ));
+        }
+    }
+
+    let remaining_local_indices = (0..local_tracks.len())
+        .filter(|index| !used_local_indices.contains(index))
+        .collect::<Vec<_>>();
+    let remaining_apple_indices = (0..apple_tracks.len())
+        .filter(|index| !used_apple_indices.contains(index))
+        .collect::<Vec<_>>();
+    let remaining_local_tracks = remaining_local_indices
         .iter()
-        .enumerate()
-        .map(|(index, track)| MbTrack {
-            recording_id: track.isrc.clone().or_else(|| Some(track.song_id.clone())),
-            disc: track.disc_number.unwrap_or(1) as i64,
-            position: track.track_number.unwrap_or((index + 1) as u32) as i64,
-            title: track.title.clone(),
-            artist: Some(track.artist.clone()),
-            length_secs: track.duration_secs,
+        .map(|index| local_tracks[*index].clone())
+        .collect::<Vec<_>>();
+    let remote_tracks = remaining_apple_indices
+        .iter()
+        .map(|apple_index| {
+            let track = &apple_tracks[*apple_index];
+            MbTrack {
+                recording_id: track.isrc.clone().or_else(|| Some(track.song_id.clone())),
+                disc: track.disc_number.unwrap_or(1) as i64,
+                position: track.track_number.unwrap_or((*apple_index + 1) as u32) as i64,
+                title: track.title.clone(),
+                artist: Some(track.artist.clone()),
+                length_secs: track.duration_secs,
+            }
         })
         .collect::<Vec<_>>();
-    pair_tracks(local_tracks, &remote_tracks)
-        .into_iter()
-        .filter_map(|pairing| {
-            let local = local_tracks.get(pairing.file_index)?;
-            let apple = apple_tracks.get(pairing.mb_index)?;
-            let exact_title = normalized_apple_track_title(&local.title)
-                == normalized_apple_track_title(&apple.title);
-            let duration_match = match (local.duration_secs, apple.duration_secs) {
-                (Some(local), Some(apple)) => (local - apple).abs() <= 3.0,
-                _ => false,
-            };
-            let confidence = match (exact_title, duration_match, pairing.kind) {
-                (true, true, _) => 100,
-                (true, false, _) => 95,
-                (false, true, "exact") => 90,
-                _ => 84,
-            };
-            let match_kind = if exact_title && duration_match {
-                "position_title_duration"
-            } else if exact_title {
-                "position_title"
-            } else {
-                pairing.kind
-            };
-            Some(ExternalTrackPairing {
+    for pairing in pair_tracks(&remaining_local_tracks, &remote_tracks) {
+        let Some(local_index) = remaining_local_indices.get(pairing.file_index).copied() else {
+            continue;
+        };
+        let Some(apple_index) = remaining_apple_indices.get(pairing.mb_index).copied() else {
+            continue;
+        };
+        let Some(local) = local_tracks.get(local_index) else {
+            continue;
+        };
+        let Some(apple) = apple_tracks.get(apple_index) else {
+            continue;
+        };
+        let exact_title = normalized_apple_track_title(&local.title)
+            == normalized_apple_track_title(&apple.title);
+        let duration_match = match (local.duration_secs, apple.duration_secs) {
+            (Some(local), Some(apple)) => (local - apple).abs() <= 3.0,
+            _ => false,
+        };
+        let confidence = match (exact_title, duration_match, pairing.kind) {
+            (true, true, _) => 100,
+            (true, false, _) => 95,
+            (false, true, "exact") => 90,
+            _ => 84,
+        };
+        let match_kind = if exact_title && duration_match {
+            "position_title_duration"
+        } else if exact_title {
+            "position_title"
+        } else {
+            pairing.kind
+        };
+        indexed_pairings.push((
+            apple_index,
+            ExternalTrackPairing {
                 local_track_id: local.id,
                 provider_track_id: apple.song_id.clone(),
                 confidence,
                 match_kind: match_kind.to_string(),
-            })
-        })
+            },
+        ));
+    }
+    indexed_pairings.sort_by_key(|(apple_index, _)| *apple_index);
+    indexed_pairings
+        .into_iter()
+        .map(|(_, pairing)| pairing)
         .collect()
+}
+
+fn normalized_isrc(value: &str) -> Option<String> {
+    let normalized = value
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .map(|character| character.to_ascii_uppercase())
+        .collect::<String>();
+    let bytes = normalized.as_bytes();
+    (bytes.len() == 12
+        && bytes[..2].iter().all(|byte| byte.is_ascii_alphabetic())
+        && bytes[2..5].iter().all(|byte| byte.is_ascii_alphanumeric())
+        && bytes[5..].iter().all(|byte| byte.is_ascii_digit())
+        && bytes[7..].iter().any(|byte| *byte != b'0'))
+    .then_some(normalized)
 }
 
 fn apple_play_source(album: &AppleCatalogAlbum, track: &AppleCatalogSong) -> ResolvedPlaySource {
