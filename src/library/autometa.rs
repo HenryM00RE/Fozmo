@@ -921,7 +921,6 @@ impl Library {
             .into_iter()
             .filter(|version| match mode {
                 "all" => true,
-                "retry_errors" => autometa_version_has_error_or_stale_match(version),
                 _ => !autometa_version_done(version, link_qobuz),
             })
             .collect())
@@ -1029,19 +1028,9 @@ pub(crate) fn autometa_existing_qobuz_match(version: &AutoMetaLocalVersion) -> O
         .filter(|id| !id.is_empty())
 }
 
-fn autometa_version_has_error_or_stale_match(version: &AutoMetaLocalVersion) -> bool {
-    matches!(version.musicbrainz_match_status.as_deref(), Some("error"))
-        || matches!(version.qobuz_match_status.as_deref(), Some("error"))
-        || (version.musicbrainz_match_status.as_deref() == Some("matched")
-            && !version
-                .musicbrainz_release_id
-                .as_deref()
-                .is_some_and(is_valid_musicbrainz_release_id))
-}
-
 fn normalized_autometa_mode(mode: &str) -> String {
     match mode {
-        "all" | "retry_errors" => mode.to_string(),
+        "all" => mode.to_string(),
         _ => "remaining".to_string(),
     }
 }

@@ -1,8 +1,8 @@
+import { Pause, Play, RefreshCw, Square, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { AutoMetaProgress } from '../../../shared/lib/api';
 import { endpoints } from '../../../shared/lib/api';
 import type { JsonRecord } from '../../../shared/types';
-import { Icon } from '../../../shared/ui/Icon';
 import { Modal } from '../../../shared/ui/Modal';
 import { useQobuzRadio } from '../hooks/useQobuzRadio';
 import { errorMessage } from '../model/metadataAssignerModel';
@@ -83,12 +83,15 @@ export function MetaBrainzSettingsPage({ onRefresh, qobuzStatus }: MetaBrainzSet
     setAutoMetaOpen(false);
   };
 
-  const runAutoMeta = async (mode = 'remaining') => {
+  const runAutoMeta = async () => {
     if (autoMetaAction || autoMetaRunning) return;
-    setAutoMetaAction(mode);
+    setAutoMetaAction('start');
     setAutoMetaMessage('');
     try {
-      const progress = await endpoints.autoMetaJob({ link_qobuz: autoMetaLinkQobuz, mode });
+      const progress = await endpoints.autoMetaJob({
+        link_qobuz: autoMetaLinkQobuz,
+        mode: 'remaining'
+      });
       setAutoMetaProgress((current) => mergeAutoMetaProgress(progress, autoMetaLinkQobuz, current));
     } catch (error) {
       setAutoMetaMessage(`AutoMetadata could not start. ${errorMessage(error)}`);
@@ -273,13 +276,12 @@ function AutoMetaModal({
   onLinkQobuzChange: (enabled: boolean) => void;
   onPause: () => void;
   onResume: () => void;
-  onRun: (mode?: string) => void;
+  onRun: () => void;
   onStop: () => void;
   open: boolean;
   progress: AutoMetaProgress | null;
 }) {
   if (!open) return null;
-  const running = Boolean(progress?.running);
   return (
     <Modal
       open
@@ -294,7 +296,6 @@ function AutoMetaModal({
         <header className="metadata-assigner-head">
           <div>
             <strong id="autometa-title">AutoMetadata</strong>
-            <span>{running ? 'Tagging local versions' : 'Batch metadata tagging'}</span>
           </div>
           <button
             className="metadata-assigner-close"
@@ -302,14 +303,15 @@ function AutoMetaModal({
             aria-label="Close"
             onClick={onClose}
           >
-            <Icon path="M18 6 6 18M6 6l12 12" />
+            <X aria-hidden="true" />
           </button>
         </header>
         <div className="metadata-assigner-body autometa-modal-body">
-          <div className="metadata-assigner-message">
-            This can take a while because MusicBrainz limits clients to about one API request per
-            second.
-          </div>
+          <p className="autometa-description">
+            AutoMetadata assigns MusicBrainz metadata to each local album and, when available, links
+            the matching Qobuz album. Runs can take a while because MusicBrainz rate-limits API
+            requests.
+          </p>
           <AutoMetaPanel
             action={action}
             linkQobuz={linkQobuz}
@@ -344,7 +346,7 @@ function AutoMetaPanel({
   onLinkQobuzChange: (enabled: boolean) => void;
   onPause: () => void;
   onResume: () => void;
-  onRun: (mode?: string) => void;
+  onRun: () => void;
   onStop: () => void;
   progress: AutoMetaProgress | null;
 }) {
@@ -353,6 +355,7 @@ function AutoMetaPanel({
   const paused = status === 'paused';
   const interrupted = status === 'interrupted';
   const stopping = status === 'stopping';
+  const completed = status === 'completed';
   const [etaTick, setEtaTick] = useState(() => Date.now());
   const etaBaselineRef = useRef<{ at: number; processed: number } | null>(null);
 
@@ -450,59 +453,50 @@ function AutoMetaPanel({
           value={stringValue(progress?.current_album) || 'None'}
         />
         <AutoMetaDetail
-          label="Current version"
-          value={stringValue(progress?.current_version) || 'None'}
-        />
-        <AutoMetaDetail
           label="Last update"
           value={progress?.updated_at ? timeLabel(numberValue(progress.updated_at)) : 'No job yet'}
         />
       </div>
       <div className="metadata-assigner-actions autometa-actions">
         <button
-          className={`pill primary${action === 'remaining' ? ' is-busy' : ''}`}
+          className={`pill primary${action === 'start' ? ' is-busy' : ''}`}
           type="button"
-          onClick={() => onRun('remaining')}
+          onClick={onRun}
           disabled={!canStart || Boolean(action)}
         >
-          {action === 'remaining' ? (
+          {action === 'start' ? (
             <span className="autometa-button-spinner" aria-hidden="true" />
           ) : (
-            <Icon path="M17 3v4h-4M7 21v-4h4M17 7A7 7 0 0 0 5.6 4.6M7 17a7 7 0 0 0 11.4 2.4" />
+            <RefreshCw aria-hidden="true" />
           )}
-          Start remaining
+          {completed ? 'Start new run' : 'Start remaining'}
         </button>
-        <button
-          className="pill"
-          type="button"
-          onClick={running ? onPause : onResume}
-          disabled={!canPauseOrResume || Boolean(action)}
-        >
-          <Icon path={running ? 'M8 5v14M16 5v14' : 'M8 5v14l11-7z'} />
-          {running ? 'Pause' : 'Resume'}
-        </button>
-        <button
-          className="pill"
-          type="button"
-          onClick={onStop}
-          disabled={(!running && !paused) || Boolean(action)}
-        >
-          <Icon path="M6 6h12v12H6z" />
-          Stop
-        </button>
-        <button
-          className="pill"
-          type="button"
-          onClick={() => onRun('retry_errors')}
-          disabled={!canStart || Boolean(action)}
-        >
-          <Icon path="M21 12a9 9 0 1 1-3-6.7M21 3v6h-6" />
-          Retry errors
-        </button>
-        <div className="autometa-action-note">
-          Start remaining creates a fresh run for unfinished versions. Pause/Resume controls the
-          current run without rebuilding its queue.
-        </div>
+        {!completed && (
+          <>
+            <button
+              className="pill"
+              type="button"
+              onClick={running ? onPause : onResume}
+              disabled={!canPauseOrResume || Boolean(action)}
+            >
+              {running ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
+              {running ? 'Pause' : 'Resume'}
+            </button>
+            <button
+              className="pill"
+              type="button"
+              onClick={onStop}
+              disabled={(!running && !paused) || Boolean(action)}
+            >
+              <Square aria-hidden="true" />
+              Stop
+            </button>
+            <div className="autometa-action-note">
+              Start remaining creates a fresh run for unfinished versions. Pause/Resume controls the
+              current run without rebuilding its queue.
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
