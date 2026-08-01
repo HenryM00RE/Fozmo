@@ -33,8 +33,8 @@ use fozmo::audio::dsp::resampler::{DEFAULT_FILTER_TYPE, FilterType};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-const REPORT_SCHEMA_VERSION: &str = "dsd-public-quality-report-v5";
-const MEASUREMENT_VERSION: &str = "dsd-public-quality-v5";
+const REPORT_SCHEMA_VERSION: &str = "dsd-public-quality-report-v6";
+const MEASUREMENT_VERSION: &str = "dsd-public-quality-v6";
 const MATRIX_VERSION: &str = "dsd-public-matrix-14-v7";
 const SCORE_VERSION: &str = "dsd-public-production-score-v3";
 const SCORE_CLAIM: &str = "Fozmo PCM-to-DSD production-path score using Split Phase E3";
@@ -185,6 +185,10 @@ struct BenchReport {
     measurement_version: &'static str,
     matrix_version: &'static str,
     reconstruction_algorithm_version: &'static str,
+    audio_reconstruction_certified_floor_dbfs: f64,
+    hires_reconstruction_certified_floor_dbfs: f64,
+    spectral_analysis_certified_floor_dbfs: f64,
+    floor_policy: &'static str,
     quality_policy: &'static str,
     dbfs_reference: &'static str,
     sinad_definition: &'static str,
@@ -786,6 +790,12 @@ fn run(cli: Cli) -> Result<(BenchReport, (PathBuf, PathBuf)), String> {
         measurement_version: MEASUREMENT_VERSION,
         matrix_version: MATRIX_VERSION,
         reconstruction_algorithm_version: analysis::RECONSTRUCTION_ALGORITHM_VERSION,
+        audio_reconstruction_certified_floor_dbfs:
+            analysis::AUDIO_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS,
+        hires_reconstruction_certified_floor_dbfs:
+            analysis::HIRES_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS,
+        spectral_analysis_certified_floor_dbfs: analysis::SPECTRAL_ANALYSIS_CERTIFIED_FLOOR_DBFS,
+        floor_policy: "raw diagnostic values below the applicable certified floor remain serialized for reproducibility but are not publishable magnitude claims; report them as less than the certified floor",
         quality_policy: "the versioned production-path scores are comparative presentation only; --check requires the complete canonical Split Phase E3 matrix and enforces whole-render health plus scoped structural gates",
         dbfs_reference: "full-scale-sine: peak amplitude 1.0 and RMS 1/sqrt(2) are both 0 dBFS",
         sinad_definition: "declared carrier power divided by every other in-band component, including declared distortion products",
@@ -1659,9 +1669,13 @@ fn level_quality_index(
             .flat_map(|segment| segment.channels.iter())
             .map(|channel| {
                 let metrics = &channel.metrics;
-                0.45 * metrics.sinad_db
-                    + 0.20 * -metrics.worst_nonharmonic_spur.level_dbfs
-                    + 0.20 * -metrics.residual_noise_dbfs
+                let floor = analysis::AUDIO_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS;
+                let certified_sinad = metrics
+                    .sinad_db
+                    .min(metrics.carrier.measured_level_dbfs - floor);
+                0.45 * certified_sinad
+                    + 0.20 * -metrics.worst_nonharmonic_spur.level_dbfs.max(floor)
+                    + 0.20 * -metrics.residual_noise_dbfs.max(floor)
                     + 0.15 * gain_error_rejection_db(metrics.carrier.gain_error_db)
             }),
         "level-sweep quality index",
@@ -3099,6 +3113,12 @@ fn markdown_summary(report: &BenchReport) -> String {
         report.diagnostic_hard_failure_count
     ));
     output.push_str(&format!(
+        "Audio-band reconstruction is certified to {:.0} dBFS, hi-res reconstruction to {:.0} dBFS, and the standalone spectral-analysis path to {:.0} dBFS. Raw diagnostic values below an applicable floor are retained in JSON for reproducibility, but must be reported as below that floor, not as exact figures.\n\n",
+        report.audio_reconstruction_certified_floor_dbfs,
+        report.hires_reconstruction_certified_floor_dbfs,
+        report.spectral_analysis_certified_floor_dbfs,
+    ));
+    output.push_str(&format!(
         "Built as `{}`/opt `{}` for `{}` with target CPU `{}`; source/binary snapshot match: `{}`.\n\n",
         report.provenance.build_profile,
         report.provenance.build_opt_level,
@@ -3230,17 +3250,27 @@ fn markdown_summary(report: &BenchReport) -> String {
         for segment in segments {
             for channel in &segment.channels {
                 output.push_str(&format!(
-                    "| {} | {} | {} | {} | {:.2} | {:.2} | {:.2} | {:.4} | {:.2} | {:.2} |\n",
+                    "| {} | {} | {} | {} | {:.2} | {:.2} | {} | {:.4} | {} | {} |\n",
                     cell.filter,
                     cell.dsd_rate,
                     cell.modulator,
                     channel.channel,
                     segment.source_level_dbfs,
                     segment.effective_level_dbfs,
-                    channel.metrics.sinad_db,
+                    fmt_certified_sinad(
+                        channel.metrics.sinad_db,
+                        channel.metrics.carrier.measured_level_dbfs,
+                        analysis::AUDIO_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS,
+                    ),
                     channel.metrics.carrier.gain_error_db,
-                    channel.metrics.worst_nonharmonic_spur.level_dbfs,
-                    channel.metrics.residual_noise_dbfs,
+                    fmt_certified_dbfs(
+                        channel.metrics.worst_nonharmonic_spur.level_dbfs,
+                        analysis::AUDIO_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS,
+                    ),
+                    fmt_certified_dbfs(
+                        channel.metrics.residual_noise_dbfs,
+                        analysis::AUDIO_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS,
+                    ),
                 ));
             }
         }
@@ -3256,13 +3286,19 @@ fn markdown_summary(report: &BenchReport) -> String {
         for section in sections {
             for channel in &section.channels {
                 output.push_str(&format!(
-                    "| {} | {} | {} | {} | {:.2} | {:.2} | {} | {:.9e} | {} | {:.6} |\n",
+                    "| {} | {} | {} | {} | {} | {} | {} | {:.9e} | {} | {:.6} |\n",
                     cell.filter,
                     cell.modulator,
                     section.name,
                     channel.channel,
-                    channel.noise.integrated_noise_dbfs,
-                    channel.noise.worst_spur.level_dbfs,
+                    fmt_certified_dbfs(
+                        channel.noise.integrated_noise_dbfs,
+                        analysis::AUDIO_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS,
+                    ),
+                    fmt_certified_dbfs(
+                        channel.noise.worst_spur.level_dbfs,
+                        analysis::AUDIO_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS,
+                    ),
                     fmt_scientific_option(channel.expected_dc),
                     channel.reconstructed_dc,
                     fmt_scientific_option(channel.dc_error),
@@ -3286,16 +3322,25 @@ fn markdown_summary(report: &BenchReport) -> String {
         for channel in channels {
             for (phase, metrics) in [("steady", &channel.steady), ("recovery", &channel.recovery)] {
                 output.push_str(&format!(
-                    "| {} | {} | {} | {} | {} | {:.2} | {} | {:.2} | {:.2} |\n",
+                    "| {} | {} | {} | {} | {} | {:.2} | {} | {} | {} |\n",
                     cell.filter,
                     cell.modulator,
                     level_contract,
                     phase,
                     channel.channel,
                     metrics.sinad_db,
-                    fmt_measured_tone(metrics.worst_declared_product.as_ref()),
-                    metrics.residual_excluding_declared_products_dbfs,
-                    metrics.worst_unexpected_spur.level_dbfs,
+                    fmt_measured_tone(
+                        metrics.worst_declared_product.as_ref(),
+                        analysis::AUDIO_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS,
+                    ),
+                    fmt_certified_dbfs(
+                        metrics.residual_excluding_declared_products_dbfs,
+                        analysis::AUDIO_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS,
+                    ),
+                    fmt_certified_dbfs(
+                        metrics.worst_unexpected_spur.level_dbfs,
+                        analysis::AUDIO_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS,
+                    ),
                 ));
             }
         }
@@ -3315,8 +3360,9 @@ fn markdown_summary(report: &BenchReport) -> String {
             continue;
         };
         for channel in channels {
+            let floor = analysis::AUDIO_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS;
             output.push_str(&format!(
-                "| {} | {} | {} | {} | {:.6} | {:.6} | {:.6} | {:.2} | {:.2} / {:.2} | {:.2} | {:.2} / {:.2} / {:.2} | {} |\n",
+                "| {} | {} | {} | {} | {:.6} | {:.6} | {:.6} | {} | {} / {} | {} | {} / {} / {} | {} |\n",
                 cell.filter,
                 cell.modulator,
                 level_contract,
@@ -3324,13 +3370,13 @@ fn markdown_summary(report: &BenchReport) -> String {
                 channel.settled_program_peak,
                 channel.transition_waveform_peak,
                 channel.transition_overshoot_above_settled,
-                channel.zero_input_transition_peak_dbfs,
-                channel.clean_mute_peak_dbfs,
-                channel.clean_mute_rms_dbfs,
-                channel.restart_residual_peak_dbfs,
-                channel.restart_residual_rms_1ms_dbfs,
-                channel.restart_residual_rms_10ms_dbfs,
-                channel.restart_residual_rms_50ms_dbfs,
+                fmt_certified_dbfs(channel.zero_input_transition_peak_dbfs, floor),
+                fmt_certified_dbfs(channel.clean_mute_peak_dbfs, floor),
+                fmt_certified_dbfs(channel.clean_mute_rms_dbfs, floor),
+                fmt_certified_dbfs(channel.restart_residual_peak_dbfs, floor),
+                fmt_certified_dbfs(channel.restart_residual_rms_1ms_dbfs, floor),
+                fmt_certified_dbfs(channel.restart_residual_rms_10ms_dbfs, floor),
+                fmt_certified_dbfs(channel.restart_residual_rms_50ms_dbfs, floor),
                 fmt_option(channel.end_to_end_recovery_time_ms),
             ));
         }
@@ -3354,16 +3400,25 @@ fn markdown_summary(report: &BenchReport) -> String {
                     .as_ref()
                     .and_then(|metrics| metrics.intervals.get(index));
                 output.push_str(&format!(
-                    "| {} | {} | {} | {} | {:.0}â€“{:.0} | {:.2} | {:.2} | {:.2} | {} | {} |\n",
+                    "| {} | {} | {} | {} | {:.0}â€“{:.0} | {} | {} | {} | {} | {} |\n",
                     cell.filter,
                     cell.modulator,
                     level_contract,
                     channel.channel,
                     interval.start_ms,
                     interval.end_ms,
-                    interval.residual_rms_dbfs,
-                    interval.maximum_sliding_rms_dbfs,
-                    interval.percentile_95_sliding_rms_dbfs,
+                    fmt_certified_dbfs(
+                        interval.residual_rms_dbfs,
+                        analysis::AUDIO_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS,
+                    ),
+                    fmt_certified_dbfs(
+                        interval.maximum_sliding_rms_dbfs,
+                        analysis::AUDIO_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS,
+                    ),
+                    fmt_certified_dbfs(
+                        interval.percentile_95_sliding_rms_dbfs,
+                        analysis::AUDIO_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS,
+                    ),
                     excess.map_or_else(
                         || "â€”".to_string(),
                         |metrics| format!(
@@ -3414,14 +3469,20 @@ fn markdown_summary(report: &BenchReport) -> String {
         for channel in channels {
             for band in &channel.metrics.bands {
                 output.push_str(&format!(
-                    "| {} | {} | {} | {:.0}–{:.0} | {:.2} | {:.2} |\n",
+                    "| {} | {} | {} | {:.0}–{:.0} | {} | {} |\n",
                     cell.filter,
                     cell.modulator,
                     channel.channel,
                     band.low_hz,
                     band.high_hz,
-                    band.residual_dbfs,
-                    band.worst_unexpected_spur.level_dbfs,
+                    fmt_certified_dbfs(
+                        band.residual_dbfs,
+                        analysis::HIRES_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS,
+                    ),
+                    fmt_certified_dbfs(
+                        band.worst_unexpected_spur.level_dbfs,
+                        analysis::HIRES_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS,
+                    ),
                 ));
             }
         }
@@ -3453,11 +3514,34 @@ fn markdown_summary(report: &BenchReport) -> String {
     output
 }
 
-fn fmt_measured_tone(tone: Option<&analysis::MeasuredTone>) -> String {
+fn fmt_measured_tone(tone: Option<&analysis::MeasuredTone>, floor_dbfs: f64) -> String {
     tone.map_or_else(
         || "—".to_string(),
-        |tone| format!("{} ({:.2} dBFS)", tone.name, tone.level_dbfs),
+        |tone| {
+            format!(
+                "{} ({} dBFS)",
+                tone.name,
+                fmt_certified_dbfs(tone.level_dbfs, floor_dbfs)
+            )
+        },
     )
+}
+
+fn fmt_certified_dbfs(value: f64, floor_dbfs: f64) -> String {
+    if value < floor_dbfs {
+        format!("< {floor_dbfs:.0}")
+    } else {
+        format!("{value:.2}")
+    }
+}
+
+fn fmt_certified_sinad(sinad_db: f64, carrier_dbfs: f64, floor_dbfs: f64) -> String {
+    let certified_limit = carrier_dbfs - floor_dbfs;
+    if sinad_db > certified_limit {
+        format!("> {certified_limit:.2}")
+    } else {
+        format!("{sinad_db:.2}")
+    }
 }
 
 fn fmt_scientific_option(value: Option<f64>) -> String {

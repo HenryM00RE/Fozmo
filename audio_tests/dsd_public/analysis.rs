@@ -1,12 +1,12 @@
 use std::f64::consts::PI;
 use std::ops::Range;
 
-use fozmo::audio::dsp::resampler::{FilterType, SincResampler};
+use fozmo::audio::dsp::resampler::SincResampler;
 use realfft::RealFftPlanner;
 use serde::{Deserialize, Serialize};
 
 pub const RECONSTRUCTION_ALGORITHM_VERSION: &str =
-    "reconstruction-v2-sinc-runtime-context-bh-spurs-sine-dbfs";
+    "reconstruction-v4-sinc-runtime-context-smootherstep-profile-bh-spurs-sine-dbfs";
 pub const TRANSITION_ENVELOPE_VERSION: &str = "transition-envelope-v1-fixed-2ms-rms-0-50ms";
 const TRANSITION_ENVELOPE_WINDOW_SECONDS: f64 = 0.002;
 const TRANSITION_ENVELOPE_TRACE_SECONDS: f64 = 0.050;
@@ -17,8 +17,8 @@ const TRANSITION_ENVELOPE_INTERVALS_MS: [(f64, f64); 5] = [
     (10.0, 25.0),
     (25.0, 50.0),
 ];
-/// The LinearPhase128k downsampling cascade reports about 99 ms of latency for
-/// the 176.4 kHz decoder. Keep a fixed floor as well as a margin over the
+/// The offline measurement downsampling cascade has substantial FIR latency.
+/// Keep a fixed floor as well as a margin over the
 /// runtime value so a windowed decode never substitutes zeroes inside the
 /// composite decoder's settled support.
 const MIN_DECODER_CONTEXT_SECONDS: f64 = 0.100;
@@ -29,6 +29,18 @@ const DECODER_UNPACK_CHUNK_BITS: usize = 1 << 20;
 /// Reflection context for the short raised-cosine reconstruction response.
 const PROFILE_CONTEXT_SECONDS: f64 = 0.050;
 const MIN_DB: f64 = -360.0;
+pub const AUDIO_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS: f64 = -230.0;
+pub const HIRES_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS: f64 = -220.0;
+pub const SPECTRAL_ANALYSIS_CERTIFIED_FLOOR_DBFS: f64 = -260.0;
+/// Self-tests for the reconstruction path must sit below the quietest values
+/// the public bench currently reports. The direct f64 FFT/profile probe bottoms
+/// out around -231.4 dBFS, so figures below this gate must be floor-labelled.
+#[cfg(test)]
+const RECONSTRUCTION_SELF_TEST_FLOOR_DBFS: f64 = AUDIO_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS;
+/// Spectral fitting and FFT analysis publish still lower individual-spur
+/// figures, so their independent synthetic-tone guard is stricter.
+#[cfg(test)]
+const SPECTRAL_ANALYSIS_SELF_TEST_FLOOR_DBFS: f64 = SPECTRAL_ANALYSIS_CERTIFIED_FLOOR_DBFS;
 
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct ReconstructionProfile {
@@ -301,8 +313,7 @@ pub fn reconstruct_stereo_window(
         ));
     }
 
-    let mut decimator =
-        SincResampler::new(FilterType::LinearPhase128k, wire_rate, profile.output_rate);
+    let mut decimator = SincResampler::new_measurement_decimator(wire_rate, profile.output_rate);
     let context_output = decoder_context_output_frames(&decimator, profile.output_rate);
     let context_bits = context_output.saturating_mul(ratio);
     let extended_start = bit_range.start.saturating_sub(context_bits) / ratio * ratio;
@@ -949,16 +960,27 @@ pub fn apply_reconstruction_profile(
     {
         return Err(format!("invalid reconstruction profile {}", profile.id));
     }
+    if !profile.declared_stopband_attenuation_db.is_finite()
+        || profile.declared_stopband_attenuation_db <= 0.0
+    {
+        return Err(format!(
+            "invalid declared stopband attenuation for reconstruction profile {}",
+            profile.id
+        ));
+    }
     let pad_len = ((profile.output_rate as f64 * PROFILE_CONTEXT_SECONDS).round() as usize)
         .max(1)
         .min(samples.len().saturating_sub(2));
     let mut padded = Vec::with_capacity(samples.len() + 2 * pad_len);
-    for index in (1..=pad_len).rev() {
-        padded.push(samples[index]);
+    for (offset, index) in (1..=pad_len).rev().enumerate() {
+        padded.push(samples[index] * reconstruction_pad_gain(offset, pad_len));
     }
     padded.extend_from_slice(samples);
     for index in 0..pad_len {
-        padded.push(samples[samples.len() - 2 - index]);
+        padded.push(
+            samples[samples.len() - 2 - index]
+                * reconstruction_pad_gain(pad_len - 1 - index, pad_len),
+        );
     }
     let fft_len = padded.len().next_power_of_two();
     let mut planner = RealFftPlanner::<f64>::new();
@@ -987,6 +1009,22 @@ pub fn apply_reconstruction_profile(
         .collect())
 }
 
+fn reconstruction_pad_gain(offset_from_zero_edge: usize, pad_len: usize) -> f64 {
+    if pad_len <= 1 {
+        return 0.0;
+    }
+    let position = offset_from_zero_edge as f64 / (pad_len - 1) as f64;
+    // Eleventh-order smoothstep is flat through the fifth derivative at both
+    // endpoints, so the reflected guard meets the FFT's zero tail without
+    // becoming the stopband-leakage floor itself.
+    position.powi(6)
+        * (462.0
+            + position
+                * (-1980.0
+                    + position
+                        * (3465.0 + position * (-3080.0 + position * (1386.0 - 252.0 * position)))))
+}
+
 fn reconstruction_gain(frequency_hz: f64, profile: ReconstructionProfile) -> f64 {
     if frequency_hz <= profile.pass_hz {
         1.0
@@ -994,7 +1032,12 @@ fn reconstruction_gain(frequency_hz: f64, profile: ReconstructionProfile) -> f64
         0.0
     } else {
         let position = (frequency_hz - profile.pass_hz) / (profile.stop_hz - profile.pass_hz);
-        0.5 + 0.5 * (PI * position).cos()
+        // Seventh-order smoothstep: value plus the first three derivatives
+        // meet exactly at both band edges, sharply shortening the finite-time
+        // tail without moving either edge or changing the unity/zero regions.
+        let smootherstep =
+            position.powi(4) * (35.0 + position * (-84.0 + position * (70.0 - 20.0 * position)));
+        1.0 - smootherstep
     }
 }
 
@@ -1393,7 +1436,7 @@ mod tests {
         for wire_rate in [2_822_400, 5_644_800, 11_289_600] {
             for profile in [AUDIO_BAND, HIRES_BAND] {
                 let decoder =
-                    SincResampler::new(FilterType::LinearPhase128k, wire_rate, profile.output_rate);
+                    SincResampler::new_measurement_decimator(wire_rate, profile.output_rate);
                 let context = decoder_context_output_frames(&decoder, profile.output_rate);
                 let context_ms = context as f64 * 1000.0 / profile.output_rate as f64;
                 assert!(
@@ -1436,7 +1479,11 @@ mod tests {
             .zip(&cropped)
             .map(|(whole, cropped)| (whole - cropped).abs())
             .fold(0.0, f64::max);
-        assert!(error < 1.0e-8, "cropped/whole max error was {error:e}");
+        let error_dbfs = peak_sine_dbfs(error);
+        assert!(
+            error_dbfs < RECONSTRUCTION_SELF_TEST_FLOOR_DBFS,
+            "cropped/whole max error was {error:e} ({error_dbfs:.2} dBFS)"
+        );
     }
 
     #[test]
@@ -1449,9 +1496,21 @@ mod tests {
         let metrics =
             analyze_single_tone(&samples, sample_rate, "tone", frequency, amplitude, 5).unwrap();
         assert!(metrics.carrier.gain_error_db.abs() < 1.0e-9);
-        assert!(metrics.sinad_db > 250.0);
-        assert!(metrics.thd_db < -250.0);
-        assert!(metrics.residual_noise_dbfs < -250.0);
+        assert!(
+            metrics.sinad_db > -SPECTRAL_ANALYSIS_SELF_TEST_FLOOR_DBFS,
+            "synthetic-tone SINAD was {:.2} dB",
+            metrics.sinad_db
+        );
+        assert!(
+            metrics.thd_db < SPECTRAL_ANALYSIS_SELF_TEST_FLOOR_DBFS,
+            "synthetic-tone THD was {:.2} dB",
+            metrics.thd_db
+        );
+        assert!(
+            metrics.residual_noise_dbfs < SPECTRAL_ANALYSIS_SELF_TEST_FLOOR_DBFS,
+            "synthetic-tone residual was {:.2} dBFS",
+            metrics.residual_noise_dbfs
+        );
     }
 
     #[test]
@@ -1529,17 +1588,71 @@ mod tests {
 
     #[test]
     fn reconstruction_profile_preserves_passband_and_rejects_stopband() {
-        let len = 65_536;
-        let pass = sine(len, AUDIO_BAND.output_rate, 10_000.0, 0.25);
-        let stop = sine(len, AUDIO_BAND.output_rate, 30_000.0, 0.25);
-        let pass_filtered = apply_reconstruction_profile(&pass, AUDIO_BAND).unwrap();
-        let stop_filtered = apply_reconstruction_profile(&stop, AUDIO_BAND).unwrap();
-        let edge = 4096;
-        let pass_gain = rms(&pass_filtered[edge..len - edge]) / rms(&pass[edge..len - edge]);
-        let stop_gain = rms(&stop_filtered[edge..len - edge]) / rms(&stop[edge..len - edge]);
-        assert!(amplitude_dbfs(pass_gain).abs() < 0.001);
-        assert!(amplitude_dbfs(stop_gain) < -130.0);
-        assert_eq!(pass_filtered.len(), len);
+        for profile in [AUDIO_BAND, HIRES_BAND] {
+            let certified_floor_dbfs = if profile.id == AUDIO_BAND.id {
+                AUDIO_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS
+            } else {
+                HIRES_RECONSTRUCTION_CERTIFIED_FLOOR_DBFS
+            };
+            // Both 30 kHz / 176.4 kHz and 120 kHz / 352.8 kHz reduce to a
+            // denominator of 147. Keep the stop stimulus coherent so this
+            // tests the profile rather than a truncated tone's own sidelobes.
+            let len = 147 * 896;
+            let pass_frequency = profile.pass_hz * 0.5;
+            let stop_frequency = profile.stop_hz + 1.5 * (profile.stop_hz - profile.pass_hz);
+            let pass = sine(len, profile.output_rate, pass_frequency, 0.25);
+            let stop = sine(len, profile.output_rate, stop_frequency, 0.25);
+            let pass_filtered = apply_reconstruction_profile(&pass, profile).unwrap();
+            let stop_filtered = apply_reconstruction_profile(&stop, profile).unwrap();
+            let edge = (profile.output_rate as f64 * 0.100) as usize;
+            let pass_gain = rms(&pass_filtered[edge..len - edge]) / rms(&pass[edge..len - edge]);
+            let stop_gain = rms(&stop_filtered[edge..len - edge]) / rms(&stop[edge..len - edge]);
+            let pass_residual = pass_filtered[edge..len - edge]
+                .iter()
+                .zip(&pass[edge..len - edge])
+                .map(|(filtered, original)| filtered - original)
+                .collect::<Vec<_>>();
+            let pass_residual_dbfs = rms_dbfs_full_scale_sine(rms(&pass_residual));
+            let stop_gain_db = amplitude_dbfs(stop_gain);
+            assert!(amplitude_dbfs(pass_gain).abs() < 0.001, "{profile:?}");
+            assert!(
+                pass_residual_dbfs < certified_floor_dbfs,
+                "{profile:?}: passband sine residual was {pass_residual_dbfs:.2} dBFS"
+            );
+            assert!(
+                stop_gain_db < -profile.declared_stopband_attenuation_db,
+                "{profile:?}: stopband gain was {stop_gain_db:.2} dB"
+            );
+            assert!(
+                stop_gain_db < certified_floor_dbfs,
+                "{profile:?}: stopband gain was {stop_gain_db:.2} dB"
+            );
+            assert_eq!(pass_filtered.len(), len);
+        }
+    }
+
+    #[test]
+    fn nyquist_pattern_decimates_below_the_published_measurement_floor() {
+        for wire_rate in [2_822_400, 5_644_800, 11_289_600] {
+            let ratio = (wire_rate / AUDIO_BAND.output_rate) as usize;
+            let output_frames = 50_000;
+            let bytes = vec![0b1010_1010; output_frames * ratio / 8];
+            let inner = 20_000..30_000;
+            let (decoded, _) = reconstruct_stereo_window(
+                &bytes,
+                &bytes,
+                wire_rate,
+                inner.start * ratio..inner.end * ratio,
+                AUDIO_BAND,
+                1.0,
+            )
+            .unwrap();
+            let leakage_dbfs = rms_dbfs_full_scale_sine(rms(&decoded));
+            assert!(
+                leakage_dbfs < RECONSTRUCTION_SELF_TEST_FLOOR_DBFS,
+                "wire rate {wire_rate}: Nyquist-pattern leakage was {leakage_dbfs:.2} dBFS"
+            );
+        }
     }
 
     #[test]

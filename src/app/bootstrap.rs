@@ -166,6 +166,7 @@ pub(crate) fn build_app_state(
         &paths.cache_dir,
         install.installation_id.clone(),
     ));
+    #[cfg(all(target_os = "macos", feature = "apple_music_musickit"))]
     if settings.apple_music_playback_settings().enabled {
         let warm_apple_music = Arc::clone(&apple_music);
         tokio::spawn(async move {

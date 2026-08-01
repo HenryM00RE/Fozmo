@@ -46,6 +46,7 @@ const MINIMUM_COMPACT_PRODUCTION_PARAMS: MinimumCompactParams = MinimumCompactPa
 
 const LINEAR128K_PRODUCTION_CUTOFF: f64 = 0.465333;
 const LINEAR128K_PRODUCTION_BETA: f64 = 23.12088;
+const MEASUREMENT_DECIMATOR_BETA: f64 = 32.0;
 include!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/assets/filters/split_phase_e3/generated.rs"
@@ -441,6 +442,32 @@ pub struct ResamplerRuntimeInfo {
 impl SincResampler {
     pub fn new(filter_type: FilterType, source_rate: u32, target_rate: u32) -> Self {
         Self::new_with_capped_polyphase_warning(filter_type, source_rate, target_rate, true)
+    }
+
+    /// High-rejection linear-phase decoder for offline measurement only.
+    ///
+    /// This is deliberately separate from every selectable playback filter:
+    /// it uses longer, beta-32 cleanup stages and exact DC/Nyquist constraints
+    /// so the analysis decoder cannot become the floor of very quiet metrics.
+    pub fn new_measurement_decimator(source_rate: u32, target_rate: u32) -> Self {
+        let steps = build_measurement_downsample_steps(source_rate, target_rate).unwrap_or_else(|| {
+            panic!(
+                "measurement decimator requires a power-of-two ratio from {source_rate} to {target_rate}"
+            )
+        });
+        Self {
+            filter_type: FilterType::LinearPhase128k,
+            source_rate,
+            target_rate,
+            path: ResamplerPath::Downsample(DownsampleChain::from_steps(
+                FilterType::LinearPhase128k,
+                source_rate,
+                steps,
+            )),
+            input_frames: 0,
+            output_frames: 0,
+            eof_drained: false,
+        }
     }
 
     /// Build an exact 160/147 rational bridge for the fixed 192 kHz -> 176.4 kHz
@@ -1781,6 +1808,10 @@ impl DownsampleChain {
             return None;
         }
 
+        Some(Self::from_steps(filter_type, source_rate, steps))
+    }
+
+    fn from_steps(filter_type: FilterType, source_rate: u32, steps: Vec<DownsampleStep>) -> Self {
         let latency_ms = steps.iter().map(DownsampleStep::latency_ms).sum();
         let mut estimated_memory_bytes = steps
             .iter()
@@ -1791,7 +1822,7 @@ impl DownsampleChain {
         }
         let high_latency = filter_type.is_high_latency() || latency_ms > DEFAULT_LATENCY_BUDGET_MS;
 
-        Some(Self {
+        Self {
             steps,
             source_rate,
             latency_ms,
@@ -1801,7 +1832,7 @@ impl DownsampleChain {
             stage_out: Vec::new(),
             plane_l: Vec::new(),
             plane_r: Vec::new(),
-        })
+        }
     }
 
     fn input(&mut self, samples_l: &[f64], samples_r: &[f64]) {
@@ -1881,6 +1912,58 @@ fn build_downsample_steps(
     target_rate: u32,
 ) -> Option<Vec<DownsampleStep>> {
     build_same_family_downsample_steps(filter_type, source_rate, target_rate)
+}
+
+fn build_measurement_downsample_steps(
+    source_rate: u32,
+    target_rate: u32,
+) -> Option<Vec<DownsampleStep>> {
+    if !valid_power_two_downsample(source_rate, target_rate) {
+        return None;
+    }
+    let ratio = source_rate / target_rate;
+    let stage_count = ratio.trailing_zeros() as usize;
+    let mut specs = Vec::with_capacity(stage_count);
+    specs.push(StageSpec::Character2x {
+        taps_total: LINEAR128K_TAPS_TOTAL,
+        cutoff: LINEAR128K_PRODUCTION_CUTOFF,
+        beta: MEASUREMENT_DECIMATOR_BETA,
+        engine: EngineKind::PartitionedFft {
+            partition_frames: 4096,
+        },
+        phase_mode: PhaseMode::Linear,
+        coefficient_source: CharacterCoefficientSource::Procedural,
+    });
+    for stage_index in 1..stage_count {
+        let taps_total = match stage_index {
+            1 => 1_023,
+            2 => 511,
+            _ => 255,
+        };
+        specs.push(StageSpec::CleanupHalfband2x {
+            taps_total,
+            beta: MEASUREMENT_DECIMATOR_BETA,
+            cutoff: 0.5,
+            engine: if taps_total > MAX_SIMD_DIRECT_TAPS {
+                EngineKind::PartitionedFft {
+                    partition_frames: 4096,
+                }
+            } else {
+                EngineKind::DirectSimd
+            },
+            coefficient_source: CleanupCoefficientSource::Procedural,
+        });
+    }
+
+    let mut input_rate = source_rate;
+    let mut steps = Vec::with_capacity(specs.len());
+    for spec in specs.iter().rev() {
+        steps.push(DownsampleStep::Decimate2(
+            DecimateBy2Stage::new_measurement(spec, input_rate),
+        ));
+        input_rate /= 2;
+    }
+    Some(steps)
 }
 
 fn build_same_family_downsample_steps(
@@ -1969,6 +2052,21 @@ struct DecimateBy2Stage {
 impl DecimateBy2Stage {
     fn new(_filter_type: FilterType, spec: &StageSpec, input_rate: u32) -> Self {
         let (coeffs, prepad) = build_decimation_coefficients(spec);
+        Self::from_coefficients(spec, input_rate, coeffs, prepad)
+    }
+
+    fn new_measurement(spec: &StageSpec, input_rate: u32) -> Self {
+        let (mut coeffs, prepad) = build_decimation_coefficients(spec);
+        enforce_dc_and_nyquist_constraints(&mut coeffs);
+        Self::from_coefficients(spec, input_rate, coeffs, prepad)
+    }
+
+    fn from_coefficients(
+        spec: &StageSpec,
+        input_rate: u32,
+        coeffs: Vec<f64>,
+        prepad: usize,
+    ) -> Self {
         let taps = coeffs.len();
         let engine = spec.engine();
         let latency_frames = taps
@@ -2021,6 +2119,23 @@ impl DecimateBy2Stage {
         self.next_filtered_parity = 0;
         self.filtered_l.clear();
         self.filtered_r.clear();
+    }
+}
+
+fn enforce_dc_and_nyquist_constraints(coefficients: &mut [f64]) {
+    let even_sum = coefficients.iter().step_by(2).sum::<f64>();
+    let odd_sum = coefficients.iter().skip(1).step_by(2).sum::<f64>();
+    if even_sum == 0.0 || odd_sum == 0.0 {
+        return;
+    }
+    let even_scale = 0.5 / even_sum;
+    let odd_scale = 0.5 / odd_sum;
+    for (index, coefficient) in coefficients.iter_mut().enumerate() {
+        *coefficient *= if index.is_multiple_of(2) {
+            even_scale
+        } else {
+            odd_scale
+        };
     }
 }
 

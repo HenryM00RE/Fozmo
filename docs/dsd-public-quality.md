@@ -19,10 +19,17 @@ Run the full check with:
 
 ```sh
 RUSTFLAGS="-C target-cpu=native" \
+cargo test --locked --release --bin dsd_public_quality analysis::tests
+
+RUSTFLAGS="-C target-cpu=native" \
 cargo run --locked --release --bin dsd_public_quality -- \
   --out target/dsd-public-quality \
   --check
 ```
+
+The first command certifies the reconstruction and analysis path below the
+measurement floor. Do not publish the generated report unless both commands
+pass from the same source tree.
 
 The command writes a readable report and a machine-readable report under
 `target/dsd-public-quality/`.
