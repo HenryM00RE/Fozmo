@@ -3,10 +3,13 @@ use super::local_device_zone_id;
 use super::manager::RemoteSnapshot;
 use super::model::short_zone_name;
 use super::registry::{AgentEntry, ZoneState};
+use crate::audio::dsd::delta_sigma::DsdModulator;
 use crate::protocol::{
     AgentBufferState, AgentCapabilities, AgentPlaybackState, CoreToAgentCommand, SyncSignalPath,
 };
 use tokio::sync::mpsc;
+
+const LEGACY_AGENT_SEVENTH_ORDER_SEARCH_NAME: &str = "EcBeam2";
 
 pub(super) struct AgentZoneBridge;
 
@@ -116,7 +119,7 @@ impl AgentZoneBridge {
         if !agent.enabled {
             return Err("Zone is disabled".to_string());
         }
-        attach_agent_output_device(&mut cmd, agent.output_device.clone());
+        prepare_agent_command(&mut cmd, agent.output_device.clone());
         match &cmd {
             CoreToAgentCommand::PlaySource { queue, .. } => {
                 agent.queued_sources = queue.clone();
@@ -250,16 +253,23 @@ impl AgentZoneBridge {
     }
 }
 
-fn attach_agent_output_device(cmd: &mut CoreToAgentCommand, output_device: Option<String>) {
-    let Some(output_device) = output_device else {
-        return;
-    };
+fn prepare_agent_command(cmd: &mut CoreToAgentCommand, output_device: Option<String>) {
     match cmd {
         CoreToAgentCommand::PlaySource {
             playback_config, ..
         }
         | CoreToAgentCommand::SetPlaybackConfig { playback_config } => {
-            playback_config.output_device = Some(output_device);
+            if let Some(output_device) = output_device {
+                playback_config.output_device = Some(output_device);
+            }
+            // The public name changed after native agents had already shipped.
+            // Keep the remote wire value compatible with those agents; current
+            // agents continue to accept this spelling as an input-only alias.
+            if DsdModulator::from_name(&playback_config.dsd_modulator)
+                == Some(DsdModulator::SeventhOrderSearch)
+            {
+                playback_config.dsd_modulator = LEGACY_AGENT_SEVENTH_ORDER_SEARCH_NAME.to_string();
+            }
         }
         _ => {}
     }
@@ -275,14 +285,14 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
-    fn attach_agent_output_device_updates_only_playback_config_commands() {
+    fn agent_command_preparation_updates_only_playback_config_commands() {
         let mut play = CoreToAgentCommand::PlaySource {
             source_ref: qobuz_source(),
             queue: Vec::new(),
             playback_config: playback_config(),
             stream_base_url: "http://core.test".to_string(),
         };
-        attach_agent_output_device(&mut play, Some("ASIO: Brooklyn DAC+".to_string()));
+        prepare_agent_command(&mut play, Some("ASIO: Brooklyn DAC+".to_string()));
         match play {
             CoreToAgentCommand::PlaySource {
                 playback_config, ..
@@ -298,7 +308,7 @@ mod tests {
         let mut config = CoreToAgentCommand::SetPlaybackConfig {
             playback_config: playback_config(),
         };
-        attach_agent_output_device(&mut config, Some("Speakers (Agent DAC)".to_string()));
+        prepare_agent_command(&mut config, Some("Speakers (Agent DAC)".to_string()));
         match config {
             CoreToAgentCommand::SetPlaybackConfig { playback_config } => {
                 assert_eq!(
@@ -310,8 +320,53 @@ mod tests {
         }
 
         let mut pause = CoreToAgentCommand::Pause;
-        attach_agent_output_device(&mut pause, Some("Ignored DAC".to_string()));
+        prepare_agent_command(&mut pause, Some("Ignored DAC".to_string()));
         assert!(matches!(pause, CoreToAgentCommand::Pause));
+    }
+
+    #[test]
+    fn remote_commands_use_the_backward_compatible_seventh_order_search_name() {
+        let mut play = CoreToAgentCommand::PlaySource {
+            source_ref: qobuz_source(),
+            queue: Vec::new(),
+            playback_config: PlaybackConfig {
+                dsd_modulator: "7th-order-search".to_string(),
+                ..playback_config()
+            },
+            stream_base_url: "http://core.test".to_string(),
+        };
+
+        prepare_agent_command(&mut play, None);
+
+        match play {
+            CoreToAgentCommand::PlaySource {
+                playback_config, ..
+            } => {
+                assert_eq!(playback_config.dsd_modulator, "EcBeam2");
+                assert_eq!(playback_config.output_device, None);
+            }
+            _ => panic!("expected play source command"),
+        }
+
+        let mut config = CoreToAgentCommand::SetPlaybackConfig {
+            playback_config: PlaybackConfig {
+                dsd_modulator: "7th Order Search".to_string(),
+                ..playback_config()
+            },
+        };
+
+        prepare_agent_command(&mut config, Some("ASIO: Agent DAC".to_string()));
+
+        match config {
+            CoreToAgentCommand::SetPlaybackConfig { playback_config } => {
+                assert_eq!(playback_config.dsd_modulator, "EcBeam2");
+                assert_eq!(
+                    playback_config.output_device.as_deref(),
+                    Some("ASIO: Agent DAC")
+                );
+            }
+            _ => panic!("expected playback config command"),
+        }
     }
 
     #[test]

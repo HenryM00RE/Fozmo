@@ -475,6 +475,7 @@ mod tests {
             .update_playback_for_zone(&zone_id, |settings| {
                 settings.upsampling_enabled = Some(true);
                 settings.output_mode = Some("Dsd256".to_string());
+                settings.dsd_modulator = Some("7th-order-search".to_string());
                 settings.target_rate = Some(192_000);
             });
 
@@ -489,6 +490,7 @@ mod tests {
                     "Dsd128"
                 };
                 assert_eq!(playback_config.output_mode, expected_output_mode);
+                assert_eq!(playback_config.dsd_modulator, "EcBeam2");
                 assert_eq!(playback_config.target_rate, 192_000);
             }
             other => panic!("expected remote playback config, got {other:?}"),
