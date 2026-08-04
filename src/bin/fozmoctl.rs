@@ -233,6 +233,7 @@ enum PlaylistCommand {
     Show(PlaylistShowArgs),
     Create(PlaylistCreateArgs),
     Add(PlaylistAddArgs),
+    Reorder(PlaylistReorderArgs),
 }
 
 #[derive(Args, Debug)]
@@ -263,6 +264,16 @@ struct PlaylistAddArgs {
     json: bool,
     #[arg(required = true, value_name = "SOURCE")]
     sources: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+struct PlaylistReorderArgs {
+    #[arg(value_name = "PLAYLIST_ID")]
+    playlist_id: String,
+    #[arg(long)]
+    json: bool,
+    #[arg(required = true, value_name = "ITEM_NUMBER")]
+    item_numbers: Vec<usize>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -417,6 +428,7 @@ async fn run() -> CliResult<()> {
             PlaylistCommand::Show(args) => run_playlist_show(&mut client, args).await,
             PlaylistCommand::Create(args) => run_playlist_create(&mut client, args).await,
             PlaylistCommand::Add(args) => run_playlist_add(&mut client, args).await,
+            PlaylistCommand::Reorder(args) => run_playlist_reorder(&mut client, args).await,
         },
         Command::Pause(args) => run_control(&mut client, &args.zone, "pause", args.json).await,
         Command::Resume(args) => run_control(&mut client, &args.zone, "resume", args.json).await,
@@ -1429,6 +1441,46 @@ async fn run_playlist_add(client: &mut CoreClient, args: PlaylistAddArgs) -> Cli
         client,
         &id,
         playlist_save_body(name, created_at, now, items),
+    )
+    .await?;
+    if args.json {
+        print_json(&saved)
+    } else {
+        print_playlist_save_confirmation(&saved)
+    }
+}
+
+async fn run_playlist_reorder(client: &mut CoreClient, args: PlaylistReorderArgs) -> CliResult<()> {
+    let id = clean_playlist_id_input(&args.playlist_id)?;
+    let playlists = client.get_json("/api/playlists", &[]).await?;
+    let playlist = playlist_by_id(&playlists, &id)?;
+    let name = playlist_name(&playlist)
+        .ok_or_else(|| CliError::new(format!("playlist '{id}' is missing name")))?;
+    let existing_items = playlist_items(&playlist);
+    if args
+        .item_numbers
+        .iter()
+        .any(|number| *number == 0 || *number > existing_items.len())
+    {
+        return Err(CliError::new(format!(
+            "playlist item numbers must be between 1 and {}",
+            existing_items.len()
+        )));
+    }
+    let mut seen = std::collections::HashSet::new();
+    if args.item_numbers.iter().any(|number| !seen.insert(*number)) {
+        return Err(CliError::new("playlist item numbers must be unique"));
+    }
+    let items = args
+        .item_numbers
+        .iter()
+        .map(|number| existing_items[number - 1].clone())
+        .collect();
+    let created_at = playlist_created_at(&playlist).unwrap_or_else(now_millis);
+    let saved = save_playlist(
+        client,
+        &id,
+        playlist_save_body(name, created_at, now_millis(), items),
     )
     .await?;
     if args.json {

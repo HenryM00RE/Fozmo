@@ -8,7 +8,14 @@ import type { PlaybackRouteActions } from '../features/playback/model/playbackRo
 import type { PlaylistRouteState } from '../features/playlists/model/playlistModel';
 import type { SettingsRouteState } from '../features/settings/model/settingsRouteState';
 import type { ApplyProfilesResponse, ProfilesResponse } from '../features/settings/settingsModel';
-import type { JsonRecord, LibraryTrack, Playlist, QueueItem, ZoneProfile } from '../shared/types';
+import type {
+  JsonRecord,
+  LibraryAlbum,
+  LibraryTrack,
+  Playlist,
+  QueueItem,
+  ZoneProfile
+} from '../shared/types';
 
 type RefreshCore = () => Promise<void>;
 type OpenPlaylistPickerForItems = (
@@ -82,6 +89,7 @@ type BuildPlaylistRouteParams = Pick<
   PlaylistRouteState,
   'addItemsToQueue' | 'createPlaylist' | 'playItems'
 > & {
+  albums: LibraryAlbum[];
   playlists: Playlist[];
   refreshCore: RefreshCore;
   tracks: LibraryTrack[];
@@ -89,6 +97,7 @@ type BuildPlaylistRouteParams = Pick<
 
 export function buildPlaylistRoute({
   addItemsToQueue,
+  albums,
   createPlaylist,
   playItems,
   playlists,
@@ -97,6 +106,7 @@ export function buildPlaylistRoute({
 }: BuildPlaylistRouteParams): PlaylistRouteState {
   return {
     addItemsToQueue,
+    albums,
     createPlaylist,
     onRefresh: refreshCore,
     playItems,

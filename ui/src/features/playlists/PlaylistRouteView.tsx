@@ -1,6 +1,6 @@
-import type { PlaybackStatus } from '../playback/model/playbackStore';
 import type { CustomDisplayFontSettings } from '../../shared/lib/theme';
 import type { RouteState } from '../../shared/types';
+import type { PlaybackStatus } from '../playback/model/playbackStore';
 import type { PlaylistRouteState, PlaylistSelectionRouteState } from './model/playlistModel';
 import { PlaylistDetailPage } from './pages/PlaylistDetailPage';
 import { PlaylistsPage } from './pages/PlaylistsPage';
@@ -27,6 +27,7 @@ export function PlaylistRouteView({
   if (route.view === 'playlists') {
     return (
       <PlaylistsPage
+        albums={playlistRoute.albums}
         playlists={playlistRoute.playlists}
         selectedPlaylistIds={playlistSelection.selectedPlaylistIds}
         selectionActive={playlistSelection.selectionActive}
@@ -42,6 +43,7 @@ export function PlaylistRouteView({
 
   return (
     <PlaylistDetailPage
+      albums={playlistRoute.albums}
       id={String(route.id || '')}
       playlists={playlistRoute.playlists}
       onBack={() => navigate({ view: 'playlists' })}

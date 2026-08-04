@@ -1,7 +1,7 @@
 import { endpoints } from '../../../shared/lib/api';
 import { sourceTrack } from '../../../shared/lib/appSupport';
 import { normalizeQueueItem } from '../../../shared/lib/queue';
-import type { LibraryTrack, Playlist, QueueItem } from '../../../shared/types';
+import type { LibraryAlbum, LibraryTrack, Playlist, QueueItem } from '../../../shared/types';
 import type { PlaybackRouteActions } from '../../playback/model/playbackRouteActions';
 
 type PlayItems = (items: QueueItem[], startIndex?: number) => void;
@@ -15,6 +15,11 @@ function albumId(value: unknown) {
   return value === null || value === undefined || value === '' ? null : value;
 }
 
+function albumKey(value: unknown) {
+  const id = albumId(value);
+  return id === null ? '' : String(id);
+}
+
 function localTrackLookup(tracks?: LibraryTrack[]) {
   if (!tracks?.length) return new Map<number, LibraryTrack>();
   return new Map(
@@ -24,31 +29,70 @@ function localTrackLookup(tracks?: LibraryTrack[]) {
   );
 }
 
+function localAlbumLookup(albums?: LibraryAlbum[]) {
+  if (!albums?.length) return new Map<string, LibraryAlbum>();
+  return new Map(
+    albums.map((album) => [albumKey(album.id), album] as const).filter(([id]) => Boolean(id))
+  );
+}
+
 export function enrichPlaylistItemAlbum(
   item: QueueItem,
-  tracksById: Map<number, LibraryTrack>
+  tracksById: Map<number, LibraryTrack>,
+  albumsById: Map<string, LibraryAlbum> = new Map()
 ): QueueItem {
-  if (albumId(item.albumId) || item.qobuzTrack) return item;
+  if (item.qobuzTrack) return item;
   const id = trackId(item.ref?.track_id ?? item.resolvedSource?.track_id);
   const track = id ? tracksById.get(id) : null;
-  const resolvedAlbumId = albumId(track?.album_id);
-  if (!resolvedAlbumId) return item;
+  const resolvedAlbumId = (albumId(item.albumId) ?? albumId(track?.album_id)) as
+    | string
+    | number
+    | null;
+  const album = resolvedAlbumId ? albumsById.get(albumKey(resolvedAlbumId)) : null;
+  if (!track && !album) return item;
+  const albumArtist = String(album?.album_artist || album?.artist || '').trim();
+  const resolvedAlbum = item.album || album?.title || track?.album || '';
+  const resolvedArtist = item.artist || albumArtist || track?.album_artist || track?.artist || '';
+  const resolvedAlbumArtist =
+    item.albumArtist || albumArtist || track?.album_artist || track?.artist || item.artist;
+  const resolvedArtId = item.artId ?? album?.art_id ?? track?.art_id ?? null;
+  const resolvedImageUrl =
+    item.imageUrl || album?.image_url || album?.cover_url || track?.image_url || null;
   return {
     ...item,
-    albumId: resolvedAlbumId as string | number,
-    album: item.album || track?.album || '',
-    albumArtist: item.albumArtist || track?.album_artist || track?.artist || item.artist,
-    artId: item.artId ?? track?.art_id ?? null,
-    imageUrl: item.imageUrl || track?.image_url || null
+    albumId: resolvedAlbumId,
+    album: resolvedAlbum,
+    artist: resolvedArtist,
+    albumArtist: resolvedAlbumArtist,
+    artId: resolvedArtId,
+    imageUrl: resolvedImageUrl,
+    resolvedSource: item.resolvedSource
+      ? {
+          ...item.resolvedSource,
+          artist: item.resolvedSource.artist || resolvedArtist,
+          album: item.resolvedSource.album || resolvedAlbum,
+          album_artist: item.resolvedSource.album_artist || resolvedAlbumArtist,
+          album_id: item.resolvedSource.album_id ?? resolvedAlbumId,
+          art_id: item.resolvedSource.art_id ?? resolvedArtId,
+          image_url: item.resolvedSource.image_url || resolvedImageUrl
+        }
+      : item.resolvedSource
   };
 }
 
-export function playlistItems(playlist: Playlist, tracks?: LibraryTrack[]) {
+export function playlistItems(
+  playlist: Playlist,
+  tracks?: LibraryTrack[],
+  albums?: LibraryAlbum[]
+) {
   const tracksById = localTrackLookup(tracks);
+  const albumsById = localAlbumLookup(albums);
   return (playlist.items || [])
     .map(normalizeQueueItem)
     .filter(Boolean)
-    .map((item) => enrichPlaylistItemAlbum(item as QueueItem, tracksById)) as QueueItem[];
+    .map((item) =>
+      enrichPlaylistItemAlbum(item as QueueItem, tracksById, albumsById)
+    ) as QueueItem[];
 }
 
 /**
@@ -154,9 +198,10 @@ function withPlaylistContext(item: QueueItem, playlist: Playlist): QueueItem {
 export function queueItemsForPlayback(
   playlist: Playlist,
   shuffle = false,
-  tracks?: LibraryTrack[]
+  tracks?: LibraryTrack[],
+  albums?: LibraryAlbum[]
 ) {
-  const items = playlistItems(playlist, tracks).map((item) =>
+  const items = playlistItems(playlist, tracks, albums).map((item) =>
     withPlaylistContext(sourceTrack(item), playlist)
   );
   return shuffle ? shuffledItems(items) : items;
@@ -167,9 +212,10 @@ export function playPlaylist(
   playItems: PlayItems,
   shuffle = false,
   startIndex = 0,
-  tracks?: LibraryTrack[]
+  tracks?: LibraryTrack[],
+  albums?: LibraryAlbum[]
 ) {
-  const items = queueItemsForPlayback(playlist, shuffle, tracks);
+  const items = queueItemsForPlayback(playlist, shuffle, tracks, albums);
   if (!items.length) return;
   endpoints.recordPlaylist(playlist.id).catch(() => undefined);
   playItems(items, shuffle ? 0 : startIndex);
@@ -240,6 +286,7 @@ export function loadPlaylists() {
 }
 
 export type PlaylistRouteState = Pick<PlaybackRouteActions, 'addItemsToQueue' | 'playItems'> & {
+  albums: LibraryAlbum[];
   createPlaylist: (name: string) => Promise<Playlist>;
   onRefresh: () => Promise<void>;
   playlists: Playlist[];

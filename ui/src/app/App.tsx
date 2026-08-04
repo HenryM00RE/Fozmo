@@ -182,6 +182,7 @@ function AuthenticatedApp({
   const { openPlaylistPickerForItems, playlistChrome, playlistRoute, playlistShell } =
     useAppPlaylistWorkflows({
       addItemsToQueue,
+      albums,
       navigate,
       playItems,
       playlists,

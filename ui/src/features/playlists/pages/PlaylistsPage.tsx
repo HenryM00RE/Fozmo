@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useState } from 'react';
-import type { LibraryTrack, Playlist, QueueItem } from '../../../shared/types';
+import type { LibraryAlbum, LibraryTrack, Playlist, QueueItem } from '../../../shared/types';
 import { AlbumCoverPlayButton } from '../../../shared/ui/AlbumCoverPlayButton';
 import { Icon } from '../../../shared/ui/Icon';
 import { Modal } from '../../../shared/ui/Modal';
@@ -7,6 +7,7 @@ import { PlaylistCover } from '../components/PlaylistCover';
 import { playPlaylist, songCountLabel } from '../model/playlistModel';
 
 export type PlaylistPageProps = {
+  albums: LibraryAlbum[];
   onCreatePlaylist: (name: string) => Promise<Playlist>;
   playlists: Playlist[];
   selectedPlaylistIds: Set<string>;
@@ -19,6 +20,7 @@ export type PlaylistPageProps = {
 };
 
 export function PlaylistsPage({
+  albums,
   playlists,
   selectedPlaylistIds,
   selectionActive,
@@ -135,7 +137,7 @@ export function PlaylistsPage({
                       event.preventDefault();
                       event.stopPropagation();
                       if (selectionActive) onToggleSelection(playlist.id);
-                      else playPlaylist(playlist, playItems, false, 0, tracks);
+                      else playPlaylist(playlist, playItems, false, 0, tracks, albums);
                     }}
                   />
                 </div>

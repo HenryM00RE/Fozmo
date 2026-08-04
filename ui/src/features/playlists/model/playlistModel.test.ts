@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { LibraryTrack, Playlist, QueueItem } from '../../../shared/types';
+import type { LibraryAlbum, LibraryTrack, Playlist, QueueItem } from '../../../shared/types';
 import {
   mostRecentPlaylists,
   playlistCsv,
   playlistCsvFilename,
-  playlistItems
+  playlistItems,
+  queueItemsForPlayback
 } from './playlistModel';
 
 describe('mostRecentPlaylists', () => {
@@ -93,6 +94,98 @@ describe('playlistItems', () => {
 
     expect(item.albumId).toBe('qobuz-album');
     expect(item.qobuzTrack?.album_id).toBe('qobuz-album');
+  });
+
+  it('inherits missing WAV metadata from the linked library album', () => {
+    const playlist: Playlist = {
+      id: 'playlist-1',
+      name: 'Local WAVs',
+      items: [
+        {
+          title: 'Kid A',
+          artist: '',
+          album: 'Kid A',
+          albumId: 23,
+          durationSecs: 284,
+          filename: 'Kid A.wav',
+          ref: { track_id: 81 }
+        }
+      ]
+    };
+    const tracks: LibraryTrack[] = [
+      { id: 81, album_id: 23, title: 'Kid A', artist: '', album: 'Kid A' }
+    ];
+    const albums: LibraryAlbum[] = [
+      { id: 23, title: 'Kid A', album_artist: 'Radiohead', art_id: 44 }
+    ];
+
+    const [item] = playlistItems(playlist, tracks, albums);
+
+    expect(item.artist).toBe('Radiohead');
+    expect(item.album).toBe('Kid A');
+    expect(item.albumArtist).toBe('Radiohead');
+    expect(item.artId).toBe(44);
+  });
+
+  it('keeps a song-level artist when the linked album has a different album artist', () => {
+    const playlist: Playlist = {
+      id: 'playlist-1',
+      name: 'Compilation',
+      items: [
+        {
+          title: 'Guest Track',
+          artist: 'Guest Artist',
+          album: 'Compilation',
+          albumId: 24,
+          durationSecs: 180,
+          ref: { track_id: 82 }
+        }
+      ]
+    };
+
+    const [item] = playlistItems(
+      playlist,
+      [{ id: 82, album_id: 24 }],
+      [{ id: 24, title: 'Compilation', album_artist: 'Various Artists' }]
+    );
+
+    expect(item.artist).toBe('Guest Artist');
+    expect(item.albumArtist).toBe('Various Artists');
+  });
+
+  it('keeps inherited album metadata when a resolved WAV source is prepared for playback', () => {
+    const playlist: Playlist = {
+      id: 'playlist-1',
+      name: 'Resolved WAVs',
+      items: [
+        {
+          title: 'There, There',
+          artist: '',
+          album: 'Hail to the Thief',
+          durationSecs: 323,
+          resolvedSource: {
+            kind: 'local_track',
+            track_id: 91,
+            title: 'There, There',
+            artist: '',
+            album: 'Hail to the Thief',
+            album_id: 25,
+            file_name: 'There, There.wav'
+          }
+        }
+      ]
+    };
+
+    const [item] = queueItemsForPlayback(
+      playlist,
+      false,
+      [{ id: 91, album_id: 25 }],
+      [{ id: 25, title: 'Hail to the Thief', album_artist: 'Radiohead' }]
+    );
+
+    expect(item.artist).toBe('Radiohead');
+    expect(item.album).toBe('Hail to the Thief');
+    expect(item.resolvedSource?.artist).toBe('Radiohead');
   });
 });
 

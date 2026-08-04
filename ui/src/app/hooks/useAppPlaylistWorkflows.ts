@@ -3,11 +3,18 @@ import { usePlaylistPicker } from '../../features/playlists/hooks/usePlaylistPic
 import { useSidebarPlaylists } from '../../features/playlists/hooks/useSidebarPlaylists';
 import { createPlaylistId } from '../../features/playlists/model/playlistModel';
 import { endpoints } from '../../shared/lib/api';
-import type { LibraryTrack, Playlist, QueueItem, RouteState } from '../../shared/types';
+import type {
+  LibraryAlbum,
+  LibraryTrack,
+  Playlist,
+  QueueItem,
+  RouteState
+} from '../../shared/types';
 import { buildPlaylistChrome, buildPlaylistRoute, buildPlaylistShell } from '../appComposition';
 
 type UseAppPlaylistWorkflowsParams = {
   addItemsToQueue: (items: QueueItem[], placement: 'next' | 'end') => void;
+  albums: LibraryAlbum[];
   navigate: (next: RouteState) => void;
   playItems: (items: QueueItem[], startIndex?: number) => void;
   playlists: Playlist[];
@@ -19,6 +26,7 @@ type UseAppPlaylistWorkflowsParams = {
 
 export function useAppPlaylistWorkflows({
   addItemsToQueue,
+  albums,
   navigate,
   playItems,
   playlists,
@@ -68,6 +76,7 @@ export function useAppPlaylistWorkflows({
     }),
     playlistRoute: buildPlaylistRoute({
       addItemsToQueue,
+      albums,
       createPlaylist: createRoutePlaylist,
       playItems,
       playlists,

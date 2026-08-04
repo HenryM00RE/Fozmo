@@ -20,6 +20,7 @@ import { PlayingEqualizer } from '../../../shared/ui/PlayingEqualizer';
 import { PlayNextIcon } from '../../../shared/ui/PlayNextIcon';
 import { ShuffleIcon } from '../../../shared/ui/ShuffleIcon';
 import { useActionMenuScrollLock } from '../../../shared/ui/useActionMenuScrollLock';
+import { useDragAutoScroll } from '../../../shared/ui/useDragAutoScroll';
 import {
   albumTrackPlaybackMatchContext,
   albumTrackPlaybackState
@@ -28,10 +29,10 @@ import type { PlaybackStatus } from '../../playback/model/playbackStore';
 import { PlaylistCover } from '../components/PlaylistCover';
 import { PlaylistTrackArt } from '../components/PlaylistTrackArt';
 import {
+  playbackFilenameOfTrack,
   playlistCreatedAt,
   playlistCsv,
   playlistCsvFilename,
-  playbackFilenameOfTrack,
   playlistItemAsPlaybackTrack,
   playlistItems,
   playlistUpdatedAt,
@@ -46,7 +47,7 @@ import type { PlaylistPageProps } from './PlaylistsPage';
 
 type PlaylistDetailProps = Pick<
   PlaylistPageProps,
-  'onRefresh' | 'playItems' | 'playlists' | 'tracks'
+  'albums' | 'onRefresh' | 'playItems' | 'playlists' | 'tracks'
 > & {
   addItemsToQueue: (items: QueueItem[], placement: 'next' | 'end') => void;
   id: string;
@@ -76,8 +77,8 @@ type PointerReorderState = {
   pointerId: number;
 } | null;
 
-
 export function PlaylistDetailPage({
+  albums,
   id,
   playlists,
   onBack,
@@ -105,6 +106,9 @@ export function PlaylistDetailPage({
     placement: 'above' | 'below';
   } | null>(null);
   const pointerReorderRef = useRef<PointerReorderState>(null);
+  const dragAutoScroll = useDragAutoScroll((clientX, clientY) => {
+    if (pointerReorderRef.current) updatePointerReorderTarget(clientX, clientY);
+  });
   useActionMenuScrollLock(Boolean(trackMenu || queueMenu));
 
   useEffect(() => {
@@ -136,7 +140,7 @@ export function PlaylistDetailPage({
     );
   }
 
-  const items = playlistItems(playlist, tracks);
+  const items = playlistItems(playlist, tracks, albums);
   // The album track list already resolves "is this row the one playing" across
   // source id, filename and metadata. Playlist rows are QueueItems rather than
   // library tracks, so they get mapped into the shape that matcher expects.
@@ -210,11 +214,13 @@ export function PlaylistDetailPage({
       pointerId: event.pointerId
     };
     setDragState({ from: index, over: index, placement: 'above' });
+    dragAutoScroll.update(event.currentTarget, event.clientX, event.clientY);
   };
 
   const movePointerReorder = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (pointerReorderRef.current?.pointerId !== event.pointerId) return;
     event.preventDefault();
+    dragAutoScroll.update(event.currentTarget, event.clientX, event.clientY);
     updatePointerReorderTarget(event.clientX, event.clientY);
   };
 
@@ -227,6 +233,7 @@ export function PlaylistDetailPage({
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     pointerReorderRef.current = null;
+    dragAutoScroll.stop();
     setDragState(null);
     const to = drag.placement === 'above' ? drag.over : drag.over + 1;
     reorderTrack(drag.from, to).catch(() => undefined);
@@ -235,6 +242,7 @@ export function PlaylistDetailPage({
   const cancelPointerReorder = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (pointerReorderRef.current?.pointerId !== event.pointerId) return;
     pointerReorderRef.current = null;
+    dragAutoScroll.stop();
     setDragState(null);
   };
 
@@ -350,7 +358,7 @@ export function PlaylistDetailPage({
                   <button
                     className="album-play-main"
                     type="button"
-                    onClick={() => playPlaylist(playlist, playItems, false, 0, tracks)}
+                    onClick={() => playPlaylist(playlist, playItems, false, 0, tracks, albums)}
                   >
                     <PlaybarPlayIcon />
                     <span>Play now</span>
@@ -372,7 +380,7 @@ export function PlaylistDetailPage({
                 <button
                   className="pill"
                   type="button"
-                  onClick={() => playPlaylist(playlist, playItems, true, 0, tracks)}
+                  onClick={() => playPlaylist(playlist, playItems, true, 0, tracks, albums)}
                 >
                   <ShuffleIcon />
                   Shuffle
@@ -413,10 +421,11 @@ export function PlaylistDetailPage({
                     onClick={(event) => {
                       if ((event.target as Element).closest('.btn-item-more, .playlist-track-grip'))
                         return;
-                      playPlaylist(playlist, playItems, false, index, tracks);
+                      playPlaylist(playlist, playItems, false, index, tracks, albums);
                     }}
                     onDragStart={(event) => {
                       setDragState({ from: index, over: index, placement: 'above' });
+                      dragAutoScroll.update(event.currentTarget, event.clientX, event.clientY);
                       event.dataTransfer.effectAllowed = 'move';
                       try {
                         event.dataTransfer.setData('text/plain', String(index));
@@ -425,6 +434,7 @@ export function PlaylistDetailPage({
                     onDragOver={(event) => {
                       if (!dragState) return;
                       event.preventDefault();
+                      dragAutoScroll.update(event.currentTarget, event.clientX, event.clientY);
                       const rect = event.currentTarget.getBoundingClientRect();
                       const placement =
                         event.clientY - rect.top < rect.height / 2 ? 'above' : 'below';
@@ -435,12 +445,16 @@ export function PlaylistDetailPage({
                         current?.over === index ? { ...current, over: -1 } : current
                       )
                     }
-                    onDragEnd={() => setDragState(null)}
+                    onDragEnd={() => {
+                      dragAutoScroll.stop();
+                      setDragState(null);
+                    }}
                     onDrop={(event) => {
                       event.preventDefault();
                       if (!dragState) return;
                       const to = dragState.placement === 'above' ? index : index + 1;
                       const from = dragState.from;
+                      dragAutoScroll.stop();
                       setDragState(null);
                       reorderTrack(from, to).catch(() => undefined);
                     }}
@@ -476,7 +490,7 @@ export function PlaylistDetailPage({
                         aria-label={`Play ${item.title || 'Untitled'}`}
                         onClick={(event) => {
                           event.stopPropagation();
-                          playPlaylist(playlist, playItems, false, index, tracks);
+                          playPlaylist(playlist, playItems, false, index, tracks, albums);
                         }}
                       >
                         {playing ? (
@@ -547,7 +561,7 @@ export function PlaylistDetailPage({
             type="button"
             role="menuitem"
             onClick={() => {
-              addItemsToQueue(queueItemsForPlayback(playlist, false, tracks), 'next');
+              addItemsToQueue(queueItemsForPlayback(playlist, false, tracks, albums), 'next');
               setQueueMenu(null);
             }}
           >
@@ -559,7 +573,7 @@ export function PlaylistDetailPage({
             type="button"
             role="menuitem"
             onClick={() => {
-              addItemsToQueue(queueItemsForPlayback(playlist, false, tracks), 'end');
+              addItemsToQueue(queueItemsForPlayback(playlist, false, tracks, albums), 'end');
               setQueueMenu(null);
             }}
           >
@@ -580,7 +594,7 @@ export function PlaylistDetailPage({
             type="button"
             role="menuitem"
             onClick={() => {
-              playPlaylist(playlist, playItems, false, trackMenu.index, tracks);
+              playPlaylist(playlist, playItems, false, trackMenu.index, tracks, albums);
               setTrackMenu(null);
             }}
           >
