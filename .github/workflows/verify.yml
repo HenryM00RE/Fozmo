@@ -116,7 +116,7 @@ jobs:
         uses: dtolnay/rust-toolchain@c0e9df88980754dd93e5833b8dcb1b304c1fe173 # 1.96.0
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@258712b0b7b1ddf8bddc9fc3b0faca682b2736c3 # v2
 
       - name: Install frontend dependencies and Chromium
         run: |
@@ -197,7 +197,7 @@ jobs:
         uses: dtolnay/rust-toolchain@c0e9df88980754dd93e5833b8dcb1b304c1fe173 # 1.96.0
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@258712b0b7b1ddf8bddc9fc3b0faca682b2736c3 # v2
 
       - name: Run LAN pairing smoke test
         run: ./tools/lan-pairing-smoke.sh
@@ -220,7 +220,7 @@ jobs:
         uses: dtolnay/rust-toolchain@c0e9df88980754dd93e5833b8dcb1b304c1fe173 # 1.96.0
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@258712b0b7b1ddf8bddc9fc3b0faca682b2736c3 # v2
 
       - name: Run remote access smoke test
         run: ./tools/remote-access-smoke.sh
@@ -240,7 +240,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@258712b0b7b1ddf8bddc9fc3b0faca682b2736c3 # v2
 
       - name: Check Rust formatting
         run: cargo fmt -- --check
@@ -312,7 +312,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@258712b0b7b1ddf8bddc9fc3b0faca682b2736c3 # v2
 
       - name: Check Rust targets without default features
         run: cargo check --all-targets --no-default-features
@@ -333,7 +333,7 @@ jobs:
         run: brew install ffmpeg
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@258712b0b7b1ddf8bddc9fc3b0faca682b2736c3 # v2
 
       - name: Run Rust release tests
         run: cargo test --release
@@ -417,7 +417,7 @@ jobs:
         run: brew install ffmpeg
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@258712b0b7b1ddf8bddc9fc3b0faca682b2736c3 # v2
 
       - name: Run Rust release tests
         run: ${{ matrix.command }}
